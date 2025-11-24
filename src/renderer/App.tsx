@@ -397,12 +397,16 @@ export default function MaestroConsole() {
       const aiSuccess = aiSpawnResult.success && (isClaudeBatchMode || aiSpawnResult.pid > 0);
 
       if (aiSuccess && terminalSpawnResult.success && terminalSpawnResult.pid > 0) {
+        // Check if the working directory is a Git repository
+        const isGitRepo = await gitService.isRepo(correctedSession.cwd);
+
         // Session restored - no superfluous messages added to AI Terminal or Command Terminal
         return {
           ...correctedSession,
           aiPid: aiSpawnResult.pid,
           terminalPid: terminalSpawnResult.pid,
           state: 'idle' as SessionState,
+          isGitRepo,  // Update Git status
           aiLogs: correctedSession.aiLogs,  // Preserve existing AI Terminal logs
           shellLogs: correctedSession.shellLogs  // Preserve existing Command Terminal logs
         };
@@ -1126,6 +1130,9 @@ export default function MaestroConsole() {
         throw new Error('Failed to spawn terminal process');
       }
 
+      // Check if the working directory is a Git repository
+      const isGitRepo = await gitService.isRepo(workingDir);
+
       const newSession: Session = {
         id: newId,
         name,
@@ -1133,7 +1140,7 @@ export default function MaestroConsole() {
         state: 'idle',
         cwd: workingDir,
         fullPath: workingDir,
-        isGitRepo: false,
+        isGitRepo,
         aiLogs: [{ id: generateId(), timestamp: Date.now(), source: 'system', text: `${name} ready.` }],
         shellLogs: [{ id: generateId(), timestamp: Date.now(), source: 'system', text: 'Shell Session Ready.' }],
         workLog: [],
