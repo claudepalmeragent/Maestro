@@ -1,6 +1,8 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { X, Key, Moon, Sun, Keyboard, Check, Terminal } from 'lucide-react';
 import type { AgentConfig, Theme, Shortcut, ShellInfo } from '../types';
+import { useLayerStack } from '../hooks/useLayerStack';
+import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -63,6 +65,10 @@ export function SettingsModal(props: SettingsModalProps) {
   const [shellsLoading, setShellsLoading] = useState(false);
   const [shellsLoaded, setShellsLoaded] = useState(false);
 
+  // Layer stack integration
+  const { registerLayer, unregisterLayer, updateLayerHandler } = useLayerStack();
+  const layerIdRef = useRef<string>();
+
   useEffect(() => {
     if (isOpen) {
       loadAgents();
@@ -71,6 +77,50 @@ export function SettingsModal(props: SettingsModalProps) {
       setActiveTab(initialTab || 'general');
     }
   }, [isOpen, initialTab]);
+
+  // Register layer when modal opens
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const id = registerLayer({
+      type: 'modal',
+      priority: MODAL_PRIORITIES.SETTINGS,
+      blocksLowerLayers: true,
+      capturesFocus: true,
+      focusTrap: 'strict',
+      ariaLabel: 'Settings',
+      onEscape: () => {
+        // If recording a shortcut, cancel recording instead of closing modal
+        if (recordingId) {
+          setRecordingId(null);
+        } else {
+          onClose();
+        }
+      }
+    });
+
+    layerIdRef.current = id;
+
+    return () => {
+      if (layerIdRef.current) {
+        unregisterLayer(layerIdRef.current);
+      }
+    };
+  }, [isOpen, registerLayer, unregisterLayer, onClose]);
+
+  // Update handler when dependencies change
+  useEffect(() => {
+    if (!isOpen || !layerIdRef.current) return;
+
+    updateLayerHandler(layerIdRef.current, () => {
+      // If recording a shortcut, cancel recording instead of closing modal
+      if (recordingId) {
+        setRecordingId(null);
+      } else {
+        onClose();
+      }
+    });
+  }, [isOpen, recordingId, onClose, updateLayerHandler]);
 
   // Tab navigation with Cmd+Shift+[ and ]
   useEffect(() => {
@@ -425,22 +475,11 @@ export function SettingsModal(props: SettingsModalProps) {
   return (
     <div
       className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-[9999] outline-none"
-      tabIndex={0}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Settings"
+      tabIndex={-1}
       ref={(el) => el?.focus()}
-      onKeyDown={(e) => {
-        if (e.key === 'Escape') {
-          e.preventDefault();
-          e.stopPropagation();
-          // If we're recording a shortcut, cancel recording instead of closing modal
-          if (recordingId) {
-            setRecordingId(null);
-          } else {
-            onClose();
-          }
-        }
-        // Allow all other keyboard events to propagate to child elements
-        // This enables shortcut recording and tab navigation
-      }}
     >
       <div className="w-[600px] h-[500px] rounded-xl border shadow-2xl overflow-hidden flex flex-col"
            style={{ backgroundColor: theme.colors.bgSidebar, borderColor: theme.colors.border }}>

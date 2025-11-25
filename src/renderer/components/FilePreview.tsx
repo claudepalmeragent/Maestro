@@ -344,6 +344,7 @@ export function FilePreview({ file, onClose, theme, markdownRawMode, setMarkdown
         // Arrow Down: Scroll down
         container.scrollTop += 40;
       }
+    }
   };
 
   return (
