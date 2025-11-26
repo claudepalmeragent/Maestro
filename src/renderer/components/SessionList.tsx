@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import {
   Wand2, Plus, Settings, ChevronRight, ChevronDown, Activity, X, Keyboard,
-  Globe, Network, PanelLeftClose, PanelLeftOpen, Folder, Info, FileText, GitBranch, Bot
+  Globe, Network, PanelLeftClose, PanelLeftOpen, Folder, Info, FileText, GitBranch, Bot, Clock
 } from 'lucide-react';
 import type { Session, Group, Theme, Shortcut } from '../types';
-import { getStatusColor, getContextColor } from '../utils/theme';
+import { getStatusColor, getContextColor, formatActiveTime } from '../utils/theme';
 import { gitService } from '../services/git';
 
 interface SessionListProps {
@@ -552,6 +552,19 @@ export function SessionList(props: SessionListProps) {
                       <span style={{ color: theme.colors.textDim }}>Session Cost</span>
                       <span className="font-mono font-bold" style={{ color: theme.colors.success }}>
                         ${session.usageStats.totalCostUsd.toFixed(2)}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Active Time */}
+                  {session.activeTimeMs > 0 && (
+                    <div className="flex items-center justify-between text-[10px] pt-1">
+                      <span className="flex items-center gap-1" style={{ color: theme.colors.textDim }}>
+                        <Clock className="w-3 h-3" />
+                        Active Time
+                      </span>
+                      <span className="font-mono font-bold" style={{ color: theme.colors.accent }}>
+                        {formatActiveTime(session.activeTimeMs)}
                       </span>
                     </div>
                   )}

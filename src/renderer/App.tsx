@@ -20,7 +20,7 @@ import { BatchRunnerModal } from './components/BatchRunnerModal';
 
 // Import custom hooks
 import { useBatchProcessor } from './hooks/useBatchProcessor';
-import { useSettings } from './hooks';
+import { useSettings, useActivityTracker } from './hooks';
 
 // Import contexts
 import { useLayerStack } from './contexts/LayerStackContext';
@@ -280,7 +280,9 @@ export default function MaestroConsole() {
           state: 'idle' as SessionState,
           isGitRepo,  // Update Git status
           aiLogs: correctedSession.aiLogs,  // Preserve existing AI Terminal logs
-          shellLogs: correctedSession.shellLogs  // Preserve existing Command Terminal logs
+          shellLogs: correctedSession.shellLogs,  // Preserve existing Command Terminal logs
+          messageQueue: correctedSession.messageQueue || [],  // Ensure backwards compatibility
+          activeTimeMs: correctedSession.activeTimeMs || 0  // Ensure backwards compatibility
         };
       } else {
         // Process spawn failed
@@ -948,6 +950,9 @@ export default function MaestroConsole() {
   // Get batch state for the active session
   const activeBatchRunState = activeSession ? getBatchState(activeSession.id) : getBatchState('');
 
+  // Initialize activity tracker for time tracking
+  useActivityTracker(activeSessionId, setSessions);
+
   // Handler to open batch runner modal
   const handleOpenBatchRunner = useCallback(() => {
     setBatchRunnerModalOpen(true);
@@ -1587,7 +1592,9 @@ export default function MaestroConsole() {
         fileExplorerScrollPos: 0,
         shellCwd: workingDir,
         aiCommandHistory: [],
-        shellCommandHistory: []
+        shellCommandHistory: [],
+        messageQueue: [],
+        activeTimeMs: 0
       };
       setSessions(prev => [...prev, newSession]);
       setActiveSessionId(newId);

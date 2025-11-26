@@ -26,6 +26,28 @@ export const getStatusColor = (state: SessionState, theme: Theme): string => {
   }
 };
 
+// Format active time for display (compact format: 1D, 2H, 30M)
+export const formatActiveTime = (ms: number): string => {
+  const totalSeconds = Math.floor(ms / 1000);
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  const totalHours = Math.floor(totalMinutes / 60);
+  const totalDays = Math.floor(totalHours / 24);
+
+  if (totalDays > 0) {
+    return `${totalDays}D`;
+  } else if (totalHours > 0) {
+    const remainingMinutes = totalMinutes % 60;
+    if (remainingMinutes > 0) {
+      return `${totalHours}H ${remainingMinutes}M`;
+    }
+    return `${totalHours}H`;
+  } else if (totalMinutes > 0) {
+    return `${totalMinutes}M`;
+  } else {
+    return '<1M';
+  }
+};
+
 // Get file icon based on change type
 export const getFileIcon = (type: FileChangeType | undefined, theme: Theme): JSX.Element => {
   switch (type) {

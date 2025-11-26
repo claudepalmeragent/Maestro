@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Wand2, Radio, ExternalLink, Wifi, Info, Columns, Copy, List, Loader2 } from 'lucide-react';
+import { Wand2, Radio, ExternalLink, Wifi, Info, Columns, Copy, List, Loader2, Clock } from 'lucide-react';
 import { LogViewer } from './LogViewer';
 import { TerminalOutput } from './TerminalOutput';
 import { InputArea } from './InputArea';
@@ -8,6 +8,7 @@ import { ErrorBoundary } from './ErrorBoundary';
 import { GitStatusWidget } from './GitStatusWidget';
 import { AgentSessionsBrowser } from './AgentSessionsBrowser';
 import { gitService } from '../services/git';
+import { formatActiveTime } from '../utils/theme';
 import type { Session, Theme, Shortcut, FocusArea, BatchRunState } from '../types';
 
 interface SlashCommand {
@@ -336,6 +337,18 @@ export function MainPanel(props: MainPanelProps) {
             )}
 
             <div className="flex items-center gap-3">
+              {/* Time Tracker - styled as pill */}
+              {activeSession.activeTimeMs > 0 && (
+                <span
+                  className="flex items-center gap-1 text-xs font-mono font-bold px-2 py-0.5 rounded-full border"
+                  style={{ borderColor: theme.colors.accent + '30', color: theme.colors.accent, backgroundColor: theme.colors.accent + '10' }}
+                  title={`Active time in this session: ${formatActiveTime(activeSession.activeTimeMs)}`}
+                >
+                  <Clock className="w-3 h-3" />
+                  {formatActiveTime(activeSession.activeTimeMs)}
+                </span>
+              )}
+
               {/* Cost Tracker - styled as pill */}
               {activeSession.inputMode === 'ai' && activeSession.usageStats && activeSession.usageStats.totalCostUsd > 0 && (
                 <span className="text-xs font-mono font-bold px-2 py-0.5 rounded-full border border-green-500/30 text-green-500 bg-green-500/10">

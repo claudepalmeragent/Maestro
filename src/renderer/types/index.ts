@@ -146,6 +146,8 @@ export interface Session {
   thinkingStartTime?: number;
   // Message queue for AI mode - messages sent while busy are queued here
   messageQueue: LogEntry[];
+  // Active time tracking - cumulative milliseconds of active use
+  activeTimeMs: number;
 }
 
 export interface Group {
