@@ -10,6 +10,8 @@ interface ActivityGraphProps {
 }
 
 const ActivityGraph: React.FC<ActivityGraphProps> = ({ entries, theme }) => {
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+
   // Group entries by hour for past 24 hours
   const hourlyData = useMemo(() => {
     const now = Date.now();
@@ -42,7 +44,7 @@ const ActivityGraph: React.FC<ActivityGraphProps> = ({ entries, theme }) => {
     return Math.max(1, ...hourlyData.map(h => h.auto + h.user));
   }, [hourlyData]);
 
-  // Total counts for tooltip
+  // Total counts for summary tooltip
   const totalAuto = useMemo(() => hourlyData.reduce((sum, h) => sum + h.auto, 0), [hourlyData]);
   const totalUser = useMemo(() => hourlyData.reduce((sum, h) => sum + h.user, 0), [hourlyData]);
 
@@ -54,11 +56,45 @@ const ActivityGraph: React.FC<ActivityGraphProps> = ({ entries, theme }) => {
     { hour: 0, index: 23 }
   ];
 
+  // Get hours ago label for tooltip
+  const getHoursAgoLabel = (index: number) => {
+    const hoursAgo = 23 - index;
+    if (hoursAgo === 0) return 'now';
+    if (hoursAgo === 1) return '1h ago';
+    return `${hoursAgo}h ago`;
+  };
+
   return (
     <div
-      className="flex-1 min-w-0 flex flex-col"
-      title={`Last 24h: ${totalAuto} auto, ${totalUser} user`}
+      className="flex-1 min-w-0 flex flex-col relative"
+      title={hoveredIndex === null ? `Last 24h: ${totalAuto} auto, ${totalUser} user` : undefined}
     >
+      {/* Hover tooltip */}
+      {hoveredIndex !== null && (
+        <div
+          className="absolute bottom-full mb-1 px-2 py-1 rounded text-[10px] font-mono whitespace-nowrap z-20 pointer-events-none"
+          style={{
+            backgroundColor: theme.colors.bgSidebar,
+            border: `1px solid ${theme.colors.border}`,
+            color: theme.colors.textMain,
+            left: `${(hoveredIndex / 23) * 100}%`,
+            transform: hoveredIndex < 4 ? 'translateX(0)' : hoveredIndex > 19 ? 'translateX(-100%)' : 'translateX(-50%)'
+          }}
+        >
+          <div className="font-bold mb-0.5" style={{ color: theme.colors.textDim }}>
+            {getHoursAgoLabel(hoveredIndex)}
+          </div>
+          <div className="flex items-center gap-2">
+            <span style={{ color: theme.colors.warning }}>
+              Auto: {hourlyData[hoveredIndex].auto}
+            </span>
+            <span style={{ color: theme.colors.accent }}>
+              User: {hourlyData[hoveredIndex].user}
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Graph container with border */}
       <div
         className="flex items-end gap-px h-6 rounded border px-1 pt-1"
@@ -68,39 +104,46 @@ const ActivityGraph: React.FC<ActivityGraphProps> = ({ entries, theme }) => {
           const total = hour.auto + hour.user;
           const heightPercent = total > 0 ? (total / maxValue) * 100 : 0;
           const autoPercent = total > 0 ? (hour.auto / total) * 100 : 0;
+          const userPercent = total > 0 ? (hour.user / total) * 100 : 0;
+          const isHovered = hoveredIndex === index;
 
           return (
             <div
               key={index}
-              className="flex-1 min-w-0 flex flex-col justify-end rounded-t-sm overflow-hidden"
+              className="flex-1 min-w-0 flex flex-col justify-end rounded-t-sm overflow-visible cursor-pointer"
               style={{
                 height: '100%',
-                opacity: total > 0 ? 1 : 0.15
+                opacity: total > 0 ? 1 : 0.15,
+                transform: isHovered ? 'scaleX(1.5)' : 'scaleX(1)',
+                zIndex: isHovered ? 10 : 1,
+                transition: 'transform 0.1s ease-out'
               }}
+              onMouseEnter={() => setHoveredIndex(index)}
+              onMouseLeave={() => setHoveredIndex(null)}
             >
               <div
-                className="w-full rounded-t-sm overflow-hidden transition-all"
+                className="w-full rounded-t-sm overflow-hidden flex flex-col justify-end"
                 style={{
                   height: `${Math.max(heightPercent, total > 0 ? 15 : 8)}%`,
                   minHeight: total > 0 ? '3px' : '1px'
                 }}
               >
-                {/* User portion (bottom) */}
-                {hour.user > 0 && (
-                  <div
-                    style={{
-                      height: `${100 - autoPercent}%`,
-                      backgroundColor: theme.colors.accent,
-                      minHeight: '1px'
-                    }}
-                  />
-                )}
-                {/* Auto portion (top) */}
+                {/* Auto portion (bottom) - warning color */}
                 {hour.auto > 0 && (
                   <div
                     style={{
                       height: `${autoPercent}%`,
                       backgroundColor: theme.colors.warning,
+                      minHeight: '1px'
+                    }}
+                  />
+                )}
+                {/* User portion (top) - accent color */}
+                {hour.user > 0 && (
+                  <div
+                    style={{
+                      height: `${userPercent}%`,
+                      backgroundColor: theme.colors.accent,
                       minHeight: '1px'
                     }}
                   />

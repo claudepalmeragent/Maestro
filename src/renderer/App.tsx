@@ -478,8 +478,8 @@ export default function MaestroConsole() {
 
           return {
             ...s,
-            // For terminal commands, keep busy state (will be set to idle by onCommandExit)
-            state: isTerminalCommand ? s.state : 'idle' as SessionState,
+            // Keep state unchanged - let onExit handler manage state transitions
+            // This ensures queued messages work correctly (state stays 'busy' during AI processing)
             [targetLogKey]: [...existingLogs, newLog]
           };
         }
