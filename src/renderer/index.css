@@ -22,7 +22,7 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Custom scrollbar styles - hidden by default, visible on scroll with fade */
+/* Custom scrollbar styles - subtle by default, brighter on hover */
 .scrollbar-thin::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -33,13 +33,13 @@ body {
 }
 
 .scrollbar-thin::-webkit-scrollbar-thumb {
-  background: transparent;
+  background: rgba(255, 255, 255, 0.15);
   border-radius: 3px;
-  transition: background-color 0.5s ease;
+  transition: background-color 0.2s ease;
 }
 
 .scrollbar-thin::-webkit-scrollbar-thumb:hover {
-  background: transparent;
+  background: rgba(255, 255, 255, 0.3);
 }
 
 /* Scrollbar with highlight color when actively scrolling */

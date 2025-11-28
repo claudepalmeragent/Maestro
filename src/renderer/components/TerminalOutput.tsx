@@ -1068,7 +1068,7 @@ export const TerminalOutput = forwardRef<HTMLDivElement, TerminalOutputProps>((p
       <Virtuoso
         ref={virtuosoRef}
         data={filteredLogs}
-        className="flex-1 scrollbar-thin"
+        className="flex-1"
         increaseViewportBy={{ top: 200, bottom: 200 }}
         atBottomStateChange={(atBottom) => {
           // Track when user scrolls away from bottom to prevent auto-scroll hijacking
@@ -1083,6 +1083,14 @@ export const TerminalOutput = forwardRef<HTMLDivElement, TerminalOutputProps>((p
         computeItemKey={(index, log) => `${log.id}-${expandedLogs.has(log.id) ? 'expanded' : 'collapsed'}`}
         itemContent={(index, log) => <LogItem index={index} log={log} />}
         components={{
+          Scroller: React.forwardRef(({ style, ...props }, ref) => (
+            <div
+              ref={ref}
+              style={style}
+              className="scrollbar-thin"
+              {...props}
+            />
+          )),
           Footer: () => (
             <>
               {/* Busy indicator */}
