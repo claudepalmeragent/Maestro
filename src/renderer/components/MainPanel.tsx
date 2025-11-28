@@ -142,12 +142,15 @@ export function MainPanel(props: MainPanelProps) {
 
   // Context window tooltip hover state
   const [contextTooltipOpen, setContextTooltipOpen] = useState(false);
+  const contextTooltipTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Session ID copied notification
   const [showSessionIdCopied, setShowSessionIdCopied] = useState(false);
   // Git pill tooltip hover state
   const [gitTooltipOpen, setGitTooltipOpen] = useState(false);
+  const gitTooltipTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Agent sessions tooltip hover state
   const [sessionsTooltipOpen, setSessionsTooltipOpen] = useState(false);
+  const sessionsTooltipTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Session ID pill overlay state (hover-triggered with delay for smooth UX)
   const [sessionPillOverlayOpen, setSessionPillOverlayOpen] = useState(false);
   const [sessionPillRenaming, setSessionPillRenaming] = useState(false);
@@ -304,11 +307,20 @@ export function MainPanel(props: MainPanelProps) {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [sessionPillOverlayOpen]);
 
-  // Cleanup hover timeout on unmount
+  // Cleanup hover timeouts on unmount
   useEffect(() => {
     return () => {
       if (sessionPillHoverTimeout.current) {
         clearTimeout(sessionPillHoverTimeout.current);
+      }
+      if (gitTooltipTimeout.current) {
+        clearTimeout(gitTooltipTimeout.current);
+      }
+      if (contextTooltipTimeout.current) {
+        clearTimeout(contextTooltipTimeout.current);
+      }
+      if (sessionsTooltipTimeout.current) {
+        clearTimeout(sessionsTooltipTimeout.current);
       }
     };
   }, []);
@@ -414,8 +426,21 @@ export function MainPanel(props: MainPanelProps) {
                 {activeSession.name}
                 <div
                   className="relative"
-                  onMouseEnter={() => activeSession.isGitRepo && setGitTooltipOpen(true)}
-                  onMouseLeave={() => setGitTooltipOpen(false)}
+                  onMouseEnter={() => {
+                    if (!activeSession.isGitRepo) return;
+                    // Clear any pending close timeout
+                    if (gitTooltipTimeout.current) {
+                      clearTimeout(gitTooltipTimeout.current);
+                      gitTooltipTimeout.current = null;
+                    }
+                    setGitTooltipOpen(true);
+                  }}
+                  onMouseLeave={() => {
+                    // Delay closing to allow mouse to reach the dropdown
+                    gitTooltipTimeout.current = setTimeout(() => {
+                      setGitTooltipOpen(false);
+                    }, 150);
+                  }}
                 >
                   <span
                     className={`flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full border cursor-pointer ${activeSession.isGitRepo ? 'border-orange-500/30 text-orange-500 bg-orange-500/10 hover:bg-orange-500/20' : 'border-blue-500/30 text-blue-500 bg-blue-500/10'}`}
@@ -432,16 +457,41 @@ export function MainPanel(props: MainPanelProps) {
                     ) : 'LOCAL'}
                   </span>
                   {activeSession.isGitRepo && gitTooltipOpen && gitInfo && (
-                    <div
-                      className="absolute top-full left-0 pt-2 w-80 z-50 pointer-events-none"
-                    >
+                    <>
+                      {/* Invisible bridge to prevent hover gap */}
                       <div
-                        className="rounded shadow-xl pointer-events-auto"
-                        style={{
-                          backgroundColor: theme.colors.bgSidebar,
-                          border: `1px solid ${theme.colors.border}`
+                        className="absolute left-0 right-0 h-3 pointer-events-auto"
+                        style={{ top: '100%' }}
+                        onMouseEnter={() => {
+                          if (gitTooltipTimeout.current) {
+                            clearTimeout(gitTooltipTimeout.current);
+                            gitTooltipTimeout.current = null;
+                          }
+                          setGitTooltipOpen(true);
+                        }}
+                      />
+                      <div
+                        className="absolute top-full left-0 pt-2 w-80 z-50 pointer-events-auto"
+                        onMouseEnter={() => {
+                          if (gitTooltipTimeout.current) {
+                            clearTimeout(gitTooltipTimeout.current);
+                            gitTooltipTimeout.current = null;
+                          }
+                          setGitTooltipOpen(true);
+                        }}
+                        onMouseLeave={() => {
+                          gitTooltipTimeout.current = setTimeout(() => {
+                            setGitTooltipOpen(false);
+                          }, 150);
                         }}
                       >
+                        <div
+                          className="rounded shadow-xl"
+                          style={{
+                            backgroundColor: theme.colors.bgSidebar,
+                            border: `1px solid ${theme.colors.border}`
+                          }}
+                        >
                       {/* Branch */}
                       <div className="p-3 border-b" style={{ borderColor: theme.colors.border }}>
                         <div className="text-[10px] uppercase font-bold mb-2" style={{ color: theme.colors.textDim }}>Branch</div>
@@ -511,9 +561,10 @@ export function MainPanel(props: MainPanelProps) {
                             </span>
                           )}
                         </div>
-                      </div>
+                        </div>
                       </div>
                     </div>
+                    </>
                   )}
                 </div>
               </div>
@@ -561,7 +612,17 @@ export function MainPanel(props: MainPanelProps) {
 
                   {/* Invisible bridge to prevent hover gap issues */}
                   {sessionPillOverlayOpen && (
-                    <div className="absolute left-0 right-0 h-2" style={{ top: '100%' }} />
+                    <div
+                      className="absolute left-0 right-0 h-3 pointer-events-auto"
+                      style={{ top: '100%' }}
+                      onMouseEnter={() => {
+                        if (sessionPillHoverTimeout.current) {
+                          clearTimeout(sessionPillHoverTimeout.current);
+                          sessionPillHoverTimeout.current = null;
+                        }
+                        setSessionPillOverlayOpen(true);
+                      }}
+                    />
                   )}
 
                   {/* Overlay dropdown */}
@@ -736,8 +797,20 @@ export function MainPanel(props: MainPanelProps) {
               {/* Context Window Widget with Tooltip */}
               <div
                 className="flex flex-col items-end mr-2 relative cursor-pointer"
-                onMouseEnter={() => setContextTooltipOpen(true)}
-                onMouseLeave={() => setContextTooltipOpen(false)}
+                onMouseEnter={() => {
+                  // Clear any pending close timeout
+                  if (contextTooltipTimeout.current) {
+                    clearTimeout(contextTooltipTimeout.current);
+                    contextTooltipTimeout.current = null;
+                  }
+                  setContextTooltipOpen(true);
+                }}
+                onMouseLeave={() => {
+                  // Delay closing to allow mouse to reach the dropdown
+                  contextTooltipTimeout.current = setTimeout(() => {
+                    setContextTooltipOpen(false);
+                  }, 150);
+                }}
               >
                 <span className="text-[10px] font-bold uppercase" style={{ color: theme.colors.textDim }}>Context Window</span>
                 <div className="w-24 h-1.5 rounded-full mt-1 overflow-hidden" style={{ backgroundColor: theme.colors.border }}>
@@ -752,11 +825,38 @@ export function MainPanel(props: MainPanelProps) {
 
                 {/* Context Window Tooltip */}
                 {contextTooltipOpen && activeSession.inputMode === 'ai' && activeSession.usageStats && (
-                  <div className="absolute top-full right-0 pt-2 w-64 z-50">
+                  <>
+                    {/* Invisible bridge to prevent hover gap */}
                     <div
-                      className="border rounded-lg p-3 shadow-xl"
-                      style={{ backgroundColor: theme.colors.bgSidebar, borderColor: theme.colors.border }}
+                      className="absolute left-0 right-0 h-3 pointer-events-auto"
+                      style={{ top: '100%' }}
+                      onMouseEnter={() => {
+                        if (contextTooltipTimeout.current) {
+                          clearTimeout(contextTooltipTimeout.current);
+                          contextTooltipTimeout.current = null;
+                        }
+                        setContextTooltipOpen(true);
+                      }}
+                    />
+                    <div
+                      className="absolute top-full right-0 pt-2 w-64 z-50 pointer-events-auto"
+                      onMouseEnter={() => {
+                        if (contextTooltipTimeout.current) {
+                          clearTimeout(contextTooltipTimeout.current);
+                          contextTooltipTimeout.current = null;
+                        }
+                        setContextTooltipOpen(true);
+                      }}
+                      onMouseLeave={() => {
+                        contextTooltipTimeout.current = setTimeout(() => {
+                          setContextTooltipOpen(false);
+                        }, 150);
+                      }}
                     >
+                      <div
+                        className="border rounded-lg p-3 shadow-xl"
+                        style={{ backgroundColor: theme.colors.bgSidebar, borderColor: theme.colors.border }}
+                      >
                       <div className="text-[10px] uppercase font-bold mb-3" style={{ color: theme.colors.textDim }}>Context Details</div>
 
                       <div className="space-y-2">
@@ -812,16 +912,29 @@ export function MainPanel(props: MainPanelProps) {
                           </div>
                         </div>
                       </div>
+                      </div>
                     </div>
-                  </div>
+                  </>
                 )}
               </div>
 
               {/* Agent Sessions Button with Recent Sessions Hover */}
               <div
                 className="relative"
-                onMouseEnter={() => setSessionsTooltipOpen(true)}
-                onMouseLeave={() => setSessionsTooltipOpen(false)}
+                onMouseEnter={() => {
+                  // Clear any pending close timeout
+                  if (sessionsTooltipTimeout.current) {
+                    clearTimeout(sessionsTooltipTimeout.current);
+                    sessionsTooltipTimeout.current = null;
+                  }
+                  setSessionsTooltipOpen(true);
+                }}
+                onMouseLeave={() => {
+                  // Delay closing to allow mouse to reach the dropdown
+                  sessionsTooltipTimeout.current = setTimeout(() => {
+                    setSessionsTooltipOpen(false);
+                  }, 150);
+                }}
               >
                 <button
                   onClick={() => {
@@ -836,12 +949,35 @@ export function MainPanel(props: MainPanelProps) {
 
                 {/* Recent Sessions Hover Overlay */}
                 {sessionsTooltipOpen && recentClaudeSessions.length > 0 && (
-                  <div
-                    className="absolute top-full right-0 mt-1 w-72 rounded-lg border shadow-xl z-50"
-                    style={{ backgroundColor: theme.colors.bgSidebar, borderColor: theme.colors.border }}
-                    onMouseEnter={() => setSessionsTooltipOpen(true)}
-                    onMouseLeave={() => setSessionsTooltipOpen(false)}
-                  >
+                  <>
+                    {/* Invisible bridge to prevent hover gap */}
+                    <div
+                      className="absolute left-0 right-0 h-3 pointer-events-auto"
+                      style={{ top: '100%' }}
+                      onMouseEnter={() => {
+                        if (sessionsTooltipTimeout.current) {
+                          clearTimeout(sessionsTooltipTimeout.current);
+                          sessionsTooltipTimeout.current = null;
+                        }
+                        setSessionsTooltipOpen(true);
+                      }}
+                    />
+                    <div
+                      className="absolute top-full right-0 mt-1 w-72 rounded-lg border shadow-xl z-50 pointer-events-auto"
+                      style={{ backgroundColor: theme.colors.bgSidebar, borderColor: theme.colors.border }}
+                      onMouseEnter={() => {
+                        if (sessionsTooltipTimeout.current) {
+                          clearTimeout(sessionsTooltipTimeout.current);
+                          sessionsTooltipTimeout.current = null;
+                        }
+                        setSessionsTooltipOpen(true);
+                      }}
+                      onMouseLeave={() => {
+                        sessionsTooltipTimeout.current = setTimeout(() => {
+                          setSessionsTooltipOpen(false);
+                        }, 150);
+                      }}
+                    >
                     <div
                       className="px-3 py-2 text-xs font-bold uppercase border-b"
                       style={{ color: theme.colors.textDim, borderColor: theme.colors.border }}
@@ -891,18 +1027,19 @@ export function MainPanel(props: MainPanelProps) {
                         </button>
                       ))}
                     </div>
-                    <div
-                      className="px-3 py-2 text-xs border-t text-center cursor-pointer hover:bg-white/5"
-                      style={{ color: theme.colors.accent, borderColor: theme.colors.border }}
-                      onClick={() => {
-                        setActiveClaudeSessionId(null);
-                        setAgentSessionsOpen(true);
-                        setSessionsTooltipOpen(false);
-                      }}
-                    >
-                      View all sessions →
+                      <div
+                        className="px-3 py-2 text-xs border-t text-center cursor-pointer hover:bg-white/5"
+                        style={{ color: theme.colors.accent, borderColor: theme.colors.border }}
+                        onClick={() => {
+                          setActiveClaudeSessionId(null);
+                          setAgentSessionsOpen(true);
+                          setSessionsTooltipOpen(false);
+                        }}
+                      >
+                        View all sessions →
+                      </div>
                     </div>
-                  </div>
+                  </>
                 )}
               </div>
               {!rightPanelOpen && (
