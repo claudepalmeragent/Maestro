@@ -821,14 +821,98 @@ export function SessionList(props: SessionListProps) {
                     {groupSessions.map(s => (
                       <div
                         key={s.id}
-                        className="flex-1 rounded-full"
+                        className="group/indicator relative flex-1 rounded-full"
                         style={
                           s.toolType === 'claude' && !s.claudeSessionId
                             ? { border: `1px solid ${theme.colors.textDim}`, backgroundColor: 'transparent' }
                             : { backgroundColor: getStatusColor(s.state, theme) }
                         }
-                        title={`${s.name}: ${s.toolType === 'claude' && !s.claudeSessionId ? 'No active Claude session' : s.state}`}
-                      />
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setActiveSessionId(s.id);
+                        }}
+                      >
+                        {/* Hover Tooltip for Collapsed Group Indicator */}
+                        <div
+                          className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 rounded px-3 py-2 z-[100] opacity-0 group-hover/indicator:opacity-100 pointer-events-none transition-opacity shadow-xl"
+                          style={{
+                            minWidth: '240px',
+                            backgroundColor: theme.colors.bgSidebar,
+                            border: `1px solid ${theme.colors.border}`
+                          }}
+                        >
+                          <div className="flex items-center gap-2 mb-2">
+                            <span className="text-xs font-bold" style={{ color: theme.colors.textMain }}>{s.name}</span>
+                            {s.toolType !== 'terminal' && (
+                              <span
+                                className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase"
+                                style={{
+                                  backgroundColor: s.isGitRepo ? theme.colors.accent + '30' : theme.colors.textDim + '20',
+                                  color: s.isGitRepo ? theme.colors.accent : theme.colors.textDim
+                                }}
+                              >
+                                {s.isGitRepo ? 'GIT' : 'LOCAL'}
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[10px] capitalize mb-2" style={{ color: theme.colors.textDim }}>{s.state} • {s.toolType}</div>
+
+                          <div className="pt-2 mt-2 space-y-1.5" style={{ borderTop: `1px solid ${theme.colors.border}` }}>
+                            <div className="flex items-center justify-between text-[10px]">
+                              <span style={{ color: theme.colors.textDim }}>Context Window</span>
+                              <span style={{ color: theme.colors.textMain }}>{s.contextUsage}%</span>
+                            </div>
+                            <div className="w-full h-1 rounded-full overflow-hidden" style={{ backgroundColor: theme.colors.border }}>
+                              <div
+                                className="h-full transition-all"
+                                style={{
+                                  width: `${s.contextUsage}%`,
+                                  backgroundColor: getContextColor(s.contextUsage, theme)
+                                }}
+                              />
+                            </div>
+
+                            {/* Git Status */}
+                            {s.isGitRepo && gitFileCounts.has(s.id) && gitFileCounts.get(s.id)! > 0 && (
+                              <div className="flex items-center justify-between text-[10px] pt-1">
+                                <span className="flex items-center gap-1" style={{ color: theme.colors.textDim }}>
+                                  <GitBranch className="w-3 h-3" />
+                                  Git Changes
+                                </span>
+                                <span style={{ color: theme.colors.warning }}>{gitFileCounts.get(s.id)} files</span>
+                              </div>
+                            )}
+
+                            {/* Session Cost */}
+                            {s.usageStats && s.usageStats.totalCostUsd > 0 && (
+                              <div className="flex items-center justify-between text-[10px] pt-1">
+                                <span style={{ color: theme.colors.textDim }}>Session Cost</span>
+                                <span className="font-mono font-bold" style={{ color: theme.colors.success }}>
+                                  ${s.usageStats.totalCostUsd.toFixed(2)}
+                                </span>
+                              </div>
+                            )}
+
+                            {/* Active Time */}
+                            {s.activeTimeMs > 0 && (
+                              <div className="flex items-center justify-between text-[10px] pt-1">
+                                <span className="flex items-center gap-1" style={{ color: theme.colors.textDim }}>
+                                  <Clock className="w-3 h-3" />
+                                  Active Time
+                                </span>
+                                <span className="font-mono font-bold" style={{ color: theme.colors.accent }}>
+                                  {formatActiveTime(s.activeTimeMs)}
+                                </span>
+                              </div>
+                            )}
+
+                            <div className="flex items-center gap-1.5 text-[10px] font-mono pt-1" style={{ color: theme.colors.textDim }}>
+                              <Folder className="w-3 h-3 shrink-0" />
+                              <span className="truncate">{s.cwd}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
                     ))}
                   </div>
                 )}
