@@ -7,7 +7,7 @@
 
 import React, { useEffect, useCallback, useState, useMemo, useRef } from 'react';
 import { useThemeColors } from '../components/ThemeProvider';
-import { useWebSocket, type WebSocketState, type CustomCommand } from '../hooks/useWebSocket';
+import { useWebSocket, type WebSocketState, type CustomCommand, type AutoRunState } from '../hooks/useWebSocket';
 import { useCommandHistory } from '../hooks/useCommandHistory';
 import { useNotifications } from '../hooks/useNotifications';
 import { useUnreadBadge } from '../hooks/useUnreadBadge';
@@ -28,6 +28,7 @@ import { ResponseViewer, type ResponseItem } from './ResponseViewer';
 import { OfflineQueueBanner } from './OfflineQueueBanner';
 import { ConnectionStatusIndicator } from './ConnectionStatusIndicator';
 import { MessageHistory, type LogEntry } from './MessageHistory';
+import { AutoRunIndicator } from './AutoRunIndicator';
 import type { Session, LastResponsePreview } from '../hooks/useSessions';
 
 /**
@@ -346,6 +347,9 @@ export default function MobileApp() {
   // Custom slash commands from desktop
   const [customCommands, setCustomCommands] = useState<CustomCommand[]>([]);
 
+  // AutoRun state per session (batch processing on desktop)
+  const [autoRunStates, setAutoRunStates] = useState<Record<string, AutoRunState | null>>({});
+
   // Input expansion state for small screens (drawer-like behavior)
   const [isInputExpanded, setIsInputExpanded] = useState(false);
 
@@ -637,6 +641,14 @@ export default function MobileApp() {
       // Custom slash commands from desktop app
       webLogger.debug(`Custom commands received: ${commands.length}`, 'Mobile');
       setCustomCommands(commands);
+    },
+    onAutoRunStateChange: (sessionId: string, state: AutoRunState | null) => {
+      // AutoRun (batch processing) state from desktop app
+      webLogger.debug(`AutoRun state change: ${sessionId} - ${state ? `running (${state.completedTasks}/${state.totalTasks})` : 'stopped'}`, 'Mobile');
+      setAutoRunStates(prev => ({
+        ...prev,
+        [sessionId]: state,
+      }));
     },
   }), [showResponseNotification, setDesktopTheme]);
 
@@ -1163,6 +1175,14 @@ export default function MobileApp() {
           activeSessionId={activeSessionId}
           onSelectSession={handleSelectSession}
           onOpenAllSessions={handleOpenAllSessions}
+        />
+      )}
+
+      {/* AutoRun indicator - shown when batch processing is active on desktop */}
+      {activeSessionId && autoRunStates[activeSessionId] && (
+        <AutoRunIndicator
+          state={autoRunStates[activeSessionId]}
+          sessionName={activeSession?.name}
         />
       )}
 

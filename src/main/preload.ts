@@ -141,6 +141,15 @@ contextBridge.exposeInMainWorld('maestro', {
     // Broadcast user input to web clients (for keeping web interface in sync)
     broadcastUserInput: (sessionId: string, command: string, inputMode: 'ai' | 'terminal') =>
       ipcRenderer.invoke('web:broadcastUserInput', sessionId, command, inputMode),
+    // Broadcast AutoRun state to web clients (for showing task progress on mobile)
+    broadcastAutoRunState: (sessionId: string, state: {
+      isRunning: boolean;
+      totalTasks: number;
+      completedTasks: number;
+      currentTaskIndex: number;
+      isStopping?: boolean;
+    } | null) =>
+      ipcRenderer.invoke('web:broadcastAutoRunState', sessionId, state),
   },
 
   // Git API

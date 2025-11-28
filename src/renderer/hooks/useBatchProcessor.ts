@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import type { BatchRunState, Session, HistoryEntry } from '../types';
 
 // Regex to count unchecked markdown checkboxes: - [ ] task
@@ -85,6 +85,25 @@ export function useBatchProcessor({
   const setCustomPrompt = useCallback((sessionId: string, prompt: string) => {
     setCustomPrompts(prev => ({ ...prev, [sessionId]: prompt }));
   }, []);
+
+  // Broadcast batch run state changes to web interface
+  useEffect(() => {
+    // Broadcast state for each session that has batch state
+    Object.entries(batchRunStates).forEach(([sessionId, state]) => {
+      if (state.isRunning || state.completedTasks > 0) {
+        window.maestro.web.broadcastAutoRunState(sessionId, {
+          isRunning: state.isRunning,
+          totalTasks: state.totalTasks,
+          completedTasks: state.completedTasks,
+          currentTaskIndex: state.currentTaskIndex,
+          isStopping: state.isStopping,
+        });
+      } else {
+        // When not running and no completed tasks, broadcast null to clear the state
+        window.maestro.web.broadcastAutoRunState(sessionId, null);
+      }
+    });
+  }, [batchRunStates]);
 
   /**
    * Start a batch processing run for a specific session

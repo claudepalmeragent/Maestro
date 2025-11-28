@@ -606,6 +606,21 @@ function setupIpcHandlers() {
     return false;
   });
 
+  // Broadcast AutoRun state to web clients (called when batch processing state changes)
+  ipcMain.handle('web:broadcastAutoRunState', async (_, sessionId: string, state: {
+    isRunning: boolean;
+    totalTasks: number;
+    completedTasks: number;
+    currentTaskIndex: number;
+    isStopping?: boolean;
+  } | null) => {
+    if (webServer && webServer.getWebClientCount() > 0) {
+      webServer.broadcastAutoRunState(sessionId, state);
+      return true;
+    }
+    return false;
+  });
+
   // Session/Process management
   ipcMain.handle('process:spawn', async (_, config: {
     sessionId: string;

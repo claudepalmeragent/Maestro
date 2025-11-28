@@ -1232,6 +1232,25 @@ export class WebServer {
   }
 
   /**
+   * Broadcast AutoRun state to all connected web clients
+   * Called when batch processing starts, progresses, or stops
+   */
+  broadcastAutoRunState(sessionId: string, state: {
+    isRunning: boolean;
+    totalTasks: number;
+    completedTasks: number;
+    currentTaskIndex: number;
+    isStopping?: boolean;
+  } | null) {
+    this.broadcastToWebClients({
+      type: 'autorun_state',
+      sessionId,
+      state,
+      timestamp: Date.now(),
+    });
+  }
+
+  /**
    * Broadcast user input to web clients subscribed to a session
    * Called when a command is sent from the desktop app so web clients stay in sync
    */
