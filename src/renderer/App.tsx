@@ -4370,46 +4370,6 @@ export default function MaestroConsole() {
           }));
         }}
         audioFeedbackCommand={audioFeedbackCommand}
-        recentClaudeSessions={activeSession?.recentClaudeSessions || []}
-        onResumeRecentSession={async (sessionId: string) => {
-          // Resume a session from the recent sessions list
-          if (!activeSession?.cwd) return;
-
-          try {
-            // Load the session messages
-            const result = await window.maestro.claude.readSessionMessages(
-              activeSession.cwd,
-              sessionId,
-              { offset: 0, limit: 100 }
-            );
-
-            // Convert to log entries
-            const messages: LogEntry[] = result.messages.map((msg: { type: string; content: string; timestamp: string; uuid: string }) => ({
-              id: msg.uuid || generateId(),
-              timestamp: new Date(msg.timestamp).getTime(),
-              source: msg.type === 'user' ? 'user' as const : 'stdout' as const,
-              text: msg.content || ''
-            }));
-
-            // Update the session and move to front of recent list
-            setSessions(prev => prev.map(s => {
-              if (s.id !== activeSession.id) return s;
-              // Move the session to front of recent list
-              const existingRecent = s.recentClaudeSessions || [];
-              const recentSession = existingRecent.find(r => r.sessionId === sessionId);
-              if (!recentSession) {
-                // Session not in recent list, just update the session
-                return { ...s, claudeSessionId: sessionId, aiLogs: messages, state: 'idle', inputMode: 'ai' };
-              }
-              const filtered = existingRecent.filter(r => r.sessionId !== sessionId);
-              const updatedRecent = [{ ...recentSession, timestamp: new Date().toISOString() }, ...filtered];
-              return { ...s, claudeSessionId: sessionId, aiLogs: messages, state: 'idle', inputMode: 'ai', recentClaudeSessions: updatedRecent };
-            }));
-            setActiveClaudeSessionId(sessionId);
-          } catch (error) {
-            console.error('Failed to resume session:', error);
-          }
-        }}
         // Tab management handlers
         onTabSelect={(tabId: string) => {
           if (!activeSession) return;
