@@ -713,6 +713,7 @@ export default function MaestroConsole() {
           // Check if there are queued messages
           if (s.messageQueue.length > 0) {
             const [nextMessage, ...remainingQueue] = s.messageQueue;
+            // Keep the active tab in busy state since we're processing the next queued message
             return {
               ...s,
               state: 'busy' as SessionState,
@@ -725,13 +726,21 @@ export default function MaestroConsole() {
             };
           }
 
+          // Task complete - set active tab's state to 'idle' for write-mode tracking
+          const updatedAiTabs = s.aiTabs?.length > 0
+            ? s.aiTabs.map(tab =>
+                tab.id === s.activeTabId ? { ...tab, state: 'idle' as const } : tab
+              )
+            : s.aiTabs;
+
           // Task complete - also clear pending AI command flag
           return {
             ...s,
             state: 'idle' as SessionState,
             busySource: undefined,
             thinkingStartTime: undefined,
-            pendingAICommandForSynopsis: undefined
+            pendingAICommandForSynopsis: undefined,
+            aiTabs: updatedAiTabs
           };
         }
 
@@ -1273,9 +1282,26 @@ export default function MaestroConsole() {
       const targetSessionId = `${sessionId}-batch-${Date.now()}`;
 
       // Set session to busy with thinking start time
-      setSessions(prev => prev.map(s =>
-        s.id === sessionId ? { ...s, state: 'busy' as SessionState, busySource: 'ai', thinkingStartTime: Date.now(), currentCycleTokens: 0, currentCycleBytes: 0 } : s
-      ));
+      // Also update active tab's state to 'busy' for write-mode tracking
+      setSessions(prev => prev.map(s => {
+        if (s.id !== sessionId) return s;
+
+        const updatedAiTabs = s.aiTabs?.length > 0
+          ? s.aiTabs.map(tab =>
+              tab.id === s.activeTabId ? { ...tab, state: 'busy' as const } : tab
+            )
+          : s.aiTabs;
+
+        return {
+          ...s,
+          state: 'busy' as SessionState,
+          busySource: 'ai',
+          thinkingStartTime: Date.now(),
+          currentCycleTokens: 0,
+          currentCycleBytes: 0,
+          aiTabs: updatedAiTabs
+        };
+      }));
 
       // Create a promise that resolves when the agent completes
       return new Promise((resolve) => {
@@ -1328,6 +1354,7 @@ export default function MaestroConsole() {
 
               if (s.messageQueue.length > 0) {
                 const [nextMessage, ...remainingQueue] = s.messageQueue;
+                // Keep tab in busy state since we're processing next queued message
                 return {
                   ...s,
                   state: 'busy' as SessionState,
@@ -1342,12 +1369,20 @@ export default function MaestroConsole() {
               }
 
               // No queued messages - set to idle
+              // Also update active tab's state to 'idle' for write-mode tracking
+              const updatedAiTabs = s.aiTabs?.length > 0
+                ? s.aiTabs.map(tab =>
+                    tab.id === s.activeTabId ? { ...tab, state: 'idle' as const } : tab
+                  )
+                : s.aiTabs;
+
               return {
                 ...s,
                 state: 'idle' as SessionState,
                 busySource: undefined,
                 thinkingStartTime: undefined,
-                pendingAICommandForSynopsis: undefined
+                pendingAICommandForSynopsis: undefined,
+                aiTabs: updatedAiTabs
               };
             }));
 
@@ -2932,6 +2967,13 @@ export default function MaestroConsole() {
         newHistory.push(inputValue.trim());
       }
 
+      // For AI mode, also update the active tab's state to 'busy' for write-mode tracking
+      const updatedAiTabs = currentMode === 'ai' && s.aiTabs?.length > 0
+        ? s.aiTabs.map(tab =>
+            tab.id === s.activeTabId ? { ...tab, state: 'busy' as const } : tab
+          )
+        : s.aiTabs;
+
       return {
         ...s,
         [targetLogKey]: [...s[targetLogKey], newEntry],
@@ -2941,7 +2983,8 @@ export default function MaestroConsole() {
         currentCycleTokens: currentMode === 'ai' ? 0 : s.currentCycleTokens,
         contextUsage: Math.min(s.contextUsage + 5, 100),
         shellCwd: newShellCwd,
-        [historyKey]: newHistory
+        [historyKey]: newHistory,
+        aiTabs: updatedAiTabs
       };
     }));
 
@@ -3318,6 +3361,14 @@ export default function MaestroConsole() {
         // For custom commands, show the substituted prompt with command metadata
         setSessions(prev => prev.map(s => {
           if (s.id !== sessionId) return s;
+
+          // Update active tab's state to 'busy' for write-mode tracking
+          const updatedAiTabs = s.aiTabs?.length > 0
+            ? s.aiTabs.map(tab =>
+                tab.id === s.activeTabId ? { ...tab, state: 'busy' as const } : tab
+              )
+            : s.aiTabs;
+
           return {
             ...s,
             state: 'busy' as SessionState,
@@ -3335,7 +3386,8 @@ export default function MaestroConsole() {
             // Track AI command usage
             ...(commandMetadata && {
               aiCommandHistory: Array.from(new Set([...(s.aiCommandHistory || []), command.trim()])).slice(-50)
-            })
+            }),
+            aiTabs: updatedAiTabs
           };
         }));
 
