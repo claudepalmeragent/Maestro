@@ -22,9 +22,25 @@ export function RenameSessionModal(props: RenameSessionModalProps) {
 
   const handleRename = () => {
     if (value.trim()) {
+      const trimmedName = value.trim();
+
+      // Find the active session to check for Claude session association
+      const activeSession = sessions.find(s => s.id === activeSessionId);
+
+      // Update local state
       setSessions(prev => prev.map(s =>
-        s.id === activeSessionId ? { ...s, name: value.trim() } : s
+        s.id === activeSessionId ? { ...s, name: trimmedName } : s
       ));
+
+      // Also update the Claude session name if this session has an associated Claude session
+      if (activeSession?.claudeSessionId && activeSession?.cwd) {
+        window.maestro.claude.updateSessionName(
+          activeSession.cwd,
+          activeSession.claudeSessionId,
+          trimmedName
+        ).catch(err => console.error('Failed to update Claude session name:', err));
+      }
+
       onClose();
     }
   };
