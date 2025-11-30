@@ -70,13 +70,13 @@ export function GitDiffViewer({ diffText, cwd, theme, onClose }: GitDiffViewerPr
   // Handle keyboard shortcuts (tab navigation only)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Cmd+Shift+[ - Previous tab
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === '[') {
+      // Cmd+[ or Cmd+Shift+[ - Previous tab
+      if ((e.metaKey || e.ctrlKey) && e.key === '[') {
         e.preventDefault();
         setActiveTab(prev => prev === 0 ? parsedFiles.length - 1 : prev - 1);
       }
-      // Cmd+Shift+] - Next tab
-      else if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === ']') {
+      // Cmd+] or Cmd+Shift+] - Next tab
+      else if ((e.metaKey || e.ctrlKey) && e.key === ']') {
         e.preventDefault();
         setActiveTab(prev => (prev + 1) % parsedFiles.length);
       }
