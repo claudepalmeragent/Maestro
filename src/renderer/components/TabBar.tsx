@@ -480,6 +480,7 @@ export function TabBar({
 
   const tabBarRef = useRef<HTMLDivElement>(null);
   const tabRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const initialScrollDone = useRef(false);
 
   // Scroll active tab into view when it changes
   useEffect(() => {
@@ -488,6 +489,22 @@ export function TabBar({
       activeTabElement.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
     }
   }, [activeTabId]);
+
+  // Scroll active tab into view on initial mount (after tabs are rendered)
+  useEffect(() => {
+    if (initialScrollDone.current || tabs.length === 0) return;
+
+    // Small delay to ensure refs are populated after render
+    const timeoutId = setTimeout(() => {
+      const activeTabElement = tabRefs.current.get(activeTabId);
+      if (activeTabElement) {
+        activeTabElement.scrollIntoView({ behavior: 'instant', block: 'nearest', inline: 'nearest' });
+        initialScrollDone.current = true;
+      }
+    }, 0);
+
+    return () => clearTimeout(timeoutId);
+  }, [tabs.length, activeTabId]);
 
   // Can always close tabs - closing the last one creates a fresh new tab
   const canClose = true;
