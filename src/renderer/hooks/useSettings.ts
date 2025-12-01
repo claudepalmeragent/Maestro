@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import type { LLMProvider, ThemeId, Shortcut, CustomAICommand, GlobalStats } from '../types';
+import type { LLMProvider, ThemeId, Shortcut, CustomAICommand, GlobalStats, AutoRunStats } from '../types';
 import { DEFAULT_SHORTCUTS } from '../constants/shortcuts';
 
 // Default global stats
@@ -12,6 +12,17 @@ const DEFAULT_GLOBAL_STATS: GlobalStats = {
   totalCacheCreationTokens: 0,
   totalCostUsd: 0,
   totalActiveTimeMs: 0,
+};
+
+// Default auto-run stats
+const DEFAULT_AUTO_RUN_STATS: AutoRunStats = {
+  cumulativeTimeMs: 0,
+  longestRunMs: 0,
+  longestRunTimestamp: 0,
+  totalRuns: 0,
+  currentBadgeLevel: 0,
+  lastBadgeUnlockLevel: 0,
+  badgeHistory: [],
 };
 
 // Default AI commands that ship with Maestro
@@ -129,6 +140,11 @@ export interface UseSettingsReturn {
   globalStats: GlobalStats;
   setGlobalStats: (value: GlobalStats) => void;
   updateGlobalStats: (delta: Partial<GlobalStats>) => void;
+
+  // Auto-run Stats (persistent across restarts)
+  autoRunStats: AutoRunStats;
+  setAutoRunStats: (value: AutoRunStats) => void;
+  recordAutoRunComplete: (elapsedTimeMs: number) => { newBadgeLevel: number | null; isNewRecord: boolean };
 }
 
 export function useSettings(): UseSettingsReturn {
@@ -187,6 +203,9 @@ export function useSettings(): UseSettingsReturn {
 
   // Global Stats (persistent)
   const [globalStats, setGlobalStatsState] = useState<GlobalStats>(DEFAULT_GLOBAL_STATS);
+
+  // Auto-run Stats (persistent)
+  const [autoRunStats, setAutoRunStatsState] = useState<AutoRunStats>(DEFAULT_AUTO_RUN_STATS);
 
   // Wrapper functions that persist to electron-store
   const setLlmProvider = (value: LLMProvider) => {
@@ -342,6 +361,88 @@ export function useSettings(): UseSettingsReturn {
     });
   };
 
+  const setAutoRunStats = (value: AutoRunStats) => {
+    setAutoRunStatsState(value);
+    window.maestro.settings.set('autoRunStats', value);
+  };
+
+  // Import badge calculation from constants (moved inline to avoid circular dependency)
+  const getBadgeLevelForTime = (cumulativeTimeMs: number): number => {
+    // Time thresholds in milliseconds
+    const MINUTE = 60 * 1000;
+    const HOUR = 60 * MINUTE;
+    const DAY = 24 * HOUR;
+    const WEEK = 7 * DAY;
+    const MONTH = 30 * DAY;
+
+    const thresholds = [
+      15 * MINUTE,     // Level 1: 15 minutes
+      1 * HOUR,        // Level 2: 1 hour
+      8 * HOUR,        // Level 3: 8 hours
+      1 * DAY,         // Level 4: 1 day
+      1 * WEEK,        // Level 5: 1 week
+      1 * MONTH,       // Level 6: 1 month
+      3 * MONTH,       // Level 7: 3 months
+      6 * MONTH,       // Level 8: 6 months
+      365 * DAY,       // Level 9: 1 year
+      5 * 365 * DAY,   // Level 10: 5 years
+      10 * 365 * DAY,  // Level 11: 10 years
+    ];
+
+    let level = 0;
+    for (let i = 0; i < thresholds.length; i++) {
+      if (cumulativeTimeMs >= thresholds[i]) {
+        level = i + 1;
+      } else {
+        break;
+      }
+    }
+    return level;
+  };
+
+  // Record an auto-run completion and check for new badges/records
+  const recordAutoRunComplete = (elapsedTimeMs: number): { newBadgeLevel: number | null; isNewRecord: boolean } => {
+    let newBadgeLevel: number | null = null;
+    let isNewRecord = false;
+
+    setAutoRunStatsState(prev => {
+      const newCumulativeTime = prev.cumulativeTimeMs + elapsedTimeMs;
+      const newBadgeLevelCalc = getBadgeLevelForTime(newCumulativeTime);
+
+      // Check if this is a new badge level
+      if (newBadgeLevelCalc > prev.lastBadgeUnlockLevel) {
+        newBadgeLevel = newBadgeLevelCalc;
+      }
+
+      // Check if this is a new record
+      isNewRecord = elapsedTimeMs > prev.longestRunMs;
+
+      // Build updated badge history if new badge unlocked
+      let updatedBadgeHistory = prev.badgeHistory || [];
+      if (newBadgeLevel !== null) {
+        updatedBadgeHistory = [
+          ...updatedBadgeHistory,
+          { level: newBadgeLevel, unlockedAt: Date.now() }
+        ];
+      }
+
+      const updated: AutoRunStats = {
+        cumulativeTimeMs: newCumulativeTime,
+        longestRunMs: isNewRecord ? elapsedTimeMs : prev.longestRunMs,
+        longestRunTimestamp: isNewRecord ? Date.now() : prev.longestRunTimestamp,
+        totalRuns: prev.totalRuns + 1,
+        currentBadgeLevel: newBadgeLevelCalc,
+        lastBadgeUnlockLevel: newBadgeLevel !== null ? newBadgeLevelCalc : prev.lastBadgeUnlockLevel,
+        badgeHistory: updatedBadgeHistory,
+      };
+
+      window.maestro.settings.set('autoRunStats', updated);
+      return updated;
+    });
+
+    return { newBadgeLevel, isNewRecord };
+  };
+
   // Load settings from electron-store on mount
   useEffect(() => {
     const loadSettings = async () => {
@@ -375,6 +476,7 @@ export function useSettings(): UseSettingsReturn {
       const savedToastDuration = await window.maestro.settings.get('toastDuration');
       const savedCustomAICommands = await window.maestro.settings.get('customAICommands');
       const savedGlobalStats = await window.maestro.settings.get('globalStats');
+      const savedAutoRunStats = await window.maestro.settings.get('autoRunStats');
 
       // Migration: if old setting exists but new ones don't, migrate
       if (oldEnterToSend !== undefined && savedEnterToSendAI === undefined && savedEnterToSendTerminal === undefined) {
@@ -435,6 +537,11 @@ export function useSettings(): UseSettingsReturn {
       // Load global stats
       if (savedGlobalStats !== undefined) {
         setGlobalStatsState({ ...DEFAULT_GLOBAL_STATS, ...savedGlobalStats });
+      }
+
+      // Load auto-run stats
+      if (savedAutoRunStats !== undefined) {
+        setAutoRunStatsState({ ...DEFAULT_AUTO_RUN_STATS, ...savedAutoRunStats });
       }
 
       // Mark settings as loaded
@@ -505,5 +612,8 @@ export function useSettings(): UseSettingsReturn {
     globalStats,
     setGlobalStats,
     updateGlobalStats,
+    autoRunStats,
+    setAutoRunStats,
+    recordAutoRunComplete,
   };
 }

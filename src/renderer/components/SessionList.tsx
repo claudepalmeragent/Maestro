@@ -2,10 +2,11 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   Wand2, Plus, Settings, ChevronRight, ChevronDown, Activity, X, Keyboard,
   Radio, Copy, ExternalLink, PanelLeftClose, PanelLeftOpen, Folder, Info, FileText, GitBranch, Bot, Clock,
-  ScrollText, Cpu, Menu, Bookmark
+  ScrollText, Cpu, Menu, Bookmark, Trophy
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
-import type { Session, Group, Theme, Shortcut } from '../types';
+import type { Session, Group, Theme, Shortcut, AutoRunStats } from '../types';
+import { CONDUCTOR_BADGES, getBadgeForTime } from '../constants/conductorBadges';
 import { getStatusColor, getContextColor, formatActiveTime } from '../utils/theme';
 import { gitService } from '../services/git';
 
@@ -86,6 +87,9 @@ interface SessionListProps {
   // Session jump shortcut props (Opt+Cmd+NUMBER)
   showSessionJumpNumbers?: boolean;
   visibleSessions?: Session[];
+
+  // Achievement system props
+  autoRunStats?: AutoRunStats;
 }
 
 export function SessionList(props: SessionListProps) {
@@ -102,7 +106,8 @@ export function SessionList(props: SessionListProps) {
     startRenamingSession, showConfirmation, setGroups, setSessions, createNewGroup, addNewSession,
     activeBatchSessionIds = [],
     showSessionJumpNumbers = false,
-    visibleSessions = []
+    visibleSessions = [],
+    autoRunStats
   } = props;
 
   const [sessionFilter, setSessionFilter] = useState('');
@@ -348,6 +353,20 @@ export function SessionList(props: SessionListProps) {
             <div className="flex items-center gap-2">
               <Wand2 className="w-5 h-5" style={{ color: theme.colors.accent }} />
               <h1 className="font-bold tracking-widest text-lg" style={{ color: theme.colors.textMain }}>MAESTRO</h1>
+              {/* Badge Level Indicator */}
+              {autoRunStats && autoRunStats.currentBadgeLevel > 0 && (
+                <button
+                  onClick={() => setAboutModalOpen(true)}
+                  className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold transition-colors hover:bg-white/10"
+                  title={`${getBadgeForTime(autoRunStats.cumulativeTimeMs)?.name || 'Apprentice'} - Click to view achievements`}
+                  style={{
+                    color: autoRunStats.currentBadgeLevel >= 8 ? '#FFD700' : theme.colors.accent,
+                  }}
+                >
+                  <Trophy className="w-3 h-3" />
+                  <span>{autoRunStats.currentBadgeLevel}</span>
+                </button>
+              )}
               {/* Global LIVE Toggle */}
               <div className="ml-2 relative" ref={liveOverlayRef}>
                 <button

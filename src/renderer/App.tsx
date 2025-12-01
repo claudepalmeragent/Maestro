@@ -20,6 +20,8 @@ import { GitDiffViewer } from './components/GitDiffViewer';
 import { GitLogViewer } from './components/GitLogViewer';
 import { BatchRunnerModal } from './components/BatchRunnerModal';
 import { ExecutionQueueBrowser } from './components/ExecutionQueueBrowser';
+import { StandingOvationOverlay } from './components/StandingOvationOverlay';
+import { CONDUCTOR_BADGES } from './constants/conductorBadges';
 
 // Import custom hooks
 import { useBatchProcessor } from './hooks/useBatchProcessor';
@@ -103,6 +105,7 @@ export default function MaestroConsole() {
     shortcuts, setShortcuts,
     customAICommands, setCustomAICommands,
     globalStats, updateGlobalStats,
+    autoRunStats, recordAutoRunComplete,
   } = settings;
 
   // --- STATE ---
@@ -169,6 +172,11 @@ export default function MaestroConsole() {
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
   const [lightboxImages, setLightboxImages] = useState<string[]>([]); // Context images for navigation
   const [aboutModalOpen, setAboutModalOpen] = useState(false);
+  const [standingOvationData, setStandingOvationData] = useState<{
+    badge: typeof CONDUCTOR_BADGES[number];
+    isNewRecord: boolean;
+    recordTimeMs?: number;
+  } | null>(null);
   const [logViewerOpen, setLogViewerOpen] = useState(false);
   const [processMonitorOpen, setProcessMonitorOpen] = useState(false);
   const [createGroupModalOpen, setCreateGroupModalOpen] = useState(false);
@@ -2190,6 +2198,29 @@ export default function MaestroConsole() {
         taskDuration: info.elapsedTimeMs,
         sessionId: info.sessionId,
       });
+
+      // Record achievement and check for badge unlocks
+      if (info.elapsedTimeMs > 0) {
+        const { newBadgeLevel, isNewRecord } = recordAutoRunComplete(info.elapsedTimeMs);
+
+        // Show Standing Ovation overlay for new badges or records
+        if (newBadgeLevel !== null || isNewRecord) {
+          const badge = newBadgeLevel !== null
+            ? CONDUCTOR_BADGES.find(b => b.level === newBadgeLevel)
+            : CONDUCTOR_BADGES.find(b => b.level === autoRunStats.currentBadgeLevel);
+
+          if (badge) {
+            // Small delay to let the toast appear first
+            setTimeout(() => {
+              setStandingOvationData({
+                badge,
+                isNewRecord,
+                recordTimeMs: isNewRecord ? info.elapsedTimeMs : autoRunStats.longestRunMs,
+              });
+            }, 500);
+          }
+        }
+      }
     }
   });
 
@@ -5364,7 +5395,21 @@ export default function MaestroConsole() {
         <AboutModal
           theme={theme}
           sessions={sessions}
+          autoRunStats={autoRunStats}
           onClose={() => setAboutModalOpen(false)}
+        />
+      )}
+
+      {/* --- STANDING OVATION OVERLAY --- */}
+      {standingOvationData && (
+        <StandingOvationOverlay
+          theme={theme}
+          themeMode={theme.mode}
+          badge={standingOvationData.badge}
+          isNewRecord={standingOvationData.isNewRecord}
+          recordTimeMs={standingOvationData.recordTimeMs}
+          cumulativeTimeMs={autoRunStats.cumulativeTimeMs}
+          onClose={() => setStandingOvationData(null)}
         />
       )}
 
@@ -5518,6 +5563,7 @@ export default function MaestroConsole() {
             activeBatchSessionIds={activeBatchSessionIds}
             showSessionJumpNumbers={showSessionJumpNumbers}
             visibleSessions={visibleSessions}
+            autoRunStats={autoRunStats}
           />
         </ErrorBoundary>
       )}

@@ -128,6 +128,23 @@ export interface GlobalStats {
   totalActiveTimeMs: number;
 }
 
+// Badge unlock record for history tracking
+export interface BadgeUnlockRecord {
+  level: number;
+  unlockedAt: number;  // Timestamp when badge was unlocked
+}
+
+// Auto-run achievement statistics (survives app restarts)
+export interface AutoRunStats {
+  cumulativeTimeMs: number;       // Total cumulative AutoRun time across all sessions
+  longestRunMs: number;           // Longest single AutoRun session
+  longestRunTimestamp: number;    // When the longest run occurred
+  totalRuns: number;              // Total number of AutoRun sessions completed
+  currentBadgeLevel: number;      // Current badge level (1-11)
+  lastBadgeUnlockLevel: number;   // Last badge level that triggered unlock notification
+  badgeHistory: BadgeUnlockRecord[]; // History of badge unlocks with timestamps
+}
+
 // AI Tab for multi-tab support within a Maestro session
 // Each tab represents a separate Claude Code conversation
 export interface AITab {

@@ -14,6 +14,9 @@
  * - 1-99: Search and autocomplete
  */
 export const MODAL_PRIORITIES = {
+  /** Standing ovation achievement overlay - celebration! */
+  STANDING_OVATION: 1100,
+
   /** Confirmation dialogs - highest priority, always on top */
   CONFIRM: 1000,
 

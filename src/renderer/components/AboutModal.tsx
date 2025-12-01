@@ -1,9 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { X, Wand2, ExternalLink, FileCode, BarChart3, Loader2 } from 'lucide-react';
-import type { Theme, Session } from '../types';
+import type { Theme, Session, AutoRunStats } from '../types';
 import { useLayerStack } from '../contexts/LayerStackContext';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 import pedramAvatar from '../assets/pedram-avatar.png';
+import { AchievementCard } from './AchievementCard';
 
 interface ClaudeGlobalStats {
   totalSessions: number;
@@ -20,10 +21,11 @@ interface ClaudeGlobalStats {
 interface AboutModalProps {
   theme: Theme;
   sessions: Session[];
+  autoRunStats: AutoRunStats;
   onClose: () => void;
 }
 
-export function AboutModal({ theme, sessions, onClose }: AboutModalProps) {
+export function AboutModal({ theme, sessions, autoRunStats, onClose }: AboutModalProps) {
   const { registerLayer, unregisterLayer, updateLayerHandler } = useLayerStack();
   const layerIdRef = useRef<string>();
   const [globalStats, setGlobalStats] = useState<ClaudeGlobalStats | null>(null);
@@ -122,14 +124,14 @@ export function AboutModal({ theme, sessions, onClose }: AboutModalProps) {
       aria-label="About Maestro"
       tabIndex={-1}
     >
-      <div className="w-[450px] border rounded-lg shadow-2xl overflow-hidden" style={{ backgroundColor: theme.colors.bgSidebar, borderColor: theme.colors.border }}>
+      <div className="w-[450px] max-h-[90vh] border rounded-lg shadow-2xl overflow-hidden flex flex-col" style={{ backgroundColor: theme.colors.bgSidebar, borderColor: theme.colors.border }}>
         <div className="p-4 border-b flex items-center justify-between" style={{ borderColor: theme.colors.border }}>
           <h2 className="text-sm font-bold" style={{ color: theme.colors.textMain }}>About Maestro</h2>
           <button onClick={onClose} style={{ color: theme.colors.textDim }}>
             <X className="w-4 h-4" />
           </button>
         </div>
-        <div className="p-6 space-y-5">
+        <div className="p-6 space-y-5 overflow-y-auto">
           {/* Logo and Title */}
           <div className="flex items-center gap-4">
             <Wand2 className="w-12 h-12" style={{ color: theme.colors.accent }} />
@@ -173,6 +175,9 @@ export function AboutModal({ theme, sessions, onClose }: AboutModalProps) {
               </div>
             </div>
           </div>
+
+          {/* Achievements Section */}
+          <AchievementCard theme={theme} autoRunStats={autoRunStats} />
 
           {/* Global Usage Stats - show loading or stats from all Claude projects */}
           <div className="p-4 rounded border" style={{ borderColor: theme.colors.border, backgroundColor: theme.colors.bgActivity }}>
