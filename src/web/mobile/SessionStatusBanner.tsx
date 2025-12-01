@@ -40,6 +40,16 @@ export interface SessionStatusBannerProps {
 }
 
 /**
+ * Strip ANSI escape codes from text
+ * Web interface doesn't render terminal colors, so we remove them for clean display
+ */
+function stripAnsiCodes(text: string): string {
+  // Matches ANSI escape sequences: ESC[ followed by params and command letter
+  // eslint-disable-next-line no-control-regex
+  return text.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
+}
+
+/**
  * Truncate a file path for display, preserving the most relevant parts
  * Shows ".../<parent>/<current>" format for long paths
  */
@@ -637,7 +647,7 @@ function LastResponsePreviewSection({
             tabIndex={onExpand ? 0 : undefined}
             aria-label={onExpand ? 'Tap to view full response' : undefined}
           >
-            {lastResponse.text}
+            {stripAnsiCodes(lastResponse.text)}
 
             {/* Fade gradient at bottom if there's more content */}
             {hasMoreContent && (

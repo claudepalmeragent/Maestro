@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useMemo, forwardRef, useState, useCallback, memo } from 'react';
-import { Activity, X, ChevronDown, ChevronUp, Filter, PlusCircle, MinusCircle, Trash2, Copy, Volume2, Square, Check, ArrowDown } from 'lucide-react';
+import { Activity, X, ChevronDown, ChevronUp, Filter, PlusCircle, MinusCircle, Trash2, Copy, Volume2, Square, Check, ArrowDown, Eye } from 'lucide-react';
 import type { Session, Theme, LogEntry } from '../types';
 import Convert from 'ansi-to-html';
 import DOMPurify from 'dompurify';
@@ -594,6 +594,21 @@ const LogItemComponent = memo(({
           className="absolute bottom-2 right-2 flex items-center gap-1"
           style={{ transition: 'opacity 0.15s ease-in-out' }}
         >
+          {/* Read-only badge for user messages sent in read-only mode */}
+          {isUserMessage && log.readOnly && (
+            <span
+              className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full"
+              style={{
+                backgroundColor: `${theme.colors.warning}25`,
+                color: theme.colors.warning,
+                border: `1px solid ${theme.colors.warning}50`
+              }}
+              title="Sent in read-only mode (Claude won't modify files)"
+            >
+              <Eye className="w-3 h-3" />
+              <span>Read-only</span>
+            </span>
+          )}
           {/* Speak/Stop Button - only show for non-user messages when TTS is configured */}
           {audioFeedbackCommand && log.source !== 'user' && (
             speakingLogId === log.id ? (
@@ -688,6 +703,7 @@ const LogItemComponent = memo(({
     prevProps.log.id === nextProps.log.id &&
     prevProps.log.text === nextProps.log.text &&
     prevProps.log.delivered === nextProps.log.delivered &&
+    prevProps.log.readOnly === nextProps.log.readOnly &&
     prevProps.isExpanded === nextProps.isExpanded &&
     prevProps.localFilterQuery === nextProps.localFilterQuery &&
     prevProps.filterMode.mode === nextProps.filterMode.mode &&

@@ -124,8 +124,8 @@ function ToastItem({ toast, theme, onRemove, onSessionClick }: { toast: ToastTyp
 
         {/* Content */}
         <div className="flex-1 min-w-0">
-          {/* Header with group/project and tab name */}
-          {(toast.group || toast.project || toast.tabName) && (
+          {/* Line 1: Group + Agent/Project name */}
+          {(toast.group || toast.project) && (
             <div
               className="flex items-center gap-2 text-xs mb-1"
               style={{ color: theme.colors.textDim }}
@@ -139,24 +139,28 @@ function ToastItem({ toast, theme, onRemove, onSessionClick }: { toast: ToastTyp
                 </span>
               )}
               {toast.project && (
-                <span className="truncate">{toast.project}</span>
+                <span className="truncate font-medium" style={{ color: theme.colors.textMain }}>{toast.project}</span>
               )}
-              {toast.tabName && (
-                <>
-                  <span style={{ color: theme.colors.border }}>•</span>
-                  <span
-                    className="font-mono px-1.5 py-0.5 rounded-full"
-                    style={{
-                      backgroundColor: theme.colors.accent + '30',
-                      color: theme.colors.accent,
-                      border: `1px solid ${theme.colors.accent}50`,
-                    }}
-                    title={toast.claudeSessionId ? `Claude Session: ${toast.claudeSessionId}` : undefined}
-                  >
-                    {toast.tabName}
-                  </span>
-                </>
-              )}
+            </div>
+          )}
+
+          {/* Line 2: Session/Tab name (or ID if not customized) */}
+          {toast.tabName && (
+            <div
+              className="flex items-center gap-2 text-xs mb-1"
+              style={{ color: theme.colors.textDim }}
+            >
+              <span
+                className="font-mono px-1.5 py-0.5 rounded-full truncate"
+                style={{
+                  backgroundColor: theme.colors.accent + '30',
+                  color: theme.colors.accent,
+                  border: `1px solid ${theme.colors.accent}50`,
+                }}
+                title={toast.claudeSessionId ? `Claude Session: ${toast.claudeSessionId}` : undefined}
+              >
+                {toast.tabName}
+              </span>
             </div>
           )}
 

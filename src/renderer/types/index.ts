@@ -39,6 +39,8 @@ export interface LogEntry {
   };
   // For user messages - tracks if message was successfully delivered to the agent
   delivered?: boolean;
+  // For user messages - tracks if message was sent in read-only mode
+  readOnly?: boolean;
 }
 
 // Queued item for the session-level execution queue

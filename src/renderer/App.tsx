@@ -198,6 +198,9 @@ export default function MaestroConsole() {
   const [agentSessionsOpen, setAgentSessionsOpen] = useState(false);
   const [activeClaudeSessionId, setActiveClaudeSessionId] = useState<string | null>(null);
 
+  // Session jump shortcut state (Opt+Cmd+NUMBER to jump to visible session)
+  const [showSessionJumpNumbers, setShowSessionJumpNumbers] = useState(false);
+
   // Execution Queue Browser Modal State
   const [queueBrowserOpen, setQueueBrowserOpen] = useState(false);
 
@@ -2815,6 +2818,21 @@ export default function MaestroConsole() {
         logsEndRef.current?.scrollIntoView({ behavior: 'instant' });
       }
 
+      // Opt+Cmd+NUMBER: Jump to visible session by number (1-9, 0=10th)
+      if (e.altKey && (e.metaKey || e.ctrlKey) && /^[0-9]$/.test(e.key)) {
+        e.preventDefault();
+        const num = e.key === '0' ? 10 : parseInt(e.key, 10);
+        const targetIndex = num - 1;
+        if (targetIndex >= 0 && targetIndex < visibleSessions.length) {
+          const targetSession = visibleSessions[targetIndex];
+          setActiveSessionId(targetSession.id);
+          // Also expand sidebar if collapsed
+          if (!leftSidebarOpen) {
+            setLeftSidebarOpen(true);
+          }
+        }
+      }
+
       // Tab shortcuts (AI mode only, requires an explicitly selected session)
       if (activeSessionId && activeSession?.inputMode === 'ai' && activeSession?.aiTabs) {
         if (isTabShortcut(e, 'newTab')) {
@@ -2921,6 +2939,37 @@ export default function MaestroConsole() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [shortcuts, activeFocus, activeRightTab, sessions, selectedSidebarIndex, activeSessionId, quickActionOpen, settingsModalOpen, shortcutsHelpOpen, newInstanceModalOpen, aboutModalOpen, processMonitorOpen, logViewerOpen, createGroupModalOpen, confirmModalOpen, renameInstanceModalOpen, renameGroupModalOpen, activeSession, previewFile, fileTreeFilter, fileTreeFilterOpen, gitDiffPreview, gitLogOpen, lightboxImage, hasOpenLayers, hasOpenModal, visibleSessions, sortedSessions, groups, bookmarksCollapsed, leftSidebarOpen]);
+
+  // Track Opt+Cmd modifier keys to show session jump number badges
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Show number badges when Opt+Cmd is held (but no number pressed yet)
+      if (e.altKey && (e.metaKey || e.ctrlKey) && !showSessionJumpNumbers) {
+        setShowSessionJumpNumbers(true);
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      // Hide number badges when either modifier is released
+      if (!e.altKey || (!e.metaKey && !e.ctrlKey)) {
+        setShowSessionJumpNumbers(false);
+      }
+    };
+
+    // Also hide when window loses focus
+    const handleBlur = () => {
+      setShowSessionJumpNumbers(false);
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('blur', handleBlur);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('blur', handleBlur);
+    };
+  }, [showSessionJumpNumbers]);
 
   // Sync selectedSidebarIndex with activeSessionId
   // IMPORTANT: Only sync when activeSessionId changes, NOT when sortedSessions changes
@@ -3517,7 +3566,8 @@ export default function MaestroConsole() {
               aiCommand: {
                 command: matchingCustomCommand.command,
                 description: matchingCustomCommand.description
-              }
+              },
+              ...(isReadOnlyMode && { readOnly: true })
             };
 
             // Update session state: add log, set busy, set awaitingSessionId for new sessions
@@ -3670,12 +3720,17 @@ export default function MaestroConsole() {
       sessionId: activeSession.id
     });
 
+    // Check if we're in read-only mode for the log entry
+    const activeTabForEntry = currentMode === 'ai' ? getActiveTab(activeSession) : null;
+    const isReadOnlyEntry = activeTabForEntry?.readOnlyMode === true;
+
     const newEntry: LogEntry = {
       id: generateId(),
       timestamp: Date.now(),
       source: 'user',
       text: inputValue,
-      images: [...stagedImages]
+      images: [...stagedImages],
+      ...(isReadOnlyEntry && { readOnly: true })
     };
 
     // Track shell CWD changes when in terminal mode
@@ -5408,6 +5463,8 @@ export default function MaestroConsole() {
             createNewGroup={createNewGroup}
             addNewSession={addNewSession}
             activeBatchSessionIds={activeBatchSessionIds}
+            showSessionJumpNumbers={showSessionJumpNumbers}
+            visibleSessions={visibleSessions}
           />
         </ErrorBoundary>
       )}

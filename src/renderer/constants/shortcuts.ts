@@ -27,6 +27,13 @@ export const DEFAULT_SHORTCUTS: Record<string, Shortcut> = {
   jumpToBottom: { id: 'jumpToBottom', label: 'Jump to Bottom', keys: ['Meta', 'Shift', 'j'] },
 };
 
+// Non-editable shortcuts (displayed in help but not configurable)
+export const FIXED_SHORTCUTS: Record<string, Shortcut> = {
+  jumpToSession: { id: 'jumpToSession', label: 'Jump to Session (1-9, 0=10th)', keys: ['Alt', 'Meta', '1-0'] },
+  filterFiles: { id: 'filterFiles', label: 'Filter Files (in Files tab)', keys: ['/'] },
+  filterSessions: { id: 'filterSessions', label: 'Filter Sessions (in Sidebar)', keys: ['/'] },
+};
+
 // Tab navigation shortcuts (AI mode only)
 export const TAB_SHORTCUTS: Record<string, Shortcut> = {
   newTab: { id: 'newTab', label: 'New Tab', keys: ['Meta', 't'] },

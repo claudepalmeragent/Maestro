@@ -14,6 +14,16 @@ const CHAR_TRUNCATE_THRESHOLD = 500;
 /** Threshold for line-based truncation */
 const LINE_TRUNCATE_THRESHOLD = 8;
 
+/**
+ * Strip ANSI escape codes from text
+ * Web interface doesn't render terminal colors, so we remove them for clean display
+ */
+function stripAnsiCodes(text: string): string {
+  // Matches ANSI escape sequences: ESC[ followed by params and command letter
+  // eslint-disable-next-line no-control-regex
+  return text.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
+}
+
 export interface LogEntry {
   id?: string;
   timestamp: number;
@@ -215,7 +225,8 @@ export function MessageHistory({
         }}
       >
       {logs.map((entry, index) => {
-        const text = entry.text || entry.content || '';
+        const rawText = entry.text || entry.content || '';
+        const text = stripAnsiCodes(rawText);
         const source = entry.source || (entry.type === 'user' ? 'user' : 'stdout');
         const isUser = source === 'user';
         const isError = source === 'stderr';

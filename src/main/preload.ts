@@ -302,6 +302,9 @@ contextBridge.exposeInMainWorld('maestro', {
   claude: {
     listSessions: (projectPath: string) =>
       ipcRenderer.invoke('claude:listSessions', projectPath),
+    // Paginated version for better performance with many sessions
+    listSessionsPaginated: (projectPath: string, options?: { cursor?: string; limit?: number }) =>
+      ipcRenderer.invoke('claude:listSessionsPaginated', projectPath, options),
     getGlobalStats: () =>
       ipcRenderer.invoke('claude:getGlobalStats'),
     onGlobalStatsUpdate: (callback: (stats: {
@@ -541,6 +544,29 @@ export interface MaestroAPI {
       origin?: 'user' | 'auto'; // Maestro session origin, undefined for CLI sessions
       sessionName?: string; // User-defined session name from Maestro
     }>>;
+    // Paginated version for better performance with many sessions
+    listSessionsPaginated: (projectPath: string, options?: { cursor?: string; limit?: number }) => Promise<{
+      sessions: Array<{
+        sessionId: string;
+        projectPath: string;
+        timestamp: string;
+        modifiedAt: string;
+        firstMessage: string;
+        messageCount: number;
+        sizeBytes: number;
+        costUsd: number;
+        inputTokens: number;
+        outputTokens: number;
+        cacheReadTokens: number;
+        cacheCreationTokens: number;
+        durationSeconds: number;
+        origin?: 'user' | 'auto';
+        sessionName?: string;
+      }>;
+      hasMore: boolean;
+      totalCount: number;
+      nextCursor: string | null;
+    }>;
     onGlobalStatsUpdate: (callback: (stats: {
       totalSessions: number;
       totalMessages: number;

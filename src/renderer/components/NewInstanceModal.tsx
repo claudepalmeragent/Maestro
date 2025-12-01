@@ -27,7 +27,7 @@ interface NewInstanceModalProps {
 export function NewInstanceModal({ isOpen, onClose, onCreate, theme, defaultAgent }: NewInstanceModalProps) {
   const [agents, setAgents] = useState<AgentConfig[]>([]);
   const [selectedAgent, setSelectedAgent] = useState(defaultAgent);
-  const [workingDir, setWorkingDir] = useState('~');
+  const [workingDir, setWorkingDir] = useState('');
   const [instanceName, setInstanceName] = useState('');
   const [loading, setLoading] = useState(true);
   const [refreshingAgent, setRefreshingAgent] = useState<string | null>(null);
@@ -92,7 +92,7 @@ export function NewInstanceModal({ isOpen, onClose, onCreate, theme, defaultAgen
 
     // Reset
     setInstanceName('');
-    setWorkingDir('~');
+    setWorkingDir('');
   }, [instanceName, agents, selectedAgent, workingDir, onCreate, onClose]);
 
   // Effects
@@ -161,7 +161,7 @@ export function NewInstanceModal({ isOpen, onClose, onCreate, theme, defaultAgen
         if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
           e.preventDefault();
           e.stopPropagation();
-          if (selectedAgent && agents.find(a => a.id === selectedAgent)?.available) {
+          if (selectedAgent && agents.find(a => a.id === selectedAgent)?.available && workingDir.trim()) {
             handleCreate();
           }
           return;
@@ -316,6 +316,7 @@ export function NewInstanceModal({ isOpen, onClose, onCreate, theme, defaultAgen
                 type="text"
                 value={workingDir}
                 onChange={(e) => setWorkingDir(e.target.value)}
+                placeholder="Select directory..."
                 className="flex-1 p-2 rounded border bg-transparent outline-none font-mono text-sm"
                 style={{ borderColor: theme.colors.border, color: theme.colors.textMain }}
               />
@@ -342,7 +343,7 @@ export function NewInstanceModal({ isOpen, onClose, onCreate, theme, defaultAgen
           </button>
           <button
             onClick={handleCreate}
-            disabled={!selectedAgent || !agents.find(a => a.id === selectedAgent)?.available}
+            disabled={!selectedAgent || !agents.find(a => a.id === selectedAgent)?.available || !workingDir.trim()}
             className="px-4 py-2 rounded disabled:opacity-50 disabled:cursor-not-allowed"
             style={{ backgroundColor: theme.colors.accent, color: theme.colors.accentForeground }}
           >

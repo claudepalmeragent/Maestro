@@ -82,6 +82,10 @@ interface SessionListProps {
 
   // Auto mode props
   activeBatchSessionIds?: string[]; // Session IDs that are running in auto mode
+
+  // Session jump shortcut props (Opt+Cmd+NUMBER)
+  showSessionJumpNumbers?: boolean;
+  visibleSessions?: Session[];
 }
 
 export function SessionList(props: SessionListProps) {
@@ -96,7 +100,9 @@ export function SessionList(props: SessionListProps) {
     handleDragStart, handleDragOver, handleDropOnGroup, handleDropOnUngrouped,
     finishRenamingGroup, finishRenamingSession, startRenamingGroup,
     startRenamingSession, showConfirmation, setGroups, setSessions, createNewGroup, addNewSession,
-    activeBatchSessionIds = []
+    activeBatchSessionIds = [],
+    showSessionJumpNumbers = false,
+    visibleSessions = []
   } = props;
 
   const [sessionFilter, setSessionFilter] = useState('');
@@ -236,6 +242,15 @@ export function SessionList(props: SessionListProps) {
       }
     }
   }, [sessionFilter, filteredSessions]);
+
+  // Get the jump number (1-9, 0=10th) for a session based on its position in visibleSessions
+  const getSessionJumpNumber = (sessionId: string): string | null => {
+    if (!showSessionJumpNumbers) return null;
+    const index = visibleSessions.findIndex(s => s.id === sessionId);
+    if (index < 0 || index >= 10) return null;
+    // Show 1-9 for positions 0-8, and 0 for position 9 (10th session)
+    return index === 9 ? '0' : String(index + 1);
+  };
 
   return (
     <div
@@ -697,6 +712,18 @@ export function SessionList(props: SessionListProps) {
                               AUTO
                             </div>
                           )}
+                          {/* Session Jump Number Badge (Opt+Cmd+NUMBER) */}
+                          {getSessionJumpNumber(session.id) && (
+                            <div
+                              className="w-4 h-4 rounded flex items-center justify-center text-[10px] font-bold"
+                              style={{
+                                backgroundColor: theme.colors.accent,
+                                color: theme.colors.bgMain
+                              }}
+                            >
+                              {getSessionJumpNumber(session.id)}
+                            </div>
+                          )}
                           {/* AI Status Indicator */}
                           <div
                             className={`w-2 h-2 rounded-full ${session.state === 'connecting' ? 'animate-pulse' : ''}`}
@@ -970,6 +997,18 @@ export function SessionList(props: SessionListProps) {
                                 AUTO
                               </div>
                             )}
+                            {/* Session Jump Number Badge (Opt+Cmd+NUMBER) */}
+                            {getSessionJumpNumber(session.id) && (
+                              <div
+                                className="w-4 h-4 rounded flex items-center justify-center text-[10px] font-bold"
+                                style={{
+                                  backgroundColor: theme.colors.accent,
+                                  color: theme.colors.bgMain
+                                }}
+                              >
+                                {getSessionJumpNumber(session.id)}
+                              </div>
+                            )}
                             {/* AI Status Indicator */}
                             <div
                               className={`w-2 h-2 rounded-full ${session.state === 'connecting' ? 'animate-pulse' : ''}`}
@@ -1136,7 +1175,7 @@ export function SessionList(props: SessionListProps) {
               </button>
             </div>
 
-            {!ungroupedCollapsed && (
+            {!ungroupedCollapsed ? (
               <div className="flex flex-col border-l ml-4" style={{ borderColor: theme.colors.border }}>
                 {[...filteredSessions.filter(s => !s.groupId)].sort((a, b) => compareSessionNames(a.name, b.name)).map((session) => {
                   const globalIdx = sortedSessions.findIndex(s => s.id === session.id);
@@ -1227,6 +1266,18 @@ export function SessionList(props: SessionListProps) {
                         AUTO
                       </div>
                     )}
+                    {/* Session Jump Number Badge (Opt+Cmd+NUMBER) */}
+                    {getSessionJumpNumber(session.id) && (
+                      <div
+                        className="w-4 h-4 rounded flex items-center justify-center text-[10px] font-bold"
+                        style={{
+                          backgroundColor: theme.colors.accent,
+                          color: theme.colors.bgMain
+                        }}
+                      >
+                        {getSessionJumpNumber(session.id)}
+                      </div>
+                    )}
                     {/* AI Status Indicator */}
                     <div
                       className={`w-2 h-2 rounded-full ${session.state === 'busy' ? 'animate-pulse' : ''}`}
@@ -1241,6 +1292,113 @@ export function SessionList(props: SessionListProps) {
                 </div>
                   );
                 })}
+              </div>
+            ) : (
+              /* Collapsed Ungrouped Palette */
+              <div
+                className="ml-8 mr-3 mt-1 mb-2 flex gap-1 h-1.5 cursor-pointer"
+                onClick={() => setUngroupedCollapsed(false)}
+              >
+                {[...filteredSessions.filter(s => !s.groupId)].sort((a, b) => compareSessionNames(a.name, b.name)).map(s => (
+                  <div
+                    key={s.id}
+                    className="group/indicator relative flex-1 rounded-full opacity-50 hover:opacity-100 transition-opacity"
+                    style={
+                      s.toolType === 'claude' && !s.claudeSessionId
+                        ? { border: `1px solid ${theme.colors.textDim}`, backgroundColor: 'transparent' }
+                        : { backgroundColor: getStatusColor(s.state, theme) }
+                    }
+                    onMouseEnter={(e) => setTooltipPosition({ x: e.clientX, y: e.clientY })}
+                    onMouseLeave={() => setTooltipPosition(null)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveSessionId(s.id);
+                    }}
+                  >
+                    {/* Hover Tooltip for Collapsed Ungrouped Indicator */}
+                    <div
+                      className="fixed rounded px-3 py-2 z-[100] opacity-0 group-hover/indicator:opacity-100 pointer-events-none transition-opacity shadow-xl"
+                      style={{
+                        minWidth: '240px',
+                        left: `${leftSidebarWidthState + 8}px`,
+                        top: tooltipPosition ? `${tooltipPosition.y}px` : undefined,
+                        backgroundColor: theme.colors.bgSidebar,
+                        border: `1px solid ${theme.colors.border}`
+                      }}
+                    >
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-xs font-bold" style={{ color: theme.colors.textMain }}>{s.name}</span>
+                        {s.toolType !== 'terminal' && (
+                          <span
+                            className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase"
+                            style={{
+                              backgroundColor: s.isGitRepo ? theme.colors.accent + '30' : theme.colors.textDim + '20',
+                              color: s.isGitRepo ? theme.colors.accent : theme.colors.textDim
+                            }}
+                          >
+                            {s.isGitRepo ? 'GIT' : 'LOCAL'}
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[10px] capitalize mb-2" style={{ color: theme.colors.textDim }}>{s.state} • {s.toolType}</div>
+
+                      <div className="pt-2 mt-2 space-y-1.5" style={{ borderTop: `1px solid ${theme.colors.border}` }}>
+                        <div className="flex items-center justify-between text-[10px]">
+                          <span style={{ color: theme.colors.textDim }}>Context Window</span>
+                          <span style={{ color: theme.colors.textMain }}>{s.contextUsage}%</span>
+                        </div>
+                        <div className="w-full h-1 rounded-full overflow-hidden" style={{ backgroundColor: theme.colors.border }}>
+                          <div
+                            className="h-full transition-all"
+                            style={{
+                              width: `${s.contextUsage}%`,
+                              backgroundColor: getContextColor(s.contextUsage, theme)
+                            }}
+                          />
+                        </div>
+
+                        {/* Git Status */}
+                        {s.isGitRepo && gitFileCounts.has(s.id) && gitFileCounts.get(s.id)! > 0 && (
+                          <div className="flex items-center justify-between text-[10px] pt-1">
+                            <span className="flex items-center gap-1" style={{ color: theme.colors.textDim }}>
+                              <GitBranch className="w-3 h-3" />
+                              Git Changes
+                            </span>
+                            <span style={{ color: theme.colors.warning }}>{gitFileCounts.get(s.id)} files</span>
+                          </div>
+                        )}
+
+                        {/* Session Cost */}
+                        {s.usageStats && s.usageStats.totalCostUsd > 0 && (
+                          <div className="flex items-center justify-between text-[10px] pt-1">
+                            <span style={{ color: theme.colors.textDim }}>Session Cost</span>
+                            <span className="font-mono font-bold" style={{ color: theme.colors.success }}>
+                              ${s.usageStats.totalCostUsd.toFixed(2)}
+                            </span>
+                          </div>
+                        )}
+
+                        {/* Active Time */}
+                        {s.activeTimeMs > 0 && (
+                          <div className="flex items-center justify-between text-[10px] pt-1">
+                            <span className="flex items-center gap-1" style={{ color: theme.colors.textDim }}>
+                              <Clock className="w-3 h-3" />
+                              Active Time
+                            </span>
+                            <span className="font-mono font-bold" style={{ color: theme.colors.accent }}>
+                              {formatActiveTime(s.activeTimeMs)}
+                            </span>
+                          </div>
+                        )}
+
+                        <div className="flex items-center gap-1.5 text-[10px] font-mono pt-1" style={{ color: theme.colors.textDim }}>
+                          <Folder className="w-3 h-3 shrink-0" />
+                          <span className="truncate">{s.cwd}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>

@@ -79,10 +79,17 @@ export function AgentSessionsBrowser({
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
 
+  // Pagination state for sessions list
+  const [hasMoreSessions, setHasMoreSessions] = useState(false);
+  const [isLoadingMoreSessions, setIsLoadingMoreSessions] = useState(false);
+  const [totalSessionCount, setTotalSessionCount] = useState(0);
+  const nextCursorRef = useRef<string | null>(null);
+
   const inputRef = useRef<HTMLInputElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
   const selectedItemRef = useRef<HTMLButtonElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const sessionsContainerRef = useRef<HTMLDivElement>(null);
   const searchModeDropdownRef = useRef<HTMLDivElement>(null);
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const layerIdRef = useRef<string>();
@@ -200,6 +207,12 @@ export function AgentSessionsBrowser({
 
   // Load sessions on mount
   useEffect(() => {
+    // Reset pagination state
+    setSessions([]);
+    setHasMoreSessions(false);
+    setTotalSessionCount(0);
+    nextCursorRef.current = null;
+
     const loadSessions = async () => {
       if (!activeSession?.cwd) {
         setLoading(false);
@@ -217,8 +230,12 @@ export function AgentSessionsBrowser({
         }
         setStarredSessions(starredFromOrigins);
 
-        const result = await window.maestro.claude.listSessions(activeSession.cwd);
-        setSessions(result);
+        // Use paginated API for better performance with many sessions
+        const result = await window.maestro.claude.listSessionsPaginated(activeSession.cwd, { limit: 100 });
+        setSessions(result.sessions);
+        setHasMoreSessions(result.hasMore);
+        setTotalSessionCount(result.totalCount);
+        nextCursorRef.current = result.nextCursor;
       } catch (error) {
         console.error('Failed to load sessions:', error);
       } finally {
@@ -228,6 +245,46 @@ export function AgentSessionsBrowser({
 
     loadSessions();
   }, [activeSession?.cwd]);
+
+  // Load more sessions when scrolling near bottom
+  const loadMoreSessions = useCallback(async () => {
+    if (!activeSession?.cwd || !hasMoreSessions || isLoadingMoreSessions || !nextCursorRef.current) return;
+
+    setIsLoadingMoreSessions(true);
+    try {
+      const result = await window.maestro.claude.listSessionsPaginated(activeSession.cwd, {
+        cursor: nextCursorRef.current,
+        limit: 100,
+      });
+
+      // Append new sessions, avoiding duplicates
+      setSessions(prev => {
+        const existingIds = new Set(prev.map(s => s.sessionId));
+        const newSessions = result.sessions.filter(s => !existingIds.has(s.sessionId));
+        return [...prev, ...newSessions];
+      });
+      setHasMoreSessions(result.hasMore);
+      nextCursorRef.current = result.nextCursor;
+    } catch (error) {
+      console.error('Failed to load more sessions:', error);
+    } finally {
+      setIsLoadingMoreSessions(false);
+    }
+  }, [activeSession?.cwd, hasMoreSessions, isLoadingMoreSessions]);
+
+  // Handle scroll for sessions list pagination - load more at 70% scroll
+  const handleSessionsScroll = useCallback(() => {
+    const container = sessionsContainerRef.current;
+    if (!container) return;
+
+    const { scrollTop, scrollHeight, clientHeight } = container;
+    const scrollPercentage = (scrollTop + clientHeight) / scrollHeight;
+    const atSeventyPercent = scrollPercentage >= 0.7;
+
+    if (atSeventyPercent && hasMoreSessions && !isLoadingMoreSessions) {
+      loadMoreSessions();
+    }
+  }, [hasMoreSessions, isLoadingMoreSessions, loadMoreSessions]);
 
   // Toggle star status for a session
   const toggleStar = useCallback(async (sessionId: string, e: React.MouseEvent) => {
@@ -419,10 +476,31 @@ export function AgentSessionsBrowser({
     return !session.sessionId.startsWith('agent-');
   }, [showAllSessions, namedOnly]);
 
-  // Calculate stats from visible sessions
+  // Auto-load more sessions if the filtered list is too small
+  // This handles the case where many sessions are filtered out (e.g., "agent-" prefix)
+  useEffect(() => {
+    // Only auto-load if:
+    // 1. Not currently loading
+    // 2. There are more sessions available
+    // 3. We have sessions loaded but filter shows fewer than 50 visible
+    // 4. Not all sessions are loaded yet
+    if (!loading && !isLoadingMoreSessions && hasMoreSessions && sessions.length > 0) {
+      const visibleCount = sessions.filter(isSessionVisible).length;
+      // If we have fewer than 50 visible sessions and more are available, load more
+      if (visibleCount < 50) {
+        loadMoreSessions();
+      }
+    }
+  }, [loading, isLoadingMoreSessions, hasMoreSessions, sessions, isSessionVisible, loadMoreSessions]);
+
+  // Calculate stats from loaded sessions
+  // Session count reflects the "Show All" checkbox - filtered or total
   const stats = useMemo(() => {
     const visibleSessions = sessions.filter(isSessionVisible);
-    const totalSessions = visibleSessions.length;
+    // When "Show All" is checked, use total from pagination; otherwise use filtered count
+    const totalSessions = showAllSessions
+      ? (totalSessionCount > 0 ? totalSessionCount : sessions.length)
+      : visibleSessions.length;
     const totalMessages = visibleSessions.reduce((sum, s) => sum + s.messageCount, 0);
     const totalSize = visibleSessions.reduce((sum, s) => sum + s.sizeBytes, 0);
     const totalCost = visibleSessions.reduce((sum, s) => sum + (s.costUsd || 0), 0);
@@ -430,7 +508,7 @@ export function AgentSessionsBrowser({
       ? new Date(Math.min(...visibleSessions.map(s => new Date(s.timestamp).getTime())))
       : null;
     return { totalSessions, totalMessages, totalSize, totalCost, oldestSession };
-  }, [sessions, isSessionVisible]);
+  }, [sessions, totalSessionCount, isSessionVisible, showAllSessions]);
 
   // Filter sessions by search - use different strategies based on search mode
   const filteredSessions = useMemo(() => {
@@ -1104,7 +1182,11 @@ export function AgentSessionsBrowser({
           </div>
 
           {/* Session list */}
-          <div className="flex-1 overflow-y-auto scrollbar-thin">
+          <div
+            ref={sessionsContainerRef}
+            className="flex-1 overflow-y-auto scrollbar-thin"
+            onScroll={handleSessionsScroll}
+          >
             {loading ? (
               <div className="flex items-center justify-center py-12">
                 <Loader2 className="w-6 h-6 animate-spin" style={{ color: theme.colors.textDim }} />
@@ -1318,6 +1400,23 @@ export function AgentSessionsBrowser({
                     </button>
                   );
                 })}
+                {/* Pagination indicator */}
+                {(isLoadingMoreSessions || hasMoreSessions) && !search && (
+                  <div className="py-4 flex justify-center items-center">
+                    {isLoadingMoreSessions ? (
+                      <div className="flex items-center gap-2">
+                        <Loader2 className="w-4 h-4 animate-spin" style={{ color: theme.colors.accent }} />
+                        <span className="text-xs" style={{ color: theme.colors.textDim }}>
+                          Loading more sessions...
+                        </span>
+                      </div>
+                    ) : (
+                      <span className="text-xs" style={{ color: theme.colors.textDim }}>
+                        {sessions.length} of {totalSessionCount} sessions loaded
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>

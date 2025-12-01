@@ -49,9 +49,16 @@ export function AgentSessionsModal({
   const [messagesOffset, setMessagesOffset] = useState(0);
   const [starredSessions, setStarredSessions] = useState<Set<string>>(new Set());
 
+  // Pagination state for sessions list
+  const [hasMoreSessions, setHasMoreSessions] = useState(false);
+  const [isLoadingMoreSessions, setIsLoadingMoreSessions] = useState(false);
+  const [totalSessionCount, setTotalSessionCount] = useState(0);
+  const nextCursorRef = useRef<string | null>(null);
+
   const inputRef = useRef<HTMLInputElement>(null);
   const selectedItemRef = useRef<HTMLButtonElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const sessionsContainerRef = useRef<HTMLDivElement>(null);
   const layerIdRef = useRef<string>();
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
@@ -104,6 +111,10 @@ export function AgentSessionsModal({
     setViewingSession(null);
     setMessages([]);
     setMessagesOffset(0);
+    setSessions([]);
+    setHasMoreSessions(false);
+    setTotalSessionCount(0);
+    nextCursorRef.current = null;
 
     const loadSessions = async () => {
       if (!activeSession?.cwd) {
@@ -121,9 +132,13 @@ export function AgentSessionsModal({
           setStarredSessions(new Set(savedStarred));
         }
 
-        const result = await window.maestro.claude.listSessions(activeSession.cwd);
-        console.log('AgentSessionsModal: Got sessions:', result.length);
-        setSessions(result);
+        // Use paginated API for better performance with many sessions
+        const result = await window.maestro.claude.listSessionsPaginated(activeSession.cwd, { limit: 100 });
+        console.log('AgentSessionsModal: Got sessions:', result.sessions.length, 'of', result.totalCount);
+        setSessions(result.sessions);
+        setHasMoreSessions(result.hasMore);
+        setTotalSessionCount(result.totalCount);
+        nextCursorRef.current = result.nextCursor;
       } catch (error) {
         console.error('Failed to load sessions:', error);
       } finally {
@@ -133,6 +148,46 @@ export function AgentSessionsModal({
 
     loadSessions();
   }, [activeSession?.cwd]);
+
+  // Load more sessions when scrolling near bottom
+  const loadMoreSessions = useCallback(async () => {
+    if (!activeSession?.cwd || !hasMoreSessions || isLoadingMoreSessions || !nextCursorRef.current) return;
+
+    setIsLoadingMoreSessions(true);
+    try {
+      const result = await window.maestro.claude.listSessionsPaginated(activeSession.cwd, {
+        cursor: nextCursorRef.current,
+        limit: 100,
+      });
+
+      // Append new sessions, avoiding duplicates
+      setSessions(prev => {
+        const existingIds = new Set(prev.map(s => s.sessionId));
+        const newSessions = result.sessions.filter(s => !existingIds.has(s.sessionId));
+        return [...prev, ...newSessions];
+      });
+      setHasMoreSessions(result.hasMore);
+      nextCursorRef.current = result.nextCursor;
+    } catch (error) {
+      console.error('Failed to load more sessions:', error);
+    } finally {
+      setIsLoadingMoreSessions(false);
+    }
+  }, [activeSession?.cwd, hasMoreSessions, isLoadingMoreSessions]);
+
+  // Handle scroll for sessions list pagination - load more at 70% scroll
+  const handleSessionsScroll = useCallback(() => {
+    const container = sessionsContainerRef.current;
+    if (!container) return;
+
+    const { scrollTop, scrollHeight, clientHeight } = container;
+    const scrollPercentage = (scrollTop + clientHeight) / scrollHeight;
+    const atSeventyPercent = scrollPercentage >= 0.7;
+
+    if (atSeventyPercent && hasMoreSessions && !isLoadingMoreSessions) {
+      loadMoreSessions();
+    }
+  }, [hasMoreSessions, isLoadingMoreSessions, loadMoreSessions]);
 
   // Toggle star status for a session
   const toggleStar = useCallback(async (sessionId: string, e: React.MouseEvent) => {
@@ -423,7 +478,11 @@ export function AgentSessionsModal({
             )}
           </div>
         ) : (
-          <div className="overflow-y-auto py-2 flex-1 scrollbar-thin">
+          <div
+            ref={sessionsContainerRef}
+            className="overflow-y-auto py-2 flex-1 scrollbar-thin"
+            onScroll={handleSessionsScroll}
+          >
             {loading ? (
               <div className="flex items-center justify-center py-8">
                 <Loader2 className="w-6 h-6 animate-spin" style={{ color: theme.colors.textDim }} />
@@ -433,55 +492,74 @@ export function AgentSessionsModal({
                 {sessions.length === 0 ? 'No Claude sessions found for this project' : 'No sessions match your search'}
               </div>
             ) : (
-              filteredSessions.map((session, i) => {
-                const isStarred = starredSessions.has(session.sessionId);
-                return (
-                  <button
-                    key={session.sessionId}
-                    ref={i === selectedIndex ? selectedItemRef : null}
-                    onClick={() => handleViewSession(session)}
-                    className="w-full text-left px-4 py-3 flex items-start gap-3 hover:bg-opacity-10 transition-colors group"
-                    style={{
-                      backgroundColor: i === selectedIndex ? theme.colors.accent : 'transparent',
-                      color: theme.colors.textMain,
-                    }}
-                  >
-                    {/* Star button */}
+              <>
+                {filteredSessions.map((session, i) => {
+                  const isStarred = starredSessions.has(session.sessionId);
+                  return (
                     <button
-                      onClick={(e) => toggleStar(session.sessionId, e)}
-                      className="p-1 -ml-1 rounded hover:bg-white/10 transition-colors shrink-0"
-                      title={isStarred ? 'Remove from favorites' : 'Add to favorites'}
+                      key={session.sessionId}
+                      ref={i === selectedIndex ? selectedItemRef : null}
+                      onClick={() => handleViewSession(session)}
+                      className="w-full text-left px-4 py-3 flex items-start gap-3 hover:bg-opacity-10 transition-colors group"
+                      style={{
+                        backgroundColor: i === selectedIndex ? theme.colors.accent : 'transparent',
+                        color: theme.colors.textMain,
+                      }}
                     >
-                      <Star
-                        className="w-4 h-4"
-                        style={{
-                          color: isStarred ? theme.colors.warning : theme.colors.textDim,
-                          fill: isStarred ? theme.colors.warning : 'transparent',
-                        }}
-                      />
+                      {/* Star button */}
+                      <button
+                        onClick={(e) => toggleStar(session.sessionId, e)}
+                        className="p-1 -ml-1 rounded hover:bg-white/10 transition-colors shrink-0"
+                        title={isStarred ? 'Remove from favorites' : 'Add to favorites'}
+                      >
+                        <Star
+                          className="w-4 h-4"
+                          style={{
+                            color: isStarred ? theme.colors.warning : theme.colors.textDim,
+                            fill: isStarred ? theme.colors.warning : 'transparent',
+                          }}
+                        />
+                      </button>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium truncate text-sm">
+                          {session.sessionName || session.firstMessage || `Session ${session.sessionId.slice(0, 8)}...`}
+                        </div>
+                        <div className="flex items-center gap-3 mt-1 text-xs" style={{ color: theme.colors.textDim }}>
+                          <span className="flex items-center gap-1">
+                            <Clock className="w-3 h-3" />
+                            {formatRelativeTime(session.modifiedAt)}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <MessageSquare className="w-3 h-3" />
+                            {session.messageCount} msgs
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <HardDrive className="w-3 h-3" />
+                            {formatSize(session.sizeBytes)}
+                          </span>
+                        </div>
+                      </div>
                     </button>
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium truncate text-sm">
-                        {session.sessionName || session.firstMessage || `Session ${session.sessionId.slice(0, 8)}...`}
-                      </div>
-                      <div className="flex items-center gap-3 mt-1 text-xs" style={{ color: theme.colors.textDim }}>
-                        <span className="flex items-center gap-1">
-                          <Clock className="w-3 h-3" />
-                          {formatRelativeTime(session.modifiedAt)}
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <MessageSquare className="w-3 h-3" />
-                          {session.messageCount} msgs
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <HardDrive className="w-3 h-3" />
-                          {formatSize(session.sizeBytes)}
+                  );
+                })}
+                {/* Pagination indicator */}
+                {(isLoadingMoreSessions || hasMoreSessions) && !search && (
+                  <div className="py-3 flex justify-center items-center">
+                    {isLoadingMoreSessions ? (
+                      <div className="flex items-center gap-2">
+                        <Loader2 className="w-4 h-4 animate-spin" style={{ color: theme.colors.accent }} />
+                        <span className="text-xs" style={{ color: theme.colors.textDim }}>
+                          Loading more sessions...
                         </span>
                       </div>
-                    </div>
-                  </button>
-                );
-              })
+                    ) : (
+                      <span className="text-[10px]" style={{ color: theme.colors.textDim }}>
+                        {sessions.length} of {totalSessionCount} sessions loaded
+                      </span>
+                    )}
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}

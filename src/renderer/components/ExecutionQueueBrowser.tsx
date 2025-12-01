@@ -190,6 +190,10 @@ export function ExecutionQueueBrowser({
                       index={index}
                       theme={theme}
                       onRemove={() => onRemoveItem(session.id, item.id)}
+                      onSwitchToSession={() => {
+                        onSwitchSession(session.id);
+                        onClose();
+                      }}
                     />
                   ))}
                 </div>
@@ -215,9 +219,10 @@ interface QueueItemRowProps {
   index: number;
   theme: Theme;
   onRemove: () => void;
+  onSwitchToSession: () => void;
 }
 
-function QueueItemRow({ item, index, theme, onRemove }: QueueItemRowProps) {
+function QueueItemRow({ item, index, theme, onRemove, onSwitchToSession }: QueueItemRowProps) {
   const isCommand = item.type === 'command';
   const displayText = isCommand
     ? item.command
@@ -258,15 +263,17 @@ function QueueItemRow({ item, index, theme, onRemove }: QueueItemRowProps) {
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           {item.tabName && (
-            <span
-              className="text-xs px-1.5 py-0.5 rounded font-mono"
+            <button
+              onClick={onSwitchToSession}
+              className="text-xs px-1.5 py-0.5 rounded font-mono hover:opacity-80 transition-opacity cursor-pointer"
               style={{
                 backgroundColor: theme.colors.accent + '25',
                 color: theme.colors.textMain
               }}
+              title="Jump to this session"
             >
               {item.tabName}
-            </span>
+            </button>
           )}
           <span
             className="text-xs flex items-center gap-1"

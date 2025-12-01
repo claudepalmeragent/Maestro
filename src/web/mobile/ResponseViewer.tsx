@@ -76,6 +76,16 @@ function formatTimestamp(timestamp: number): string {
 }
 
 /**
+ * Strip ANSI escape codes from text
+ * Web interface doesn't render terminal colors, so we remove them for clean display
+ */
+function stripAnsiCodes(text: string): string {
+  // Matches ANSI escape sequences: ESC[ followed by params and command letter
+  // eslint-disable-next-line no-control-regex
+  return text.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
+}
+
+/**
  * Language mapping for common file extensions and language identifiers
  */
 const LANGUAGE_MAP: Record<string, string> = {
@@ -550,7 +560,9 @@ export function ResponseViewer({
   }
 
   // Display text - use full text if available, otherwise preview
-  const displayText = fullText || displayResponse.text;
+  // Strip ANSI codes since web interface doesn't render terminal colors
+  const rawDisplayText = fullText || displayResponse.text;
+  const displayText = stripAnsiCodes(rawDisplayText);
   const hasMoreContent = !fullText && displayResponse.fullLength > displayResponse.text.length;
 
   // Parse the display text to extract code blocks for syntax highlighting

@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { X } from 'lucide-react';
 import type { Theme, Shortcut } from '../types';
 import { fuzzyMatch } from '../utils/search';
 import { useLayerStack } from '../contexts/LayerStackContext';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
+import { TAB_SHORTCUTS, FIXED_SHORTCUTS } from '../constants/shortcuts';
 
 interface ShortcutsHelpModalProps {
   theme: Theme;
@@ -49,8 +50,15 @@ export function ShortcutsHelpModal({ theme, shortcuts, onClose }: ShortcutsHelpM
 
   // Note: Search input uses autoFocus for immediate focus on mount
 
-  const totalShortcuts = Object.values(shortcuts).length;
-  const filteredShortcuts = Object.values(shortcuts)
+  // Combine all shortcuts for display: editable + tab + fixed (non-editable)
+  const allShortcuts = useMemo(() => ({
+    ...shortcuts,
+    ...TAB_SHORTCUTS,
+    ...FIXED_SHORTCUTS,
+  }), [shortcuts]);
+
+  const totalShortcuts = Object.values(allShortcuts).length;
+  const filteredShortcuts = Object.values(allShortcuts)
     .filter(sc =>
       fuzzyMatch(sc.label, searchQuery) ||
       fuzzyMatch(sc.keys.join(' '), searchQuery)

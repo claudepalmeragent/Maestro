@@ -153,6 +153,11 @@ const ActivityGraph: React.FC<ActivityGraphProps> = ({ entries, theme, reference
         >
           <div className="font-bold mb-1" style={{ color: theme.colors.textMain }}>
             {getTimeRangeLabel(hoveredIndex)}
+            {isHistorical && (
+              <span className="ml-2 font-normal" style={{ color: theme.colors.accent }}>
+                {formatReferenceTime()}
+              </span>
+            )}
           </div>
           <div className="flex flex-col gap-0.5">
             <div className="flex items-center justify-between gap-3">
@@ -236,7 +241,7 @@ const ActivityGraph: React.FC<ActivityGraphProps> = ({ entries, theme, reference
           );
         })}
       </div>
-      {/* Hour labels below + reference time indicator */}
+      {/* Hour labels below */}
       <div className="relative h-3 mt-0.5">
         {hourLabels.map(({ hour, index }) => (
           <span
@@ -252,15 +257,6 @@ const ActivityGraph: React.FC<ActivityGraphProps> = ({ entries, theme, reference
             {hour}h
           </span>
         ))}
-        {/* Show reference time indicator when viewing historical data */}
-        {isHistorical && (
-          <span
-            className="absolute right-0 text-[8px] font-mono font-bold"
-            style={{ color: theme.colors.accent, top: '-10px' }}
-          >
-            {formatReferenceTime()}
-          </span>
-        )}
       </div>
     </div>
   );

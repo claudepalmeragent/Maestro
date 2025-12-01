@@ -161,7 +161,7 @@ export function QuickActionsModal(props: QuickActionsModalProps) {
 
   const handleCreateGroup = () => {
     setNewGroupName('');
-    setMoveSessionToNewGroup(true); // When creating from Command-K, move session to new group
+    setMoveSessionToNewGroup(false); // Create empty group, don't move any session
     setCreateGroupModalOpen(true);
     setQuickActionOpen(false);
   };

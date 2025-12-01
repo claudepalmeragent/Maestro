@@ -132,11 +132,10 @@ export function useSessionManager(): UseSessionManagerReturn {
   const [activeSessionId, setActiveSessionId] = useState<string>('');
   const [draggingSessionId, setDraggingSessionId] = useState<string | null>(null);
 
-  // Load sessions and groups from electron-store on mount (with localStorage migration)
+  // Load sessions and groups from electron-store on mount
   useEffect(() => {
     const loadSessionsAndGroups = async () => {
       try {
-        // Try to load from electron-store first
         const savedSessions = await window.maestro.sessions.getAll();
         const savedGroups = await window.maestro.groups.getAll();
 
@@ -157,56 +156,14 @@ export function useSessionManager(): UseSessionManagerReturn {
             setActiveSessionId(sessionsWithGitStatus[0].id);
           }
         } else {
-          // Try to migrate from localStorage
-          try {
-            const localStorageSessions = localStorage.getItem('maestro_sessions');
-            if (localStorageSessions) {
-              const parsed = JSON.parse(localStorageSessions);
-              // Check Git repository status and migrate to aiTabs format for migrated sessions
-              const sessionsWithGitStatus = await Promise.all(
-                parsed.map(async (session: Session) => {
-                  const isGitRepo = await gitService.isRepo(session.cwd);
-                  // Migrate to aiTabs format and ensure closedTabHistory is reset
-                  const migratedSession = migrateSessionToTabFormat({ ...session, isGitRepo });
-                  return migratedSession;
-                })
-              );
-              setSessions(sessionsWithGitStatus);
-              if (sessionsWithGitStatus.length > 0) {
-                setActiveSessionId(sessionsWithGitStatus[0].id);
-              }
-              // Save to electron-store for future
-              await window.maestro.sessions.setAll(sessionsWithGitStatus);
-              // Clean up localStorage
-              localStorage.removeItem('maestro_sessions');
-            } else {
-              setSessions([]);
-            }
-          } catch (e) {
-            console.error('Failed to migrate sessions from localStorage:', e);
-            setSessions([]);
-          }
+          setSessions([]);
         }
 
         // Handle groups
         if (savedGroups && savedGroups.length > 0) {
           setGroups(savedGroups);
         } else {
-          // Try to migrate from localStorage
-          try {
-            const localStorageGroups = localStorage.getItem('maestro_groups');
-            if (localStorageGroups) {
-              const parsed = JSON.parse(localStorageGroups);
-              setGroups(parsed);
-              await window.maestro.groups.setAll(parsed);
-              localStorage.removeItem('maestro_groups');
-            } else {
-              setGroups([]);
-            }
-          } catch (e) {
-            console.error('Failed to migrate groups from localStorage:', e);
-            setGroups([]);
-          }
+          setGroups([]);
         }
       } catch (e) {
         console.error('Failed to load sessions/groups:', e);
