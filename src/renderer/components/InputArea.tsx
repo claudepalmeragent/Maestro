@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useMemo } from 'react';
-import { Terminal, Cpu, Keyboard, ImageIcon, X, ArrowUp, StopCircle, Eye, History, File, Folder } from 'lucide-react';
+import { Terminal, Cpu, Keyboard, ImageIcon, X, ArrowUp, StopCircle, Eye, History, File, Folder, GitBranch, Tag } from 'lucide-react';
 import type { Session, Theme, BatchRunState } from '../types';
 import type { TabCompletionSuggestion } from '../hooks/useTabCompletion';
 import { ThinkingStatusPill } from './ThinkingStatusPill';
@@ -340,8 +340,11 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
           <div className="overflow-y-auto max-h-56 scrollbar-thin">
             {tabCompletionSuggestions.map((suggestion, idx) => {
               const isSelected = idx === selectedTabCompletionIndex;
-              const IconComponent = suggestion.type === 'history' ? History : suggestion.type === 'folder' ? Folder : File;
-              const typeLabel = suggestion.type === 'history' ? 'history' : suggestion.type === 'folder' ? 'folder' : 'file';
+              const IconComponent = suggestion.type === 'history' ? History :
+                                   suggestion.type === 'branch' ? GitBranch :
+                                   suggestion.type === 'tag' ? Tag :
+                                   suggestion.type === 'folder' ? Folder : File;
+              const typeLabel = suggestion.type;
 
               return (
                 <div
@@ -362,6 +365,8 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
                 >
                   <IconComponent className="w-3.5 h-3.5 flex-shrink-0" style={{
                     color: suggestion.type === 'history' ? theme.colors.accent :
+                           suggestion.type === 'branch' ? theme.colors.success :
+                           suggestion.type === 'tag' ? theme.colors.info :
                            suggestion.type === 'folder' ? theme.colors.warning : theme.colors.textDim
                   }} />
                   <span className="flex-1 truncate">{suggestion.displayText}</span>

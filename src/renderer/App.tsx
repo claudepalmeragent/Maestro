@@ -104,6 +104,7 @@ export default function MaestroConsole() {
     markdownRawMode, setMarkdownRawMode,
     terminalWidth, setTerminalWidth,
     logLevel, setLogLevel,
+    logViewerSelectedLevels, setLogViewerSelectedLevels,
     maxLogBuffer, setMaxLogBuffer,
     maxOutputLines, setMaxOutputLines,
     osNotificationsEnabled, setOsNotificationsEnabled,
@@ -314,7 +315,7 @@ export default function MaestroConsole() {
         return {
           ...session,
           aiPid: -1,
-          terminalPid: -1,
+          terminalPid: 0,
           state: 'error' as SessionState,
           isLive: false,
           liveUrl: undefined
@@ -353,28 +354,14 @@ export default function MaestroConsole() {
         return {
           ...correctedSession,
           aiPid: -1,
-          terminalPid: -1,
+          terminalPid: 0,
           state: 'error' as SessionState,
           isLive: false,
           liveUrl: undefined
         };
       }
 
-      const terminalAgent = await window.maestro.agents.get('terminal');
-      if (!terminalAgent) {
-        console.error('Terminal agent not found');
-        return {
-          ...correctedSession,
-          aiPid: -1,
-          terminalPid: -1,
-          state: 'error' as SessionState,
-          isLive: false,
-          liveUrl: undefined
-        };
-      }
-
-      // Spawn BOTH processes for dual-process architecture
-      // 1. Spawn AI agent process (skip for Claude batch mode - will spawn on first message)
+      // Spawn AI process (terminal uses runCommand which spawns fresh shells per command)
       const isClaudeBatchMode = aiAgentType === 'claude' || aiAgentType === 'claude-code';
       let aiSpawnResult = { pid: 0, success: true }; // Default for batch mode
 
@@ -392,30 +379,35 @@ export default function MaestroConsole() {
         });
       }
 
-      // 2. Spawn terminal process
-      // Use terminalAgent.path (full path) if available
-      const terminalSpawnResult = await window.maestro.process.spawn({
-        sessionId: `${correctedSession.id}-terminal`,
-        toolType: 'terminal',
-        cwd: correctedSession.cwd,
-        command: terminalAgent.path || terminalAgent.command,
-        args: terminalAgent.args || []
-      });
-
       // For batch mode (Claude), aiPid can be 0 since we don't spawn until first message
       const aiSuccess = aiSpawnResult.success && (isClaudeBatchMode || aiSpawnResult.pid > 0);
 
-      if (aiSuccess && terminalSpawnResult.success && terminalSpawnResult.pid > 0) {
+      if (aiSuccess) {
         // Check if the working directory is a Git repository
         const isGitRepo = await gitService.isRepo(correctedSession.cwd);
+
+        // Fetch git branches and tags if it's a git repo
+        let gitBranches: string[] | undefined;
+        let gitTags: string[] | undefined;
+        let gitRefsCacheTime: number | undefined;
+        if (isGitRepo) {
+          [gitBranches, gitTags] = await Promise.all([
+            gitService.getBranches(correctedSession.cwd),
+            gitService.getTags(correctedSession.cwd)
+          ]);
+          gitRefsCacheTime = Date.now();
+        }
 
         // Session restored - no superfluous messages added to AI Terminal or Command Terminal
         return {
           ...correctedSession,
           aiPid: aiSpawnResult.pid,
-          terminalPid: terminalSpawnResult.pid,
+          terminalPid: 0,  // Terminal uses runCommand (fresh shells per command)
           state: 'idle' as SessionState,
           isGitRepo,  // Update Git status
+          gitBranches,
+          gitTags,
+          gitRefsCacheTime,
           isLive: false,  // Always start offline on app restart
           liveUrl: undefined,  // Clear any stale URL
           aiLogs: [],  // Deprecated - logs are now in aiTabs
@@ -429,7 +421,7 @@ export default function MaestroConsole() {
         return {
           ...session,
           aiPid: -1,
-          terminalPid: -1,
+          terminalPid: 0,
           state: 'error' as SessionState,
           isLive: false,
           liveUrl: undefined
@@ -440,7 +432,7 @@ export default function MaestroConsole() {
       return {
         ...session,
         aiPid: -1,
-        terminalPid: -1,
+        terminalPid: 0,
         state: 'error' as SessionState,
         isLive: false,
         liveUrl: undefined
@@ -912,6 +904,35 @@ export default function MaestroConsole() {
           shellLogs: [...s.shellLogs, exitLog]
         };
       }));
+
+      // Refresh git branches/tags after terminal command completes in git repos
+      // Check if the last command was a git command that might modify refs
+      if (!isFromAi) {
+        const currentSession = sessionsRef.current.find(s => s.id === actualSessionId);
+        if (currentSession?.isGitRepo) {
+          // Get the last user command from shell logs
+          const userLogs = currentSession.shellLogs.filter(log => log.source === 'user');
+          const lastCommand = userLogs[userLogs.length - 1]?.text?.trim().toLowerCase() || '';
+
+          // Refresh refs if command might have modified them
+          const gitRefCommands = ['git branch', 'git checkout', 'git switch', 'git fetch', 'git pull', 'git tag', 'git merge', 'git rebase', 'git reset'];
+          const shouldRefresh = gitRefCommands.some(cmd => lastCommand.startsWith(cmd));
+
+          if (shouldRefresh) {
+            (async () => {
+              const [gitBranches, gitTags] = await Promise.all([
+                gitService.getBranches(currentSession.cwd),
+                gitService.getTags(currentSession.cwd)
+              ]);
+              setSessions(prev => prev.map(s =>
+                s.id === actualSessionId
+                  ? { ...s, gitBranches, gitTags, gitRefsCacheTime: Date.now() }
+                  : s
+              ));
+            })();
+          }
+        }
+      }
 
       // Fire side effects AFTER state update (outside the updater function)
       if (queuedItemToProcess) {
@@ -3237,16 +3258,9 @@ export default function MaestroConsole() {
       return;
     }
 
-    // Get terminal agent definition
-    const terminalAgent = await window.maestro.agents.get('terminal');
-    if (!terminalAgent) {
-      console.error('Terminal agent not found');
-      return;
-    }
-
-    // Spawn BOTH processes - this is the dual-process architecture
+    // Spawn AI process (terminal uses runCommand which spawns fresh shells per command)
     try {
-      // 1. Spawn AI agent process
+      // Spawn AI agent process
       // Use agent.path (full path) if available for better cross-environment compatibility
       const aiSpawnResult = await window.maestro.process.spawn({
         sessionId: `${newId}-ai`,
@@ -3260,22 +3274,23 @@ export default function MaestroConsole() {
         throw new Error('Failed to spawn AI agent process');
       }
 
-      // 2. Spawn terminal process
-      // Use terminalAgent.path (full path) if available
-      const terminalSpawnResult = await window.maestro.process.spawn({
-        sessionId: `${newId}-terminal`,
-        toolType: 'terminal',
-        cwd: workingDir,
-        command: terminalAgent.path || terminalAgent.command,
-        args: terminalAgent.args || []
-      });
-
-      if (!terminalSpawnResult.success || terminalSpawnResult.pid <= 0) {
-        throw new Error('Failed to spawn terminal process');
-      }
+      // Terminal processes are spawned lazily when needed (not eagerly)
+      // runCommand() spawns a fresh shell for each command, so no persistent PTY needed
 
       // Check if the working directory is a Git repository
       const isGitRepo = await gitService.isRepo(workingDir);
+
+      // Fetch git branches and tags if it's a git repo
+      let gitBranches: string[] | undefined;
+      let gitTags: string[] | undefined;
+      let gitRefsCacheTime: number | undefined;
+      if (isGitRepo) {
+        [gitBranches, gitTags] = await Promise.all([
+          gitService.getBranches(workingDir),
+          gitService.getTags(workingDir)
+        ]);
+        gitRefsCacheTime = Date.now();
+      }
 
       // Create initial fresh tab for new sessions
       const initialTabId = generateId();
@@ -3299,15 +3314,18 @@ export default function MaestroConsole() {
         cwd: workingDir,
         fullPath: workingDir,
         isGitRepo,
+        gitBranches,
+        gitTags,
+        gitRefsCacheTime,
         aiLogs: [], // Deprecated - logs are now in aiTabs
         shellLogs: [{ id: generateId(), timestamp: Date.now(), source: 'system', text: 'Shell Session Ready.' }],
         workLog: [],
         scratchPadContent: '',
         contextUsage: 0,
         inputMode: agentId === 'terminal' ? 'terminal' : 'ai',
-        // Store both PIDs - each session now has two processes
+        // AI process PID (terminal uses runCommand which spawns fresh shells)
         aiPid: aiSpawnResult.pid,
-        terminalPid: terminalSpawnResult.pid,
+        terminalPid: 0,
         port: 3000 + Math.floor(Math.random() * 100),
         isLive: false,
         changedFiles: [],
@@ -3586,11 +3604,6 @@ export default function MaestroConsole() {
       return;
     }
 
-    // Sync local AI input to session state on submit (will be cleared anyway, but keeps state consistent)
-    if (isAiMode) {
-      syncAiInputToSession(inputValue);
-    }
-
     // Block slash commands when agent is busy (in AI mode)
     if (inputValue.trim().startsWith('/') && activeSession.state === 'busy' && activeSession.inputMode === 'ai') {
       showFlashNotification('Commands disabled while agent is working');
@@ -3634,6 +3647,7 @@ export default function MaestroConsole() {
 
         setInputValue('');
         setSlashCommandOpen(false);
+        if (isAiMode) syncAiInputToSession('');
         if (inputRef.current) inputRef.current.style.height = 'auto';
         return;
       }
@@ -3667,6 +3681,7 @@ export default function MaestroConsole() {
         }));
         setInputValue('');
         setSlashCommandOpen(false);
+        if (isAiMode) syncAiInputToSession('');
         if (inputRef.current) inputRef.current.style.height = 'auto';
         return;
       }
@@ -3678,6 +3693,7 @@ export default function MaestroConsole() {
           // Execute the custom AI command by sending its prompt
           setInputValue('');
           setSlashCommandOpen(false);
+          syncAiInputToSession('');  // We're in AI mode here (isTerminalMode === false)
           if (inputRef.current) inputRef.current.style.height = 'auto';
 
           // Substitute template variables and send to the AI agent
@@ -3756,10 +3772,7 @@ export default function MaestroConsole() {
                 };
               }));
             }
-
-            setInputValue('');
-            setSlashCommandOpen(false);
-            if (inputRef.current) inputRef.current.style.height = 'auto';
+            // Note: Input already cleared synchronously before this async block
           })();
           return;
         }
@@ -3825,6 +3838,7 @@ export default function MaestroConsole() {
         // Clear input
         setInputValue('');
         setStagedImages([]);
+        syncAiInputToSession('');  // Sync empty value to session state
         if (inputRef.current) inputRef.current.style.height = 'auto';
         return;
       }
@@ -3982,6 +3996,11 @@ export default function MaestroConsole() {
 
     setInputValue('');
     setStagedImages([]);
+
+    // Sync empty value to session state (prevents stale input restoration on blur)
+    if (isAiMode) {
+      syncAiInputToSession('');
+    }
 
     // Reset height
     if (inputRef.current) inputRef.current.style.height = 'auto';
@@ -4434,7 +4453,7 @@ export default function MaestroConsole() {
           const updatedAiTabs = s.aiTabs?.length > 0
             ? s.aiTabs.map(tab =>
                 tab.id === s.activeTabId
-                  ? { ...tab, state: 'idle' as const, logs: [...tab.logs, errorLogEntry] }
+                  ? { ...tab, state: 'idle' as const, thinkingStartTime: undefined, logs: [...tab.logs, errorLogEntry] }
                   : tab
               )
             : s.aiTabs;
@@ -4449,6 +4468,7 @@ export default function MaestroConsole() {
             ...s,
             state: 'idle' as SessionState,
             busySource: undefined,
+            thinkingStartTime: undefined,
             aiTabs: updatedAiTabs
           };
         }));
@@ -4570,10 +4590,14 @@ export default function MaestroConsole() {
             text: `Unknown command: ${item.command}`
           };
           addLogToActiveTab(sessionId, errorLogEntry);
-          // Set session back to idle
+          // Set session back to idle with full state cleanup
           setSessions(prev => prev.map(s => {
             if (s.id !== sessionId) return s;
-            return { ...s, state: 'idle' as SessionState };
+            // Reset the target tab's state too
+            const updatedAiTabs = s.aiTabs?.map(tab =>
+              tab.id === item.tabId ? { ...tab, state: 'idle' as const, thinkingStartTime: undefined } : tab
+            );
+            return { ...s, state: 'idle' as SessionState, busySource: undefined, thinkingStartTime: undefined, aiTabs: updatedAiTabs };
           }));
         }
       }
@@ -4606,6 +4630,8 @@ export default function MaestroConsole() {
         return {
           ...s,
           state: 'idle',
+          busySource: undefined,
+          thinkingStartTime: undefined,
           aiTabs: updatedAiTabs
         };
       }));
@@ -5684,6 +5710,8 @@ export default function MaestroConsole() {
         gitDiffPreview={gitDiffPreview}
         fileTreeFilterOpen={fileTreeFilterOpen}
         logLevel={logLevel}
+        logViewerSelectedLevels={logViewerSelectedLevels}
+        setLogViewerSelectedLevels={setLogViewerSelectedLevels}
         setGitDiffPreview={setGitDiffPreview}
         setLogViewerOpen={setLogViewerOpen}
         setAgentSessionsOpen={setAgentSessionsOpen}

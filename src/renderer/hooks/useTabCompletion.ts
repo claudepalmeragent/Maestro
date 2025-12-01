@@ -4,7 +4,7 @@ import type { FileNode } from './useFileExplorer';
 
 export interface TabCompletionSuggestion {
   value: string;
-  type: 'history' | 'file' | 'folder';
+  type: 'history' | 'file' | 'folder' | 'branch' | 'tag';
   displayText: string;
 }
 
@@ -12,10 +12,39 @@ export interface UseTabCompletionReturn {
   getSuggestions: (input: string) => TabCompletionSuggestion[];
 }
 
+// Git commands that should trigger branch/tag completion
+const GIT_BRANCH_COMMANDS = [
+  'git checkout',
+  'git switch',
+  'git branch -d',
+  'git branch -D',
+  'git branch --delete',
+  'git merge',
+  'git rebase',
+  'git cherry-pick',
+  'git diff',
+  'git log',
+  'git reset',
+  'git revert',
+  'git push origin',
+  'git pull origin',
+  'git fetch origin'
+];
+
+const GIT_TAG_COMMANDS = [
+  'git checkout',
+  'git tag -d',
+  'git tag --delete',
+  'git show',
+  'git diff',
+  'git push origin'
+];
+
 /**
  * Hook for providing tab completion suggestions from:
  * 1. Shell command history
  * 2. Current directory file tree
+ * 3. Git branches and tags (for git commands in git repos)
  *
  * Performance optimizations:
  * - fileNames is memoized to avoid re-traversing tree on every render
@@ -80,7 +109,48 @@ export function useTabCompletion(session: Session | null): UseTabCompletionRetur
       }
     }
 
-    // 2. Check file tree for matches on the last word
+    // 2. Check git branches and tags for git commands in git repos
+    if (session.isGitRepo) {
+      const shouldShowBranches = GIT_BRANCH_COMMANDS.some(cmd => inputLower.startsWith(cmd.toLowerCase()));
+      const shouldShowTags = GIT_TAG_COMMANDS.some(cmd => inputLower.startsWith(cmd.toLowerCase()));
+
+      if (shouldShowBranches || shouldShowTags) {
+        const gitBranches = session.gitBranches || [];
+        const gitTags = session.gitTags || [];
+
+        // Add matching branches
+        if (shouldShowBranches) {
+          for (const branch of gitBranches) {
+            const fullValue = `${prefix} ${branch}`.trim();
+            if (branch.toLowerCase().startsWith(lastPartLower) && !seenValues.has(fullValue)) {
+              seenValues.add(fullValue);
+              suggestions.push({
+                value: fullValue,
+                type: 'branch',
+                displayText: branch
+              });
+            }
+          }
+        }
+
+        // Add matching tags
+        if (shouldShowTags) {
+          for (const tag of gitTags) {
+            const fullValue = `${prefix} ${tag}`.trim();
+            if (tag.toLowerCase().startsWith(lastPartLower) && !seenValues.has(fullValue)) {
+              seenValues.add(fullValue);
+              suggestions.push({
+                value: fullValue,
+                type: 'tag',
+                displayText: tag
+              });
+            }
+          }
+        }
+      }
+    }
+
+    // 3. Check file tree for matches on the last word
     // Handle path-like completions (e.g., "cd src/comp" should match files in src/)
     // Also handle ./ prefix (e.g., "./src" -> "src")
     const normalizedLastPart = lastPart.replace(/^\.\//, ''); // Strip leading ./
@@ -124,10 +194,10 @@ export function useTabCompletion(session: Session | null): UseTabCompletionRetur
       }
     }
 
-    // Sort: history first, then folders, then files
+    // Sort: history first, then branches, then tags, then folders, then files
     // Within each category, sort alphabetically
     suggestions.sort((a, b) => {
-      const typeOrder = { history: 0, folder: 1, file: 2 };
+      const typeOrder: Record<string, number> = { history: 0, branch: 1, tag: 2, folder: 3, file: 4 };
       if (typeOrder[a.type] !== typeOrder[b.type]) {
         return typeOrder[a.type] - typeOrder[b.type];
       }

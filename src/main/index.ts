@@ -938,6 +938,40 @@ function setupIpcHandlers() {
     return { stdout: result.stdout.trim(), stderr: result.stderr };
   });
 
+  // Get all local and remote branches
+  ipcMain.handle('git:branches', async (_, cwd: string) => {
+    // Get all branches (local and remote) in a simple format
+    // -a for all branches, --format to get clean names
+    const result = await execFileNoThrow('git', ['branch', '-a', '--format=%(refname:short)'], cwd);
+    if (result.exitCode !== 0) {
+      return { branches: [], stderr: result.stderr };
+    }
+    const branches = result.stdout
+      .split('\n')
+      .map(b => b.trim())
+      .filter(b => b.length > 0)
+      // Clean up remote branch names (origin/main -> main for remotes)
+      .map(b => b.replace(/^origin\//, ''))
+      // Remove duplicates (local and remote might have same name)
+      .filter((b, i, arr) => arr.indexOf(b) === i)
+      // Filter out HEAD pointer
+      .filter(b => b !== 'HEAD');
+    return { branches };
+  });
+
+  // Get all tags
+  ipcMain.handle('git:tags', async (_, cwd: string) => {
+    const result = await execFileNoThrow('git', ['tag', '--list'], cwd);
+    if (result.exitCode !== 0) {
+      return { tags: [], stderr: result.stderr };
+    }
+    const tags = result.stdout
+      .split('\n')
+      .map(t => t.trim())
+      .filter(t => t.length > 0);
+    return { tags };
+  });
+
   ipcMain.handle('git:info', async (_, cwd: string) => {
     // Get comprehensive git info in a single call
     const [branchResult, remoteResult, statusResult, behindAheadResult] = await Promise.all([
@@ -1498,7 +1532,8 @@ function setupIpcHandlers() {
       const claudeProjectsDir = path.join(homeDir, '.claude', 'projects');
 
       // Encode the project path the same way Claude Code does
-      const encodedPath = projectPath.replace(/\//g, '-');
+      // Claude replaces both '/' and '.' with '-' in the path encoding
+      const encodedPath = projectPath.replace(/[/.]/g, '-');
       const projectDir = path.join(claudeProjectsDir, encodedPath);
 
       logger.info(`Claude sessions lookup - projectPath: ${projectPath}, encodedPath: ${encodedPath}, projectDir: ${projectDir}`, 'ClaudeSessions');
@@ -1670,7 +1705,8 @@ function setupIpcHandlers() {
       const claudeProjectsDir = path.join(homeDir, '.claude', 'projects');
 
       // Encode the project path the same way Claude Code does
-      const encodedPath = projectPath.replace(/\//g, '-');
+      // Claude replaces both '/' and '.' with '-' in the path encoding
+      const encodedPath = projectPath.replace(/[/.]/g, '-');
       const projectDir = path.join(claudeProjectsDir, encodedPath);
 
       // Check if the directory exists
@@ -1870,7 +1906,7 @@ function setupIpcHandlers() {
       const claudeProjectsDir = path.join(homeDir, '.claude', 'projects');
 
       // Encode the project path the same way Claude Code does
-      const encodedPath = projectPath.replace(/\//g, '-');
+      const encodedPath = projectPath.replace(/[/.]/g, '-');
       const projectDir = path.join(claudeProjectsDir, encodedPath);
 
       // Check if the directory exists
@@ -2162,7 +2198,7 @@ function setupIpcHandlers() {
       const homeDir = os.default.homedir();
       const claudeProjectsDir = path.join(homeDir, '.claude', 'projects');
 
-      const encodedPath = projectPath.replace(/\//g, '-');
+      const encodedPath = projectPath.replace(/[/.]/g, '-');
       const sessionFile = path.join(claudeProjectsDir, encodedPath, `${sessionId}.jsonl`);
 
       const content = await fs.readFile(sessionFile, 'utf-8');
@@ -2251,7 +2287,7 @@ function setupIpcHandlers() {
       const homeDir = os.default.homedir();
       const claudeProjectsDir = path.join(homeDir, '.claude', 'projects');
 
-      const encodedPath = projectPath.replace(/\//g, '-');
+      const encodedPath = projectPath.replace(/[/.]/g, '-');
       const sessionFile = path.join(claudeProjectsDir, encodedPath, `${sessionId}.jsonl`);
 
       const content = await fs.readFile(sessionFile, 'utf-8');
@@ -2359,7 +2395,7 @@ function setupIpcHandlers() {
       const homeDir = os.default.homedir();
       const claudeProjectsDir = path.join(homeDir, '.claude', 'projects');
 
-      const encodedPath = projectPath.replace(/\//g, '-');
+      const encodedPath = projectPath.replace(/[/.]/g, '-');
       const projectDir = path.join(claudeProjectsDir, encodedPath);
 
       // Check if the directory exists

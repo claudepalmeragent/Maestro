@@ -169,5 +169,31 @@ export const gitService = {
       console.error('Git remote error:', error);
       return null;
     }
+  },
+
+  /**
+   * Get all branches (local and remote, deduplicated)
+   */
+  async getBranches(cwd: string): Promise<string[]> {
+    try {
+      const result = await window.maestro.git.branches(cwd);
+      return result.branches || [];
+    } catch (error) {
+      console.error('Git branches error:', error);
+      return [];
+    }
+  },
+
+  /**
+   * Get all tags
+   */
+  async getTags(cwd: string): Promise<string[]> {
+    try {
+      const result = await window.maestro.git.tags(cwd);
+      return result.tags || [];
+    } catch (error) {
+      console.error('Git tags error:', error);
+      return [];
+    }
   }
 };

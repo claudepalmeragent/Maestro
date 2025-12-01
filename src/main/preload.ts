@@ -210,6 +210,8 @@ contextBridge.exposeInMainWorld('maestro', {
     isRepo: (cwd: string) => ipcRenderer.invoke('git:isRepo', cwd),
     numstat: (cwd: string) => ipcRenderer.invoke('git:numstat', cwd),
     branch: (cwd: string) => ipcRenderer.invoke('git:branch', cwd),
+    branches: (cwd: string) => ipcRenderer.invoke('git:branches', cwd),
+    tags: (cwd: string) => ipcRenderer.invoke('git:tags', cwd),
     remote: (cwd: string) => ipcRenderer.invoke('git:remote', cwd),
     info: (cwd: string) => ipcRenderer.invoke('git:info', cwd),
     log: (cwd: string, options?: { limit?: number; search?: string }) =>
