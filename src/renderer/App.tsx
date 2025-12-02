@@ -6297,6 +6297,22 @@ export default function MaestroConsole() {
               s.id === activeSession.id ? { ...s, activeTabId: tabId } : s
             ));
           }}
+          onNamedSessionSelect={(claudeSessionId, projectPath, sessionName) => {
+            // Open a closed named session as a new tab in the current session
+            // Note: The session might be from a different project - we'll open it anyway
+            // and let Claude Code handle the context appropriately
+            const result = createTab(activeSession, {
+              claudeSessionId,
+              name: sessionName,
+              logs: [], // Will be populated when the session is resumed
+            });
+            setSessions(prev => prev.map(s =>
+              s.id === activeSession.id ? result.session : s
+            ));
+            // Focus input so user can start interacting immediately
+            setActiveFocus('main');
+            setTimeout(() => inputRef.current?.focus(), 50);
+          }}
           onClose={() => setTabSwitcherOpen(false)}
         />
       )}

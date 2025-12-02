@@ -569,11 +569,14 @@ export function TabBar({
   // Count unread tabs for the filter toggle tooltip
   const unreadCount = tabs.filter(t => t.hasUnread).length;
 
+  // Check if a tab has draft content (unsent input or staged images)
+  const hasDraft = (tab: AITab) => (tab.inputValue && tab.inputValue.trim() !== '') || (tab.stagedImages && tab.stagedImages.length > 0);
+
   // Filter tabs based on unread filter state
-  // When filter is on, show unread tabs + the active tab (so user sees what they're viewing)
+  // When filter is on, show: unread tabs + active tab + tabs with drafts
   // The active tab disappears from the filtered list when user navigates away from it
   const displayedTabs = showUnreadOnly
-    ? tabs.filter(t => t.hasUnread || t.id === activeTabId)
+    ? tabs.filter(t => t.hasUnread || t.id === activeTabId || hasDraft(t))
     : tabs;
 
   // Check if tabs overflow the container (need sticky + button)

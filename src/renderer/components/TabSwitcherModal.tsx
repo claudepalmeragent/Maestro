@@ -6,12 +6,26 @@ import { useLayerStack } from '../contexts/LayerStackContext';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 import { getContextColor } from '../utils/theme';
 
+/** Named session from the store (not currently open) */
+interface NamedSession {
+  claudeSessionId: string;
+  projectPath: string;
+  sessionName: string;
+  starred?: boolean;
+}
+
+/** Union type for items in the list */
+type ListItem =
+  | { type: 'open'; tab: AITab }
+  | { type: 'named'; session: NamedSession };
+
 interface TabSwitcherModalProps {
   theme: Theme;
   tabs: AITab[];
   activeTabId: string;
   shortcut?: Shortcut;
   onTabSelect: (tabId: string) => void;
+  onNamedSessionSelect: (claudeSessionId: string, projectPath: string, sessionName: string) => void;
   onClose: () => void;
 }
 
@@ -63,9 +77,9 @@ function getTabDisplayName(tab: AITab): string {
 /**
  * Get the UUID pill display (first octet of session ID)
  */
-function getUuidPill(tab: AITab): string | null {
-  if (!tab.claudeSessionId) return null;
-  return tab.claudeSessionId.split('-')[0].toUpperCase();
+function getUuidPill(claudeSessionId: string | undefined): string | null {
+  if (!claudeSessionId) return null;
+  return claudeSessionId.split('-')[0].toUpperCase();
 }
 
 /**
@@ -115,9 +129,12 @@ function ContextGauge({ percentage, theme, size = 36 }: { percentage: number; th
   );
 }
 
+type ViewMode = 'open' | 'all-named';
+
 /**
  * Tab Switcher Modal - Quick navigation between AI tabs with fuzzy search.
  * Shows context window consumption, cost, custom name, and UUID pill for each tab.
+ * Supports switching between "Open Tabs" and "All Named" sessions.
  */
 export function TabSwitcherModal({
   theme,
@@ -125,11 +142,15 @@ export function TabSwitcherModal({
   activeTabId,
   shortcut,
   onTabSelect,
+  onNamedSessionSelect,
   onClose
 }: TabSwitcherModalProps) {
   const [search, setSearch] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [firstVisibleIndex, setFirstVisibleIndex] = useState(0);
+  const [viewMode, setViewMode] = useState<ViewMode>('open');
+  const [namedSessions, setNamedSessions] = useState<NamedSession[]>([]);
+  const [namedSessionsLoaded, setNamedSessionsLoaded] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const selectedItemRef = useRef<HTMLButtonElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -171,6 +192,16 @@ export function TabSwitcherModal({
     return () => clearTimeout(timer);
   }, []);
 
+  // Load named sessions when switching to "all-named" mode (or preload on mount)
+  useEffect(() => {
+    if (!namedSessionsLoaded) {
+      window.maestro.claude.getAllNamedSessions().then(sessions => {
+        setNamedSessions(sessions);
+        setNamedSessionsLoaded(true);
+      });
+    }
+  }, [namedSessionsLoaded]);
+
   // Scroll selected item into view
   useEffect(() => {
     selectedItemRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
@@ -186,69 +217,112 @@ export function TabSwitcherModal({
     }
   };
 
-  // Filter and sort tabs based on search query
-  const filteredTabs = useMemo(() => {
-    if (!search.trim()) {
-      // When no search, sort alphabetically by display name
-      return [...tabs].sort((a, b) => {
+  // Get set of open tab claude session IDs for quick lookup
+  const openTabSessionIds = useMemo(() => {
+    return new Set(tabs.map(t => t.claudeSessionId).filter(Boolean));
+  }, [tabs]);
+
+  // Build the list items based on view mode
+  const listItems: ListItem[] = useMemo(() => {
+    if (viewMode === 'open') {
+      // Open tabs mode - show all currently open tabs
+      const sorted = [...tabs].sort((a, b) => {
         const nameA = getTabDisplayName(a).toLowerCase();
         const nameB = getTabDisplayName(b).toLowerCase();
         return nameA.localeCompare(nameB);
       });
+      return sorted.map(tab => ({ type: 'open' as const, tab }));
+    } else {
+      // All Named mode - show named sessions that are NOT currently open
+      const closedNamedSessions = namedSessions.filter(
+        s => !openTabSessionIds.has(s.claudeSessionId)
+      );
+      const sorted = closedNamedSessions.sort((a, b) =>
+        a.sessionName.toLowerCase().localeCompare(b.sessionName.toLowerCase())
+      );
+      return sorted.map(session => ({ type: 'named' as const, session }));
+    }
+  }, [viewMode, tabs, namedSessions, openTabSessionIds]);
+
+  // Filter items based on search query
+  const filteredItems = useMemo(() => {
+    if (!search.trim()) {
+      return listItems;
     }
 
-    // Fuzzy search on tab name and UUID
-    const results = tabs.map(tab => {
-      const displayName = getTabDisplayName(tab);
-      const uuid = tab.claudeSessionId || '';
+    // Fuzzy search
+    const results = listItems.map(item => {
+      let displayName: string;
+      let uuid: string;
 
-      // Score both name and UUID, take the better score
+      if (item.type === 'open') {
+        displayName = getTabDisplayName(item.tab);
+        uuid = item.tab.claudeSessionId || '';
+      } else {
+        displayName = item.session.sessionName;
+        uuid = item.session.claudeSessionId;
+      }
+
       const nameResult = fuzzyMatchWithScore(displayName, search);
       const uuidResult = fuzzyMatchWithScore(uuid, search);
 
       const bestScore = Math.max(nameResult.score, uuidResult.score);
       const matches = nameResult.matches || uuidResult.matches;
 
-      return { tab, score: bestScore, matches };
+      return { item, score: bestScore, matches };
     });
 
     return results
       .filter(r => r.matches)
       .sort((a, b) => b.score - a.score)
-      .map(r => r.tab);
-  }, [tabs, search]);
+      .map(r => r.item);
+  }, [listItems, search]);
 
-  // Reset selection and scroll tracking when search changes
+  // Reset selection and scroll tracking when search or mode changes
   useEffect(() => {
     setSelectedIndex(0);
     setFirstVisibleIndex(0);
-  }, [search]);
+  }, [search, viewMode]);
+
+  const toggleViewMode = () => {
+    setViewMode(prev => prev === 'open' ? 'all-named' : 'open');
+  };
+
+  const handleItemSelect = (item: ListItem) => {
+    if (item.type === 'open') {
+      onTabSelect(item.tab.id);
+    } else {
+      onNamedSessionSelect(item.session.claudeSessionId, item.session.projectPath, item.session.sessionName);
+    }
+    onClose();
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'ArrowDown') {
+    if (e.key === 'Tab') {
       e.preventDefault();
-      setSelectedIndex(prev => Math.min(prev + 1, filteredTabs.length - 1));
+      toggleViewMode();
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setSelectedIndex(prev => Math.min(prev + 1, filteredItems.length - 1));
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
       setSelectedIndex(prev => Math.max(prev - 1, 0));
     } else if (e.key === 'Enter') {
       e.preventDefault();
       e.stopPropagation();
-      if (filteredTabs[selectedIndex]) {
-        onTabSelect(filteredTabs[selectedIndex].id);
-        onClose();
+      if (filteredItems[selectedIndex]) {
+        handleItemSelect(filteredItems[selectedIndex]);
       }
     } else if (e.metaKey && ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'].includes(e.key)) {
       e.preventDefault();
       // 1-9 map to positions 1-9, 0 maps to position 10
       const number = e.key === '0' ? 10 : parseInt(e.key);
       // Cap firstVisibleIndex so hotkeys always work for the last 10 items
-      const maxFirstIndex = Math.max(0, filteredTabs.length - 10);
+      const maxFirstIndex = Math.max(0, filteredItems.length - 10);
       const effectiveFirstIndex = Math.min(firstVisibleIndex, maxFirstIndex);
       const targetIndex = effectiveFirstIndex + number - 1;
-      if (filteredTabs[targetIndex]) {
-        onTabSelect(filteredTabs[targetIndex].id);
-        onClose();
+      if (filteredItems[targetIndex]) {
+        handleItemSelect(filteredItems[targetIndex]);
       }
     }
   };
@@ -269,7 +343,7 @@ export function TabSwitcherModal({
           <input
             ref={inputRef}
             className="flex-1 bg-transparent outline-none text-lg placeholder-opacity-50"
-            placeholder="Search tabs..."
+            placeholder={viewMode === 'open' ? "Search open tabs..." : "Search named sessions..."}
             style={{ color: theme.colors.textMain }}
             value={search}
             onChange={e => setSearch(e.target.value)}
@@ -290,117 +364,203 @@ export function TabSwitcherModal({
           </div>
         </div>
 
-        {/* Tab List */}
+        {/* Mode Toggle Pills */}
+        <div className="px-4 py-2 flex items-center gap-2 border-b" style={{ borderColor: theme.colors.border }}>
+          <button
+            onClick={() => setViewMode('open')}
+            className="px-3 py-1 rounded-full text-xs font-medium transition-colors"
+            style={{
+              backgroundColor: viewMode === 'open' ? theme.colors.accent : theme.colors.bgMain,
+              color: viewMode === 'open' ? theme.colors.accentForeground : theme.colors.textDim
+            }}
+          >
+            Open Tabs ({tabs.length})
+          </button>
+          <button
+            onClick={() => setViewMode('all-named')}
+            className="px-3 py-1 rounded-full text-xs font-medium transition-colors"
+            style={{
+              backgroundColor: viewMode === 'all-named' ? theme.colors.accent : theme.colors.bgMain,
+              color: viewMode === 'all-named' ? theme.colors.accentForeground : theme.colors.textDim
+            }}
+          >
+            All Named ({namedSessions.filter(s => !openTabSessionIds.has(s.claudeSessionId)).length})
+          </button>
+          <span className="text-[10px] opacity-50 ml-auto" style={{ color: theme.colors.textDim }}>
+            Tab to switch
+          </span>
+        </div>
+
+        {/* Item List */}
         <div
           ref={scrollContainerRef}
           onScroll={handleScroll}
-          className="overflow-y-auto py-2 scrollbar-thin"
+          className="overflow-y-auto py-2 scrollbar-thin flex-1"
         >
-          {filteredTabs.map((tab, i) => {
-            const isActive = tab.id === activeTabId;
+          {filteredItems.map((item, i) => {
             const isSelected = i === selectedIndex;
-            const displayName = getTabDisplayName(tab);
-            const uuidPill = getUuidPill(tab);
-            const contextPct = getContextPercentage(tab);
-            const cost = tab.usageStats?.totalCostUsd || 0;
 
-            // Calculate dynamic number badge (1-9, 0) based on first visible item
-            // Cap firstVisibleIndex so we always show 10 numbered items when near the end
-            const maxFirstIndex = Math.max(0, filteredTabs.length - 10);
+            // Calculate dynamic number badge
+            const maxFirstIndex = Math.max(0, filteredItems.length - 10);
             const effectiveFirstIndex = Math.min(firstVisibleIndex, maxFirstIndex);
             const distanceFromFirstVisible = i - effectiveFirstIndex;
             const showNumber = distanceFromFirstVisible >= 0 && distanceFromFirstVisible < 10;
-            // 1-9 for positions 1-9, 0 for position 10
             const numberBadge = distanceFromFirstVisible === 9 ? 0 : distanceFromFirstVisible + 1;
 
-            return (
-              <button
-                key={tab.id}
-                ref={isSelected ? selectedItemRef : null}
-                onClick={() => {
-                  onTabSelect(tab.id);
-                  onClose();
-                }}
-                className="w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-opacity-10"
-                style={{
-                  backgroundColor: isSelected ? theme.colors.accent : 'transparent',
-                  color: isSelected ? theme.colors.accentForeground : theme.colors.textMain
-                }}
-              >
-                {/* Number Badge */}
-                {showNumber ? (
+            if (item.type === 'open') {
+              const { tab } = item;
+              const isActive = tab.id === activeTabId;
+              const displayName = getTabDisplayName(tab);
+              const uuidPill = getUuidPill(tab.claudeSessionId);
+              const contextPct = getContextPercentage(tab);
+              const cost = tab.usageStats?.totalCostUsd || 0;
+
+              return (
+                <button
+                  key={tab.id}
+                  ref={isSelected ? selectedItemRef : null}
+                  onClick={() => handleItemSelect(item)}
+                  className="w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-opacity-10"
+                  style={{
+                    backgroundColor: isSelected ? theme.colors.accent : 'transparent',
+                    color: isSelected ? theme.colors.accentForeground : theme.colors.textMain
+                  }}
+                >
+                  {/* Number Badge */}
+                  {showNumber ? (
+                    <div
+                      className="flex-shrink-0 w-5 h-5 rounded flex items-center justify-center text-xs font-bold"
+                      style={{ backgroundColor: theme.colors.bgMain, color: theme.colors.textDim }}
+                    >
+                      {numberBadge}
+                    </div>
+                  ) : (
+                    <div className="flex-shrink-0 w-5 h-5" />
+                  )}
+
+                  {/* Busy/Active Indicator */}
+                  <div className="flex-shrink-0 w-2 h-2">
+                    {tab.state === 'busy' ? (
+                      <div
+                        className="w-2 h-2 rounded-full animate-pulse"
+                        style={{ backgroundColor: theme.colors.warning }}
+                      />
+                    ) : isActive ? (
+                      <div
+                        className="w-2 h-2 rounded-full"
+                        style={{ backgroundColor: theme.colors.success }}
+                      />
+                    ) : null}
+                  </div>
+
+                  {/* Tab Info */}
+                  <div className="flex flex-col flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium truncate">{displayName}</span>
+                      {tab.name && uuidPill && (
+                        <span
+                          className="text-[10px] px-1.5 py-0.5 rounded font-mono flex-shrink-0"
+                          style={{
+                            backgroundColor: isSelected ? 'rgba(255,255,255,0.2)' : theme.colors.bgMain,
+                            color: isSelected ? theme.colors.accentForeground : theme.colors.textDim
+                          }}
+                        >
+                          {uuidPill}
+                        </span>
+                      )}
+                      {tab.starred && (
+                        <span style={{ color: theme.colors.warning }}>★</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-3 text-[10px] opacity-60">
+                      {tab.usageStats && (
+                        <>
+                          <span>{formatTokens(tab.usageStats.inputTokens + tab.usageStats.outputTokens)} tokens</span>
+                          <span>{formatCost(cost)}</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Context Gauge */}
+                  <div className="flex-shrink-0">
+                    <ContextGauge percentage={contextPct} theme={theme} />
+                  </div>
+                </button>
+              );
+            } else {
+              // Named session (not open)
+              const { session } = item;
+              const uuidPill = getUuidPill(session.claudeSessionId);
+
+              return (
+                <button
+                  key={session.claudeSessionId}
+                  ref={isSelected ? selectedItemRef : null}
+                  onClick={() => handleItemSelect(item)}
+                  className="w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-opacity-10"
+                  style={{
+                    backgroundColor: isSelected ? theme.colors.accent : 'transparent',
+                    color: isSelected ? theme.colors.accentForeground : theme.colors.textMain
+                  }}
+                >
+                  {/* Number Badge */}
+                  {showNumber ? (
+                    <div
+                      className="flex-shrink-0 w-5 h-5 rounded flex items-center justify-center text-xs font-bold"
+                      style={{ backgroundColor: theme.colors.bgMain, color: theme.colors.textDim }}
+                    >
+                      {numberBadge}
+                    </div>
+                  ) : (
+                    <div className="flex-shrink-0 w-5 h-5" />
+                  )}
+
+                  {/* Empty indicator space (no active/busy state for closed sessions) */}
+                  <div className="flex-shrink-0 w-2 h-2" />
+
+                  {/* Session Info */}
+                  <div className="flex flex-col flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium truncate">{session.sessionName}</span>
+                      {uuidPill && (
+                        <span
+                          className="text-[10px] px-1.5 py-0.5 rounded font-mono flex-shrink-0"
+                          style={{
+                            backgroundColor: isSelected ? 'rgba(255,255,255,0.2)' : theme.colors.bgMain,
+                            color: isSelected ? theme.colors.accentForeground : theme.colors.textDim
+                          }}
+                        >
+                          {uuidPill}
+                        </span>
+                      )}
+                      {session.starred && (
+                        <span style={{ color: theme.colors.warning }}>★</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-3 text-[10px] opacity-60">
+                      <span className="truncate">{session.projectPath.split('/').slice(-2).join('/')}</span>
+                    </div>
+                  </div>
+
+                  {/* Closed indicator instead of gauge */}
                   <div
-                    className="flex-shrink-0 w-5 h-5 rounded flex items-center justify-center text-xs font-bold"
-                    style={{ backgroundColor: theme.colors.bgMain, color: theme.colors.textDim }}
+                    className="flex-shrink-0 text-[10px] px-2 py-1 rounded"
+                    style={{
+                      backgroundColor: isSelected ? 'rgba(255,255,255,0.2)' : theme.colors.bgMain,
+                      color: isSelected ? theme.colors.accentForeground : theme.colors.textDim
+                    }}
                   >
-                    {numberBadge}
+                    Closed
                   </div>
-                ) : (
-                  <div className="flex-shrink-0 w-5 h-5" />
-                )}
-
-                {/* Busy/Active Indicator */}
-                <div className="flex-shrink-0 w-2 h-2">
-                  {tab.state === 'busy' ? (
-                    <div
-                      className="w-2 h-2 rounded-full animate-pulse"
-                      style={{ backgroundColor: theme.colors.warning }}
-                    />
-                  ) : isActive ? (
-                    <div
-                      className="w-2 h-2 rounded-full"
-                      style={{ backgroundColor: theme.colors.success }}
-                    />
-                  ) : null}
-                </div>
-
-                {/* Tab Info */}
-                <div className="flex flex-col flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    {/* Custom Name */}
-                    <span className="font-medium truncate">{displayName}</span>
-
-                    {/* UUID Pill (only if tab has a custom name, show UUID as secondary) */}
-                    {tab.name && uuidPill && (
-                      <span
-                        className="text-[10px] px-1.5 py-0.5 rounded font-mono flex-shrink-0"
-                        style={{
-                          backgroundColor: isSelected ? 'rgba(255,255,255,0.2)' : theme.colors.bgMain,
-                          color: isSelected ? theme.colors.accentForeground : theme.colors.textDim
-                        }}
-                      >
-                        {uuidPill}
-                      </span>
-                    )}
-
-                    {/* Starred indicator */}
-                    {tab.starred && (
-                      <span style={{ color: theme.colors.warning }}>★</span>
-                    )}
-                  </div>
-
-                  {/* Stats Row */}
-                  <div className="flex items-center gap-3 text-[10px] opacity-60">
-                    {tab.usageStats && (
-                      <>
-                        <span>{formatTokens(tab.usageStats.inputTokens + tab.usageStats.outputTokens)} tokens</span>
-                        <span>{formatCost(cost)}</span>
-                      </>
-                    )}
-                  </div>
-                </div>
-
-                {/* Context Gauge */}
-                <div className="flex-shrink-0">
-                  <ContextGauge percentage={contextPct} theme={theme} />
-                </div>
-              </button>
-            );
+                </button>
+              );
+            }
           })}
 
-          {filteredTabs.length === 0 && (
+          {filteredItems.length === 0 && (
             <div className="px-4 py-4 text-center opacity-50 text-sm" style={{ color: theme.colors.textDim }}>
-              No tabs found
+              {viewMode === 'open' ? 'No open tabs' : 'No named sessions found'}
             </div>
           )}
         </div>
@@ -410,7 +570,7 @@ export function TabSwitcherModal({
           className="px-4 py-2 border-t text-xs flex items-center justify-between"
           style={{ borderColor: theme.colors.border, color: theme.colors.textDim }}
         >
-          <span>{filteredTabs.length} of {tabs.length} tabs</span>
+          <span>{filteredItems.length} {viewMode === 'open' ? 'tabs' : 'sessions'}</span>
           <span>↑↓ navigate • Enter select • ⌘1-9 quick select</span>
         </div>
       </div>

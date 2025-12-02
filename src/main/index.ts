@@ -2882,6 +2882,33 @@ function setupIpcHandlers() {
     return origins[projectPath] || {};
   });
 
+  // Get all named sessions across all projects (for Tab Switcher "All Named" view)
+  ipcMain.handle('claude:getAllNamedSessions', async () => {
+    const allOrigins = claudeSessionOriginsStore.get('origins', {});
+    const namedSessions: Array<{
+      claudeSessionId: string;
+      projectPath: string;
+      sessionName: string;
+      starred?: boolean;
+    }> = [];
+
+    for (const [projectPath, sessions] of Object.entries(allOrigins)) {
+      for (const [claudeSessionId, info] of Object.entries(sessions)) {
+        // Handle both old string format and new object format
+        if (typeof info === 'object' && info.sessionName) {
+          namedSessions.push({
+            claudeSessionId,
+            projectPath,
+            sessionName: info.sessionName,
+            starred: info.starred,
+          });
+        }
+      }
+    }
+
+    return namedSessions;
+  });
+
   // Notification operations
   ipcMain.handle('notification:show', async (_event, title: string, body: string) => {
     try {

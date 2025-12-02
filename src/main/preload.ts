@@ -367,6 +367,13 @@ contextBridge.exposeInMainWorld('maestro', {
       ipcRenderer.invoke('claude:updateSessionStarred', projectPath, claudeSessionId, starred),
     getSessionOrigins: (projectPath: string) =>
       ipcRenderer.invoke('claude:getSessionOrigins', projectPath),
+    getAllNamedSessions: () =>
+      ipcRenderer.invoke('claude:getAllNamedSessions') as Promise<Array<{
+        claudeSessionId: string;
+        projectPath: string;
+        sessionName: string;
+        starred?: boolean;
+      }>>,
     deleteMessagePair: (projectPath: string, sessionId: string, userMessageUuid: string, fallbackContent?: string) =>
       ipcRenderer.invoke('claude:deleteMessagePair', projectPath, sessionId, userMessageUuid, fallbackContent),
   },
