@@ -913,10 +913,14 @@ export default function MaestroConsole() {
           text: `Terminal process exited with code ${code}`
         };
 
+        // Check if any AI tabs are still busy - don't clear session state if so
+        const anyAiTabBusy = s.aiTabs?.some(tab => tab.state === 'busy') || false;
+
         return {
           ...s,
-          state: 'idle' as SessionState,
-          busySource: undefined,
+          // Only clear session state if no AI tabs are busy
+          state: anyAiTabBusy ? s.state : 'idle' as SessionState,
+          busySource: anyAiTabBusy ? s.busySource : undefined,
           shellLogs: [...s.shellLogs, exitLog]
         };
       }));
@@ -1186,6 +1190,9 @@ export default function MaestroConsole() {
       setSessions(prev => prev.map(s => {
         if (s.id !== actualSessionId) return s;
 
+        // Check if any AI tabs are still busy - don't clear session state if so
+        const anyAiTabBusy = s.aiTabs?.some(tab => tab.state === 'busy') || false;
+
         // Only show exit code if non-zero (error)
         if (code !== 0) {
           const exitLog: LogEntry = {
@@ -1196,13 +1203,19 @@ export default function MaestroConsole() {
           };
           return {
             ...s,
-            state: 'idle' as SessionState,
-            busySource: undefined,
+            // Only clear session state if no AI tabs are busy
+            state: anyAiTabBusy ? s.state : 'idle' as SessionState,
+            busySource: anyAiTabBusy ? s.busySource : undefined,
             shellLogs: [...s.shellLogs, exitLog]
           };
         }
 
-        return { ...s, state: 'idle' as SessionState, busySource: undefined };
+        return {
+          ...s,
+          // Only clear session state if no AI tabs are busy
+          state: anyAiTabBusy ? s.state : 'idle' as SessionState,
+          busySource: anyAiTabBusy ? s.busySource : undefined
+        };
       }));
     });
 
@@ -4846,12 +4859,21 @@ export default function MaestroConsole() {
         return;
       } else if (e.key === 'Tab') {
         e.preventDefault();
-        if (tabCompletionSuggestions[selectedTabCompletionIndex]) {
-          setInputValue(tabCompletionSuggestions[selectedTabCompletionIndex].value);
-          // Final sync on acceptance
-          syncFileTreeToTabCompletion(tabCompletionSuggestions[selectedTabCompletionIndex]);
+        // Tab cycles through filter types (only in git repos, otherwise just accept)
+        if (activeSession?.isGitRepo) {
+          const filters: TabCompletionFilter[] = ['all', 'history', 'branch', 'tag', 'file'];
+          const currentIndex = filters.indexOf(tabCompletionFilter);
+          const nextIndex = (currentIndex + 1) % filters.length;
+          setTabCompletionFilter(filters[nextIndex]);
+          setSelectedTabCompletionIndex(0);
+        } else {
+          // In non-git repos, Tab accepts the selection (like Enter)
+          if (tabCompletionSuggestions[selectedTabCompletionIndex]) {
+            setInputValue(tabCompletionSuggestions[selectedTabCompletionIndex].value);
+            syncFileTreeToTabCompletion(tabCompletionSuggestions[selectedTabCompletionIndex]);
+          }
+          setTabCompletionOpen(false);
         }
-        setTabCompletionOpen(false);
         return;
       } else if (e.key === 'Enter') {
         e.preventDefault();

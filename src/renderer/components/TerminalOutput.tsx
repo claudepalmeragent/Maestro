@@ -505,9 +505,8 @@ const LogItemComponent = memo(({
                     .prose h5 { color: ${theme.colors.textMain}; font-size: 0.9em; font-weight: bold; margin: 0; opacity: 0.8; line-height: 1.4; }
                     .prose h6 { color: ${theme.colors.textDim}; font-size: 0.85em; font-weight: bold; margin: 0; line-height: 1.4; }
                     .prose p { color: ${theme.colors.textMain}; margin: 0; line-height: 1.4; }
-                    .prose > ul, .prose > ol { color: ${theme.colors.textMain}; margin: 0; padding-left: 2em; }
-                    .prose ul, .prose ol { margin: 0; }
-                    .prose ul ul, .prose ul ol, .prose ol ul, .prose ol ol { padding-left: 1.5em; }
+                    .prose > ul, .prose > ol { color: ${theme.colors.textMain}; margin: 0.5em 0; padding-left: 2em; }
+                    .prose ul ul, .prose ul ol, .prose ol ul, .prose ol ol { margin: 0; padding-left: 1.5em; }
                     .prose li { margin: 0; padding: 0; line-height: 1.4; }
                     .prose li > p { margin: 0; }
                     .prose li > p + ul, .prose li > p + ol { margin-top: 0; }
@@ -655,9 +654,8 @@ const LogItemComponent = memo(({
                     .prose h5 { color: ${theme.colors.textMain}; font-size: 0.9em; font-weight: bold; margin: 0; opacity: 0.8; line-height: 1.4; }
                     .prose h6 { color: ${theme.colors.textDim}; font-size: 0.85em; font-weight: bold; margin: 0; line-height: 1.4; }
                     .prose p { color: ${theme.colors.textMain}; margin: 0; line-height: 1.4; }
-                    .prose > ul, .prose > ol { color: ${theme.colors.textMain}; margin: 0; padding-left: 2em; }
-                    .prose ul, .prose ol { margin: 0; }
-                    .prose ul ul, .prose ul ol, .prose ol ul, .prose ol ol { padding-left: 1.5em; }
+                    .prose > ul, .prose > ol { color: ${theme.colors.textMain}; margin: 0.5em 0; padding-left: 2em; }
+                    .prose ul ul, .prose ul ol, .prose ol ul, .prose ol ol { margin: 0; padding-left: 1.5em; }
                     .prose li { margin: 0; padding: 0; line-height: 1.4; }
                     .prose li > p { margin: 0; }
                     .prose li > p + ul, .prose li > p + ol { margin-top: 0; }
@@ -776,31 +774,32 @@ const LogItemComponent = memo(({
               </div>
             ) : isAIMode && !markdownRawMode ? (
               // Rendered markdown for AI responses
-              <div className="prose prose-sm max-w-none text-sm" style={{ color: theme.colors.textMain, lineHeight: 1.5 }}>
+              <div className="prose prose-sm max-w-none text-sm" style={{ color: theme.colors.textMain, lineHeight: 1.4 }}>
                 <style>{`
-                  .prose { line-height: 1.5; }
+                  .prose { line-height: 1.4; }
                   .prose > *:first-child { margin-top: 0; }
                   .prose > *:last-child { margin-bottom: 0; }
-                  .prose h1 { color: ${theme.colors.accent}; font-size: 1.5em; font-weight: bold; margin: 0.5em 0 0.25em 0; line-height: 1.3; }
-                  .prose h2 { color: ${theme.colors.success}; font-size: 1.25em; font-weight: bold; margin: 0.5em 0 0.25em 0; line-height: 1.3; }
-                  .prose h3 { color: ${theme.colors.warning}; font-size: 1.1em; font-weight: bold; margin: 0.4em 0 0.2em 0; line-height: 1.3; }
-                  .prose h4 { color: ${theme.colors.textMain}; font-size: 1em; font-weight: bold; margin: 0.4em 0 0.2em 0; opacity: 0.9; line-height: 1.3; }
-                  .prose h5 { color: ${theme.colors.textMain}; font-size: 0.9em; font-weight: bold; margin: 0.3em 0 0.15em 0; opacity: 0.8; line-height: 1.3; }
-                  .prose h6 { color: ${theme.colors.textDim}; font-size: 0.85em; font-weight: bold; margin: 0.3em 0 0.15em 0; line-height: 1.3; }
-                  .prose p { color: ${theme.colors.textMain}; margin: 0.25em 0; line-height: 1.5; }
-                  .prose > ul, .prose > ol { color: ${theme.colors.textMain}; margin: 0.75em 0; padding-left: 2em; }
+                  .prose h1 { color: ${theme.colors.accent}; font-size: 1.5em; font-weight: bold; margin: 0; line-height: 1.4; }
+                  .prose h2 { color: ${theme.colors.success}; font-size: 1.25em; font-weight: bold; margin: 0; line-height: 1.4; }
+                  .prose h3 { color: ${theme.colors.warning}; font-size: 1.1em; font-weight: bold; margin: 0; line-height: 1.4; }
+                  .prose h4 { color: ${theme.colors.textMain}; font-size: 1em; font-weight: bold; margin: 0; opacity: 0.9; line-height: 1.4; }
+                  .prose h5 { color: ${theme.colors.textMain}; font-size: 0.9em; font-weight: bold; margin: 0; opacity: 0.8; line-height: 1.4; }
+                  .prose h6 { color: ${theme.colors.textDim}; font-size: 0.85em; font-weight: bold; margin: 0; line-height: 1.4; }
+                  .prose p { color: ${theme.colors.textMain}; margin: 0; line-height: 1.4; }
+                  .prose > ul, .prose > ol { color: ${theme.colors.textMain}; margin: 0.5em 0; padding-left: 2em; }
                   .prose ul ul, .prose ul ol, .prose ol ul, .prose ol ol { margin: 0; padding-left: 1.5em; }
-                  .prose li { margin: 0; padding: 0; line-height: 1.5; }
-                  .prose li > p { margin: 0; display: inline; }
+                  .prose li { margin: 0; padding: 0; line-height: 1.4; }
+                  .prose li > p { margin: 0; }
+                  .prose li > p + ul, .prose li > p + ol { margin-top: 0; }
                   .prose li:has(> input[type="checkbox"]) { list-style: none; margin-left: -1.5em; }
                   .prose code { background-color: ${theme.colors.bgSidebar}; color: ${theme.colors.textMain}; padding: 0.15em 0.3em; border-radius: 3px; font-size: 0.9em; }
-                  .prose pre { background-color: ${theme.colors.bgSidebar}; color: ${theme.colors.textMain}; padding: 0.75em; border-radius: 6px; overflow-x: auto; margin: 0.4em 0; }
+                  .prose pre { background-color: ${theme.colors.bgSidebar}; color: ${theme.colors.textMain}; padding: 0.5em; border-radius: 6px; overflow-x: auto; margin: 0; }
                   .prose pre code { background: none; padding: 0; }
-                  .prose blockquote { border-left: 3px solid ${theme.colors.border}; padding-left: 0.75em; margin: 0.25em 0; color: ${theme.colors.textDim}; }
+                  .prose blockquote { border-left: 3px solid ${theme.colors.border}; padding-left: 0.75em; margin: 0; color: ${theme.colors.textDim}; }
                   .prose a { color: ${theme.colors.accent}; text-decoration: underline; }
-                  .prose hr { border: none; border-top: 1px solid ${theme.colors.border}; margin: 0.5em 0; }
-                  .prose table { border-collapse: collapse; width: 100%; margin: 0.4em 0; }
-                  .prose th, .prose td { border: 1px solid ${theme.colors.border}; padding: 0.35em 0.5em; text-align: left; }
+                  .prose hr { border: none; border-top: 1px solid ${theme.colors.border}; margin: 0.75em 0; }
+                  .prose table { border-collapse: collapse; width: 100%; margin: 0; }
+                  .prose th, .prose td { border: 1px solid ${theme.colors.border}; padding: 0.25em 0.5em; text-align: left; }
                   .prose th { background-color: ${theme.colors.bgSidebar}; font-weight: bold; }
                   .prose strong { font-weight: bold; }
                   .prose em { font-style: italic; }
