@@ -73,6 +73,28 @@ const store = new Store<MaestroSettings>({
   },
 });
 
+// Helper: Encode project path the same way Claude Code does
+// Claude replaces both '/' and '.' with '-' in the path encoding
+function encodeClaudeProjectPath(projectPath: string): string {
+  return projectPath.replace(/[/.]/g, '-');
+}
+
+// Helper: Extract semantic text from message content
+// Skips images, tool_use, and tool_result - only returns actual text content
+function extractTextFromContent(content: unknown): string {
+  if (typeof content === 'string') {
+    return content;
+  }
+  if (Array.isArray(content)) {
+    const textParts = content
+      .filter((part: { type?: string }) => part.type === 'text')
+      .map((part: { type?: string; text?: string }) => part.text || '')
+      .filter((text: string) => text.trim());
+    return textParts.join(' ');
+  }
+  return '';
+}
+
 // Sessions store
 interface SessionsData {
   sessions: any[];
@@ -1531,9 +1553,7 @@ function setupIpcHandlers() {
       const homeDir = os.default.homedir();
       const claudeProjectsDir = path.join(homeDir, '.claude', 'projects');
 
-      // Encode the project path the same way Claude Code does
-      // Claude replaces both '/' and '.' with '-' in the path encoding
-      const encodedPath = projectPath.replace(/[/.]/g, '-');
+      const encodedPath = encodeClaudeProjectPath(projectPath);
       const projectDir = path.join(claudeProjectsDir, encodedPath);
 
       logger.info(`Claude sessions lookup - projectPath: ${projectPath}, encodedPath: ${encodedPath}, projectDir: ${projectDir}`, 'ClaudeSessions');
@@ -1573,23 +1593,6 @@ function setupIpcHandlers() {
             const userMessageCount = (content.match(/"type"\s*:\s*"user"/g) || []).length;
             const assistantMessageCount = (content.match(/"type"\s*:\s*"assistant"/g) || []).length;
             const messageCount = userMessageCount + assistantMessageCount;
-
-            // Helper to extract semantic text from message content
-            // Skips images, tool_use, and tool_result - only returns actual text content
-            const extractTextFromContent = (content: unknown): string => {
-              if (typeof content === 'string') {
-                return content;
-              }
-              if (Array.isArray(content)) {
-                // Only extract parts with type === 'text', which gives us pure semantic content
-                const textParts = content
-                  .filter((part: { type?: string }) => part.type === 'text')
-                  .map((part: { type?: string; text?: string }) => part.text || '')
-                  .filter((text: string) => text.trim());
-                return textParts.join(' ');
-              }
-              return '';
-            };
 
             // Extract first meaningful message content - parse only first few lines
             // Skip image-only messages, tool_use, and tool_result content
@@ -1734,9 +1737,7 @@ function setupIpcHandlers() {
       const homeDir = os.default.homedir();
       const claudeProjectsDir = path.join(homeDir, '.claude', 'projects');
 
-      // Encode the project path the same way Claude Code does
-      // Claude replaces both '/' and '.' with '-' in the path encoding
-      const encodedPath = projectPath.replace(/[/.]/g, '-');
+      const encodedPath = encodeClaudeProjectPath(projectPath);
       const projectDir = path.join(claudeProjectsDir, encodedPath);
 
       // Check if the directory exists
@@ -1807,23 +1808,6 @@ function setupIpcHandlers() {
             const userMessageCount = (content.match(/"type"\s*:\s*"user"/g) || []).length;
             const assistantMessageCount = (content.match(/"type"\s*:\s*"assistant"/g) || []).length;
             const messageCount = userMessageCount + assistantMessageCount;
-
-            // Helper to extract semantic text from message content
-            // Skips images, tool_use, and tool_result - only returns actual text content
-            const extractTextFromContent = (msgContent: unknown): string => {
-              if (typeof msgContent === 'string') {
-                return msgContent;
-              }
-              if (Array.isArray(msgContent)) {
-                // Only extract parts with type === 'text', which gives us pure semantic content
-                const textParts = msgContent
-                  .filter((part: { type?: string }) => part.type === 'text')
-                  .map((part: { type?: string; text?: string }) => part.text || '')
-                  .filter((text: string) => text.trim());
-                return textParts.join(' ');
-              }
-              return '';
-            };
 
             // Extract first meaningful message content - parse only first few lines
             // Skip image-only messages, tool_use, and tool_result content
@@ -1965,8 +1949,7 @@ function setupIpcHandlers() {
       const homeDir = os.default.homedir();
       const claudeProjectsDir = path.join(homeDir, '.claude', 'projects');
 
-      // Encode the project path the same way Claude Code does
-      const encodedPath = projectPath.replace(/[/.]/g, '-');
+      const encodedPath = encodeClaudeProjectPath(projectPath);
       const projectDir = path.join(claudeProjectsDir, encodedPath);
 
       // Check if the directory exists
@@ -2258,7 +2241,7 @@ function setupIpcHandlers() {
       const homeDir = os.default.homedir();
       const claudeProjectsDir = path.join(homeDir, '.claude', 'projects');
 
-      const encodedPath = projectPath.replace(/[/.]/g, '-');
+      const encodedPath = encodeClaudeProjectPath(projectPath);
       const sessionFile = path.join(claudeProjectsDir, encodedPath, `${sessionId}.jsonl`);
 
       const content = await fs.readFile(sessionFile, 'utf-8');
@@ -2347,7 +2330,7 @@ function setupIpcHandlers() {
       const homeDir = os.default.homedir();
       const claudeProjectsDir = path.join(homeDir, '.claude', 'projects');
 
-      const encodedPath = projectPath.replace(/[/.]/g, '-');
+      const encodedPath = encodeClaudeProjectPath(projectPath);
       const sessionFile = path.join(claudeProjectsDir, encodedPath, `${sessionId}.jsonl`);
 
       const content = await fs.readFile(sessionFile, 'utf-8');
@@ -2455,7 +2438,7 @@ function setupIpcHandlers() {
       const homeDir = os.default.homedir();
       const claudeProjectsDir = path.join(homeDir, '.claude', 'projects');
 
-      const encodedPath = projectPath.replace(/[/.]/g, '-');
+      const encodedPath = encodeClaudeProjectPath(projectPath);
       const projectDir = path.join(claudeProjectsDir, encodedPath);
 
       // Check if the directory exists

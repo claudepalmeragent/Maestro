@@ -522,8 +522,6 @@ export default function MaestroConsole() {
     // Handle process output data
     // sessionId will be in format: "{id}-ai-{tabId}", "{id}-terminal", "{id}-batch-{timestamp}", etc.
     const unsubscribeData = window.maestro.process.onData((sessionId: string, data: string) => {
-      console.log('[onData] Received data for session:', sessionId, 'DataLen:', data.length, 'Preview:', data.substring(0, 200));
-
       // Parse sessionId to determine which process this is from
       let actualSessionId: string;
       let isFromAi: boolean;
@@ -621,12 +619,10 @@ export default function MaestroConsole() {
         if (shouldGroup) {
           // Append to existing log entry
           updatedTabLogs = [...logsWithDelivery];
-          const prevTextLen = updatedTabLogs[updatedTabLogs.length - 1].text.length;
           updatedTabLogs[updatedTabLogs.length - 1] = {
             ...updatedTabLogs[updatedTabLogs.length - 1],
             text: updatedTabLogs[updatedTabLogs.length - 1].text + data
           };
-          console.log('[onData] GROUPED to tab:', targetTab.id, 'prevLen:', prevTextLen, 'newLen:', updatedTabLogs[updatedTabLogs.length - 1].text.length);
         } else {
           // Create new log entry
           const newLog: LogEntry = {
@@ -636,7 +632,6 @@ export default function MaestroConsole() {
             text: data
           };
           updatedTabLogs = [...logsWithDelivery, newLog];
-          console.log('[onData] NEW ENTRY to tab:', targetTab.id, 'dataLen:', data.length);
         }
 
         // Update the target tab's logs within the aiTabs array
@@ -838,12 +833,10 @@ export default function MaestroConsole() {
               // If this tab is the target for the next queued item, set it to busy
               // (takes priority over setting to idle, even if it's the same tab that just finished)
               if (tab.id === targetTab.id) {
-                console.log('[onExit] Setting target tab to busy for queue processing:', tab.id.substring(0, 8), 'name:', tab.name);
                 return { ...tab, state: 'busy' as const, thinkingStartTime: Date.now() };
               }
               // Set the original tab (that just finished) to idle, but only if it's different from target
               if (tabIdFromSession && tab.id === tabIdFromSession) {
-                console.log('[onExit] Setting original tab to idle before processing queue:', tab.id.substring(0, 8));
                 return { ...tab, state: 'idle' as const };
               }
               return tab;
@@ -883,21 +876,11 @@ export default function MaestroConsole() {
 
           // Task complete - set the specific tab to 'idle' for write-mode tracking
           // Use tabIdFromSession if available (new format), otherwise set all busy tabs to idle (legacy)
-          console.log('[onExit] Setting tabs to idle:', {
-            tabIdFromSession,
-            tabIds: s.aiTabs?.map(t => t.id),
-            tabStates: s.aiTabs?.map(t => ({ id: t.id.substring(0, 8), state: t.state }))
-          });
-
           const updatedAiTabs = s.aiTabs?.length > 0
             ? s.aiTabs.map(tab => {
                 if (tabIdFromSession) {
                   // New format: only update the specific tab
-                  const shouldUpdate = tab.id === tabIdFromSession;
-                  if (shouldUpdate) {
-                    console.log('[onExit] Setting tab to idle:', tab.id.substring(0, 8));
-                  }
-                  return shouldUpdate ? { ...tab, state: 'idle' as const, thinkingStartTime: undefined } : tab;
+                  return tab.id === tabIdFromSession ? { ...tab, state: 'idle' as const, thinkingStartTime: undefined } : tab;
                 } else {
                   // Legacy format: update all busy tabs
                   return tab.state === 'busy' ? { ...tab, state: 'idle' as const, thinkingStartTime: undefined } : tab;
@@ -910,16 +893,6 @@ export default function MaestroConsole() {
           const anyTabStillBusy = updatedAiTabs.some(tab => tab.state === 'busy');
           const newState = anyTabStillBusy ? 'busy' as SessionState : 'idle' as SessionState;
           const newBusySource = anyTabStillBusy ? s.busySource : undefined;
-          console.log('[onExit] AI exit state update:', {
-            sessionId: s.id.substring(0, 8),
-            tabIdFromSession: tabIdFromSession?.substring(0, 8),
-            anyTabStillBusy,
-            oldState: s.state,
-            oldBusySource: s.busySource,
-            newState,
-            newBusySource,
-            tabs: updatedAiTabs.map(t => ({ id: t.id.substring(0, 8), state: t.state }))
-          });
 
           // Task complete - also clear pending AI command flag
           return {
@@ -1072,12 +1045,9 @@ export default function MaestroConsole() {
 
     // Handle Claude session ID capture for interactive sessions only
     const unsubscribeSessionId = window.maestro.process.onSessionId(async (sessionId: string, claudeSessionId: string) => {
-      console.log('[onSessionId] Received Claude session ID:', claudeSessionId, 'for session:', sessionId);
-
       // Ignore batch sessions - they have their own isolated session IDs that should NOT
       // contaminate the interactive session's claudeSessionId
       if (sessionId.includes('-batch-')) {
-        console.log('[onSessionId] Ignoring batch session ID:', sessionId);
         return;
       }
 
@@ -1090,10 +1060,8 @@ export default function MaestroConsole() {
       if (aiTabMatch) {
         actualSessionId = aiTabMatch[1];
         tabId = aiTabMatch[2];
-        console.log('[onSessionId] Parsed - actualSessionId:', actualSessionId, 'tabId:', tabId);
       } else {
         actualSessionId = sessionId;
-        console.log('[onSessionId] No format match - using as-is:', actualSessionId);
       }
 
       // Store Claude session ID in session state and fetch commands if not already cached
@@ -1107,7 +1075,6 @@ export default function MaestroConsole() {
         if (needsCommandFetch) {
           // Fetch commands asynchronously and update session
           window.maestro.claude.getCommands(session.cwd).then(commands => {
-            console.log('[onSessionId] Fetched Claude commands for session:', actualSessionId, commands.length, 'commands');
             setSessions(prevSessions => prevSessions.map(s => {
               if (s.id !== actualSessionId) return s;
               return { ...s, claudeCommands: commands };
@@ -1120,7 +1087,6 @@ export default function MaestroConsole() {
         // Register this as a user-initiated Maestro session (batch sessions are filtered above)
         // Do NOT pass session name - names should only be set when user explicitly renames
         window.maestro.claude.registerSessionOrigin(session.cwd, claudeSessionId, 'user')
-          .then(() => console.log('[onSessionId] Registered session origin as user:', claudeSessionId))
           .catch(err => console.error('[onSessionId] Failed to register session origin:', err));
 
         return prev.map(s => {
@@ -1132,14 +1098,12 @@ export default function MaestroConsole() {
           if (tabId) {
             // New format: tab ID is encoded in session ID
             targetTab = s.aiTabs?.find(tab => tab.id === tabId);
-            console.log('[onSessionId] Looking for tab by ID:', tabId, 'found:', targetTab?.id, 'allTabIds:', s.aiTabs?.map(t => t.id));
           }
 
           // Fallback: find awaiting tab or active tab (for legacy format)
           if (!targetTab) {
             const awaitingTab = s.aiTabs?.find(tab => tab.awaitingSessionId && !tab.claudeSessionId);
             targetTab = awaitingTab || getActiveTab(s);
-            console.log('[onSessionId] Fallback - awaitingTab:', awaitingTab?.id, 'activeTab:', getActiveTab(s)?.id, 'targetTab:', targetTab?.id);
           }
 
           if (!targetTab) {
@@ -1151,7 +1115,6 @@ export default function MaestroConsole() {
 
           // Skip if this tab already has a claudeSessionId (prevent overwriting)
           if (targetTab.claudeSessionId && targetTab.claudeSessionId !== claudeSessionId) {
-            console.log('[onSessionId] Tab already has different claudeSessionId, skipping:', targetTab.id, 'existing:', targetTab.claudeSessionId, 'new:', claudeSessionId);
             return s;
           }
 
@@ -1165,7 +1128,6 @@ export default function MaestroConsole() {
             return { ...tab, claudeSessionId, awaitingSessionId: false, name: newName };
           });
 
-          console.log('[onSessionId] Storing Claude session ID on tab:', targetTab.id, 'claudeSessionId:', claudeSessionId, 'fromTabId:', tabId || 'legacy');
           return { ...s, aiTabs: updatedAiTabs, claudeSessionId }; // Also keep session-level for backwards compatibility
         });
       });
@@ -1248,8 +1210,6 @@ export default function MaestroConsole() {
 
     // Handle usage statistics from AI responses
     const unsubscribeUsage = window.maestro.process.onUsage((sessionId: string, usageStats) => {
-      console.log('[onUsage] Received usage stats:', usageStats, 'for session:', sessionId);
-
       // Parse sessionId to get actual session ID and tab ID (handles -ai-tabId and legacy -ai suffix)
       let actualSessionId: string;
       let tabId: string | null = null;
@@ -3563,14 +3523,12 @@ export default function MaestroConsole() {
         const result = await window.maestro.live.disableAll();
         setIsLiveMode(false);
         setWebInterfaceUrl(null);
-        console.log('[toggleGlobalLive] Stopped web server, disconnected', result.count, 'sessions');
       } else {
         // Turn on - start the server and get the URL
         const result = await window.maestro.live.startServer();
         if (result.success && result.url) {
           setIsLiveMode(true);
           setWebInterfaceUrl(result.url);
-          console.log('[toggleGlobalLive] Started web server:', result.url);
         } else {
           console.error('[toggleGlobalLive] Failed to start server:', result.error);
         }
@@ -3684,20 +3642,8 @@ export default function MaestroConsole() {
       // Sync the session name to Claude session storage for searchability
       const session = updated.find(s => s.id === sessId);
       if (session?.claudeSessionId && session.cwd) {
-        console.log('[finishRenamingSession] Syncing session name to Claude storage:', {
-          claudeSessionId: session.claudeSessionId,
-          cwd: session.cwd,
-          newName
-        });
         window.maestro.claude.updateSessionName(session.cwd, session.claudeSessionId, newName)
-          .then(() => console.log('[finishRenamingSession] Successfully synced session name'))
           .catch(err => console.warn('[finishRenamingSession] Failed to sync session name:', err));
-      } else {
-        console.log('[finishRenamingSession] Cannot sync - missing claudeSessionId or cwd:', {
-          sessId,
-          claudeSessionId: session?.claudeSessionId,
-          cwd: session?.cwd
-        });
       }
       return updated;
     });
@@ -3783,16 +3729,7 @@ export default function MaestroConsole() {
 
   const processInput = async (overrideInputValue?: string) => {
     const effectiveInputValue = overrideInputValue ?? inputValue;
-    console.log('[processInput] Called with:', {
-      hasActiveSession: !!activeSession,
-      activeSessionId: activeSession?.id,
-      inputValue: effectiveInputValue?.substring(0, 50),
-      inputValueLength: effectiveInputValue?.length,
-      stagedImagesCount: stagedImages.length,
-      isOverride: overrideInputValue !== undefined
-    });
     if (!activeSession || (!effectiveInputValue.trim() && stagedImages.length === 0)) {
-      console.log('[processInput] EARLY RETURN - missing activeSession or empty input');
       return;
     }
 
@@ -3964,13 +3901,6 @@ export default function MaestroConsole() {
         return;
       }
     }
-
-    console.log('[processInput] Processing input', {
-      currentMode,
-      inputValue: effectiveInputValue.substring(0, 50),
-      toolType: activeSession.toolType,
-      sessionId: activeSession.id
-    });
 
     // Check if we're in read-only mode for the log entry
     const activeTabForEntry = currentMode === 'ai' ? getActiveTab(activeSession) : null;
@@ -4175,16 +4105,6 @@ export default function MaestroConsole() {
           // If images are present, they will be passed via stream-json input format
           // Use agent.path (full path) if available, otherwise fall back to agent.command
           const commandToUse = agent.path || agent.command;
-          console.log('[processInput] Spawning Claude:', {
-            maestroSessionId: freshSession.id,
-            targetSessionId,
-            activeTabId: freshActiveTab?.id,
-            claudeSessionId: tabClaudeSessionId || 'NEW SESSION',
-            isResume: !!tabClaudeSessionId,
-            command: commandToUse,
-            args: spawnArgs,
-            prompt: capturedInputValue.substring(0, 100)
-          });
           await window.maestro.process.spawn({
             sessionId: targetSessionId,
             toolType: 'claude-code',
@@ -4223,17 +4143,10 @@ export default function MaestroConsole() {
     } else if (currentMode === 'terminal') {
       // Terminal mode: Use runCommand for clean stdout/stderr capture (no PTY noise)
       // This spawns a fresh shell with -l -c to run the command, ensuring aliases work
-      console.log('[processInput] Terminal mode: calling runCommand', {
-        sessionId: activeSession.id,
-        command: capturedInputValue,
-        cwd: activeSession.shellCwd || activeSession.cwd
-      });
       window.maestro.process.runCommand({
         sessionId: activeSession.id,  // Plain session ID (not suffixed)
         command: capturedInputValue,
         cwd: activeSession.shellCwd || activeSession.cwd
-      }).then(result => {
-        console.log('[processInput] runCommand resolved:', result);
       }).catch(error => {
         console.error('Failed to run command:', error);
         setSessions(prev => prev.map(s => {
@@ -4567,8 +4480,6 @@ export default function MaestroConsole() {
     const targetTab = session.aiTabs.find(tab => tab.id === item.tabId) || getActiveTab(session);
     const targetSessionId = `${sessionId}-ai-${targetTab?.id || 'default'}`;
 
-    console.log('[processQueuedItem] Processing for tab:', targetTab?.id?.substring(0, 8), 'name:', targetTab?.name);
-
     try {
       // Get agent configuration
       const agent = await window.maestro.agents.get('claude-code');
@@ -4593,8 +4504,6 @@ export default function MaestroConsole() {
 
       if (item.type === 'message' && item.text) {
         // Process a message - spawn Claude with the message text
-        console.log('[processQueuedItem] Spawning Claude for queued message:', { sessionId, text: item.text.substring(0, 50) });
-
         await window.maestro.process.spawn({
           sessionId: targetSessionId,
           toolType: 'claude-code',
@@ -4605,10 +4514,7 @@ export default function MaestroConsole() {
           images: item.images && item.images.length > 0 ? item.images : undefined
         });
       } else if (item.type === 'command' && item.command) {
-        // Process a slash command
-        console.log('[processQueuedItem] Processing queued command:', { sessionId, command: item.command });
-
-        // Find the matching custom AI command
+        // Process a slash command - find the matching custom AI command
         const matchingCommand = customAICommands.find(cmd => cmd.command === item.command);
         if (matchingCommand) {
           // Substitute template variables
@@ -5020,12 +4926,6 @@ export default function MaestroConsole() {
                 }
 
                 const commandToUse = agent.path || agent.command;
-                console.log('[handleInputKeyDown] Spawning Claude for slash command:', {
-                  command: selectedCommand.command,
-                  targetSessionId,
-                  claudeSessionId: tabClaudeSessionId || 'NEW SESSION'
-                });
-
                 await window.maestro.process.spawn({
                   sessionId: targetSessionId,
                   toolType: 'claude-code',
@@ -6064,12 +5964,7 @@ export default function MaestroConsole() {
                 logId, // This is the UUID if loaded from Claude session
                 log.text // Fallback: match by content if UUID doesn't match
               ).then(result => {
-                if (result.success) {
-                  console.log('[onDeleteLog] Deleted message pair from Claude session', {
-                    linesRemoved: result.linesRemoved,
-                    claudeSessionId
-                  });
-                } else {
+                if (!result.success) {
                   console.warn('[onDeleteLog] Failed to delete from Claude session:', result.error);
                 }
               }).catch(err => {

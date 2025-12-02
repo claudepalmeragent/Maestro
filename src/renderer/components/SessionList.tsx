@@ -486,9 +486,16 @@ export function SessionList(props: SessionListProps) {
     };
   }, [sessions]);
 
-  // Filter sessions based on search query
+  // Filter sessions based on search query (searches session name AND AI tab names)
   const filteredSessions = sessionFilter
-    ? sessions.filter(s => s.name.toLowerCase().includes(sessionFilter.toLowerCase()))
+    ? sessions.filter(s => {
+        const query = sessionFilter.toLowerCase();
+        // Match session name
+        if (s.name.toLowerCase().includes(query)) return true;
+        // Match any AI tab name
+        if (s.aiTabs?.some(tab => tab.name?.toLowerCase().includes(query))) return true;
+        return false;
+      })
     : sessions;
 
   // Temporarily expand groups when filtering to show matching sessions
@@ -502,9 +509,14 @@ export function SessionList(props: SessionListProps) {
         setPreFilterGroupStates(currentStates);
       }
 
-      // Find groups that contain matching sessions
+      // Find groups that contain matching sessions (search session name AND AI tab names)
       const groupsWithMatches = new Set<string>();
-      sessions.filter(s => s.name.toLowerCase().includes(sessionFilter.toLowerCase())).forEach(session => {
+      const query = sessionFilter.toLowerCase();
+      sessions.filter(s => {
+        if (s.name.toLowerCase().includes(query)) return true;
+        if (s.aiTabs?.some(tab => tab.name?.toLowerCase().includes(query))) return true;
+        return false;
+      }).forEach(session => {
         if (session.groupId) {
           groupsWithMatches.add(session.groupId);
         }

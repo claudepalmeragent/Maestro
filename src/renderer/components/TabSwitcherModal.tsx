@@ -254,13 +254,13 @@ export function TabSwitcherModal({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-start justify-center pt-32 z-[9999] animate-in fade-in duration-100">
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-start justify-center pt-16 z-[9999] animate-in fade-in duration-100">
       <div
         role="dialog"
         aria-modal="true"
         aria-label="Tab Switcher"
         tabIndex={-1}
-        className="w-[600px] rounded-xl shadow-2xl border overflow-hidden flex flex-col max-h-[500px] outline-none"
+        className="w-[600px] rounded-xl shadow-2xl border overflow-hidden flex flex-col max-h-[700px] outline-none"
         style={{ backgroundColor: theme.colors.bgActivity, borderColor: theme.colors.border }}
       >
         {/* Search Header */}
