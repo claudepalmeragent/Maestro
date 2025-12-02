@@ -156,12 +156,33 @@ export class ProcessManager extends EventEmitter {
           ptyArgs = finalArgs;
         }
 
+        // Build environment for PTY process
+        // For terminal sessions, we want the shell to build its own PATH from startup files
+        // (.zprofile, .zshrc, etc.) rather than inheriting Electron's limited PATH.
+        // Electron launched from Finder gets a minimal PATH from launchd, not the user's shell PATH.
+        let ptyEnv: NodeJS.ProcessEnv;
+        if (isTerminal) {
+          // For terminals: pass minimal env, let shell startup files set PATH
+          // This ensures the terminal has the same environment as a regular terminal app
+          ptyEnv = {
+            HOME: process.env.HOME,
+            USER: process.env.USER,
+            SHELL: process.env.SHELL,
+            TERM: 'xterm-256color',
+            LANG: process.env.LANG || 'en_US.UTF-8',
+            // Don't pass PATH - let the shell build it from scratch via .zprofile/.zshrc
+          };
+        } else {
+          // For AI agents in PTY mode: pass full env (they need NODE_PATH, etc.)
+          ptyEnv = process.env;
+        }
+
         const ptyProcess = pty.spawn(ptyCommand, ptyArgs, {
           name: 'xterm-256color',
           cols: 100,
           rows: 30,
           cwd: cwd,
-          env: process.env as any,
+          env: ptyEnv as any,
         });
 
         const managedProcess: ManagedProcess = {

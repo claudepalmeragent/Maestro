@@ -7,6 +7,8 @@ import { AgentDetector } from './agent-detector';
 import { execFileNoThrow } from './utils/execFile';
 import { logger } from './utils/logger';
 import { detectShells } from './utils/shellDetector';
+import { isCloudflaredInstalled } from './utils/cliDetection';
+import { tunnelManager } from './tunnel-manager';
 import { getThemeById } from './themes';
 import Store from 'electron-store';
 
@@ -38,8 +40,6 @@ interface MaestroSettings {
   llmProvider: string;
   modelSlug: string;
   apiKey: string;
-  tunnelProvider: string;
-  tunnelApiKey: string;
   shortcuts: Record<string, any>;
   defaultAgent: string;
   fontSize: number;
@@ -59,8 +59,6 @@ const store = new Store<MaestroSettings>({
     llmProvider: 'openrouter',
     modelSlug: 'anthropic/claude-3.5-sonnet',
     apiKey: '',
-    tunnelProvider: 'ngrok',
-    tunnelApiKey: '',
     shortcuts: {},
     defaultAgent: 'claude-code',
     fontSize: 14,
@@ -651,6 +649,8 @@ app.on('before-quit', async () => {
   // Clean up all running processes
   logger.info('Killing all running processes', 'Shutdown');
   processManager?.killAll();
+  logger.info('Stopping tunnel', 'Shutdown');
+  await tunnelManager.stop();
   logger.info('Stopping web server', 'Shutdown');
   await webServer?.stop();
   logger.info('Shutdown complete', 'Shutdown');
@@ -1466,6 +1466,44 @@ function setupIpcHandlers() {
   // Shell operations
   ipcMain.handle('shell:openExternal', async (_event, url: string) => {
     await shell.openExternal(url);
+  });
+
+  // Tunnel operations (cloudflared CLI detection and tunnel management)
+  ipcMain.handle('tunnel:isCloudflaredInstalled', async () => {
+    return await isCloudflaredInstalled();
+  });
+
+  ipcMain.handle('tunnel:start', async () => {
+    // Get web server URL (includes the security token)
+    const serverUrl = webServer?.getSecureUrl();
+    if (!serverUrl) {
+      return { success: false, error: 'Web server not running' };
+    }
+
+    // Parse the URL to get port and token path
+    const parsedUrl = new URL(serverUrl);
+    const port = parseInt(parsedUrl.port, 10);
+    const tokenPath = parsedUrl.pathname; // e.g., "/7d7f7162-614c-43e2-bb8a-8a8123c2f56a"
+
+    const result = await tunnelManager.start(port);
+
+    if (result.success && result.url) {
+      // Append the token path to the tunnel URL for security
+      // e.g., "https://xyz.trycloudflare.com" + "/TOKEN" = "https://xyz.trycloudflare.com/TOKEN"
+      const fullTunnelUrl = result.url + tokenPath;
+      return { success: true, url: fullTunnelUrl };
+    }
+
+    return result;
+  });
+
+  ipcMain.handle('tunnel:stop', async () => {
+    await tunnelManager.stop();
+    return { success: true };
+  });
+
+  ipcMain.handle('tunnel:getStatus', async () => {
+    return tunnelManager.getStatus();
   });
 
   // DevTools operations
@@ -2842,6 +2880,33 @@ function setupIpcHandlers() {
   ipcMain.handle('claude:getSessionOrigins', async (_event, projectPath: string) => {
     const origins = claudeSessionOriginsStore.get('origins', {});
     return origins[projectPath] || {};
+  });
+
+  // Get all named sessions across all projects (for Tab Switcher "All Named" view)
+  ipcMain.handle('claude:getAllNamedSessions', async () => {
+    const allOrigins = claudeSessionOriginsStore.get('origins', {});
+    const namedSessions: Array<{
+      claudeSessionId: string;
+      projectPath: string;
+      sessionName: string;
+      starred?: boolean;
+    }> = [];
+
+    for (const [projectPath, sessions] of Object.entries(allOrigins)) {
+      for (const [claudeSessionId, info] of Object.entries(sessions)) {
+        // Handle both old string format and new object format
+        if (typeof info === 'object' && info.sessionName) {
+          namedSessions.push({
+            claudeSessionId,
+            projectPath,
+            sessionName: info.sessionName,
+            starred: info.starred,
+          });
+        }
+      }
+    }
+
+    return namedSessions;
   });
 
   // Notification operations

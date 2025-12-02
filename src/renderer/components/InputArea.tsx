@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useMemo } from 'react';
-import { Terminal, Cpu, Keyboard, ImageIcon, X, ArrowUp, StopCircle, Eye, History, File, Folder, GitBranch, Tag } from 'lucide-react';
+import { Terminal, Cpu, Keyboard, ImageIcon, X, ArrowUp, StopCircle, Eye, History, File, Folder, GitBranch, Tag, PenLine } from 'lucide-react';
 import type { Session, Theme, BatchRunState } from '../types';
 import type { TabCompletionSuggestion, TabCompletionFilter } from '../hooks/useTabCompletion';
 import { ThinkingStatusPill } from './ThinkingStatusPill';
@@ -76,6 +76,8 @@ interface InputAreaProps {
   // Save to History toggle (per-tab)
   tabSaveToHistory?: boolean;
   onToggleTabSaveToHistory?: () => void;
+  // Prompt composer modal
+  onOpenPromptComposer?: () => void;
 }
 
 export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
@@ -101,7 +103,8 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
     sessions = [], namedSessions, onSessionClick, autoRunState, onStopAutoRun,
     onOpenQueueBrowser,
     tabReadOnlyMode = false, onToggleTabReadOnlyMode,
-    tabSaveToHistory = false, onToggleTabSaveToHistory
+    tabSaveToHistory = false, onToggleTabSaveToHistory,
+    onOpenPromptComposer
   } = props;
 
   // Check if we're in read-only mode (auto mode OR manual toggle - Claude will be in plan mode)
@@ -612,6 +615,15 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
                   {(session.shellCwd || session.cwd)?.replace(/^\/Users\/[^\/]+/, '~') || '~'}
                 </div>
               )}
+              {session.inputMode === 'ai' && onOpenPromptComposer && (
+                <button
+                  onClick={onOpenPromptComposer}
+                  className="p-1 hover:bg-white/10 rounded opacity-50 hover:opacity-100"
+                  title="Open Prompt Composer"
+                >
+                  <PenLine className="w-4 h-4"/>
+                </button>
+              )}
               {session.inputMode === 'ai' && (
                 <button
                   onClick={() => document.getElementById('image-file-input')?.click()}
@@ -652,9 +664,9 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
                     tabSaveToHistory ? '' : 'opacity-40 hover:opacity-70'
                   }`}
                   style={{
-                    backgroundColor: tabSaveToHistory ? `${theme.colors.info}25` : 'transparent',
-                    color: tabSaveToHistory ? theme.colors.info : theme.colors.textDim,
-                    border: tabSaveToHistory ? `1px solid ${theme.colors.info}50` : '1px solid transparent'
+                    backgroundColor: tabSaveToHistory ? `${theme.colors.accent}25` : 'transparent',
+                    color: tabSaveToHistory ? theme.colors.accent : theme.colors.textDim,
+                    border: tabSaveToHistory ? `1px solid ${theme.colors.accent}50` : '1px solid transparent'
                   }}
                   title="Save to History (Cmd+S) - Synopsis added after each completion"
                 >
@@ -706,23 +718,26 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
           >
             {session.inputMode === 'terminal' ? <Terminal className="w-4 h-4" /> : <Cpu className="w-4 h-4" />}
           </button>
-          {session.state === 'busy' ? (
+          {/* Show interrupt button only in AI mode when busy. Terminal mode always shows send button
+              because terminal doesn't block - you can send commands while others are running */}
+          {session.state === 'busy' && session.inputMode === 'ai' ? (
             <button
               onClick={handleInterrupt}
               className="p-2 rounded-md text-white hover:opacity-90 shadow-sm transition-all animate-pulse"
               style={{ backgroundColor: theme.colors.error }}
-              title={session.inputMode === 'ai' ? 'Interrupt Claude (Ctrl+C)' : 'Interrupt (Ctrl+C)'}
+              title="Interrupt Claude (Ctrl+C)"
             >
               <StopCircle className="w-4 h-4" />
             </button>
           ) : (
             <button
               onClick={processInput}
-              className="p-2 rounded-md shadow-sm transition-all hover:opacity-90"
+              className="p-2 rounded-md shadow-sm transition-all hover:opacity-90 cursor-pointer"
               style={{
                 backgroundColor: theme.colors.accent,
                 color: theme.colors.accentForeground
               }}
+              title={session.inputMode === 'terminal' ? 'Run command (Enter)' : 'Send message'}
             >
               <ArrowUp className="w-4 h-4" />
             </button>

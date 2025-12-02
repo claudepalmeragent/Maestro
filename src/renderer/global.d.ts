@@ -265,6 +265,12 @@ interface MaestroAPI {
     updateSessionName: (projectPath: string, claudeSessionId: string, sessionName: string) => Promise<boolean>;
     updateSessionStarred: (projectPath: string, claudeSessionId: string, starred: boolean) => Promise<boolean>;
     getSessionOrigins: (projectPath: string) => Promise<Record<string, 'user' | 'auto' | { origin: 'user' | 'auto'; sessionName?: string; starred?: boolean }>>;
+    getAllNamedSessions: () => Promise<Array<{
+      claudeSessionId: string;
+      projectPath: string;
+      sessionName: string;
+      starred?: boolean;
+    }>>;
     deleteMessagePair: (projectPath: string, sessionId: string, userMessageUuid: string, fallbackContent?: string) => Promise<{ success: boolean; linesRemoved?: number; error?: string }>;
   };
   tempfile: {

@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useMemo, forwardRef, useState, useCallback, memo } from 'react';
-import { Activity, X, ChevronDown, ChevronUp, Filter, PlusCircle, MinusCircle, Trash2, Copy, Volume2, Square, Check, ArrowDown, Eye, FileText } from 'lucide-react';
+import { Activity, X, ChevronDown, ChevronUp, Filter, PlusCircle, MinusCircle, Trash2, Copy, Volume2, Square, Check, ArrowDown, Eye, FileText, Clipboard } from 'lucide-react';
 import type { Session, Theme, LogEntry } from '../types';
 import Convert from 'ansi-to-html';
 import DOMPurify from 'dompurify';
@@ -10,6 +10,52 @@ import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useLayerStack } from '../contexts/LayerStackContext';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 import { getActiveTab } from '../utils/tabHelpers';
+
+// ============================================================================
+// CodeBlockWithCopy - Code block with copy button overlay
+// ============================================================================
+
+interface CodeBlockWithCopyProps {
+  language: string;
+  codeContent: string;
+  theme: Theme;
+  onCopy: (text: string) => void;
+}
+
+const CodeBlockWithCopy = memo(({ language, codeContent, theme, onCopy }: CodeBlockWithCopyProps) => {
+  return (
+    <div className="relative group/codeblock">
+      <button
+        onClick={() => onCopy(codeContent)}
+        className="absolute top-2 right-2 p-1.5 rounded opacity-0 group-hover/codeblock:opacity-70 hover:!opacity-100 transition-opacity z-10"
+        style={{
+          backgroundColor: theme.colors.bgActivity,
+          color: theme.colors.textDim,
+          border: `1px solid ${theme.colors.border}`
+        }}
+        title="Copy code"
+      >
+        <Clipboard className="w-3.5 h-3.5" />
+      </button>
+      <SyntaxHighlighter
+        language={language}
+        style={vscDarkPlus}
+        customStyle={{
+          margin: '0.5em 0',
+          padding: '1em',
+          background: theme.colors.bgSidebar,
+          fontSize: '0.9em',
+          borderRadius: '6px',
+        }}
+        PreTag="div"
+      >
+        {codeContent}
+      </SyntaxHighlighter>
+    </div>
+  );
+});
+
+CodeBlockWithCopy.displayName = 'CodeBlockWithCopy';
 
 // ============================================================================
 // Pure helper functions (moved outside component to prevent recreation)
@@ -543,10 +589,11 @@ const LogItemComponent = memo(({
                     .prose h5 { color: ${theme.colors.textMain}; font-size: 1.2em; font-weight: bold; margin: 0; line-height: 1.4; }
                     .prose h6 { color: ${theme.colors.textDim}; font-size: 1.1em; font-weight: bold; margin: 0; line-height: 1.4; }
                     .prose p { color: ${theme.colors.textMain}; margin: 0; line-height: 1.4; }
+                    .prose p:empty { display: none; }
                     .prose > ul, .prose > ol { color: ${theme.colors.textMain}; margin: 0.5em 0; padding-left: 2em; }
                     .prose li ul, .prose li ol { margin: 0 !important; padding-left: 1.5em; }
                     .prose li { margin: 0 !important; padding: 0; line-height: 1.4; display: list-item; }
-                    .prose li > p:first-child { margin: 0 !important; display: inline !important; }
+                    .prose li > p:first-child { margin: 0 !important; display: contents !important; }
                     .prose li > p:first-child + ul, .prose li > p:first-child + ol { display: block; margin-top: 0 !important; }
                     .prose li > p + ul, .prose li > p + ol { margin-top: 0 !important; }
                     .prose li:has(> input[type="checkbox"]) { list-style: none; margin-left: -1.5em; }
@@ -556,7 +603,7 @@ const LogItemComponent = memo(({
                     .prose blockquote { border-left: 3px solid ${theme.colors.border}; padding-left: 0.75em; margin: 0; color: ${theme.colors.textDim}; }
                     .prose a { color: ${theme.colors.accent}; text-decoration: underline; }
                     .prose hr { border: none; border-top: 1px solid ${theme.colors.border}; margin: 0.75em 0; }
-                    .prose table { border-collapse: collapse; width: 100%; margin: 0; }
+                    .prose table { border-collapse: collapse; width: 100%; margin: 0.5em 0; }
                     .prose th, .prose td { border: 1px solid ${theme.colors.border}; padding: 0.25em 0.5em; text-align: left; }
                     .prose th { background-color: ${theme.colors.bgSidebar}; font-weight: bold; }
                     .prose strong { font-weight: bold; }
@@ -586,20 +633,12 @@ const LogItemComponent = memo(({
                         const codeContent = String(children).replace(/\n$/, '');
 
                         return !inline && match ? (
-                          <SyntaxHighlighter
+                          <CodeBlockWithCopy
                             language={language}
-                            style={vscDarkPlus}
-                            customStyle={{
-                              margin: '0.5em 0',
-                              padding: '1em',
-                              background: theme.colors.bgSidebar,
-                              fontSize: '0.9em',
-                              borderRadius: '6px',
-                            }}
-                            PreTag="div"
-                          >
-                            {codeContent}
-                          </SyntaxHighlighter>
+                            codeContent={codeContent}
+                            theme={theme}
+                            onCopy={copyToClipboard}
+                          />
                         ) : (
                           <code className={className} {...props}>
                             {children}
@@ -694,10 +733,11 @@ const LogItemComponent = memo(({
                     .prose h5 { color: ${theme.colors.textMain}; font-size: 1.2em; font-weight: bold; margin: 0; line-height: 1.4; }
                     .prose h6 { color: ${theme.colors.textDim}; font-size: 1.1em; font-weight: bold; margin: 0; line-height: 1.4; }
                     .prose p { color: ${theme.colors.textMain}; margin: 0; line-height: 1.4; }
+                    .prose p:empty { display: none; }
                     .prose > ul, .prose > ol { color: ${theme.colors.textMain}; margin: 0.5em 0; padding-left: 2em; }
                     .prose li ul, .prose li ol { margin: 0 !important; padding-left: 1.5em; }
                     .prose li { margin: 0 !important; padding: 0; line-height: 1.4; display: list-item; }
-                    .prose li > p:first-child { margin: 0 !important; display: inline !important; }
+                    .prose li > p:first-child { margin: 0 !important; display: contents !important; }
                     .prose li > p:first-child + ul, .prose li > p:first-child + ol { display: block; margin-top: 0 !important; }
                     .prose li > p + ul, .prose li > p + ol { margin-top: 0 !important; }
                     .prose li:has(> input[type="checkbox"]) { list-style: none; margin-left: -1.5em; }
@@ -707,7 +747,7 @@ const LogItemComponent = memo(({
                     .prose blockquote { border-left: 3px solid ${theme.colors.border}; padding-left: 0.75em; margin: 0; color: ${theme.colors.textDim}; }
                     .prose a { color: ${theme.colors.accent}; text-decoration: underline; }
                     .prose hr { border: none; border-top: 1px solid ${theme.colors.border}; margin: 0.75em 0; }
-                    .prose table { border-collapse: collapse; width: 100%; margin: 0; }
+                    .prose table { border-collapse: collapse; width: 100%; margin: 0.5em 0; }
                     .prose th, .prose td { border: 1px solid ${theme.colors.border}; padding: 0.25em 0.5em; text-align: left; }
                     .prose th { background-color: ${theme.colors.bgSidebar}; font-weight: bold; }
                     .prose strong { font-weight: bold; }
@@ -737,20 +777,12 @@ const LogItemComponent = memo(({
                         const codeContent = String(children).replace(/\n$/, '');
 
                         return !inline && match ? (
-                          <SyntaxHighlighter
+                          <CodeBlockWithCopy
                             language={language}
-                            style={vscDarkPlus}
-                            customStyle={{
-                              margin: '0.5em 0',
-                              padding: '1em',
-                              background: theme.colors.bgSidebar,
-                              fontSize: '0.9em',
-                              borderRadius: '6px',
-                            }}
-                            PreTag="div"
-                          >
-                            {codeContent}
-                          </SyntaxHighlighter>
+                            codeContent={codeContent}
+                            theme={theme}
+                            onCopy={copyToClipboard}
+                          />
                         ) : (
                           <code className={className} {...props}>
                             {children}
@@ -827,10 +859,11 @@ const LogItemComponent = memo(({
                   .prose h5 { color: ${theme.colors.textMain}; font-size: 1.2em; font-weight: bold; margin: 0; line-height: 1.4; }
                   .prose h6 { color: ${theme.colors.textDim}; font-size: 1.1em; font-weight: bold; margin: 0; line-height: 1.4; }
                   .prose p { color: ${theme.colors.textMain}; margin: 0; line-height: 1.4; }
+                  .prose p:empty { display: none; }
                   .prose > ul, .prose > ol { color: ${theme.colors.textMain}; margin: 0.5em 0; padding-left: 2em; }
                   .prose li ul, .prose li ol { margin: 0 !important; padding-left: 1.5em; }
                   .prose li { margin: 0 !important; padding: 0; line-height: 1.4; display: list-item; }
-                  .prose li > p:first-child { margin: 0 !important; display: inline !important; }
+                  .prose li > p:first-child { margin: 0 !important; display: contents !important; }
                   .prose li > p:first-child + ul, .prose li > p:first-child + ol { display: block; margin-top: 0 !important; }
                   .prose li > p + ul, .prose li > p + ol { margin-top: 0 !important; }
                   .prose li:has(> input[type="checkbox"]) { list-style: none; margin-left: -1.5em; }
@@ -840,7 +873,7 @@ const LogItemComponent = memo(({
                   .prose blockquote { border-left: 3px solid ${theme.colors.border}; padding-left: 0.75em; margin: 0; color: ${theme.colors.textDim}; }
                   .prose a { color: ${theme.colors.accent}; text-decoration: underline; }
                   .prose hr { border: none; border-top: 1px solid ${theme.colors.border}; margin: 0.75em 0; }
-                  .prose table { border-collapse: collapse; width: 100%; margin: 0; }
+                  .prose table { border-collapse: collapse; width: 100%; margin: 0.5em 0; }
                   .prose th, .prose td { border: 1px solid ${theme.colors.border}; padding: 0.25em 0.5em; text-align: left; }
                   .prose th { background-color: ${theme.colors.bgSidebar}; font-weight: bold; }
                   .prose strong { font-weight: bold; }
@@ -870,20 +903,12 @@ const LogItemComponent = memo(({
                       const codeContent = String(children).replace(/\n$/, '');
 
                       return !inline && match ? (
-                        <SyntaxHighlighter
+                        <CodeBlockWithCopy
                           language={language}
-                          style={vscDarkPlus}
-                          customStyle={{
-                            margin: '0.5em 0',
-                            padding: '1em',
-                            background: theme.colors.bgSidebar,
-                            fontSize: '0.9em',
-                            borderRadius: '6px',
-                          }}
-                          PreTag="div"
-                        >
-                          {codeContent}
-                        </SyntaxHighlighter>
+                          codeContent={codeContent}
+                          theme={theme}
+                          onCopy={copyToClipboard}
+                        />
                       ) : (
                         <code className={className} {...props}>
                           {children}

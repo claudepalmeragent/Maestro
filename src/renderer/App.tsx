@@ -20,6 +20,7 @@ import { GitDiffViewer } from './components/GitDiffViewer';
 import { GitLogViewer } from './components/GitLogViewer';
 import { BatchRunnerModal } from './components/BatchRunnerModal';
 import { TabSwitcherModal } from './components/TabSwitcherModal';
+import { PromptComposerModal } from './components/PromptComposerModal';
 import { ExecutionQueueBrowser } from './components/ExecutionQueueBrowser';
 import { StandingOvationOverlay } from './components/StandingOvationOverlay';
 import { PlaygroundPanel } from './components/PlaygroundPanel';
@@ -92,8 +93,6 @@ export default function MaestroConsole() {
     llmProvider, setLlmProvider,
     modelSlug, setModelSlug,
     apiKey, setApiKey,
-    tunnelProvider, setTunnelProvider,
-    tunnelApiKey, setTunnelApiKey,
     defaultAgent, setDefaultAgent,
     defaultShell, setDefaultShell,
     fontFamily, setFontFamily,
@@ -184,7 +183,7 @@ export default function MaestroConsole() {
   const [shortcutsSearchQuery, setShortcutsSearchQuery] = useState('');
   const [quickActionOpen, setQuickActionOpen] = useState(false);
   const [quickActionInitialMode, setQuickActionInitialMode] = useState<'main' | 'move-to-group'>('main');
-  const [settingsTab, setSettingsTab] = useState<'general' | 'shortcuts' | 'theme' | 'network'>('general');
+  const [settingsTab, setSettingsTab] = useState<'general' | 'shortcuts' | 'theme' | 'notifications' | 'aicommands'>('general');
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
   const [lightboxImages, setLightboxImages] = useState<string[]>([]); // Context images for navigation
   const [aboutModalOpen, setAboutModalOpen] = useState(false);
@@ -235,6 +234,9 @@ export default function MaestroConsole() {
 
   // Tab Switcher Modal State
   const [tabSwitcherOpen, setTabSwitcherOpen] = useState(false);
+
+  // Prompt Composer Modal State
+  const [promptComposerOpen, setPromptComposerOpen] = useState(false);
   const [renameGroupId, setRenameGroupId] = useState<string | null>(null);
   const [renameGroupValue, setRenameGroupValue] = useState('');
   const [renameGroupEmoji, setRenameGroupEmoji] = useState('📂');
@@ -1070,7 +1072,7 @@ export default function MaestroConsole() {
         if (!session) return prev;
 
         // Check if we need to fetch commands (only on first session establishment)
-        const needsCommandFetch = !session.claudeCommands && session.toolType === 'claude';
+        const needsCommandFetch = !session.claudeCommands && session.toolType === 'claude-code';
 
         if (needsCommandFetch) {
           // Fetch commands asynchronously and update session
@@ -2183,6 +2185,7 @@ export default function MaestroConsole() {
       summary: entry.summary,
       fullResponse: entry.fullResponse,
       claudeSessionId: entry.claudeSessionId,
+      sessionId: activeSession.id,
       sessionName: sessionName,
       projectPath: activeSession.cwd,
       contextUsage: activeSession.contextUsage,
@@ -2677,9 +2680,11 @@ export default function MaestroConsole() {
         const isCycleShortcut = (e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === '[' || e.key === ']');
         // Allow sidebar toggle shortcuts (Alt+Cmd+Arrow) even when modals are open
         const isLayoutShortcut = e.altKey && (e.metaKey || e.ctrlKey) && (e.key === 'ArrowLeft' || e.key === 'ArrowRight');
-        // Allow right panel tab shortcuts (Cmd+Shift+F/H/S/J) even when overlays are open
+        // Allow right panel tab shortcuts (Cmd+Shift+F/H/S) even when overlays are open
         const keyLower = e.key.toLowerCase();
-        const isRightPanelShortcut = (e.metaKey || e.ctrlKey) && e.shiftKey && (keyLower === 'f' || keyLower === 'h' || keyLower === 's' || keyLower === 'j');
+        const isRightPanelShortcut = (e.metaKey || e.ctrlKey) && e.shiftKey && (keyLower === 'f' || keyLower === 'h' || keyLower === 's');
+        // Allow jumpToBottom (Cmd+Shift+J) from anywhere - always scroll main panel to bottom
+        const isJumpToBottomShortcut = (e.metaKey || e.ctrlKey) && e.shiftKey && keyLower === 'j';
         // Allow system utility shortcuts (Alt+Cmd+L for logs, Alt+Cmd+P for processes) even when modals are open
         const isSystemUtilShortcut = e.altKey && (e.metaKey || e.ctrlKey) && (keyLower === 'l' || keyLower === 'p');
         // Allow session jump shortcuts (Alt+Cmd+NUMBER) even when modals are open
@@ -2688,17 +2693,17 @@ export default function MaestroConsole() {
         if (ctx.hasOpenModal()) {
           // TRUE MODAL is open - block most shortcuts from App.tsx
           // The modal's own handler will handle Cmd+Shift+[] if it supports it
-          // BUT allow layout shortcuts (sidebar toggles), system utility shortcuts, and session jump to work
-          if (!isLayoutShortcut && !isSystemUtilShortcut && !isSessionJumpShortcut) {
+          // BUT allow layout shortcuts (sidebar toggles), system utility shortcuts, session jump, and jumpToBottom to work
+          if (!isLayoutShortcut && !isSystemUtilShortcut && !isSessionJumpShortcut && !isJumpToBottomShortcut) {
             return;
           }
-          // Fall through to handle layout/system utility/session jump shortcuts below
+          // Fall through to handle layout/system utility/session jump/jumpToBottom shortcuts below
         } else {
           // Only OVERLAYS are open (FilePreview, LogViewer, etc.)
           // Allow Cmd+Shift+[] to fall through to App.tsx handler
           // (which will cycle right panel tabs when previewFile is set)
           // Also allow right panel tab shortcuts to switch tabs while overlay is open
-          if (!isCycleShortcut && !isLayoutShortcut && !isRightPanelShortcut && !isSystemUtilShortcut && !isSessionJumpShortcut) {
+          if (!isCycleShortcut && !isLayoutShortcut && !isRightPanelShortcut && !isSystemUtilShortcut && !isSessionJumpShortcut && !isJumpToBottomShortcut) {
             return;
           }
           // Fall through to cyclePrev/cycleNext logic below
@@ -2992,6 +2997,12 @@ export default function MaestroConsole() {
       else if (ctx.isShortcut(e, 'goToFiles')) { e.preventDefault(); ctx.setRightPanelOpen(true); ctx.setActiveRightTab('files'); ctx.setActiveFocus('right'); }
       else if (ctx.isShortcut(e, 'goToHistory')) { e.preventDefault(); ctx.setRightPanelOpen(true); ctx.setActiveRightTab('history'); ctx.setActiveFocus('right'); }
       else if (ctx.isShortcut(e, 'goToScratchpad')) { e.preventDefault(); ctx.setRightPanelOpen(true); ctx.setActiveRightTab('scratchpad'); ctx.setActiveFocus('right'); }
+      else if (ctx.isShortcut(e, 'openImageCarousel')) {
+        e.preventDefault();
+        if (ctx.stagedImages.length > 0) {
+          ctx.handleSetLightboxImage(ctx.stagedImages[0], ctx.stagedImages);
+        }
+      }
       else if (ctx.isShortcut(e, 'focusInput')) {
         e.preventDefault();
         ctx.setActiveFocus('main');
@@ -3519,7 +3530,8 @@ export default function MaestroConsole() {
   const toggleGlobalLive = async () => {
     try {
       if (isLiveMode) {
-        // Turn off - stop the server and clear state
+        // Stop tunnel first (if running), then stop web server
+        await window.maestro.tunnel.stop();
         const result = await window.maestro.live.disableAll();
         setIsLiveMode(false);
         setWebInterfaceUrl(null);
@@ -3614,7 +3626,7 @@ export default function MaestroConsole() {
     setSessions, createTab, closeTab, reopenClosedTab, getActiveTab, setRenameTabId, setRenameTabInitialName,
     setRenameTabModalOpen, navigateToNextTab, navigateToPrevTab, navigateToTabByIndex, navigateToLastTab,
     setFileTreeFilterOpen, isShortcut, isTabShortcut, handleNavBack, handleNavForward, toggleUnreadFilter,
-    setTabSwitcherOpen, showUnreadOnly
+    setTabSwitcherOpen, showUnreadOnly, stagedImages, handleSetLightboxImage
   };
 
   const toggleGroup = (groupId: string) => {
@@ -6204,6 +6216,7 @@ export default function MaestroConsole() {
             syncTerminalInputToSession(terminalInputValue);
           }
         }}
+        onOpenPromptComposer={() => setPromptComposerOpen(true)}
       />
 
       {/* --- RIGHT PANEL (hidden in mobile landscape) --- */}
@@ -6279,15 +6292,42 @@ export default function MaestroConsole() {
           theme={theme}
           tabs={activeSession.aiTabs}
           activeTabId={activeSession.activeTabId}
+          cwd={activeSession.cwd}
           shortcut={TAB_SHORTCUTS.tabSwitcher}
           onTabSelect={(tabId) => {
             setSessions(prev => prev.map(s =>
               s.id === activeSession.id ? { ...s, activeTabId: tabId } : s
             ));
           }}
+          onNamedSessionSelect={(claudeSessionId, projectPath, sessionName) => {
+            // Open a closed named session as a new tab in the current session
+            // Note: The session might be from a different project - we'll open it anyway
+            // and let Claude Code handle the context appropriately
+            const result = createTab(activeSession, {
+              claudeSessionId,
+              name: sessionName,
+              logs: [], // Will be populated when the session is resumed
+            });
+            setSessions(prev => prev.map(s =>
+              s.id === activeSession.id ? result.session : s
+            ));
+            // Focus input so user can start interacting immediately
+            setActiveFocus('main');
+            setTimeout(() => inputRef.current?.focus(), 50);
+          }}
           onClose={() => setTabSwitcherOpen(false)}
         />
       )}
+
+      {/* --- PROMPT COMPOSER MODAL --- */}
+      <PromptComposerModal
+        isOpen={promptComposerOpen}
+        onClose={() => setPromptComposerOpen(false)}
+        theme={theme}
+        initialValue={inputValue}
+        onSubmit={(value) => setInputValue(value)}
+        sessionName={activeSession?.name}
+      />
 
       {/* --- EXECUTION QUEUE BROWSER --- */}
       <ExecutionQueueBrowser
@@ -6335,10 +6375,6 @@ export default function MaestroConsole() {
         setModelSlug={setModelSlug}
         apiKey={apiKey}
         setApiKey={setApiKey}
-        tunnelProvider={tunnelProvider}
-        setTunnelProvider={setTunnelProvider}
-        tunnelApiKey={tunnelApiKey}
-        setTunnelApiKey={setTunnelApiKey}
         shortcuts={shortcuts}
         setShortcuts={setShortcuts}
         defaultAgent={defaultAgent}

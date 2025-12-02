@@ -443,7 +443,7 @@ function ThinkingStatusPillInner({ sessions, theme, onSessionClick, namedSession
             {/* Expanded dropdown */}
             {isExpanded && (
               <div
-                className="absolute right-0 top-full mt-1 min-w-[200px] rounded-lg shadow-xl overflow-hidden z-50"
+                className="absolute right-0 top-full mt-1 min-w-[320px] rounded-lg shadow-xl overflow-hidden z-50"
                 style={{
                   backgroundColor: theme.colors.bgSidebar,
                   border: `1px solid ${theme.colors.border}`

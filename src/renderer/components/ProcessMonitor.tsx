@@ -243,12 +243,23 @@ export function ProcessMonitor(props: ProcessMonitorProps) {
         // Look up Claude session ID from the tab if this is an AI process
         let claudeSessionId: string | undefined;
         let tabId: string | undefined;
-        if (processType === 'ai') {
+        if (processType === 'ai' || processType === 'batch' || processType === 'synopsis') {
           tabId = parseTabId(proc.sessionId) || undefined;
-          if (tabId && session.aiTabs) {
-            const tab = session.aiTabs.find(t => t.id === tabId);
-            if (tab?.claudeSessionId) {
-              claudeSessionId = tab.claudeSessionId;
+          if (session.aiTabs) {
+            // First try to find by tab ID
+            if (tabId) {
+              const tab = session.aiTabs.find(t => t.id === tabId);
+              if (tab?.claudeSessionId) {
+                claudeSessionId = tab.claudeSessionId;
+              }
+            }
+            // Fall back to active tab if no tab ID match
+            if (!claudeSessionId) {
+              const activeTab = session.aiTabs.find(t => t.id === session.activeTabId);
+              if (activeTab?.claudeSessionId) {
+                claudeSessionId = activeTab.claudeSessionId;
+                tabId = activeTab.id;
+              }
             }
           }
         }
@@ -268,59 +279,48 @@ export function ProcessMonitor(props: ProcessMonitorProps) {
         });
       });
 
-      // If no active processes, show placeholder based on session state
-      if (sessionNode.children!.length === 0) {
-        // Show what could be running based on session type
-        if (session.toolType !== 'terminal') {
-          sessionNode.children!.push({
-            id: `process-${session.id}-ai-inactive`,
-            type: 'process',
-            label: `AI Agent (${session.toolType})`,
-            pid: session.aiPid > 0 ? session.aiPid : undefined,
-            processType: 'ai',
-            sessionId: session.id,
-            isAlive: false
-          });
-        }
-        sessionNode.children!.push({
-          id: `process-${session.id}-terminal-inactive`,
-          type: 'process',
-          label: 'Terminal Shell',
-          pid: session.terminalPid > 0 ? session.terminalPid : undefined,
-          processType: 'terminal',
-          sessionId: session.id,
-          isAlive: false
-        });
-      }
-
+      // Only return session node if it has active processes
       return sessionNode;
     };
 
-    // Add grouped sessions
+    // Add grouped sessions (only include sessions with active processes)
     groups.forEach(group => {
       const groupSessions = sessionsByGroup.get(group.id) || [];
-      const groupNode: ProcessNode = {
-        id: `group-${group.id}`,
-        type: 'group',
-        label: group.name,
-        emoji: group.emoji,
-        expanded: expandedNodes.has(`group-${group.id}`),
-        children: groupSessions.map(session => buildSessionNode(session))
-      };
-      tree.push(groupNode);
+      const sessionNodes = groupSessions
+        .map(session => buildSessionNode(session))
+        .filter(node => node.children && node.children.length > 0);
+
+      // Only add group if it has sessions with active processes
+      if (sessionNodes.length > 0) {
+        const groupNode: ProcessNode = {
+          id: `group-${group.id}`,
+          type: 'group',
+          label: group.name,
+          emoji: group.emoji,
+          expanded: expandedNodes.has(`group-${group.id}`),
+          children: sessionNodes
+        };
+        tree.push(groupNode);
+      }
     });
 
-    // Add ungrouped sessions (root level)
+    // Add ungrouped sessions (root level, only with active processes)
     if (ungroupedSessions.length > 0) {
-      const rootNode: ProcessNode = {
-        id: 'group-root',
-        type: 'group',
-        label: 'UNGROUPED',
-        emoji: '📁',
-        expanded: expandedNodes.has('group-root'),
-        children: ungroupedSessions.map(session => buildSessionNode(session))
-      };
-      tree.push(rootNode);
+      const sessionNodes = ungroupedSessions
+        .map(session => buildSessionNode(session))
+        .filter(node => node.children && node.children.length > 0);
+
+      if (sessionNodes.length > 0) {
+        const rootNode: ProcessNode = {
+          id: 'group-root',
+          type: 'group',
+          label: 'UNGROUPED',
+          emoji: '📁',
+          expanded: expandedNodes.has('group-root'),
+          children: sessionNodes
+        };
+        tree.push(rootNode);
+      }
     }
 
     return tree;
@@ -535,9 +535,6 @@ export function ProcessMonitor(props: ProcessMonitorProps) {
     }
 
     if (node.type === 'process') {
-      const statusColor = node.isAlive ? theme.colors.success : theme.colors.textDim;
-      const statusText = node.isAlive ? 'Running' : 'Idle';
-
       return (
         <div
           ref={isSelected ? selectedNodeRef as React.RefObject<HTMLDivElement> : null}
@@ -558,7 +555,7 @@ export function ProcessMonitor(props: ProcessMonitorProps) {
           <div className="w-4 h-4 flex-shrink-0" />
           <div
             className="w-2 h-2 rounded-full flex-shrink-0"
-            style={{ backgroundColor: statusColor }}
+            style={{ backgroundColor: theme.colors.success }}
           />
           <span className="text-sm flex-1 truncate">{node.label}</span>
           {node.claudeSessionId && node.sessionId && onNavigateToSession && (
@@ -581,16 +578,16 @@ export function ProcessMonitor(props: ProcessMonitorProps) {
             </span>
           )}
           <span className="text-xs font-mono flex-shrink-0" style={{ color: theme.colors.textDim }}>
-            {node.pid ? `PID: ${node.pid}` : 'No PID'}
+            PID: {node.pid}
           </span>
           <span
             className="text-xs px-2 py-0.5 rounded"
             style={{
-              backgroundColor: node.isAlive ? `${theme.colors.success}20` : `${theme.colors.textDim}20`,
-              color: statusColor
+              backgroundColor: `${theme.colors.success}20`,
+              color: theme.colors.success
             }}
           >
-            {statusText}
+            Running
           </span>
         </div>
       );
@@ -702,7 +699,7 @@ export function ProcessMonitor(props: ProcessMonitorProps) {
               className="px-6 py-8 text-center"
               style={{ color: theme.colors.textDim }}
             >
-              No active sessions
+              No running processes
             </div>
           ) : (
             <div className="py-2">
@@ -726,8 +723,6 @@ export function ProcessMonitor(props: ProcessMonitorProps) {
           <div className="flex items-center gap-2">
             <div className="w-2 h-2 rounded-full" style={{ backgroundColor: theme.colors.success }} />
             <span>Running</span>
-            <div className="w-2 h-2 rounded-full ml-3" style={{ backgroundColor: theme.colors.textDim }} />
-            <span>Idle</span>
           </div>
         </div>
       </div>

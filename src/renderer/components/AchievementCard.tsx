@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Trophy, Clock, Zap, Star, ExternalLink, ChevronDown, History } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Trophy, Clock, Zap, Star, ExternalLink, ChevronDown, History, Share2, Copy, Download, Check } from 'lucide-react';
 import type { Theme } from '../types';
 import type { AutoRunStats } from '../types';
 import {
@@ -245,7 +245,10 @@ function BadgeTooltip({ badge, theme, isUnlocked, position, onClose }: BadgeTool
 export function AchievementCard({ theme, autoRunStats, onEscapeWithBadgeOpen }: AchievementCardProps & { onEscapeWithBadgeOpen?: (handler: (() => boolean) | null) => void }) {
   const [selectedBadge, setSelectedBadge] = useState<number | null>(null);
   const [historyExpanded, setHistoryExpanded] = useState(false);
+  const [shareMenuOpen, setShareMenuOpen] = useState(false);
+  const [copySuccess, setCopySuccess] = useState(false);
   const badgeContainerRef = useRef<HTMLDivElement>(null);
+  const shareMenuRef = useRef<HTMLDivElement>(null);
 
   // Register escape handler with parent when badge is selected
   useEffect(() => {
@@ -299,6 +302,191 @@ export function AchievementCard({ theme, autoRunStats, onEscapeWithBadgeOpen }: 
   );
 
   const currentLevel = currentBadge?.level || 0;
+  const goldColor = '#FFD700';
+  const purpleAccent = theme.colors.accent;
+
+  // Close share menu when clicking outside
+  useEffect(() => {
+    if (!shareMenuOpen) return;
+
+    const handleClickOutside = (e: MouseEvent) => {
+      if (shareMenuRef.current && !shareMenuRef.current.contains(e.target as Node)) {
+        setShareMenuOpen(false);
+      }
+    };
+
+    const timeoutId = setTimeout(() => {
+      document.addEventListener('click', handleClickOutside);
+    }, 0);
+
+    return () => {
+      clearTimeout(timeoutId);
+      document.removeEventListener('click', handleClickOutside);
+    };
+  }, [shareMenuOpen]);
+
+  // Helper to wrap text for canvas
+  const wrapText = (ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] => {
+    const words = text.split(' ');
+    const lines: string[] = [];
+    let currentLine = '';
+
+    words.forEach(word => {
+      const testLine = currentLine ? `${currentLine} ${word}` : word;
+      const metrics = ctx.measureText(testLine);
+      if (metrics.width > maxWidth && currentLine) {
+        lines.push(currentLine);
+        currentLine = word;
+      } else {
+        currentLine = testLine;
+      }
+    });
+    if (currentLine) lines.push(currentLine);
+    return lines;
+  };
+
+  // Generate shareable achievement card as canvas
+  const generateShareImage = useCallback(async (): Promise<HTMLCanvasElement> => {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d')!;
+
+    const width = 600;
+    const height = 400;
+    canvas.width = width;
+    canvas.height = height;
+
+    // Background gradient
+    const bgGradient = ctx.createLinearGradient(0, 0, width, height);
+    bgGradient.addColorStop(0, '#1a1a2e');
+    bgGradient.addColorStop(1, '#16213e');
+    ctx.fillStyle = bgGradient;
+    ctx.roundRect(0, 0, width, height, 16);
+    ctx.fill();
+
+    // Border
+    ctx.strokeStyle = goldColor;
+    ctx.lineWidth = 3;
+    ctx.roundRect(0, 0, width, height, 16);
+    ctx.stroke();
+
+    // Header accent
+    const headerGradient = ctx.createLinearGradient(0, 0, width, 100);
+    headerGradient.addColorStop(0, `${purpleAccent}40`);
+    headerGradient.addColorStop(1, 'transparent');
+    ctx.fillStyle = headerGradient;
+    ctx.fillRect(0, 0, width, 100);
+
+    // Trophy icon (simplified circle)
+    ctx.beginPath();
+    ctx.arc(width / 2, 60, 30, 0, Math.PI * 2);
+    const trophyGradient = ctx.createRadialGradient(width / 2, 60, 0, width / 2, 60, 30);
+    trophyGradient.addColorStop(0, '#FFA500');
+    trophyGradient.addColorStop(1, goldColor);
+    ctx.fillStyle = trophyGradient;
+    ctx.fill();
+
+    // Trophy emoji
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = 'bold 28px system-ui';
+    ctx.textAlign = 'center';
+    ctx.fillText('🏆', width / 2, 70);
+
+    // Title
+    ctx.font = 'bold 24px system-ui';
+    ctx.fillStyle = goldColor;
+    ctx.fillText('MAESTRO ACHIEVEMENTS', width / 2, 120);
+
+    if (currentBadge) {
+      // Level badge
+      ctx.font = 'bold 18px system-ui';
+      ctx.fillStyle = goldColor;
+      ctx.fillText(`⭐ Level ${currentBadge.level} of 11 ⭐`, width / 2, 155);
+
+      // Badge name
+      ctx.font = 'bold 28px system-ui';
+      ctx.fillStyle = purpleAccent;
+      ctx.fillText(currentBadge.name, width / 2, 190);
+
+      // Flavor text
+      ctx.font = 'italic 14px system-ui';
+      ctx.fillStyle = '#CCCCCC';
+      const flavorLines = wrapText(ctx, `"${currentBadge.flavorText}"`, width - 80);
+      let yOffset = 225;
+      flavorLines.forEach(line => {
+        ctx.fillText(line, width / 2, yOffset);
+        yOffset += 18;
+      });
+    } else {
+      // No badge yet
+      ctx.font = 'bold 20px system-ui';
+      ctx.fillStyle = '#AAAAAA';
+      ctx.fillText('Journey Just Beginning...', width / 2, 170);
+
+      ctx.font = '14px system-ui';
+      ctx.fillStyle = '#888888';
+      ctx.fillText('Complete 15 minutes of AutoRun to unlock first badge', width / 2, 200);
+    }
+
+    // Stats box
+    const statsY = 300;
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
+    ctx.roundRect(50, statsY - 10, width - 100, 50, 8);
+    ctx.fill();
+
+    ctx.font = '14px system-ui';
+    ctx.fillStyle = '#AAAAAA';
+    ctx.textAlign = 'left';
+    ctx.fillText('Total AutoRun:', 70, statsY + 15);
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = 'bold 14px system-ui';
+    ctx.fillText(formatCumulativeTime(autoRunStats.cumulativeTimeMs), 180, statsY + 15);
+
+    ctx.fillStyle = '#AAAAAA';
+    ctx.font = '14px system-ui';
+    ctx.fillText('Longest Run:', 350, statsY + 15);
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = 'bold 14px system-ui';
+    ctx.fillText(formatCumulativeTime(autoRunStats.longestRunMs), 450, statsY + 15);
+
+    // Footer branding
+    ctx.font = 'bold 12px system-ui';
+    ctx.fillStyle = '#666666';
+    ctx.textAlign = 'center';
+    ctx.fillText('MAESTRO • Agent Orchestration Command Center', width / 2, height - 20);
+
+    return canvas;
+  }, [currentBadge, autoRunStats.cumulativeTimeMs, autoRunStats.longestRunMs, purpleAccent]);
+
+  // Copy to clipboard
+  const copyToClipboard = useCallback(async () => {
+    try {
+      const canvas = await generateShareImage();
+      canvas.toBlob(async (blob) => {
+        if (blob) {
+          await navigator.clipboard.write([
+            new ClipboardItem({ 'image/png': blob })
+          ]);
+          setCopySuccess(true);
+          setTimeout(() => setCopySuccess(false), 2000);
+        }
+      }, 'image/png');
+    } catch (error) {
+      console.error('Failed to copy to clipboard:', error);
+    }
+  }, [generateShareImage]);
+
+  // Download as image
+  const downloadImage = useCallback(async () => {
+    try {
+      const canvas = await generateShareImage();
+      const link = document.createElement('a');
+      link.download = `maestro-achievement-level-${currentLevel}.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    } catch (error) {
+      console.error('Failed to download image:', error);
+    }
+  }, [generateShareImage, currentLevel]);
 
   return (
     <div
@@ -309,11 +497,62 @@ export function AchievementCard({ theme, autoRunStats, onEscapeWithBadgeOpen }: 
       }}
     >
       {/* Header */}
-      <div className="flex items-center gap-2 mb-3">
-        <Trophy className="w-4 h-4" style={{ color: '#FFD700' }} />
-        <span className="text-sm font-bold" style={{ color: theme.colors.textMain }}>
-          Maestro Achievements
-        </span>
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <Trophy className="w-4 h-4" style={{ color: '#FFD700' }} />
+          <span className="text-sm font-bold" style={{ color: theme.colors.textMain }}>
+            Maestro Achievements
+          </span>
+        </div>
+
+        {/* Share button */}
+        <div className="relative" ref={shareMenuRef}>
+          <button
+            onClick={() => setShareMenuOpen(!shareMenuOpen)}
+            className="p-1.5 rounded-md transition-colors hover:bg-white/10"
+            style={{ color: theme.colors.textDim }}
+            title="Share achievements"
+          >
+            <Share2 className="w-4 h-4" />
+          </button>
+
+          {shareMenuOpen && (
+            <div
+              className="absolute right-0 top-full mt-1 p-1.5 rounded-lg shadow-xl z-50 min-w-[160px]"
+              style={{
+                backgroundColor: theme.colors.bgSidebar,
+                border: `1px solid ${theme.colors.border}`,
+              }}
+            >
+              <button
+                onClick={() => {
+                  copyToClipboard();
+                  setShareMenuOpen(false);
+                }}
+                className="w-full flex items-center gap-2 px-3 py-2 rounded text-sm hover:bg-white/10 transition-colors"
+              >
+                {copySuccess ? (
+                  <Check className="w-4 h-4" style={{ color: theme.colors.success }} />
+                ) : (
+                  <Copy className="w-4 h-4" style={{ color: theme.colors.textDim }} />
+                )}
+                <span style={{ color: theme.colors.textMain }}>
+                  {copySuccess ? 'Copied!' : 'Copy to Clipboard'}
+                </span>
+              </button>
+              <button
+                onClick={() => {
+                  downloadImage();
+                  setShareMenuOpen(false);
+                }}
+                className="w-full flex items-center gap-2 px-3 py-2 rounded text-sm hover:bg-white/10 transition-colors"
+              >
+                <Download className="w-4 h-4" style={{ color: theme.colors.textDim }} />
+                <span style={{ color: theme.colors.textMain }}>Save as Image</span>
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Current badge display */}
@@ -476,9 +715,7 @@ export function AchievementCard({ theme, autoRunStats, onEscapeWithBadgeOpen }: 
                 onClick={() => setSelectedBadge(isSelected ? null : badge.level)}
               >
                 <div
-                  className={`h-3 rounded-full cursor-pointer transition-all hover:scale-110 ${
-                    isCurrent ? 'ring-2 ring-offset-1' : ''
-                  }`}
+                  className="h-3 rounded-full cursor-pointer transition-all hover:scale-110"
                   style={{
                     backgroundColor: isUnlocked
                       ? badge.level <= 3
@@ -487,9 +724,9 @@ export function AchievementCard({ theme, autoRunStats, onEscapeWithBadgeOpen }: 
                           ? '#FFD700'
                           : '#FF6B35'
                       : theme.colors.border,
-                    ringColor: isCurrent ? '#FFD700' : 'transparent',
                     opacity: isUnlocked ? 1 : 0.5,
                     border: isUnlocked ? 'none' : `1px dashed ${theme.colors.textDim}`,
+                    boxShadow: isCurrent ? `0 0 0 2px ${theme.colors.bgActivity}, 0 0 0 4px #FFD700` : 'none',
                   }}
                   title={`${badge.name} - Click to view details`}
                 />

@@ -569,10 +569,14 @@ export function TabBar({
   // Count unread tabs for the filter toggle tooltip
   const unreadCount = tabs.filter(t => t.hasUnread).length;
 
+  // Check if a tab has draft content (unsent input or staged images)
+  const hasDraft = (tab: AITab) => (tab.inputValue && tab.inputValue.trim() !== '') || (tab.stagedImages && tab.stagedImages.length > 0);
+
   // Filter tabs based on unread filter state
-  // When filter is on, show ONLY unread tabs (can be empty)
+  // When filter is on, show: unread tabs + active tab + tabs with drafts
+  // The active tab disappears from the filtered list when user navigates away from it
   const displayedTabs = showUnreadOnly
-    ? tabs.filter(t => t.hasUnread)
+    ? tabs.filter(t => t.hasUnread || t.id === activeTabId || hasDraft(t))
     : tabs;
 
   // Check if tabs overflow the container (need sticky + button)
@@ -598,16 +602,16 @@ export function TabBar({
   return (
     <div
       ref={tabBarRef}
-      className="flex items-end gap-0.5 px-2 pt-2 border-b overflow-x-auto overflow-y-hidden no-scrollbar"
+      className="flex items-end gap-0.5 pt-2 border-b overflow-x-auto overflow-y-hidden no-scrollbar"
       style={{
         backgroundColor: theme.colors.bgSidebar,
         borderColor: theme.colors.border
       }}
     >
-      {/* Unread filter toggle - sticky at the beginning with opaque background */}
+      {/* Unread filter toggle - sticky at the beginning with full-height opaque background */}
       <div
-        className="sticky left-0 z-10 flex items-center shrink-0 pr-1 mb-1 self-center group"
-        style={{ backgroundColor: theme.colors.bgSidebar }}
+        className="sticky left-0 flex items-center shrink-0 pl-2 pr-2 self-stretch group"
+        style={{ backgroundColor: theme.colors.bgSidebar, zIndex: 5 }}
       >
         <button
           onClick={toggleUnreadFilter}
@@ -626,11 +630,12 @@ export function TabBar({
         </button>
         {/* Hover overlay */}
         <div
-          className="absolute left-0 top-full mt-1 px-2 py-1 rounded text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20"
+          className="absolute left-2 top-full mt-1 px-2 py-1 rounded text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
           style={{
             backgroundColor: theme.colors.bgSidebar,
             border: `1px solid ${theme.colors.border}`,
-            color: theme.colors.textMain
+            color: theme.colors.textMain,
+            zIndex: 6
           }}
         >
           {showUnreadOnly ? 'Showing unread only' : 'Filter unread tabs'}
@@ -696,10 +701,13 @@ export function TabBar({
         );
       })}
 
-      {/* New Tab Button - sticky on right when tabs overflow, otherwise inline */}
+      {/* New Tab Button - sticky on right when tabs overflow, with full-height opaque background */}
       <div
-        className={`flex items-center shrink-0 pl-1 mb-1 self-center ${isOverflowing ? 'sticky right-0 z-10' : ''}`}
-        style={{ backgroundColor: isOverflowing ? theme.colors.bgSidebar : 'transparent' }}
+        className={`flex items-center shrink-0 pl-2 pr-2 self-stretch ${isOverflowing ? 'sticky right-0' : ''}`}
+        style={{
+          backgroundColor: theme.colors.bgSidebar,
+          zIndex: 5
+        }}
       >
         <button
           onClick={onNewTab}

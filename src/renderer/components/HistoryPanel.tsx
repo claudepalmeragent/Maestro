@@ -846,6 +846,17 @@ export const HistoryPanel = React.memo(forwardRef<HistoryPanelHandle, HistoryPan
             }
             return success;
           }}
+          // Navigation props - use allFilteredEntries (respects filters)
+          filteredEntries={allFilteredEntries}
+          currentIndex={selectedIndex}
+          onNavigate={(entry, index) => {
+            setSelectedIndex(index);
+            setDetailModalEntry(entry);
+            // Ensure the entry is visible in the list (expand displayCount if needed)
+            if (index >= displayCount) {
+              setDisplayCount(Math.min(index + LOAD_MORE_COUNT, allFilteredEntries.length));
+            }
+          }}
         />
       )}
 

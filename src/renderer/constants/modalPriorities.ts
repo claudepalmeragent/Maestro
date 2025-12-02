@@ -41,6 +41,9 @@ export const MODAL_PRIORITIES = {
   /** Tab switcher modal (Opt+Cmd+T) */
   TAB_SWITCHER: 710,
 
+  /** Prompt composer modal for long prompts */
+  PROMPT_COMPOSER: 725,
+
   /** Quick actions command palette (Cmd+K) */
   QUICK_ACTION: 700,
 

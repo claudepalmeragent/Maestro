@@ -1,27 +1,12 @@
-import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { ExternalLink, Trophy, Clock, Star, Share2, Copy, Download, Check } from 'lucide-react';
+import confetti from 'canvas-confetti';
 import type { Theme, ThemeMode } from '../types';
 import type { ConductorBadge } from '../constants/conductorBadges';
 import { useLayerStack } from '../contexts/LayerStackContext';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 import { AnimatedMaestro } from './MaestroSilhouette';
 import { formatCumulativeTime, formatTimeRemaining, getNextBadge } from '../constants/conductorBadges';
-
-// Confetti particle type
-interface ConfettiParticle {
-  id: number;
-  x: number;
-  y: number;
-  rotation: number;
-  color: string;
-  size: number;
-  velocityX: number;
-  velocityY: number;
-  rotationSpeed: number;
-  delay: number;
-  shape: 'rect' | 'square' | 'circle' | 'star';
-  duration: number;
-}
 
 interface StandingOvationOverlayProps {
   theme: Theme;
@@ -52,6 +37,186 @@ export function StandingOvationOverlay({
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 
+  // Ref for the close handler that includes confetti animation
+  const handleCloseRef = useRef<() => void>(() => {});
+
+  // State
+  const nextBadge = getNextBadge(badge);
+  const isDark = themeMode === 'dark';
+  const maestroVariant = isDark ? 'light' : 'dark';
+  const [shareMenuOpen, setShareMenuOpen] = useState(false);
+  const [copySuccess, setCopySuccess] = useState(false);
+  const [isClosing, setIsClosing] = useState(false);
+
+  // Accent colors
+  const goldColor = '#FFD700';
+  const purpleAccent = theme.colors.accent;
+
+  // Confetti colors matching our theme
+  const confettiColors = [
+    goldColor, purpleAccent,
+    '#FF6B6B', '#FF8E53', '#FFA726', // Warm colors
+    '#4ECDC4', '#45B7D1', '#64B5F6', // Cool colors
+    '#96CEB4', '#81C784', // Greens
+    '#FFEAA7', '#FFD54F', // Yellows
+    '#DDA0DD', '#BA68C8', '#9575CD', // Purples
+    '#F48FB1', '#FF80AB', // Pinks
+  ];
+
+  // Fire confetti burst - MASSIVE Raycast style explosion
+  const fireConfetti = useCallback(() => {
+    const duration = 4000;
+    const animationEnd = Date.now() + duration;
+    const defaults = {
+      startVelocity: 55,
+      spread: 360,
+      ticks: 200,
+      zIndex: 999999,
+      colors: confettiColors,
+      disableForReducedMotion: true,
+      gravity: 0.8,
+    };
+
+    // Helper to get random value in range
+    const randomInRange = (min: number, max: number) => Math.random() * (max - min) + min;
+
+    // INITIAL MASSIVE BURST - fire immediately from multiple points
+    // Center explosion
+    confetti({
+      particleCount: 300,
+      spread: 120,
+      origin: { x: 0.5, y: 0.5 },
+      colors: confettiColors,
+      startVelocity: 70,
+      zIndex: 999999,
+      scalar: 1.3,
+      gravity: 0.7,
+      ticks: 300,
+    });
+
+    // Left burst
+    confetti({
+      particleCount: 200,
+      spread: 80,
+      origin: { x: 0.2, y: 0.5 },
+      colors: confettiColors,
+      startVelocity: 65,
+      zIndex: 999999,
+      scalar: 1.2,
+      angle: 60,
+      gravity: 0.8,
+      ticks: 250,
+    });
+
+    // Right burst
+    confetti({
+      particleCount: 200,
+      spread: 80,
+      origin: { x: 0.8, y: 0.5 },
+      colors: confettiColors,
+      startVelocity: 65,
+      zIndex: 999999,
+      scalar: 1.2,
+      angle: 120,
+      gravity: 0.8,
+      ticks: 250,
+    });
+
+    // Top burst
+    confetti({
+      particleCount: 150,
+      spread: 100,
+      origin: { x: 0.5, y: 0.3 },
+      colors: confettiColors,
+      startVelocity: 60,
+      zIndex: 999999,
+      scalar: 1.1,
+      gravity: 1,
+      ticks: 200,
+    });
+
+    // Fire continuous bursts
+    const interval = setInterval(() => {
+      const timeLeft = animationEnd - Date.now();
+
+      if (timeLeft <= 0) {
+        clearInterval(interval);
+        return;
+      }
+
+      const particleCount = 250 * (timeLeft / duration);
+
+      // Fire from 5 random origins for maximum chaos
+      for (let i = 0; i < 5; i++) {
+        confetti({
+          ...defaults,
+          particleCount: Math.floor(particleCount / 3),
+          origin: { x: randomInRange(0.1, 0.9), y: randomInRange(0.2, 0.6) },
+          scalar: randomInRange(0.8, 1.5),
+          startVelocity: randomInRange(45, 70),
+        });
+      }
+    }, 100);
+
+    // Secondary wave after 200ms
+    setTimeout(() => {
+      confetti({
+        particleCount: 250,
+        spread: 140,
+        origin: { x: 0.5, y: 0.45 },
+        colors: confettiColors,
+        startVelocity: 75,
+        zIndex: 999999,
+        scalar: 1.4,
+        gravity: 0.6,
+        ticks: 300,
+      });
+    }, 200);
+
+    // Third wave
+    setTimeout(() => {
+      confetti({
+        particleCount: 200,
+        spread: 160,
+        origin: { x: 0.3, y: 0.4 },
+        colors: confettiColors,
+        startVelocity: 60,
+        zIndex: 999999,
+        scalar: 1.2,
+        gravity: 0.9,
+      });
+      confetti({
+        particleCount: 200,
+        spread: 160,
+        origin: { x: 0.7, y: 0.4 },
+        colors: confettiColors,
+        startVelocity: 60,
+        zIndex: 999999,
+        scalar: 1.2,
+        gravity: 0.9,
+      });
+    }, 400);
+  }, [confettiColors]);
+
+  // Fire confetti on mount - immediately!
+  useEffect(() => {
+    fireConfetti();
+  }, [fireConfetti]);
+
+  // Handle graceful close with confetti
+  const handleTakeABow = useCallback(() => {
+    if (isClosing) return;
+    setIsClosing(true);
+
+    // Fire closing confetti burst
+    fireConfetti();
+
+    // Wait for confetti animation then close
+    setTimeout(() => {
+      onClose();
+    }, 1500);
+  }, [isClosing, onClose, fireConfetti]);
+
   // Register with layer stack
   useEffect(() => {
     const id = registerLayer({
@@ -61,7 +226,7 @@ export function StandingOvationOverlay({
       capturesFocus: true,
       focusTrap: 'strict',
       ariaLabel: 'Standing Ovation Achievement',
-      onEscape: () => onCloseRef.current(),
+      onEscape: () => handleCloseRef.current(),
     });
     layerIdRef.current = id;
 
@@ -74,77 +239,16 @@ export function StandingOvationOverlay({
     };
   }, [registerLayer, unregisterLayer]);
 
+  // Update close handler ref when handleTakeABow changes
+  useEffect(() => {
+    handleCloseRef.current = handleTakeABow;
+  }, [handleTakeABow]);
+
   useEffect(() => {
     if (layerIdRef.current) {
-      updateLayerHandler(layerIdRef.current, onClose);
+      updateLayerHandler(layerIdRef.current, () => handleCloseRef.current());
     }
-  }, [onClose, updateLayerHandler]);
-
-  const nextBadge = getNextBadge(badge);
-  const isDark = themeMode === 'dark';
-  const maestroVariant = isDark ? 'light' : 'dark';
-  const [shareMenuOpen, setShareMenuOpen] = useState(false);
-  const [copySuccess, setCopySuccess] = useState(false);
-
-  // Accent colors
-  const goldColor = '#FFD700';
-  const purpleAccent = theme.colors.accent;
-
-  // Generate confetti particles - Ray Cast style explosion with multiple waves
-  const confettiParticles = useMemo<ConfettiParticle[]>(() => {
-    const particles: ConfettiParticle[] = [];
-    const colors = [
-      goldColor, purpleAccent,
-      '#FF6B6B', '#FF8E53', '#FFA726', // Warm colors
-      '#4ECDC4', '#45B7D1', '#64B5F6', // Cool colors
-      '#96CEB4', '#81C784', // Greens
-      '#FFEAA7', '#FFD54F', // Yellows
-      '#DDA0DD', '#BA68C8', '#9575CD', // Purples
-      '#F48FB1', '#FF80AB', // Pinks
-      '#FFFFFF', '#E0E0E0', // Whites/silvers
-    ];
-
-    // Multiple burst waves for that explosive Ray Cast feel
-    const waves = [
-      { count: 400, speedMin: 600, speedMax: 1200, delayBase: 0, delaySpread: 0.1 },    // Initial explosion
-      { count: 300, speedMin: 400, speedMax: 900, delayBase: 0.05, delaySpread: 0.15 }, // Second wave
-      { count: 200, speedMin: 300, speedMax: 700, delayBase: 0.1, delaySpread: 0.2 },   // Third wave
-      { count: 150, speedMin: 200, speedMax: 500, delayBase: 0.2, delaySpread: 0.3 },   // Slower trailing pieces
-      { count: 100, speedMin: 100, speedMax: 300, delayBase: 0.3, delaySpread: 0.5 },   // Floaty pieces
-    ];
-
-    let id = 0;
-
-    const shapes: Array<'rect' | 'square' | 'circle' | 'star'> = ['rect', 'rect', 'rect', 'square', 'square', 'circle', 'star'];
-
-    for (const wave of waves) {
-      for (let i = 0; i < wave.count; i++) {
-        // Random angle for burst direction (full 360 degrees)
-        const angle = Math.random() * Math.PI * 2;
-        // Random speed within wave's range
-        const speed = wave.speedMin + Math.random() * (wave.speedMax - wave.speedMin);
-        // Add some vertical bias for gravity feel
-        const gravityBias = Math.random() * 150;
-
-        particles.push({
-          id: id++,
-          x: 50 + (Math.random() - 0.5) * 5, // Slight spread from center
-          y: 50 + (Math.random() - 0.5) * 5,
-          rotation: Math.random() * 360,
-          color: colors[Math.floor(Math.random() * colors.length)],
-          size: 4 + Math.random() * 12, // Varied sizes
-          velocityX: Math.cos(angle) * speed,
-          velocityY: Math.sin(angle) * speed + gravityBias,
-          rotationSpeed: (Math.random() - 0.5) * 1080, // More spin
-          delay: wave.delayBase + Math.random() * wave.delaySpread,
-          shape: shapes[Math.floor(Math.random() * shapes.length)],
-          duration: 2.5 + Math.random() * 2.5, // 2.5-5 seconds
-        });
-      }
-    }
-
-    return particles;
-  }, [purpleAccent]);
+  }, [updateLayerHandler]);
 
   // Generate shareable achievement card as canvas
   const generateShareImage = useCallback(async (): Promise<HTMLCanvasElement> => {
@@ -316,105 +420,21 @@ export function StandingOvationOverlay({
       aria-modal="true"
       aria-label="Standing Ovation Achievement"
       tabIndex={-1}
-      onClick={onClose}
+      onClick={handleTakeABow}
       style={{
         backgroundColor: 'rgba(0, 0, 0, 0.95)',
       }}
     >
-      {/* Confetti burst effect - behind the modal (z-index: 0) */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none" style={{ zIndex: 0 }}>
-        {confettiParticles.map((particle) => {
-          // Determine shape styling
-          let width: string;
-          let height: string;
-          let borderRadius: string;
-          let boxShadow: string;
-
-          switch (particle.shape) {
-            case 'circle':
-              width = `${particle.size}px`;
-              height = `${particle.size}px`;
-              borderRadius = '50%';
-              boxShadow = `0 0 ${particle.size / 2}px ${particle.color}40`;
-              break;
-            case 'square':
-              width = `${particle.size}px`;
-              height = `${particle.size}px`;
-              borderRadius = '2px';
-              boxShadow = `0 0 ${particle.size / 3}px ${particle.color}30`;
-              break;
-            case 'star':
-              width = `${particle.size}px`;
-              height = `${particle.size}px`;
-              borderRadius = '0';
-              boxShadow = `0 0 ${particle.size}px ${particle.color}60`;
-              break;
-            case 'rect':
-            default:
-              width = `${particle.size}px`;
-              height = `${particle.size * 0.4}px`;
-              borderRadius = '1px';
-              boxShadow = 'none';
-              break;
-          }
-
-          return (
-            <div
-              key={particle.id}
-              className="absolute"
-              style={{
-                left: `${particle.x}%`,
-                top: `${particle.y}%`,
-                width,
-                height,
-                backgroundColor: particle.color,
-                borderRadius,
-                boxShadow,
-                transform: `rotate(${particle.rotation}deg)`,
-                opacity: 0,
-                animation: `confetti-burst ${particle.duration}s cubic-bezier(0.25, 0.46, 0.45, 0.94) ${particle.delay}s forwards`,
-                // CSS custom properties for the animation
-                '--vx': `${particle.velocityX}px`,
-                '--vy': `${particle.velocityY}px`,
-                '--rot': `${particle.rotationSpeed}deg`,
-              } as React.CSSProperties}
-            />
-          );
-        })}
-      </div>
-
-      {/* Keyframe animation style - enhanced physics */}
-      <style>{`
-        @keyframes confetti-burst {
-          0% {
-            opacity: 1;
-            transform: translate(0, 0) rotate(0deg) scale(1);
-          }
-          10% {
-            opacity: 1;
-          }
-          50% {
-            opacity: 0.9;
-          }
-          80% {
-            opacity: 0.5;
-          }
-          100% {
-            opacity: 0;
-            transform: translate(var(--vx), calc(var(--vy) + 600px)) rotate(var(--rot)) scale(0.5);
-          }
-        }
-      `}</style>
-
-      {/* Main content card - z-index: 1 to be above confetti */}
+      {/* Main content card */}
       <div
-        className="relative max-w-lg w-full mx-4 rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-500"
+        className={`relative max-w-lg w-full mx-4 rounded-2xl shadow-2xl overflow-hidden transition-all duration-500 ${
+          isClosing ? 'opacity-0 scale-95' : 'animate-in zoom-in-95'
+        }`}
         onClick={(e) => e.stopPropagation()}
         style={{
           backgroundColor: theme.colors.bgSidebar,
           border: `2px solid ${goldColor}`,
           boxShadow: `0 0 40px rgba(0, 0, 0, 0.5)`,
-          zIndex: 1,
         }}
       >
         {/* Header with glow */}
@@ -590,15 +610,16 @@ export function StandingOvationOverlay({
         {/* Buttons */}
         <div className="px-8 pb-8 space-y-3">
           <button
-            onClick={onClose}
-            className="w-full py-3 rounded-lg font-medium transition-all hover:scale-[1.02]"
+            onClick={handleTakeABow}
+            disabled={isClosing}
+            className="w-full py-3 rounded-lg font-medium transition-all hover:scale-[1.02] disabled:opacity-70 disabled:cursor-not-allowed"
             style={{
               background: `linear-gradient(135deg, ${purpleAccent} 0%, ${goldColor} 100%)`,
               color: '#FFFFFF',
               boxShadow: `0 4px 20px ${purpleAccent}40`,
             }}
           >
-            Take a Bow
+            {isClosing ? '🎉 Bravo! 🎉' : 'Take a Bow'}
           </button>
 
           {/* Share options */}

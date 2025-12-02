@@ -326,10 +326,14 @@ function ScratchpadInner({
   // Local content state for responsive typing - syncs to parent on blur
   const [localContent, setLocalContent] = useState(content);
   const prevSessionIdRef = useRef(sessionId);
+  // Track if user is actively editing (to avoid overwriting their changes)
+  const isEditingRef = useRef(false);
 
   // Sync local content from prop when session changes (switching sessions)
   useEffect(() => {
     if (sessionId !== prevSessionIdRef.current) {
+      // Reset editing flag so content can sync properly when returning to this session
+      isEditingRef.current = false;
       setLocalContent(content);
       prevSessionIdRef.current = sessionId;
     }
@@ -337,7 +341,6 @@ function ScratchpadInner({
 
   // Also sync if content changes externally (e.g., batch run modifying tasks)
   // But only when we're not actively editing (avoid fighting with user input)
-  const isEditingRef = useRef(false);
   useEffect(() => {
     if (!isEditingRef.current && content !== localContent) {
       setLocalContent(content);
@@ -1132,7 +1135,12 @@ function ScratchpadInner({
           </button>
         ) : (
           <button
-            onClick={onOpenBatchRunner}
+            onClick={() => {
+              // Sync local content to parent before opening batch runner
+              // This ensures Run uses the latest edits, not stale content
+              syncContentToParent();
+              onOpenBatchRunner?.();
+            }}
             disabled={isAgentBusy}
             className={`flex items-center gap-2 px-3 py-1.5 rounded text-xs transition-colors ${isAgentBusy ? 'opacity-50 cursor-not-allowed' : 'hover:opacity-90'}`}
             style={{

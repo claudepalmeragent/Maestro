@@ -144,6 +144,8 @@ interface MainPanelProps {
   onScrollPositionChange?: (scrollTop: number) => void;
   // Input blur handler for persisting AI input state
   onInputBlur?: () => void;
+  // Prompt composer modal
+  onOpenPromptComposer?: () => void;
 }
 
 export function MainPanel(props: MainPanelProps) {
@@ -886,6 +888,7 @@ export function MainPanel(props: MainPanelProps) {
                 onToggleTabReadOnlyMode={props.onToggleTabReadOnlyMode}
                 tabSaveToHistory={activeTab?.saveToHistory ?? false}
                 onToggleTabSaveToHistory={props.onToggleTabSaveToHistory}
+                onOpenPromptComposer={props.onOpenPromptComposer}
               />
               )}
             </>

@@ -1,5 +1,5 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { X, Bot, User, Copy, Check, CheckCircle, XCircle, Trash2, Clock, Cpu, Zap, Play } from 'lucide-react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { X, Bot, User, Copy, Check, CheckCircle, XCircle, Trash2, Clock, Cpu, Zap, Play, ChevronLeft, ChevronRight } from 'lucide-react';
 import type { Theme, HistoryEntry } from '../types';
 import { useLayerStack } from '../contexts/LayerStackContext';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
@@ -33,6 +33,10 @@ interface HistoryDetailModalProps {
   onResumeSession?: (claudeSessionId: string) => void;
   onDelete?: (entryId: string) => void;
   onUpdate?: (entryId: string, updates: { validated?: boolean }) => Promise<boolean>;
+  // Navigation props for prev/next
+  filteredEntries?: HistoryEntry[];
+  currentIndex?: number;
+  onNavigate?: (entry: HistoryEntry, index: number) => void;
 }
 
 // Get context bar color based on usage percentage
@@ -49,7 +53,10 @@ export function HistoryDetailModal({
   onJumpToClaudeSession,
   onResumeSession,
   onDelete,
-  onUpdate
+  onUpdate,
+  filteredEntries,
+  currentIndex,
+  onNavigate
 }: HistoryDetailModalProps) {
   const { registerLayer, unregisterLayer, updateLayerHandler } = useLayerStack();
   const layerIdRef = useRef<string>();
@@ -58,6 +65,26 @@ export function HistoryDetailModal({
   const [copiedSessionId, setCopiedSessionId] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const deleteButtonRef = useRef<HTMLButtonElement>(null);
+
+  // Navigation state
+  const canNavigate = filteredEntries && currentIndex !== undefined && onNavigate;
+  const hasPrev = canNavigate && currentIndex > 0;
+  const hasNext = canNavigate && currentIndex < filteredEntries.length - 1;
+
+  // Navigation handlers
+  const goToPrev = useCallback(() => {
+    if (hasPrev && filteredEntries && onNavigate) {
+      const newIndex = currentIndex! - 1;
+      onNavigate(filteredEntries[newIndex], newIndex);
+    }
+  }, [hasPrev, filteredEntries, currentIndex, onNavigate]);
+
+  const goToNext = useCallback(() => {
+    if (hasNext && filteredEntries && onNavigate) {
+      const newIndex = currentIndex! + 1;
+      onNavigate(filteredEntries[newIndex], newIndex);
+    }
+  }, [hasNext, filteredEntries, currentIndex, onNavigate]);
 
   // Register layer on mount
   useEffect(() => {
@@ -92,6 +119,25 @@ export function HistoryDetailModal({
       deleteButtonRef.current.focus();
     }
   }, [showDeleteConfirm]);
+
+  // Keyboard navigation for prev/next with arrow keys
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't handle if delete confirmation is showing
+      if (showDeleteConfirm) return;
+
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        goToPrev();
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        goToNext();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [goToPrev, goToNext, showDeleteConfirm]);
 
   // Format timestamp
   const formatTime = (timestamp: number) => {
@@ -369,7 +415,7 @@ export function HistoryDetailModal({
 
         {/* Footer */}
         <div
-          className="flex justify-between px-6 py-4 border-t shrink-0"
+          className="flex items-center justify-between px-6 py-4 border-t shrink-0"
           style={{ borderColor: theme.colors.border }}
         >
           {/* Delete button */}
@@ -386,6 +432,44 @@ export function HistoryDetailModal({
             <Trash2 className="w-4 h-4" />
             Delete
           </button>
+
+          {/* Prev/Next navigation buttons - centered */}
+          {canNavigate && (
+            <div className="flex items-center gap-3">
+              <button
+                onClick={goToPrev}
+                disabled={!hasPrev}
+                className="flex items-center gap-1 px-3 py-2 rounded text-sm font-medium transition-colors"
+                style={{
+                  backgroundColor: hasPrev ? theme.colors.bgActivity : 'transparent',
+                  color: hasPrev ? theme.colors.textMain : theme.colors.textDim,
+                  border: `1px solid ${hasPrev ? theme.colors.border : theme.colors.border + '40'}`,
+                  opacity: hasPrev ? 1 : 0.4,
+                  cursor: hasPrev ? 'pointer' : 'default'
+                }}
+                title={hasPrev ? 'Previous entry (←)' : 'No previous entry'}
+              >
+                <ChevronLeft className="w-4 h-4" />
+                Prev
+              </button>
+              <button
+                onClick={goToNext}
+                disabled={!hasNext}
+                className="flex items-center gap-1 px-3 py-2 rounded text-sm font-medium transition-colors"
+                style={{
+                  backgroundColor: hasNext ? theme.colors.bgActivity : 'transparent',
+                  color: hasNext ? theme.colors.textMain : theme.colors.textDim,
+                  border: `1px solid ${hasNext ? theme.colors.border : theme.colors.border + '40'}`,
+                  opacity: hasNext ? 1 : 0.4,
+                  cursor: hasNext ? 'pointer' : 'default'
+                }}
+                title={hasNext ? 'Next entry (→)' : 'No next entry'}
+              >
+                Next
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          )}
 
           <button
             onClick={onClose}

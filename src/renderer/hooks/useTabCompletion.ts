@@ -17,7 +17,7 @@ export interface UseTabCompletionReturn {
 /**
  * Hook for providing tab completion suggestions from:
  * 1. Shell command history
- * 2. Current directory file tree
+ * 2. Current directory file tree (relative to shell CWD)
  * 3. Git branches and tags (for git commands in git repos)
  *
  * Performance optimizations:
@@ -26,10 +26,32 @@ export interface UseTabCompletionReturn {
  * - getSuggestions is wrapped in useCallback to maintain referential equality
  */
 export function useTabCompletion(session: Session | null): UseTabCompletionReturn {
+  // Compute relative path from project root (cwd) to shell working directory (shellCwd)
+  const shellRelativePath = useMemo(() => {
+    if (!session?.cwd || !session?.shellCwd) return '';
+
+    // Normalize paths
+    const projectRoot = session.cwd.replace(/\/$/, '');
+    const shellDir = session.shellCwd.replace(/\/$/, '');
+
+    // If shell is at project root, no relative path needed
+    if (shellDir === projectRoot) return '';
+
+    // If shell is within project, compute relative path
+    if (shellDir.startsWith(projectRoot + '/')) {
+      return shellDir.slice(projectRoot.length + 1);
+    }
+
+    // Shell is outside project root - can't use file tree
+    return null;
+  }, [session?.cwd, session?.shellCwd]);
+
   // Build a flat list of file/folder names from the file tree
-  // Only re-computed when fileTree actually changes
+  // Filtered to show only files relative to the shell's current working directory
   const fileNames = useMemo(() => {
     if (!session?.fileTree) return [];
+    // If shell is outside project, return empty
+    if (shellRelativePath === null) return [];
 
     const names: { name: string; type: 'file' | 'folder'; path: string }[] = [];
 
@@ -47,9 +69,31 @@ export function useTabCompletion(session: Session | null): UseTabCompletionRetur
       }
     };
 
-    traverse(session.fileTree);
+    // If we have a relative path, find that subtree first
+    if (shellRelativePath) {
+      const pathParts = shellRelativePath.split('/');
+      let currentNodes: FileNode[] = session.fileTree;
+
+      // Navigate to the shell's current directory in the tree
+      for (const part of pathParts) {
+        const found = currentNodes.find(n => n.name === part && n.type === 'folder');
+        if (found && found.children) {
+          currentNodes = found.children;
+        } else {
+          // Directory not found in tree - return empty
+          return [];
+        }
+      }
+
+      // Traverse from the shell's current directory
+      traverse(currentNodes);
+    } else {
+      // Shell is at project root - traverse entire tree
+      traverse(session.fileTree);
+    }
+
     return names;
-  }, [session?.fileTree]);
+  }, [session?.fileTree, shellRelativePath]);
 
   // Memoize shell history reference to avoid unnecessary getSuggestions re-creation
   const shellHistory = useMemo(() => {

@@ -60,12 +60,6 @@ export interface UseSettingsReturn {
   setModelSlug: (value: string) => void;
   setApiKey: (value: string) => void;
 
-  // Tunnel settings
-  tunnelProvider: string;
-  tunnelApiKey: string;
-  setTunnelProvider: (value: string) => void;
-  setTunnelApiKey: (value: string) => void;
-
   // Agent settings
   defaultAgent: string;
   setDefaultAgent: (value: string) => void;
@@ -152,10 +146,6 @@ export function useSettings(): UseSettingsReturn {
   const [modelSlug, setModelSlugState] = useState('anthropic/claude-3.5-sonnet');
   const [apiKey, setApiKeyState] = useState('');
 
-  // Tunnel Config
-  const [tunnelProvider, setTunnelProviderState] = useState('ngrok');
-  const [tunnelApiKey, setTunnelApiKeyState] = useState('');
-
   // Agent Config
   const [defaultAgent, setDefaultAgentState] = useState('claude-code');
 
@@ -220,16 +210,6 @@ export function useSettings(): UseSettingsReturn {
   const setApiKey = (value: string) => {
     setApiKeyState(value);
     window.maestro.settings.set('apiKey', value);
-  };
-
-  const setTunnelProvider = (value: string) => {
-    setTunnelProviderState(value);
-    window.maestro.settings.set('tunnelProvider', value);
-  };
-
-  const setTunnelApiKey = (value: string) => {
-    setTunnelApiKeyState(value);
-    window.maestro.settings.set('tunnelApiKey', value);
   };
 
   const setDefaultAgent = (value: string) => {
@@ -456,8 +436,6 @@ export function useSettings(): UseSettingsReturn {
       const savedLlmProvider = await window.maestro.settings.get('llmProvider');
       const savedModelSlug = await window.maestro.settings.get('modelSlug');
       const savedApiKey = await window.maestro.settings.get('apiKey');
-      const savedTunnelProvider = await window.maestro.settings.get('tunnelProvider');
-      const savedTunnelApiKey = await window.maestro.settings.get('tunnelApiKey');
       const savedDefaultAgent = await window.maestro.settings.get('defaultAgent');
       const savedDefaultShell = await window.maestro.settings.get('defaultShell');
       const savedFontSize = await window.maestro.settings.get('fontSize');
@@ -487,8 +465,6 @@ export function useSettings(): UseSettingsReturn {
       if (savedLlmProvider !== undefined) setLlmProviderState(savedLlmProvider);
       if (savedModelSlug !== undefined) setModelSlugState(savedModelSlug);
       if (savedApiKey !== undefined) setApiKeyState(savedApiKey);
-      if (savedTunnelProvider !== undefined) setTunnelProviderState(savedTunnelProvider);
-      if (savedTunnelApiKey !== undefined) setTunnelApiKeyState(savedTunnelApiKey);
       if (savedDefaultAgent !== undefined) setDefaultAgentState(savedDefaultAgent);
       if (savedDefaultShell !== undefined) setDefaultShellState(savedDefaultShell);
       if (savedFontSize !== undefined) setFontSizeState(savedFontSize);
@@ -559,10 +535,6 @@ export function useSettings(): UseSettingsReturn {
     setLlmProvider,
     setModelSlug,
     setApiKey,
-    tunnelProvider,
-    tunnelApiKey,
-    setTunnelProvider,
-    setTunnelApiKey,
     defaultAgent,
     setDefaultAgent,
     defaultShell,

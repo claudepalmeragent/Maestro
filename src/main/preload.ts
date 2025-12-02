@@ -280,6 +280,14 @@ contextBridge.exposeInMainWorld('maestro', {
     openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
   },
 
+  // Tunnel API (Cloudflare tunnel support)
+  tunnel: {
+    isCloudflaredInstalled: () => ipcRenderer.invoke('tunnel:isCloudflaredInstalled'),
+    start: () => ipcRenderer.invoke('tunnel:start'),
+    stop: () => ipcRenderer.invoke('tunnel:stop'),
+    getStatus: () => ipcRenderer.invoke('tunnel:getStatus'),
+  },
+
   // DevTools API
   devtools: {
     open: () => ipcRenderer.invoke('devtools:open'),
@@ -359,6 +367,13 @@ contextBridge.exposeInMainWorld('maestro', {
       ipcRenderer.invoke('claude:updateSessionStarred', projectPath, claudeSessionId, starred),
     getSessionOrigins: (projectPath: string) =>
       ipcRenderer.invoke('claude:getSessionOrigins', projectPath),
+    getAllNamedSessions: () =>
+      ipcRenderer.invoke('claude:getAllNamedSessions') as Promise<Array<{
+        claudeSessionId: string;
+        projectPath: string;
+        sessionName: string;
+        starred?: boolean;
+      }>>,
     deleteMessagePair: (projectPath: string, sessionId: string, userMessageUuid: string, fallbackContent?: string) =>
       ipcRenderer.invoke('claude:deleteMessagePair', projectPath, sessionId, userMessageUuid, fallbackContent),
   },
@@ -534,6 +549,12 @@ export interface MaestroAPI {
   };
   shell: {
     openExternal: (url: string) => Promise<void>;
+  };
+  tunnel: {
+    isCloudflaredInstalled: () => Promise<boolean>;
+    start: () => Promise<{ success: boolean; url?: string; error?: string }>;
+    stop: () => Promise<{ success: boolean }>;
+    getStatus: () => Promise<{ isRunning: boolean; url: string | null; error: string | null }>;
   };
   devtools: {
     open: () => Promise<void>;
