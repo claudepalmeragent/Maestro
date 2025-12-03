@@ -44,7 +44,7 @@ import { gitService } from './services/git';
 // Import types and constants
 import type {
   ToolType, SessionState, RightPanelTab,
-  FocusArea, LogEntry, Session, Group, AITab, UsageStats, QueuedItem
+  FocusArea, LogEntry, Session, Group, AITab, UsageStats, QueuedItem, BatchRunConfig
 } from './types';
 import { THEMES } from './constants/themes';
 import { generateId } from './utils/ids';
@@ -2383,13 +2383,11 @@ export default function MaestroConsole() {
     setActiveFocus('right');
   }, [activeSession]);
 
-  // Handler to start batch run from modal
-  // TODO: Update to read content from Auto Run file system once IPC handlers are implemented
-  const handleStartBatchRun = useCallback((prompt: string) => {
-    if (!activeSession) return;
+  // Handler to start batch run from modal with multi-document support
+  const handleStartBatchRun = useCallback((config: BatchRunConfig) => {
+    if (!activeSession || !activeSession.autoRunFolderPath) return;
     setBatchRunnerModalOpen(false);
-    // Pass empty string for now - content will be read from files in the new Auto Run system
-    startBatchRun(activeSession.id, '', prompt);
+    startBatchRun(activeSession.id, config, activeSession.autoRunFolderPath);
   }, [activeSession, startBatchRun]);
 
   // Handler to stop batch run for active session (with confirmation)
@@ -6482,14 +6480,11 @@ export default function MaestroConsole() {
       )}
 
       {/* --- BATCH RUNNER MODAL --- */}
-      {batchRunnerModalOpen && activeSession && (
+      {batchRunnerModalOpen && activeSession && activeSession.autoRunFolderPath && (
         <BatchRunnerModal
           theme={theme}
           onClose={() => setBatchRunnerModalOpen(false)}
-          onGo={(prompt) => {
-            // Start the batch run
-            handleStartBatchRun(prompt);
-          }}
+          onGo={handleStartBatchRun}
           onSave={(prompt) => {
             // Save the custom prompt and modification timestamp to the session (persisted across restarts)
             setSessions(prev => prev.map(s =>
@@ -6499,7 +6494,16 @@ export default function MaestroConsole() {
           initialPrompt={activeSession.batchRunnerPrompt || ''}
           lastModifiedAt={activeSession.batchRunnerPromptModifiedAt}
           showConfirmation={showConfirmation}
-          scratchpadContent={activeSession.scratchPadContent}
+          folderPath={activeSession.autoRunFolderPath}
+          currentDocument={activeSession.autoRunSelectedFile || ''}
+          allDocuments={autoRunDocumentList}
+          getDocumentTaskCount={async (filename: string) => {
+            const result = await window.maestro.autorun.readDoc(activeSession.autoRunFolderPath!, filename + '.md');
+            if (!result.success || !result.content) return 0;
+            // Count unchecked tasks: - [ ] pattern
+            const matches = result.content.match(/^[\s]*-\s*\[\s*\]\s*.+$/gm);
+            return matches ? matches.length : 0;
+          }}
         />
       )}
 

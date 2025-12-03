@@ -1,8 +1,11 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import type { BatchRunState, Session, HistoryEntry, UsageStats } from '../types';
+import type { BatchRunState, BatchRunConfig, BatchDocumentEntry, Session, HistoryEntry, UsageStats } from '../types';
 
 // Regex to count unchecked markdown checkboxes: - [ ] task
 const UNCHECKED_TASK_REGEX = /^[\s]*-\s*\[\s*\]\s*.+$/gm;
+
+// Regex to match checked markdown checkboxes for reset-on-completion
+const CHECKED_TASK_REGEX = /^(\s*-\s*)\[x\]/gim;
 
 // Default empty batch state
 const DEFAULT_BATCH_STATE: BatchRunState = {
@@ -58,8 +61,8 @@ interface UseBatchProcessorReturn {
   hasAnyActiveBatch: boolean;
   // Get list of session IDs with active batches
   activeBatchSessionIds: string[];
-  // Start batch run for a specific session
-  startBatchRun: (sessionId: string, scratchpadContent: string, prompt: string) => Promise<void>;
+  // Start batch run for a specific session with multi-document support
+  startBatchRun: (sessionId: string, config: BatchRunConfig, folderPath: string) => Promise<void>;
   // Stop batch run for a specific session
   stopBatchRun: (sessionId: string) => void;
   // Custom prompts per session
@@ -74,6 +77,14 @@ interface UseBatchProcessorReturn {
 export function countUnfinishedTasks(content: string): number {
   const matches = content.match(UNCHECKED_TASK_REGEX);
   return matches ? matches.length : 0;
+}
+
+/**
+ * Uncheck all markdown checkboxes in content (for reset-on-completion)
+ * Converts all - [x] to - [ ] (case insensitive)
+ */
+export function uncheckAllTasks(content: string): string {
+  return content.replace(CHECKED_TASK_REGEX, '$1[ ]');
 }
 
 /**
@@ -136,7 +147,6 @@ export function useBatchProcessor({
 
   // Refs for tracking stop requests per session
   const stopRequestedRefs = useRef<Record<string, boolean>>({});
-  const scratchpadPathRefs = useRef<Record<string, string | null>>({});
 
   // Helper to get batch state for a session
   const getBatchState = useCallback((sessionId: string): BatchRunState => {
@@ -176,69 +186,74 @@ export function useBatchProcessor({
   }, [batchRunStates]);
 
   /**
-   * Start a batch processing run for a specific session
+   * Helper function to read a document and count its tasks
    */
-  const startBatchRun = useCallback(async (sessionId: string, scratchpadContent: string, prompt: string) => {
+  const readDocAndCountTasks = async (folderPath: string, filename: string): Promise<{ content: string; taskCount: number }> => {
+    const result = await window.maestro.autorun.readDoc(folderPath, filename + '.md');
+    if (!result.success || !result.content) {
+      return { content: '', taskCount: 0 };
+    }
+    return { content: result.content, taskCount: countUnfinishedTasks(result.content) };
+  };
+
+  /**
+   * Start a batch processing run for a specific session with multi-document support
+   */
+  const startBatchRun = useCallback(async (sessionId: string, config: BatchRunConfig, folderPath: string) => {
     const session = sessions.find(s => s.id === sessionId);
     if (!session) {
       console.error('Session not found for batch processing:', sessionId);
       return;
     }
 
-    // Track batch start time for completion notification
-    const batchStartTime = Date.now();
+    const { documents, prompt, loopEnabled } = config;
 
-    // Count tasks
-    const totalTasks = countUnfinishedTasks(scratchpadContent);
-
-    if (totalTasks === 0) {
-      console.warn('No unchecked tasks found in scratchpad for session:', sessionId);
+    if (documents.length === 0) {
+      console.warn('No documents provided for batch processing:', sessionId);
       return;
     }
+
+    // Track batch start time for completion notification
+    const batchStartTime = Date.now();
 
     // Reset stop flag for this session
     stopRequestedRefs.current[sessionId] = false;
 
-    // Write scratchpad content to temp file
-    const writeResult = await window.maestro.tempfile.write(
-      scratchpadContent,
-      `maestro-scratchpad-${sessionId}-${Date.now()}.md`
-    );
+    // Calculate initial total tasks across all documents
+    let initialTotalTasks = 0;
+    for (const doc of documents) {
+      const { taskCount } = await readDocAndCountTasks(folderPath, doc.filename);
+      initialTotalTasks += taskCount;
+    }
 
-    if (!writeResult.success || !writeResult.path) {
-      console.error('Failed to write temp file:', writeResult.error);
+    if (initialTotalTasks === 0) {
+      console.warn('No unchecked tasks found across all documents for session:', sessionId);
       return;
     }
 
-    scratchpadPathRefs.current[sessionId] = writeResult.path;
-
-    // Replace $$SCRATCHPAD$$ placeholder with actual path
-    const finalPrompt = prompt.replace(/\$\$SCRATCHPAD\$\$/g, writeResult.path);
-
-    // Initialize batch run state for this session
+    // Initialize batch run state
     setBatchRunStates(prev => ({
       ...prev,
       [sessionId]: {
         isRunning: true,
         isStopping: false,
-        // Multi-document progress (new fields - currently single-doc legacy mode)
-        documents: [],
+        // Multi-document progress
+        documents: documents.map(d => d.filename),
         currentDocumentIndex: 0,
-        currentDocTasksTotal: totalTasks,
+        currentDocTasksTotal: 0,
         currentDocTasksCompleted: 0,
-        totalTasksAcrossAllDocs: totalTasks,
+        totalTasksAcrossAllDocs: initialTotalTasks,
         completedTasksAcrossAllDocs: 0,
-        // Loop mode (not yet enabled in legacy mode)
-        loopEnabled: false,
+        // Loop mode
+        loopEnabled,
         loopIteration: 0,
-        // Folder path (empty in legacy mode - uses temp file)
-        folderPath: '',
-        // Legacy fields
-        totalTasks,
+        // Folder path for file operations
+        folderPath,
+        // Legacy fields (for backwards compatibility)
+        totalTasks: initialTotalTasks,
         completedTasks: 0,
         currentTaskIndex: 0,
-        scratchpadPath: writeResult.path,
-        originalContent: scratchpadContent,
+        originalContent: '',
         customPrompt: prompt !== '' ? prompt : undefined,
         sessionIds: [],
         startTime: batchStartTime
@@ -248,137 +263,242 @@ export function useBatchProcessor({
     // Store custom prompt for persistence
     setCustomPrompts(prev => ({ ...prev, [sessionId]: prompt }));
 
-    // Run agent iterations
+    // Collect Claude session IDs and track completion
     const claudeSessionIds: string[] = [];
-    let completedCount = 0;
+    let totalCompletedTasks = 0;
+    let loopIteration = 0;
 
-
-    for (let i = 0; i < totalTasks; i++) {
-      // Check if stop was requested for this session
+    // Main processing loop (handles loop mode)
+    while (true) {
+      // Check for stop request
       if (stopRequestedRefs.current[sessionId]) {
-        console.log('Batch run stopped by user after task', i, 'for session:', sessionId);
+        console.log('[BatchProcessor] Batch run stopped by user for session:', sessionId);
         break;
       }
 
-      // Update current task index
-      setBatchRunStates(prev => ({
-        ...prev,
-        [sessionId]: {
-          ...prev[sessionId],
-          currentTaskIndex: i
-        }
-      }));
+      // Track if any tasks were processed in this iteration
+      let anyTasksProcessedThisIteration = false;
 
-      try {
-        // Capture start time for elapsed time tracking
-        const taskStartTime = Date.now();
-
-        // Spawn agent with the prompt for this specific session
-        const result = await onSpawnAgent(sessionId, finalPrompt);
-
-        // Capture elapsed time
-        const elapsedTimeMs = Date.now() - taskStartTime;
-
-        if (result.claudeSessionId) {
-          claudeSessionIds.push(result.claudeSessionId);
-          // Register as auto-initiated Maestro session
-          window.maestro.claude.registerSessionOrigin(session.cwd, result.claudeSessionId, 'auto')
-            .catch(err => console.error('[BatchProcessor] Failed to register session origin:', err));
+      // Process each document in order
+      for (let docIndex = 0; docIndex < documents.length; docIndex++) {
+        // Check for stop request before each document
+        if (stopRequestedRefs.current[sessionId]) {
+          console.log('[BatchProcessor] Batch run stopped by user at document', docIndex, 'for session:', sessionId);
+          break;
         }
 
-        completedCount++;
+        const docEntry = documents[docIndex];
+        const docFilePath = `${folderPath}/${docEntry.filename}.md`;
 
-        // Update progress
+        // Read document and count tasks
+        let { content, taskCount: remainingTasks } = await readDocAndCountTasks(folderPath, docEntry.filename);
+
+        // Skip documents with no tasks
+        if (remainingTasks === 0) {
+          console.log(`[BatchProcessor] Skipping document ${docEntry.filename} - no unchecked tasks`);
+          continue;
+        }
+
+        console.log(`[BatchProcessor] Processing document ${docEntry.filename} with ${remainingTasks} tasks`);
+
+        // Update state to show current document
         setBatchRunStates(prev => ({
           ...prev,
           [sessionId]: {
             ...prev[sessionId],
-            completedTasks: completedCount,
-            sessionIds: [...(prev[sessionId]?.sessionIds || []), result.claudeSessionId || '']
+            currentDocumentIndex: docIndex,
+            currentDocTasksTotal: remainingTasks,
+            currentDocTasksCompleted: 0
           }
         }));
 
-        // Generate synopsis for successful tasks with a Claude session
-        let shortSummary = `Task ${i + 1} of ${totalTasks}`;
-        let fullSynopsis = shortSummary;
+        let docTasksCompleted = 0;
 
-        if (result.success && result.claudeSessionId) {
-          // Request a synopsis from the agent by resuming the session
-          try {
-            const synopsisResult = await onSpawnSynopsis(
-              sessionId,
-              session.cwd,
-              result.claudeSessionId,
-              BATCH_SYNOPSIS_PROMPT
-            );
-
-            if (synopsisResult.success && synopsisResult.response) {
-              const parsed = parseSynopsis(synopsisResult.response);
-              shortSummary = parsed.shortSummary;
-              fullSynopsis = parsed.fullSynopsis;
-            }
-          } catch (err) {
-            console.error('[BatchProcessor] Synopsis generation failed:', err);
-            // Fall back to default summary
-          }
-        } else if (!result.success) {
-          shortSummary = `Task ${i + 1} of ${totalTasks} failed`;
-          fullSynopsis = shortSummary;
-        }
-
-        // Add history entry with both short summary (for list/toast) and full synopsis (for details)
-        onAddHistoryEntry({
-          type: 'AUTO',
-          timestamp: Date.now(),
-          summary: shortSummary,           // Short 1-2 sentence for list view and toast
-          fullResponse: fullSynopsis,      // Complete synopsis for detail view
-          claudeSessionId: result.claudeSessionId,
-          projectPath: session.cwd,
-          sessionId: sessionId, // Associate with this Maestro session for isolation
-          success: result.success,
-          // Use per-task usage stats returned from spawnAgentForSession
-          usageStats: result.usageStats,
-          elapsedTimeMs
-        });
-
-        // Speak the synopsis via TTS if audio feedback is enabled
-        if (audioFeedbackEnabled && audioFeedbackCommand && shortSummary) {
-          window.maestro.notification.speak(shortSummary, audioFeedbackCommand).catch(err => {
-            console.error('[BatchProcessor] Failed to speak synopsis:', err);
-          });
-        }
-
-        // Re-read the scratchpad file to check remaining tasks
-        // TODO: In new Auto Run system, content is stored in files, not session state
-        const readResult = await window.maestro.tempfile.read(writeResult.path);
-        if (readResult.success && readResult.content) {
-          console.log('[BatchProcessor] Checking remaining tasks after task', i + 1, 'for session:', sessionId);
-          // Note: scratchPadContent field removed - content now stored in files
-
-          const remainingTasks = countUnfinishedTasks(readResult.content);
-          console.log('[BatchProcessor] Remaining unchecked tasks:', remainingTasks);
-
-          // If no more tasks, we're done
-          if (remainingTasks === 0) {
-            console.log('All tasks completed by agent for session:', sessionId);
+        // Process tasks in this document until none remain
+        while (remainingTasks > 0) {
+          // Check for stop request before each task
+          if (stopRequestedRefs.current[sessionId]) {
+            console.log('[BatchProcessor] Batch run stopped by user during document', docEntry.filename);
             break;
           }
+
+          // Replace $$SCRATCHPAD$$ placeholder with actual document path
+          const finalPrompt = prompt.replace(/\$\$SCRATCHPAD\$\$/g, docFilePath);
+
+          try {
+            // Capture start time for elapsed time tracking
+            const taskStartTime = Date.now();
+
+            // Spawn agent with the prompt
+            const result = await onSpawnAgent(sessionId, finalPrompt);
+
+            // Capture elapsed time
+            const elapsedTimeMs = Date.now() - taskStartTime;
+
+            if (result.claudeSessionId) {
+              claudeSessionIds.push(result.claudeSessionId);
+              // Register as auto-initiated Maestro session
+              window.maestro.claude.registerSessionOrigin(session.cwd, result.claudeSessionId, 'auto')
+                .catch(err => console.error('[BatchProcessor] Failed to register session origin:', err));
+            }
+
+            anyTasksProcessedThisIteration = true;
+
+            // Re-read document to get updated task count
+            const { content: updatedContent, taskCount: newRemainingTasks } = await readDocAndCountTasks(folderPath, docEntry.filename);
+            content = updatedContent;
+            const tasksCompletedThisRun = remainingTasks - newRemainingTasks;
+
+            // Update counters
+            docTasksCompleted += tasksCompletedThisRun;
+            totalCompletedTasks += tasksCompletedThisRun;
+
+            // Update progress state
+            setBatchRunStates(prev => ({
+              ...prev,
+              [sessionId]: {
+                ...prev[sessionId],
+                currentDocTasksCompleted: docTasksCompleted,
+                completedTasksAcrossAllDocs: totalCompletedTasks,
+                // Legacy fields
+                completedTasks: totalCompletedTasks,
+                currentTaskIndex: totalCompletedTasks,
+                sessionIds: [...(prev[sessionId]?.sessionIds || []), result.claudeSessionId || '']
+              }
+            }));
+
+            // Generate synopsis for successful tasks with a Claude session
+            let shortSummary = `[${docEntry.filename}] Task completed`;
+            let fullSynopsis = shortSummary;
+
+            if (result.success && result.claudeSessionId) {
+              // Request a synopsis from the agent by resuming the session
+              try {
+                const synopsisResult = await onSpawnSynopsis(
+                  sessionId,
+                  session.cwd,
+                  result.claudeSessionId,
+                  BATCH_SYNOPSIS_PROMPT
+                );
+
+                if (synopsisResult.success && synopsisResult.response) {
+                  const parsed = parseSynopsis(synopsisResult.response);
+                  shortSummary = parsed.shortSummary;
+                  fullSynopsis = parsed.fullSynopsis;
+                }
+              } catch (err) {
+                console.error('[BatchProcessor] Synopsis generation failed:', err);
+              }
+            } else if (!result.success) {
+              shortSummary = `[${docEntry.filename}] Task failed`;
+              fullSynopsis = shortSummary;
+            }
+
+            // Add history entry
+            onAddHistoryEntry({
+              type: 'AUTO',
+              timestamp: Date.now(),
+              summary: shortSummary,
+              fullResponse: fullSynopsis,
+              claudeSessionId: result.claudeSessionId,
+              projectPath: session.cwd,
+              sessionId: sessionId,
+              success: result.success,
+              usageStats: result.usageStats,
+              elapsedTimeMs
+            });
+
+            // Speak the synopsis via TTS if audio feedback is enabled
+            if (audioFeedbackEnabled && audioFeedbackCommand && shortSummary) {
+              window.maestro.notification.speak(shortSummary, audioFeedbackCommand).catch(err => {
+                console.error('[BatchProcessor] Failed to speak synopsis:', err);
+              });
+            }
+
+            remainingTasks = newRemainingTasks;
+            console.log(`[BatchProcessor] Document ${docEntry.filename}: ${remainingTasks} tasks remaining`);
+
+          } catch (error) {
+            console.error(`[BatchProcessor] Error running task in ${docEntry.filename} for session ${sessionId}:`, error);
+            // Continue to next task on error
+            remainingTasks--;
+          }
         }
-      } catch (error) {
-        console.error(`Error running task ${i + 1} for session ${sessionId}:`, error);
-        // Continue to next task on error
+
+        // Check for stop before doing reset
+        if (stopRequestedRefs.current[sessionId]) {
+          break;
+        }
+
+        // Document complete - handle reset-on-completion if enabled
+        if (docEntry.resetOnCompletion && docTasksCompleted > 0) {
+          console.log(`[BatchProcessor] Resetting document ${docEntry.filename} (reset-on-completion enabled)`);
+
+          // Read the current content and uncheck all tasks
+          const { content: currentContent } = await readDocAndCountTasks(folderPath, docEntry.filename);
+          const resetContent = uncheckAllTasks(currentContent);
+
+          // Write the reset content back
+          await window.maestro.autorun.writeDoc(folderPath, docEntry.filename + '.md', resetContent);
+
+          // If loop is enabled, add the reset tasks back to the total
+          if (loopEnabled) {
+            const resetTaskCount = countUnfinishedTasks(resetContent);
+            setBatchRunStates(prev => ({
+              ...prev,
+              [sessionId]: {
+                ...prev[sessionId],
+                totalTasksAcrossAllDocs: prev[sessionId].totalTasksAcrossAllDocs + resetTaskCount,
+                totalTasks: prev[sessionId].totalTasks + resetTaskCount
+              }
+            }));
+          }
+        }
       }
-    }
 
-    // Note: In the old system, we would sync back changes from temp file to session state
-    // TODO: In new Auto Run system, content is persisted directly to files via autorun:writeDoc IPC
-    // No need to sync back - the file IS the source of truth
+      // Check if we should continue looping
+      if (!loopEnabled) {
+        // No loop mode - we're done after one pass
+        break;
+      }
 
-    // Clean up temp file
-    try {
-      await window.maestro.tempfile.delete(writeResult.path);
-    } catch (error) {
-      console.error('Error deleting temp file:', error);
+      // Check for stop request after full pass
+      if (stopRequestedRefs.current[sessionId]) {
+        break;
+      }
+
+      // Loop mode: check if any documents have tasks remaining
+      let anyDocsHaveTasks = false;
+      for (const doc of documents) {
+        const { taskCount } = await readDocAndCountTasks(folderPath, doc.filename);
+        if (taskCount > 0) {
+          anyDocsHaveTasks = true;
+          break;
+        }
+      }
+
+      if (!anyDocsHaveTasks) {
+        console.log('[BatchProcessor] All documents completed, exiting loop');
+        break;
+      }
+
+      // If we didn't process any tasks this iteration but docs still have tasks,
+      // something is wrong - exit to avoid infinite loop
+      if (!anyTasksProcessedThisIteration) {
+        console.warn('[BatchProcessor] No tasks processed but documents still have tasks - exiting to avoid infinite loop');
+        break;
+      }
+
+      // Continue looping
+      loopIteration++;
+      console.log(`[BatchProcessor] Starting loop iteration ${loopIteration + 1}`);
+      setBatchRunStates(prev => ({
+        ...prev,
+        [sessionId]: {
+          ...prev[sessionId],
+          loopIteration
+        }
+      }));
     }
 
     // Reset state for this session
@@ -387,19 +507,15 @@ export function useBatchProcessor({
       [sessionId]: {
         isRunning: false,
         isStopping: false,
-        // Multi-document progress (reset)
         documents: [],
         currentDocumentIndex: 0,
         currentDocTasksTotal: 0,
         currentDocTasksCompleted: 0,
         totalTasksAcrossAllDocs: 0,
         completedTasksAcrossAllDocs: 0,
-        // Loop mode (reset)
         loopEnabled: false,
         loopIteration: 0,
-        // Folder path (reset)
         folderPath: '',
-        // Legacy fields (reset)
         totalTasks: 0,
         completedTasks: 0,
         currentTaskIndex: 0,
@@ -408,21 +524,19 @@ export function useBatchProcessor({
       }
     }));
 
-    scratchpadPathRefs.current[sessionId] = null;
-
     // Call completion callback if provided
     if (onComplete) {
       const wasStopped = stopRequestedRefs.current[sessionId] || false;
       onComplete({
         sessionId,
         sessionName: session.name || session.cwd.split('/').pop() || 'Unknown',
-        completedTasks: completedCount,
-        totalTasks,
+        completedTasks: totalCompletedTasks,
+        totalTasks: initialTotalTasks,
         wasStopped,
         elapsedTimeMs: Date.now() - batchStartTime
       });
     }
-  }, [sessions, onUpdateSession, onSpawnAgent, onAddHistoryEntry, onComplete]);
+  }, [sessions, onUpdateSession, onSpawnAgent, onSpawnSynopsis, onAddHistoryEntry, onComplete, audioFeedbackEnabled, audioFeedbackCommand]);
 
   /**
    * Request to stop the batch run for a specific session after current task completes

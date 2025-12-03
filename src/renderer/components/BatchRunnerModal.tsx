@@ -54,8 +54,7 @@ interface BatchRunnerModalProps {
   initialPrompt?: string;
   lastModifiedAt?: number;
   showConfirmation: (message: string, onConfirm: () => void) => void;
-  scratchpadContent?: string;
-  // New props for multi-doc support
+  // Multi-document support
   folderPath: string;
   currentDocument: string;
   allDocuments: string[]; // All available docs in folder (without .md)
@@ -96,7 +95,6 @@ export function BatchRunnerModal(props: BatchRunnerModalProps) {
     initialPrompt,
     lastModifiedAt,
     showConfirmation,
-    scratchpadContent,
     folderPath,
     currentDocument,
     allDocuments,
