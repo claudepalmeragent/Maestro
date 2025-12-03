@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { X, RotateCcw, Play, Variable, ChevronDown, ChevronRight, Save, GripVertical, Plus, Repeat } from 'lucide-react';
+import { X, RotateCcw, Play, Variable, ChevronDown, ChevronRight, Save, GripVertical, Plus, Repeat, FolderOpen } from 'lucide-react';
 import type { Theme, BatchDocumentEntry, BatchRunConfig, Playbook, PlaybookDocumentEntry } from '../types';
 import { useLayerStack } from '../contexts/LayerStackContext';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
@@ -143,6 +143,8 @@ export function BatchRunnerModal(props: BatchRunnerModalProps) {
   const [playbooks, setPlaybooks] = useState<Playbook[]>([]);
   const [loadedPlaybook, setLoadedPlaybook] = useState<Playbook | null>(null);
   const [loadingPlaybooks, setLoadingPlaybooks] = useState(true);
+  const [showPlaybookDropdown, setShowPlaybookDropdown] = useState(false);
+  const playbackDropdownRef = useRef<HTMLDivElement>(null);
 
   const { registerLayer, unregisterLayer, updateLayerHandler } = useLayerStack();
   const layerIdRef = useRef<string>();
@@ -397,6 +399,62 @@ export function BatchRunnerModal(props: BatchRunnerModalProps) {
     });
   }, []);
 
+  // Handle loading a playbook
+  const handleLoadPlaybook = useCallback((playbook: Playbook) => {
+    // Convert stored entries to BatchDocumentEntry with IDs
+    const entries: BatchDocumentEntry[] = playbook.documents.map((doc, index) => ({
+      id: crypto.randomUUID(),
+      filename: doc.filename,
+      resetOnCompletion: doc.resetOnCompletion,
+      // Mark as duplicate if same filename appears earlier
+      isDuplicate: playbook.documents.slice(0, index).some(d => d.filename === doc.filename)
+    }));
+
+    setDocuments(entries);
+    setLoopEnabled(playbook.loopEnabled);
+    setPrompt(playbook.prompt);
+    setLoadedPlaybook(playbook);
+    setShowPlaybookDropdown(false);
+  }, []);
+
+  // Handle deleting a playbook
+  const handleDeletePlaybook = useCallback(async (playbook: Playbook, e: React.MouseEvent) => {
+    e.stopPropagation();
+
+    // Use the showConfirmation prop for confirmation
+    showConfirmation(
+      `Delete playbook "${playbook.name}"? This cannot be undone.`,
+      async () => {
+        try {
+          const result = await window.maestro.playbooks.delete(sessionId, playbook.id);
+          if (result.success) {
+            setPlaybooks(prev => prev.filter(p => p.id !== playbook.id));
+            // If the deleted playbook was loaded, clear it
+            if (loadedPlaybook?.id === playbook.id) {
+              setLoadedPlaybook(null);
+            }
+          }
+        } catch (error) {
+          console.error('Failed to delete playbook:', error);
+        }
+      }
+    );
+  }, [sessionId, showConfirmation, loadedPlaybook]);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (playbackDropdownRef.current && !playbackDropdownRef.current.contains(e.target as Node)) {
+        setShowPlaybookDropdown(false);
+      }
+    };
+
+    if (showPlaybookDropdown) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showPlaybookDropdown]);
+
   return (
     <div
       className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-[9999] animate-in fade-in duration-200"
@@ -461,6 +519,87 @@ export function BatchRunnerModal(props: BatchRunnerModalProps) {
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-6">
+          {/* Playbook Section */}
+          <div className="mb-6 flex items-center justify-between">
+            {/* Load Playbook Dropdown */}
+            <div className="relative" ref={playbackDropdownRef}>
+              <button
+                onClick={() => setShowPlaybookDropdown(!showPlaybookDropdown)}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-lg border hover:bg-white/5 transition-colors"
+                style={{ borderColor: theme.colors.border, color: theme.colors.textMain }}
+                disabled={loadingPlaybooks}
+              >
+                <FolderOpen className="w-4 h-4" style={{ color: theme.colors.accent }} />
+                <span className="text-sm">
+                  {loadedPlaybook ? loadedPlaybook.name : 'Load Playbook'}
+                </span>
+                <ChevronDown className="w-3.5 h-3.5" style={{ color: theme.colors.textDim }} />
+              </button>
+
+              {/* Dropdown Menu */}
+              {showPlaybookDropdown && (
+                <div
+                  className="absolute top-full left-0 mt-1 w-64 rounded-lg border shadow-lg z-10 overflow-hidden"
+                  style={{ backgroundColor: theme.colors.bgSidebar, borderColor: theme.colors.border }}
+                >
+                  {playbooks.length === 0 ? (
+                    <div className="px-4 py-3 text-center" style={{ color: theme.colors.textDim }}>
+                      <p className="text-sm">No saved playbooks</p>
+                      <p className="text-xs mt-1">Save a configuration to create one</p>
+                    </div>
+                  ) : (
+                    <div className="max-h-48 overflow-y-auto">
+                      {playbooks.map((pb) => (
+                        <div
+                          key={pb.id}
+                          className={`flex items-center gap-2 px-3 py-2 hover:bg-white/5 cursor-pointer transition-colors ${
+                            loadedPlaybook?.id === pb.id ? 'bg-white/10' : ''
+                          }`}
+                          onClick={() => handleLoadPlaybook(pb)}
+                        >
+                          <span
+                            className="flex-1 text-sm truncate"
+                            style={{ color: theme.colors.textMain }}
+                          >
+                            {pb.name}
+                          </span>
+                          <span
+                            className="text-[10px] shrink-0"
+                            style={{ color: theme.colors.textDim }}
+                          >
+                            {pb.documents.length} doc{pb.documents.length !== 1 ? 's' : ''}
+                          </span>
+                          <button
+                            onClick={(e) => handleDeletePlaybook(pb, e)}
+                            className="p-1 rounded hover:bg-white/10 transition-colors shrink-0"
+                            style={{ color: theme.colors.textDim }}
+                            title="Delete playbook"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Loaded playbook indicator with modification status */}
+            {loadedPlaybook && (
+              <div className="flex items-center gap-2">
+                {isPlaybookModified && (
+                  <span
+                    className="text-xs px-2 py-0.5 rounded-full"
+                    style={{ backgroundColor: theme.colors.warning + '20', color: theme.colors.warning }}
+                  >
+                    Modified
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* Documents Section */}
           <div className="mb-6">
             <div className="flex items-center justify-between mb-3">
