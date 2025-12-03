@@ -3209,6 +3209,43 @@ function setupIpcHandlers() {
     const attachmentsDir = path.join(userDataPath, 'attachments', sessionId);
     return { success: true, path: attachmentsDir };
   });
+
+  // ============================================
+  // Auto Run IPC Handlers
+  // ============================================
+
+  // List markdown files in a directory for Auto Run
+  ipcMain.handle('autorun:listDocs', async (_event, folderPath: string) => {
+    try {
+      // Validate the folder path exists
+      const folderStat = await fs.stat(folderPath);
+      if (!folderStat.isDirectory()) {
+        return { success: false, files: [], error: 'Path is not a directory' };
+      }
+
+      // Read directory contents
+      const entries = await fs.readdir(folderPath, { withFileTypes: true });
+
+      // Filter for .md files only, excluding hidden files
+      const mdFiles = entries
+        .filter((entry) => {
+          if (!entry.isFile()) return false;
+          if (entry.name.startsWith('.')) return false;
+          return entry.name.toLowerCase().endsWith('.md');
+        })
+        .map((entry) => {
+          // Return filename without .md extension
+          return entry.name.slice(0, -3);
+        })
+        .sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+
+      logger.info(`Listed ${mdFiles.length} markdown files in ${folderPath}`, 'AutoRun');
+      return { success: true, files: mdFiles };
+    } catch (error) {
+      logger.error('Error listing Auto Run docs', 'AutoRun', error);
+      return { success: false, files: [], error: String(error) };
+    }
+  });
 }
 
 // Handle process output streaming (set up after initialization)

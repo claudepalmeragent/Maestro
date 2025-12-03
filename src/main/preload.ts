@@ -432,6 +432,12 @@ contextBridge.exposeInMainWorld('maestro', {
     getPath: (sessionId: string) =>
       ipcRenderer.invoke('attachments:getPath', sessionId),
   },
+
+  // Auto Run API (file-system-based document runner)
+  autorun: {
+    listDocs: (folderPath: string) =>
+      ipcRenderer.invoke('autorun:listDocs', folderPath),
+  },
 });
 
 // Type definitions for TypeScript
@@ -716,6 +722,9 @@ export interface MaestroAPI {
     delete: (sessionId: string, filename: string) => Promise<{ success: boolean; error?: string }>;
     list: (sessionId: string) => Promise<{ success: boolean; files: string[]; error?: string }>;
     getPath: (sessionId: string) => Promise<{ success: boolean; path: string }>;
+  };
+  autorun: {
+    listDocs: (folderPath: string) => Promise<{ success: boolean; files: string[]; error?: string }>;
   };
 }
 
