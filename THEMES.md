@@ -1,4 +1,4 @@
-# Themes
+<img width="3592" height="2302" alt="image" src="https://github.com/user-attachments/assets/8f4dad9a-8576-4bdf-94ad-f84c207637bc" /># Themes
 
 Maestro ships with a variety of themes that fall under three categories: Dark, Light, and "Vibes". Here are screenshots of the main window in each theme.
 
@@ -19,27 +19,27 @@ Maestro ships with a variety of themes that fall under three categories: Dark, L
 <img width="3592" height="2302" alt="image" src="https://github.com/user-attachments/assets/64c6a699-cb64-4d5a-a245-69ab29cb59e3" />
 
 ### Gruvbox Dark
-<img width="3592" height="2302" alt="image" src="https://github.com/user-attachments/assets/523ce4b2-fc9f-4dab-a047-8eeb09cd10ae" />
+<img width="3592" height="2302" alt="image" src="https://github.com/user-attachments/assets/4adb6eb7-8a58-45c5-af88-62e39fa36b70" />
 
 ## Light
 
 ### Github
-<img width="3592" height="2302" alt="image" src="https://github.com/user-attachments/assets/33f3450d-8633-45e3-b16d-219b2356bcf6" />
+<img width="3592" height="2302" alt="image" src="https://github.com/user-attachments/assets/b09e466a-5dbf-4510-80b9-a84815c52d14" />
 
 ### Solarized
-<img width="3592" height="2302" alt="image" src="https://github.com/user-attachments/assets/788aa25f-f3b8-4138-8a0d-2da32804bb8d" />
+<img width="3592" height="2302" alt="image" src="https://github.com/user-attachments/assets/a1848b27-f96d-44e1-85f5-8e383acde1e6" />
 
 ### One Light
-<img width="3592" height="2302" alt="image" src="https://github.com/user-attachments/assets/bba35bb8-d557-468d-9b5d-c123094b5b33" />
+<img width="3592" height="2302" alt="image" src="https://github.com/user-attachments/assets/7687381a-bcb7-4008-80d3-ba656227e573" />
 
 ### Gruvbox Light
-<img width="3592" height="2302" alt="image" src="https://github.com/user-attachments/assets/81f224e1-26c0-44ae-ac75-9a1f7710364d" />
+<img width="3592" height="2302" alt="image" src="https://github.com/user-attachments/assets/2b50e631-2740-4199-892b-a4fe3d79c07b" />
 
 ### Catppuccin Latte
-<img width="3592" height="2302" alt="image" src="https://github.com/user-attachments/assets/44c97d1f-c7e5-43af-8615-4015a93361c8" />
+<img width="3592" height="2302" alt="image" src="https://github.com/user-attachments/assets/2ccc1ec7-b469-4f8f-b719-4ac1a4f57c19" />
 
 ### Ayu Light
-<img width="3592" height="2302" alt="image" src="https://github.com/user-attachments/assets/7585054c-8c47-460d-adc1-a8e31d1ddce2" />
+<img width="3592" height="2302" alt="image" src="https://github.com/user-attachments/assets/7e073cf0-1cb9-46a2-899f-2d8b91710681" />
 
 ## Vibes
 
@@ -59,5 +59,6 @@ It's a vibe.
 ### InQuest
 An homage to InQuest.net, acquired by OPSWAT in 2024.
 <img width="3592" height="2302" alt="image" src="https://github.com/user-attachments/assets/706961b2-037a-4228-9b69-0958847f2bcc" />
+
 
 
