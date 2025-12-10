@@ -23,6 +23,8 @@ import {
 
 interface MaestroWizardProps {
   theme: Theme;
+  /** Callback to create session and launch Auto Run when wizard completes */
+  onLaunchSession?: (wantsTour: boolean) => Promise<void>;
 }
 
 /**
@@ -50,7 +52,7 @@ function getStepTitle(step: WizardStep): string {
  * the current step from WizardContext. Integrates with LayerStack for
  * proper modal behavior including Escape key handling.
  */
-export function MaestroWizard({ theme }: MaestroWizardProps): JSX.Element | null {
+export function MaestroWizard({ theme, onLaunchSession }: MaestroWizardProps): JSX.Element | null {
   const {
     state,
     closeWizard,
@@ -113,7 +115,12 @@ export function MaestroWizard({ theme }: MaestroWizardProps): JSX.Element | null
       case 'conversation':
         return <ConversationScreen theme={theme} />;
       case 'phase-review':
-        return <PhaseReviewScreen theme={theme} />;
+        return (
+          <PhaseReviewScreen
+            theme={theme}
+            onLaunchSession={onLaunchSession || (async () => {})}
+          />
+        );
       default:
         return null;
     }

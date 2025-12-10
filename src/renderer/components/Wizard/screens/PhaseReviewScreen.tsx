@@ -7,18 +7,45 @@
  * Features:
  * - Loading state during document generation with "Creating your action plan..."
  * - Error handling with retry option
- * - Phase 1 document preview placeholder (full editor to be implemented)
+ * - Full markdown editor with edit/preview toggle (matching Auto Run interface)
+ * - Image attachment support (paste, upload, drag-drop)
+ * - Auto-save with debounce
  * - Task count display
- * - "I'm Ready to Go" and "Walk Me Through" buttons (placeholder)
+ * - "I'm Ready to Go" and "Walk Me Through" action buttons
+ * - Keyboard navigation support
  */
 
-import { useEffect, useCallback, useRef, useState } from 'react';
+import { useEffect, useCallback, useRef, useState, useMemo } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import {
+  Eye,
+  Edit,
+  Image,
+  Loader2,
+  Rocket,
+  Compass,
+  ChevronDown,
+  ChevronRight,
+  X,
+  FileText,
+} from 'lucide-react';
 import type { Theme } from '../../../types';
 import { useWizard } from '../WizardContext';
 import { phaseGenerator, AUTO_RUN_FOLDER_NAME } from '../services/phaseGenerator';
+import { MermaidRenderer } from '../../MermaidRenderer';
+
+// Memoize remarkPlugins array - it never changes
+const REMARK_PLUGINS = [remarkGfm];
+
+// Auto-save debounce delay in milliseconds
+const AUTO_SAVE_DELAY = 2000;
 
 interface PhaseReviewScreenProps {
   theme: Theme;
+  onLaunchSession: (wantsTour: boolean) => Promise<void>;
 }
 
 /**
@@ -43,9 +70,7 @@ function LoadingIndicator({
           }}
         />
         {/* Inner pulsing circle */}
-        <div
-          className="absolute inset-0 flex items-center justify-center"
-        >
+        <div className="absolute inset-0 flex items-center justify-center">
           <div
             className="w-8 h-8 rounded-full animate-pulse"
             style={{ backgroundColor: `${theme.colors.accent}30` }}
@@ -66,7 +91,8 @@ function LoadingIndicator({
         className="text-sm text-center max-w-md"
         style={{ color: theme.colors.textDim }}
       >
-        This may take a minute or two. We're creating detailed task documents based on your project requirements.
+        This may take a minute or two. We're creating detailed task documents
+        based on your project requirements.
       </p>
 
       {/* Animated dots */}
@@ -74,10 +100,10 @@ function LoadingIndicator({
         {[0, 1, 2].map((i) => (
           <div
             key={i}
-            className="w-2 h-2 rounded-full animate-bounce"
+            className="w-2 h-2 rounded-full"
             style={{
               backgroundColor: theme.colors.accent,
-              animationDelay: `${i * 150}ms`,
+              animation: `bounce-dot 0.8s infinite ${i * 150}ms`,
             }}
           />
         ))}
@@ -85,16 +111,13 @@ function LoadingIndicator({
 
       {/* Animation styles */}
       <style>{`
-        @keyframes bounce {
+        @keyframes bounce-dot {
           0%, 100% {
             transform: translateY(0);
           }
           50% {
             transform: translateY(-6px);
           }
-        }
-        .animate-bounce {
-          animation: bounce 0.8s infinite;
         }
       `}</style>
     </div>
@@ -179,148 +202,1006 @@ function ErrorDisplay({
 }
 
 /**
- * Success display - shows generated documents summary
- * This is a placeholder until the full editor is implemented
+ * Image preview thumbnail for staged images
  */
-function GenerationSuccess({
+function ImagePreview({
+  src,
+  filename,
+  theme,
+  onRemove,
+}: {
+  src: string;
+  filename: string;
+  theme: Theme;
+  onRemove: () => void;
+}): JSX.Element {
+  return (
+    <div className="relative inline-block group" style={{ margin: '4px' }}>
+      <img
+        src={src}
+        alt={filename}
+        className="w-20 h-20 object-cover rounded hover:opacity-80 transition-opacity"
+        style={{ border: `1px solid ${theme.colors.border}` }}
+      />
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onRemove();
+        }}
+        className="absolute -top-2 -right-2 w-5 h-5 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+        style={{
+          backgroundColor: theme.colors.error,
+          color: 'white',
+        }}
+        title="Remove image"
+      >
+        <X className="w-3 h-3" />
+      </button>
+      <div
+        className="absolute bottom-0 left-0 right-0 px-1 py-0.5 text-[9px] truncate rounded-b"
+        style={{
+          backgroundColor: 'rgba(0,0,0,0.6)',
+          color: 'white',
+        }}
+      >
+        {filename}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Custom image component for markdown preview
+ */
+function MarkdownImage({
+  src,
+  alt,
+  folderPath,
   theme,
 }: {
+  src?: string;
+  alt?: string;
+  folderPath: string;
   theme: Theme;
-}): JSX.Element {
-  const { state } = useWizard();
-  const { generatedDocuments } = state;
+}): JSX.Element | null {
+  const [dataUrl, setDataUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const totalTasks = generatedDocuments.reduce((sum, doc) => sum + doc.taskCount, 0);
-  const phase1 = generatedDocuments[0];
+  useEffect(() => {
+    if (!src) {
+      setLoading(false);
+      return;
+    }
+
+    if (src.startsWith('images/') && folderPath) {
+      const absolutePath = `${folderPath}/${src}`;
+      window.maestro.fs
+        .readFile(absolutePath)
+        .then((result: string) => {
+          if (result.startsWith('data:')) {
+            setDataUrl(result);
+          } else {
+            setError('Invalid image data');
+          }
+          setLoading(false);
+        })
+        .catch((err: Error) => {
+          setError(`Failed to load: ${err.message}`);
+          setLoading(false);
+        });
+    } else if (src.startsWith('data:') || src.startsWith('http')) {
+      setDataUrl(src);
+      setLoading(false);
+    } else {
+      setLoading(false);
+    }
+  }, [src, folderPath]);
+
+  if (loading) {
+    return (
+      <span
+        className="inline-flex items-center gap-2 px-3 py-2 rounded"
+        style={{ backgroundColor: theme.colors.bgActivity }}
+      >
+        <Loader2
+          className="w-4 h-4 animate-spin"
+          style={{ color: theme.colors.textDim }}
+        />
+        <span className="text-xs" style={{ color: theme.colors.textDim }}>
+          Loading...
+        </span>
+      </span>
+    );
+  }
+
+  if (error || !dataUrl) {
+    return null;
+  }
+
+  return (
+    <img
+      src={dataUrl}
+      alt={alt || ''}
+      className="rounded border my-2"
+      style={{
+        maxHeight: '200px',
+        maxWidth: '100%',
+        objectFit: 'contain',
+        borderColor: theme.colors.border,
+      }}
+    />
+  );
+}
+
+/**
+ * Document editor component with edit/preview modes
+ */
+function DocumentEditor({
+  content,
+  onContentChange,
+  mode,
+  onModeChange,
+  folderPath,
+  selectedFile,
+  attachments,
+  onAddAttachment,
+  onRemoveAttachment,
+  theme,
+  isLocked,
+}: {
+  content: string;
+  onContentChange: (content: string) => void;
+  mode: 'edit' | 'preview';
+  onModeChange: (mode: 'edit' | 'preview') => void;
+  folderPath: string;
+  selectedFile: string;
+  attachments: Array<{ filename: string; dataUrl: string }>;
+  onAddAttachment: (filename: string, dataUrl: string) => void;
+  onRemoveAttachment: (filename: string) => void;
+  theme: Theme;
+  isLocked: boolean;
+}): JSX.Element {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const previewRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [attachmentsExpanded, setAttachmentsExpanded] = useState(true);
+
+  // Handle image paste
+  const handlePaste = useCallback(
+    async (e: React.ClipboardEvent) => {
+      if (isLocked || !folderPath || !selectedFile) return;
+
+      const items = e.clipboardData?.items;
+      if (!items) return;
+
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.type.startsWith('image/')) {
+          e.preventDefault();
+
+          const file = item.getAsFile();
+          if (!file) continue;
+
+          const reader = new FileReader();
+          reader.onload = async (event) => {
+            const base64Data = event.target?.result as string;
+            if (!base64Data) return;
+
+            const base64Content = base64Data.replace(
+              /^data:image\/\w+;base64,/,
+              ''
+            );
+            const extension = item.type.split('/')[1] || 'png';
+
+            const result = await window.maestro.autorun.saveImage(
+              folderPath,
+              selectedFile,
+              base64Content,
+              extension
+            );
+
+            if (result.success && result.relativePath) {
+              const filename =
+                result.relativePath.split('/').pop() || result.relativePath;
+              onAddAttachment(result.relativePath, base64Data);
+
+              // Insert markdown reference at cursor
+              const textarea = textareaRef.current;
+              if (textarea) {
+                const cursorPos = textarea.selectionStart;
+                const textBefore = content.substring(0, cursorPos);
+                const textAfter = content.substring(cursorPos);
+                const imageMarkdown = `![${filename}](${result.relativePath})`;
+
+                let prefix = '';
+                let suffix = '';
+                if (textBefore.length > 0 && !textBefore.endsWith('\n')) {
+                  prefix = '\n';
+                }
+                if (textAfter.length > 0 && !textAfter.startsWith('\n')) {
+                  suffix = '\n';
+                }
+
+                const newContent =
+                  textBefore + prefix + imageMarkdown + suffix + textAfter;
+                onContentChange(newContent);
+
+                const newCursorPos =
+                  cursorPos +
+                  prefix.length +
+                  imageMarkdown.length +
+                  suffix.length;
+                setTimeout(() => {
+                  textarea.setSelectionRange(newCursorPos, newCursorPos);
+                  textarea.focus();
+                }, 0);
+              }
+            }
+          };
+          reader.readAsDataURL(file);
+          break;
+        }
+      }
+    },
+    [content, folderPath, selectedFile, isLocked, onContentChange, onAddAttachment]
+  );
+
+  // Handle file input for manual image upload
+  const handleFileSelect = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file || !folderPath || !selectedFile) return;
+
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        const base64Data = event.target?.result as string;
+        if (!base64Data) return;
+
+        const base64Content = base64Data.replace(
+          /^data:image\/\w+;base64,/,
+          ''
+        );
+        const extension = file.name.split('.').pop() || 'png';
+
+        const result = await window.maestro.autorun.saveImage(
+          folderPath,
+          selectedFile,
+          base64Content,
+          extension
+        );
+
+        if (result.success && result.relativePath) {
+          const filename =
+            result.relativePath.split('/').pop() || result.relativePath;
+          onAddAttachment(result.relativePath, base64Data);
+
+          const imageMarkdown = `\n![${filename}](${result.relativePath})\n`;
+          const newContent = content + imageMarkdown;
+          onContentChange(newContent);
+        }
+      };
+      reader.readAsDataURL(file);
+      e.target.value = '';
+    },
+    [content, folderPath, selectedFile, onContentChange, onAddAttachment]
+  );
+
+  // Handle key events
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Insert tab character
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const textarea = e.currentTarget;
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const newContent =
+        content.substring(0, start) + '\t' + content.substring(end);
+      onContentChange(newContent);
+      requestAnimationFrame(() => {
+        textarea.selectionStart = start + 1;
+        textarea.selectionEnd = start + 1;
+      });
+      return;
+    }
+
+    // Toggle mode with Cmd+E
+    if ((e.metaKey || e.ctrlKey) && e.key === 'e') {
+      e.preventDefault();
+      e.stopPropagation();
+      onModeChange(mode === 'edit' ? 'preview' : 'edit');
+      return;
+    }
+
+    // Insert checkbox with Cmd+L
+    if ((e.metaKey || e.ctrlKey) && e.key === 'l') {
+      e.preventDefault();
+      e.stopPropagation();
+      const textarea = e.currentTarget;
+      const cursorPos = textarea.selectionStart;
+      const textBeforeCursor = content.substring(0, cursorPos);
+      const textAfterCursor = content.substring(cursorPos);
+
+      const lastNewline = textBeforeCursor.lastIndexOf('\n');
+      const lineStart = lastNewline === -1 ? 0 : lastNewline + 1;
+      const textOnCurrentLine = textBeforeCursor.substring(lineStart);
+
+      let newContent: string;
+      let newCursorPos: number;
+
+      if (textOnCurrentLine.length === 0) {
+        newContent = textBeforeCursor + '- [ ] ' + textAfterCursor;
+        newCursorPos = cursorPos + 6;
+      } else {
+        newContent = textBeforeCursor + '\n- [ ] ' + textAfterCursor;
+        newCursorPos = cursorPos + 7;
+      }
+
+      onContentChange(newContent);
+      setTimeout(() => {
+        if (textareaRef.current) {
+          textareaRef.current.setSelectionRange(newCursorPos, newCursorPos);
+        }
+      }, 0);
+      return;
+    }
+
+    // Handle Enter in lists
+    if (e.key === 'Enter' && !e.shiftKey) {
+      const textarea = e.currentTarget;
+      const cursorPos = textarea.selectionStart;
+      const textBeforeCursor = content.substring(0, cursorPos);
+      const textAfterCursor = content.substring(cursorPos);
+      const currentLineStart = textBeforeCursor.lastIndexOf('\n') + 1;
+      const currentLine = textBeforeCursor.substring(currentLineStart);
+
+      const taskListMatch = currentLine.match(/^(\s*)- \[([ x])\]\s+/);
+      const unorderedListMatch = currentLine.match(/^(\s*)([-*])\s+/);
+
+      if (taskListMatch) {
+        const indent = taskListMatch[1];
+        e.preventDefault();
+        const newContent =
+          textBeforeCursor + '\n' + indent + '- [ ] ' + textAfterCursor;
+        onContentChange(newContent);
+        setTimeout(() => {
+          if (textareaRef.current) {
+            const newPos = cursorPos + indent.length + 7;
+            textareaRef.current.setSelectionRange(newPos, newPos);
+          }
+        }, 0);
+      } else if (unorderedListMatch) {
+        const indent = unorderedListMatch[1];
+        const marker = unorderedListMatch[2];
+        e.preventDefault();
+        const newContent =
+          textBeforeCursor + '\n' + indent + marker + ' ' + textAfterCursor;
+        onContentChange(newContent);
+        setTimeout(() => {
+          if (textareaRef.current) {
+            const newPos = cursorPos + indent.length + 3;
+            textareaRef.current.setSelectionRange(newPos, newPos);
+          }
+        }, 0);
+      }
+    }
+  };
+
+  // Prose styles for markdown preview
+  const proseStyles = useMemo(
+    () => `
+    .prose h1 { color: ${theme.colors.textMain}; font-size: 2em; font-weight: bold; margin: 0.67em 0; }
+    .prose h2 { color: ${theme.colors.textMain}; font-size: 1.5em; font-weight: bold; margin: 0.75em 0; }
+    .prose h3 { color: ${theme.colors.textMain}; font-size: 1.17em; font-weight: bold; margin: 0.83em 0; }
+    .prose p { color: ${theme.colors.textMain}; margin: 0.5em 0; }
+    .prose ul, .prose ol { color: ${theme.colors.textMain}; margin: 0.5em 0; padding-left: 1.5em; }
+    .prose ul { list-style-type: disc; }
+    .prose li { margin: 0.25em 0; display: list-item; }
+    .prose code { background-color: ${theme.colors.bgActivity}; color: ${theme.colors.textMain}; padding: 0.2em 0.4em; border-radius: 3px; font-size: 0.9em; }
+    .prose pre { background-color: ${theme.colors.bgActivity}; color: ${theme.colors.textMain}; padding: 1em; border-radius: 6px; overflow-x: auto; }
+    .prose pre code { background: none; padding: 0; }
+    .prose blockquote { border-left: 4px solid ${theme.colors.border}; padding-left: 1em; margin: 0.5em 0; color: ${theme.colors.textDim}; }
+    .prose a { color: ${theme.colors.accent}; text-decoration: underline; }
+    .prose strong { font-weight: bold; }
+    .prose em { font-style: italic; }
+    .prose input[type="checkbox"] {
+      appearance: none;
+      -webkit-appearance: none;
+      width: 16px;
+      height: 16px;
+      border: 2px solid ${theme.colors.accent};
+      border-radius: 3px;
+      background-color: transparent;
+      cursor: pointer;
+      vertical-align: middle;
+      margin-right: 8px;
+      position: relative;
+    }
+    .prose input[type="checkbox"]:checked {
+      background-color: ${theme.colors.accent};
+      border-color: ${theme.colors.accent};
+    }
+    .prose input[type="checkbox"]:checked::after {
+      content: '';
+      position: absolute;
+      left: 4px;
+      top: 1px;
+      width: 5px;
+      height: 9px;
+      border: solid ${theme.colors.bgMain};
+      border-width: 0 2px 2px 0;
+      transform: rotate(45deg);
+    }
+    .prose li:has(> input[type="checkbox"]) {
+      list-style-type: none;
+      margin-left: -1.5em;
+    }
+  `,
+    [theme]
+  );
+
+  // Markdown components
+  const markdownComponents = useMemo(
+    () => ({
+      code: ({ inline, className, children, ...props }: any) => {
+        const match = (className || '').match(/language-(\w+)/);
+        const language = match ? match[1] : 'text';
+        const codeContent = String(children).replace(/\n$/, '');
+
+        if (!inline && language === 'mermaid') {
+          return <MermaidRenderer chart={codeContent} theme={theme} />;
+        }
+
+        return !inline && match ? (
+          <SyntaxHighlighter
+            language={language}
+            style={vscDarkPlus}
+            customStyle={{
+              margin: '0.5em 0',
+              padding: '1em',
+              background: theme.colors.bgActivity,
+              fontSize: '0.9em',
+              borderRadius: '6px',
+            }}
+            PreTag="div"
+          >
+            {codeContent}
+          </SyntaxHighlighter>
+        ) : (
+          <code className={className} {...props}>
+            {children}
+          </code>
+        );
+      },
+      img: ({ src, alt, ...props }: any) => (
+        <MarkdownImage
+          src={src}
+          alt={alt}
+          folderPath={folderPath}
+          theme={theme}
+          {...props}
+        />
+      ),
+    }),
+    [theme, folderPath]
+  );
 
   return (
     <div className="flex flex-col h-full">
-      {/* Success header */}
+      {/* Mode toggle and controls */}
+      <div className="flex gap-2 mb-3 justify-center">
+        <button
+          onClick={() => !isLocked && onModeChange('edit')}
+          disabled={isLocked}
+          className={`flex items-center gap-2 px-3 py-1.5 rounded text-xs transition-colors ${
+            mode === 'edit' && !isLocked ? 'font-semibold' : ''
+          } ${isLocked ? 'opacity-50 cursor-not-allowed' : ''}`}
+          style={{
+            backgroundColor:
+              mode === 'edit' && !isLocked
+                ? theme.colors.bgActivity
+                : 'transparent',
+            color: isLocked
+              ? theme.colors.textDim
+              : mode === 'edit'
+              ? theme.colors.textMain
+              : theme.colors.textDim,
+            border: `1px solid ${
+              mode === 'edit' && !isLocked
+                ? theme.colors.accent
+                : theme.colors.border
+            }`,
+          }}
+          title="Edit document (⌘E)"
+        >
+          <Edit className="w-3.5 h-3.5" />
+          Edit
+        </button>
+        <button
+          onClick={() => onModeChange('preview')}
+          className={`flex items-center gap-2 px-3 py-1.5 rounded text-xs transition-colors ${
+            mode === 'preview' ? 'font-semibold' : ''
+          }`}
+          style={{
+            backgroundColor:
+              mode === 'preview' ? theme.colors.bgActivity : 'transparent',
+            color:
+              mode === 'preview' ? theme.colors.textMain : theme.colors.textDim,
+            border: `1px solid ${
+              mode === 'preview' ? theme.colors.accent : theme.colors.border
+            }`,
+          }}
+          title="Preview document (⌘E)"
+        >
+          <Eye className="w-3.5 h-3.5" />
+          Preview
+        </button>
+        {mode === 'edit' && !isLocked && (
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="flex items-center gap-2 px-3 py-1.5 rounded text-xs transition-colors hover:opacity-80"
+            style={{
+              backgroundColor: 'transparent',
+              color: theme.colors.textDim,
+              border: `1px solid ${theme.colors.border}`,
+            }}
+            title="Add image (or paste from clipboard)"
+          >
+            <Image className="w-3.5 h-3.5" />
+          </button>
+        )}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          onChange={handleFileSelect}
+          className="hidden"
+        />
+      </div>
+
+      {/* Attached Images Preview (edit mode) */}
+      {mode === 'edit' && attachments.length > 0 && (
+        <div
+          className="px-2 py-2 mb-2 rounded"
+          style={{ backgroundColor: theme.colors.bgActivity }}
+        >
+          <button
+            onClick={() => setAttachmentsExpanded(!attachmentsExpanded)}
+            className="w-full flex items-center gap-1 text-[10px] uppercase font-semibold hover:opacity-80 transition-opacity"
+            style={{ color: theme.colors.textDim }}
+          >
+            {attachmentsExpanded ? (
+              <ChevronDown className="w-3 h-3" />
+            ) : (
+              <ChevronRight className="w-3 h-3" />
+            )}
+            Attached Images ({attachments.length})
+          </button>
+          {attachmentsExpanded && (
+            <div className="flex flex-wrap gap-1 mt-2">
+              {attachments.map((att) => (
+                <ImagePreview
+                  key={att.filename}
+                  src={att.dataUrl}
+                  filename={att.filename}
+                  theme={theme}
+                  onRemove={() => onRemoveAttachment(att.filename)}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Content area */}
+      <div className="flex-1 min-h-0 overflow-hidden">
+        {mode === 'edit' ? (
+          <textarea
+            ref={textareaRef}
+            value={content}
+            onChange={(e) => !isLocked && onContentChange(e.target.value)}
+            onKeyDown={!isLocked ? handleKeyDown : undefined}
+            onPaste={handlePaste}
+            readOnly={isLocked}
+            placeholder="Your task document will appear here..."
+            className={`w-full h-full border rounded p-4 bg-transparent outline-none resize-none font-mono text-sm ${
+              isLocked ? 'cursor-not-allowed opacity-70' : ''
+            }`}
+            style={{
+              borderColor: theme.colors.border,
+              color: theme.colors.textMain,
+            }}
+          />
+        ) : (
+          <div
+            ref={previewRef}
+            className="h-full overflow-y-auto border rounded p-4 prose prose-sm max-w-none outline-none"
+            tabIndex={0}
+            onKeyDown={(e) => {
+              if ((e.metaKey || e.ctrlKey) && e.key === 'e') {
+                e.preventDefault();
+                e.stopPropagation();
+                onModeChange('edit');
+              }
+            }}
+            style={{
+              borderColor: theme.colors.border,
+              color: theme.colors.textMain,
+              fontSize: '13px',
+            }}
+          >
+            <style>{proseStyles}</style>
+            <ReactMarkdown
+              remarkPlugins={REMARK_PLUGINS}
+              components={markdownComponents}
+            >
+              {content || '*No content yet.*'}
+            </ReactMarkdown>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Count tasks in markdown content
+ */
+function countTasks(content: string): number {
+  const matches = content.match(/^- \[([ x])\]/gm);
+  return matches ? matches.length : 0;
+}
+
+/**
+ * Main content display after documents are generated
+ */
+function DocumentReview({
+  theme,
+  onLaunchSession,
+}: {
+  theme: Theme;
+  onLaunchSession: (wantsTour: boolean) => Promise<void>;
+}): JSX.Element {
+  const {
+    state,
+    setEditedPhase1Content,
+    getPhase1Content,
+    setWantsTour,
+  } = useWizard();
+
+  const { generatedDocuments, directoryPath, agentName } = state;
+  const phase1 = generatedDocuments[0];
+  const folderPath = `${directoryPath}/${AUTO_RUN_FOLDER_NAME}`;
+
+  // Local content state for editing
+  const [localContent, setLocalContent] = useState(getPhase1Content());
+  const [mode, setMode] = useState<'edit' | 'preview'>('preview');
+  const [attachments, setAttachments] = useState<
+    Array<{ filename: string; dataUrl: string }>
+  >([]);
+  const [isLaunching, setIsLaunching] = useState(false);
+  const [launchError, setLaunchError] = useState<string | null>(null);
+
+  // Refs for button focus
+  const readyButtonRef = useRef<HTMLButtonElement>(null);
+  const tourButtonRef = useRef<HTMLButtonElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Auto-save timer ref
+  const autoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const lastSavedContentRef = useRef<string>(localContent);
+
+  // Auto-focus the ready button on mount
+  useEffect(() => {
+    setTimeout(() => {
+      readyButtonRef.current?.focus();
+    }, 100);
+  }, []);
+
+  // Auto-save with debounce
+  useEffect(() => {
+    if (localContent === lastSavedContentRef.current) return;
+
+    if (autoSaveTimeoutRef.current) {
+      clearTimeout(autoSaveTimeoutRef.current);
+    }
+
+    autoSaveTimeoutRef.current = setTimeout(async () => {
+      if (localContent !== lastSavedContentRef.current && phase1) {
+        try {
+          await window.maestro.autorun.writeDoc(
+            folderPath,
+            phase1.filename,
+            localContent
+          );
+          lastSavedContentRef.current = localContent;
+          setEditedPhase1Content(localContent);
+        } catch (err) {
+          console.error('Auto-save failed:', err);
+        }
+      }
+    }, AUTO_SAVE_DELAY);
+
+    return () => {
+      if (autoSaveTimeoutRef.current) {
+        clearTimeout(autoSaveTimeoutRef.current);
+      }
+    };
+  }, [localContent, folderPath, phase1, setEditedPhase1Content]);
+
+  // Handle content change
+  const handleContentChange = useCallback((newContent: string) => {
+    setLocalContent(newContent);
+  }, []);
+
+  // Handle adding attachment
+  const handleAddAttachment = useCallback(
+    (filename: string, dataUrl: string) => {
+      setAttachments((prev) => [...prev, { filename, dataUrl }]);
+    },
+    []
+  );
+
+  // Handle removing attachment
+  const handleRemoveAttachment = useCallback(
+    async (filename: string) => {
+      setAttachments((prev) => prev.filter((a) => a.filename !== filename));
+
+      // Remove from disk
+      await window.maestro.autorun.deleteImage(folderPath, filename);
+
+      // Remove markdown reference
+      const escapedPath = filename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const fname = filename.split('/').pop() || filename;
+      const escapedFilename = fname.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(
+        `!\\[${escapedFilename}\\]\\(${escapedPath}\\)\\n?`,
+        'g'
+      );
+      setLocalContent((prev) => prev.replace(regex, ''));
+    },
+    [folderPath]
+  );
+
+  // Handle launch
+  const handleLaunch = useCallback(
+    async (wantsTour: boolean) => {
+      setIsLaunching(true);
+      setLaunchError(null);
+      setWantsTour(wantsTour);
+
+      try {
+        // Save final content before launching
+        if (phase1 && localContent !== lastSavedContentRef.current) {
+          await window.maestro.autorun.writeDoc(
+            folderPath,
+            phase1.filename,
+            localContent
+          );
+          setEditedPhase1Content(localContent);
+        }
+
+        await onLaunchSession(wantsTour);
+      } catch (err) {
+        const errorMessage =
+          err instanceof Error ? err.message : 'Failed to launch session';
+        setLaunchError(errorMessage);
+        setIsLaunching(false);
+      }
+    },
+    [
+      phase1,
+      localContent,
+      folderPath,
+      setEditedPhase1Content,
+      setWantsTour,
+      onLaunchSession,
+    ]
+  );
+
+  // Handle keyboard navigation
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      // Tab between buttons
+      if (e.key === 'Tab') {
+        const focusedElement = document.activeElement;
+        if (focusedElement === readyButtonRef.current && !e.shiftKey) {
+          e.preventDefault();
+          tourButtonRef.current?.focus();
+        } else if (focusedElement === tourButtonRef.current && e.shiftKey) {
+          e.preventDefault();
+          readyButtonRef.current?.focus();
+        }
+      }
+      // Enter to activate focused button
+      if (e.key === 'Enter' && !isLaunching) {
+        const focusedElement = document.activeElement;
+        if (focusedElement === readyButtonRef.current) {
+          handleLaunch(false);
+        } else if (focusedElement === tourButtonRef.current) {
+          handleLaunch(true);
+        }
+      }
+    },
+    [handleLaunch, isLaunching]
+  );
+
+  // Task count
+  const taskCount = countTasks(localContent);
+  const totalTasks = generatedDocuments.reduce(
+    (sum, doc) => sum + doc.taskCount,
+    0
+  );
+
+  if (!phase1) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <p style={{ color: theme.colors.textDim }}>No documents generated</p>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      ref={containerRef}
+      className="flex flex-col h-full outline-none"
+      tabIndex={-1}
+      onKeyDown={handleKeyDown}
+    >
+      {/* Header with document info */}
       <div
-        className="px-6 py-4 border-b"
+        className="px-4 py-3 border-b"
         style={{
           borderColor: theme.colors.border,
           backgroundColor: `${theme.colors.success}10`,
         }}
       >
-        <div className="flex items-center gap-3">
-          <div
-            className="w-8 h-8 rounded-full flex items-center justify-center"
-            style={{ backgroundColor: `${theme.colors.success}20` }}
-          >
-            <svg
-              className="w-5 h-5"
-              fill="none"
-              stroke={theme.colors.success}
-              viewBox="0 0 24 24"
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div
+              className="w-8 h-8 rounded-full flex items-center justify-center"
+              style={{ backgroundColor: `${theme.colors.success}20` }}
             >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M5 13l4 4L19 7"
-              />
-            </svg>
+              <FileText className="w-4 h-4" style={{ color: theme.colors.success }} />
+            </div>
+            <div>
+              <h3 className="font-semibold" style={{ color: theme.colors.textMain }}>
+                {phase1.filename}
+              </h3>
+              <p className="text-xs" style={{ color: theme.colors.textDim }}>
+                {taskCount} tasks ready to run
+                {generatedDocuments.length > 1 &&
+                  ` • ${generatedDocuments.length} phases total (${totalTasks} tasks)`}
+              </p>
+            </div>
           </div>
-          <div>
-            <h3
-              className="font-semibold"
-              style={{ color: theme.colors.textMain }}
+          {agentName && (
+            <div
+              className="px-3 py-1 rounded-full text-xs font-medium"
+              style={{
+                backgroundColor: theme.colors.bgActivity,
+                color: theme.colors.textDim,
+              }}
             >
-              Action Plan Created!
-            </h3>
-            <p
-              className="text-sm"
-              style={{ color: theme.colors.textDim }}
-            >
-              {generatedDocuments.length} phase document{generatedDocuments.length !== 1 ? 's' : ''} with {totalTasks} total tasks
-            </p>
-          </div>
+              {agentName}
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Phase 1 preview */}
-      <div className="flex-1 overflow-auto p-6">
-        {phase1 && (
-          <div>
-            <h4
-              className="text-lg font-medium mb-3"
-              style={{ color: theme.colors.textMain }}
-            >
-              {phase1.filename}
-            </h4>
-            <div
-              className="text-sm p-4 rounded-lg border overflow-auto max-h-[40vh]"
-              style={{
-                backgroundColor: theme.colors.bgActivity,
-                borderColor: theme.colors.border,
-                color: theme.colors.textMain,
-              }}
-            >
-              <pre className="whitespace-pre-wrap font-mono text-xs">
-                {phase1.content}
-              </pre>
-            </div>
-            <p
-              className="text-xs mt-2"
-              style={{ color: theme.colors.textDim }}
-            >
-              {phase1.taskCount} tasks ready to run
-            </p>
-          </div>
-        )}
-
-        {/* Document list */}
-        {generatedDocuments.length > 1 && (
-          <div className="mt-6">
-            <h4
-              className="text-sm font-medium mb-2"
-              style={{ color: theme.colors.textDim }}
-            >
-              Additional Phases
-            </h4>
-            <div className="space-y-2">
-              {generatedDocuments.slice(1).map((doc, index) => (
-                <div
-                  key={index}
-                  className="flex items-center justify-between p-3 rounded-lg border"
-                  style={{
-                    backgroundColor: theme.colors.bgSidebar,
-                    borderColor: theme.colors.border,
-                  }}
-                >
-                  <span
-                    className="text-sm"
-                    style={{ color: theme.colors.textMain }}
-                  >
-                    {doc.filename}
-                  </span>
-                  <span
-                    className="text-xs"
-                    style={{ color: theme.colors.textDim }}
-                  >
-                    {doc.taskCount} tasks
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+      {/* Document editor */}
+      <div className="flex-1 overflow-hidden p-4">
+        <DocumentEditor
+          content={localContent}
+          onContentChange={handleContentChange}
+          mode={mode}
+          onModeChange={setMode}
+          folderPath={folderPath}
+          selectedFile={phase1.filename.replace(/\.md$/, '')}
+          attachments={attachments}
+          onAddAttachment={handleAddAttachment}
+          onRemoveAttachment={handleRemoveAttachment}
+          theme={theme}
+          isLocked={isLaunching}
+        />
       </div>
 
-      {/* Footer with saved location */}
+      {/* Error message */}
+      {launchError && (
+        <div
+          className="mx-4 mb-2 px-4 py-2 rounded-lg flex items-center gap-2"
+          style={{
+            backgroundColor: `${theme.colors.error}20`,
+            borderColor: theme.colors.error,
+            border: '1px solid',
+          }}
+        >
+          <svg
+            className="w-4 h-4 shrink-0"
+            fill="none"
+            stroke={theme.colors.error}
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+            />
+          </svg>
+          <span className="text-sm" style={{ color: theme.colors.error }}>
+            {launchError}
+          </span>
+          <button
+            onClick={() => setLaunchError(null)}
+            className="ml-auto p-1 hover:opacity-80"
+            style={{ color: theme.colors.error }}
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Action buttons */}
       <div
-        className="px-6 py-3 border-t"
+        className="px-4 py-4 border-t"
         style={{
           borderColor: theme.colors.border,
           backgroundColor: theme.colors.bgSidebar,
         }}
       >
+        <div className="flex flex-col sm:flex-row gap-3">
+          {/* Primary button - Ready to Go */}
+          <button
+            ref={readyButtonRef}
+            onClick={() => handleLaunch(false)}
+            disabled={isLaunching}
+            className={`flex-1 flex items-center justify-center gap-2 px-6 py-3.5 rounded-lg font-semibold text-base transition-all ${
+              isLaunching ? 'opacity-70 cursor-not-allowed' : 'hover:scale-[1.02]'
+            }`}
+            style={{
+              backgroundColor: theme.colors.accent,
+              color: theme.colors.accentForeground,
+              boxShadow: `0 4px 14px ${theme.colors.accent}40`,
+            }}
+          >
+            {isLaunching ? (
+              <Loader2 className="w-5 h-5 animate-spin" />
+            ) : (
+              <Rocket className="w-5 h-5" />
+            )}
+            {isLaunching ? 'Launching...' : "I'm Ready to Go"}
+          </button>
+
+          {/* Secondary button - Walk Me Through */}
+          <button
+            ref={tourButtonRef}
+            onClick={() => handleLaunch(true)}
+            disabled={isLaunching}
+            className={`flex-1 flex items-center justify-center gap-2 px-6 py-3.5 rounded-lg font-medium text-base transition-all ${
+              isLaunching ? 'opacity-70 cursor-not-allowed' : 'hover:scale-[1.02]'
+            }`}
+            style={{
+              backgroundColor: theme.colors.bgActivity,
+              color: theme.colors.textMain,
+              border: `2px solid ${theme.colors.border}`,
+            }}
+          >
+            {isLaunching ? (
+              <Loader2 className="w-5 h-5 animate-spin" />
+            ) : (
+              <Compass className="w-5 h-5" />
+            )}
+            {isLaunching ? 'Launching...' : "Walk Me Through the Interface"}
+          </button>
+        </div>
+
+        {/* Keyboard hints */}
         <p
-          className="text-xs text-center"
+          className="text-xs text-center mt-3"
           style={{ color: theme.colors.textDim }}
         >
-          Documents saved to: {state.directoryPath}/{AUTO_RUN_FOLDER_NAME}/
+          Tab to switch between buttons • Enter to select • Escape to go back
         </p>
       </div>
     </div>
@@ -334,9 +1215,13 @@ function GenerationSuccess({
  * 1. Triggering document generation when mounted
  * 2. Showing loading state with "Creating your action plan..."
  * 3. Handling errors with retry option
- * 4. Displaying generated documents when ready
+ * 4. Displaying and editing Phase 1 document
+ * 5. Launching session with or without tour
  */
-export function PhaseReviewScreen({ theme }: PhaseReviewScreenProps): JSX.Element {
+export function PhaseReviewScreen({
+  theme,
+  onLaunchSession,
+}: PhaseReviewScreenProps): JSX.Element {
   const {
     state,
     setGeneratingDocuments,
@@ -345,7 +1230,9 @@ export function PhaseReviewScreen({ theme }: PhaseReviewScreenProps): JSX.Elemen
     previousStep,
   } = useWizard();
 
-  const [progressMessage, setProgressMessage] = useState('Creating your action plan...');
+  const [progressMessage, setProgressMessage] = useState(
+    'Creating your action plan...'
+  );
   const generationStartedRef = useRef(false);
 
   /**
@@ -412,7 +1299,8 @@ export function PhaseReviewScreen({ theme }: PhaseReviewScreenProps): JSX.Elemen
         setGeneratingDocuments(false);
       }
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error occurred';
       setGenerationError(errorMessage);
       setGeneratingDocuments(false);
     }
@@ -446,7 +1334,10 @@ export function PhaseReviewScreen({ theme }: PhaseReviewScreenProps): JSX.Elemen
   // Start generation when screen mounts (only once)
   useEffect(() => {
     // Only start if we haven't started yet and don't already have documents
-    if (!generationStartedRef.current && state.generatedDocuments.length === 0) {
+    if (
+      !generationStartedRef.current &&
+      state.generatedDocuments.length === 0
+    ) {
       generationStartedRef.current = true;
       startGeneration();
     }
@@ -469,7 +1360,7 @@ export function PhaseReviewScreen({ theme }: PhaseReviewScreenProps): JSX.Elemen
   }
 
   if (state.generatedDocuments.length > 0) {
-    return <GenerationSuccess theme={theme} />;
+    return <DocumentReview theme={theme} onLaunchSession={onLaunchSession} />;
   }
 
   // Fallback - should not normally reach here
