@@ -149,6 +149,12 @@ export interface UseSettingsReturn {
   updateAutoRunProgress: (currentRunElapsedMs: number) => { newBadgeLevel: number | null; isNewRecord: boolean };
   acknowledgeBadge: (level: number) => void;
   getUnacknowledgedBadgeLevel: () => number | null;
+
+  // Onboarding settings
+  wizardCompleted: boolean;
+  setWizardCompleted: (value: boolean) => void;
+  tourCompleted: boolean;
+  setTourCompleted: (value: boolean) => void;
 }
 
 export function useSettings(): UseSettingsReturn {
@@ -216,6 +222,10 @@ export function useSettings(): UseSettingsReturn {
 
   // Auto-run Stats (persistent)
   const [autoRunStats, setAutoRunStatsState] = useState<AutoRunStats>(DEFAULT_AUTO_RUN_STATS);
+
+  // Onboarding settings (persistent)
+  const [wizardCompleted, setWizardCompletedState] = useState(false);
+  const [tourCompleted, setTourCompletedState] = useState(false);
 
   // Wrapper functions that persist to electron-store
   const setLlmProvider = (value: LLMProvider) => {
@@ -537,6 +547,17 @@ export function useSettings(): UseSettingsReturn {
     return null;
   };
 
+  // Onboarding setters
+  const setWizardCompleted = (value: boolean) => {
+    setWizardCompletedState(value);
+    window.maestro.settings.set('wizardCompleted', value);
+  };
+
+  const setTourCompleted = (value: boolean) => {
+    setTourCompletedState(value);
+    window.maestro.settings.set('tourCompleted', value);
+  };
+
   // Load settings from electron-store on mount
   useEffect(() => {
     const loadSettings = async () => {
@@ -571,6 +592,8 @@ export function useSettings(): UseSettingsReturn {
       const savedCustomAICommands = await window.maestro.settings.get('customAICommands');
       const savedGlobalStats = await window.maestro.settings.get('globalStats');
       const savedAutoRunStats = await window.maestro.settings.get('autoRunStats');
+      const savedWizardCompleted = await window.maestro.settings.get('wizardCompleted');
+      const savedTourCompleted = await window.maestro.settings.get('tourCompleted');
 
       if (savedEnterToSendAI !== undefined) setEnterToSendAIState(savedEnterToSendAI);
       if (savedEnterToSendTerminal !== undefined) setEnterToSendTerminalState(savedEnterToSendTerminal);
@@ -631,6 +654,10 @@ export function useSettings(): UseSettingsReturn {
       if (savedAutoRunStats !== undefined) {
         setAutoRunStatsState({ ...DEFAULT_AUTO_RUN_STATS, ...savedAutoRunStats });
       }
+
+      // Load onboarding settings
+      if (savedWizardCompleted !== undefined) setWizardCompletedState(savedWizardCompleted);
+      if (savedTourCompleted !== undefined) setTourCompletedState(savedTourCompleted);
 
       // Mark settings as loaded
       setSettingsLoaded(true);
@@ -710,5 +737,9 @@ export function useSettings(): UseSettingsReturn {
     updateAutoRunProgress,
     acknowledgeBadge,
     getUnacknowledgedBadgeLevel,
+    wizardCompleted,
+    setWizardCompleted,
+    tourCompleted,
+    setTourCompleted,
   };
 }
