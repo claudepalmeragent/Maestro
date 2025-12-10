@@ -61,6 +61,7 @@ interface QuickActionsModalProps {
   markdownRawMode?: boolean;
   onToggleMarkdownRawMode?: () => void;
   setUpdateCheckModalOpen?: (open: boolean) => void;
+  openWizard?: () => void;
 }
 
 export function QuickActionsModal(props: QuickActionsModalProps) {
@@ -75,7 +76,7 @@ export function QuickActionsModal(props: QuickActionsModalProps) {
     setShortcutsHelpOpen, setAboutModalOpen, setLogViewerOpen, setProcessMonitorOpen,
     setAgentSessionsOpen, setActiveClaudeSessionId, setGitDiffPreview, setGitLogOpen,
     onRenameTab, onToggleReadOnlyMode, onOpenTabSwitcher, tabShortcuts, isAiMode, setPlaygroundOpen, onRefreshGitFileState,
-    onDebugReleaseQueuedItem, markdownRawMode, onToggleMarkdownRawMode, setUpdateCheckModalOpen
+    onDebugReleaseQueuedItem, markdownRawMode, onToggleMarkdownRawMode, setUpdateCheckModalOpen, openWizard
   } = props;
 
   const [search, setSearch] = useState('');
@@ -192,6 +193,7 @@ export function QuickActionsModal(props: QuickActionsModalProps) {
   const mainActions: QuickAction[] = [
     ...sessionActions,
     { id: 'new', label: 'Create New Agent', shortcut: shortcuts.newInstance, action: addNewSession },
+    ...(openWizard ? [{ id: 'wizard', label: 'New Project Wizard', shortcut: shortcuts.openWizard, action: () => { openWizard(); setQuickActionOpen(false); } }] : []),
     ...(activeSession ? [{ id: 'rename', label: `Rename Agent: ${activeSession.name}`, action: () => {
       setRenameInstanceValue(activeSession.name);
       setRenameInstanceModalOpen(true);

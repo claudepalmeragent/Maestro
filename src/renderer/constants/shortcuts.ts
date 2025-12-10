@@ -32,6 +32,7 @@ export const DEFAULT_SHORTCUTS: Record<string, Shortcut> = {
   openImageCarousel: { id: 'openImageCarousel', label: 'Open Image Carousel', keys: ['Meta', 'y'] },
   toggleTabStar: { id: 'toggleTabStar', label: 'Toggle Tab Star', keys: ['Meta', 'Shift', 's'] },
   openPromptComposer: { id: 'openPromptComposer', label: 'Open Prompt Composer', keys: ['Meta', 'Shift', 'p'] },
+  openWizard: { id: 'openWizard', label: 'New Project Wizard', keys: ['Meta', 'Shift', 'n'] },
 };
 
 // Non-editable shortcuts (displayed in help but not configurable)

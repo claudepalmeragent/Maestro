@@ -4,6 +4,7 @@ import MaestroConsole from './App';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { LayerStackProvider } from './contexts/LayerStackContext';
 import { ToastProvider } from './contexts/ToastContext';
+import { WizardProvider } from './components/Wizard';
 import { logger } from './utils/logger';
 import './index.css';
 
@@ -41,7 +42,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <ErrorBoundary>
       <ToastProvider>
         <LayerStackProvider>
-          <MaestroConsole />
+          <WizardProvider>
+            <MaestroConsole />
+          </WizardProvider>
         </LayerStackProvider>
       </ToastProvider>
     </ErrorBoundary>

@@ -26,6 +26,7 @@ import { ExecutionQueueBrowser } from './components/ExecutionQueueBrowser';
 import { StandingOvationOverlay } from './components/StandingOvationOverlay';
 import { PlaygroundPanel } from './components/PlaygroundPanel';
 import { AutoRunSetupModal } from './components/AutoRunSetupModal';
+import { MaestroWizard, useWizard } from './components/Wizard';
 import { CONDUCTOR_BADGES } from './constants/conductorBadges';
 
 // Import custom hooks
@@ -121,6 +122,9 @@ export default function MaestroConsole() {
     navigateBack,
     navigateForward,
   } = useNavigationHistory();
+
+  // --- WIZARD (onboarding wizard for new users) ---
+  const { openWizard: openWizardModal } = useWizard();
 
   // --- SETTINGS (from useSettings hook) ---
   const settings = useSettings();
@@ -3480,6 +3484,10 @@ export default function MaestroConsole() {
           ctx.setPromptComposerOpen(true);
         }
       }
+      else if (ctx.isShortcut(e, 'openWizard')) {
+        e.preventDefault();
+        ctx.openWizardModal();
+      }
       else if (ctx.isShortcut(e, 'focusInput')) {
         e.preventDefault();
         ctx.setActiveFocus('main');
@@ -4224,7 +4232,7 @@ export default function MaestroConsole() {
     setRenameTabModalOpen, navigateToNextTab, navigateToPrevTab, navigateToTabByIndex, navigateToLastTab,
     setFileTreeFilterOpen, isShortcut, isTabShortcut, handleNavBack, handleNavForward, toggleUnreadFilter,
     setTabSwitcherOpen, showUnreadOnly, stagedImages, handleSetLightboxImage, setMarkdownRawMode,
-    toggleTabStar, setPromptComposerOpen
+    toggleTabStar, setPromptComposerOpen, openWizardModal
   };
 
   const toggleGroup = (groupId: string) => {
@@ -6224,6 +6232,7 @@ export default function MaestroConsole() {
           markdownRawMode={markdownRawMode}
           onToggleMarkdownRawMode={() => setMarkdownRawMode(!markdownRawMode)}
           setUpdateCheckModalOpen={setUpdateCheckModalOpen}
+          openWizard={openWizardModal}
         />
       )}
       {lightboxImage && (
@@ -6480,6 +6489,7 @@ export default function MaestroConsole() {
             showSessionJumpNumbers={showSessionJumpNumbers}
             visibleSessions={visibleSessions}
             autoRunStats={autoRunStats}
+            openWizard={openWizardModal}
           />
         </ErrorBoundary>
       )}
@@ -7157,6 +7167,9 @@ export default function MaestroConsole() {
         setCustomAICommands={setCustomAICommands}
         initialTab={settingsTab}
       />
+
+      {/* --- MAESTRO WIZARD (onboarding wizard for new users) --- */}
+      <MaestroWizard theme={theme} />
 
       {/* --- FLASH NOTIFICATION (centered, auto-dismiss) --- */}
       {flashNotification && (

@@ -285,6 +285,9 @@ interface SessionListProps {
 
   // Achievement system props
   autoRunStats?: AutoRunStats;
+
+  // Wizard props
+  openWizard?: () => void;
 }
 
 export function SessionList(props: SessionListProps) {
@@ -303,7 +306,8 @@ export function SessionList(props: SessionListProps) {
     activeBatchSessionIds = [],
     showSessionJumpNumbers = false,
     visibleSessions = [],
-    autoRunStats
+    autoRunStats,
+    openWizard
   } = props;
 
   const [sessionFilter, setSessionFilter] = useState('');
@@ -1041,6 +1045,22 @@ export function SessionList(props: SessionListProps) {
                   }}
                 >
                   <div className="p-1">
+                    {openWizard && (
+                      <button
+                        onClick={() => { openWizard(); setMenuOpen(false); }}
+                        className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md hover:bg-white/10 transition-colors text-left"
+                      >
+                        <Wand2 className="w-5 h-5" style={{ color: theme.colors.accent }} />
+                        <div className="flex-1">
+                          <div className="text-sm font-medium" style={{ color: theme.colors.textMain }}>New Project Wizard...</div>
+                          <div className="text-xs" style={{ color: theme.colors.textDim }}>Set up a new project with AI</div>
+                        </div>
+                        <span className="text-xs font-mono px-1.5 py-0.5 rounded" style={{ backgroundColor: theme.colors.bgActivity, color: theme.colors.textDim }}>
+                          {shortcuts.openWizard ? formatShortcutKeys(shortcuts.openWizard.keys) : '⇧⌘N'}
+                        </span>
+                      </button>
+                    )}
+                    <div className="my-1 border-t" style={{ borderColor: theme.colors.border }} />
                     <button
                       onClick={() => { setShortcutsHelpOpen(true); setMenuOpen(false); }}
                       className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md hover:bg-white/10 transition-colors text-left"
@@ -1138,6 +1158,22 @@ export function SessionList(props: SessionListProps) {
                 }}
               >
                 <div className="p-1">
+                  {openWizard && (
+                    <button
+                      onClick={() => { openWizard(); setMenuOpen(false); }}
+                      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md hover:bg-white/10 transition-colors text-left"
+                    >
+                      <Wand2 className="w-5 h-5" style={{ color: theme.colors.accent }} />
+                      <div className="flex-1">
+                        <div className="text-sm font-medium" style={{ color: theme.colors.textMain }}>New Project Wizard...</div>
+                        <div className="text-xs" style={{ color: theme.colors.textDim }}>Set up a new project with AI</div>
+                      </div>
+                      <span className="text-xs font-mono px-1.5 py-0.5 rounded" style={{ backgroundColor: theme.colors.bgActivity, color: theme.colors.textDim }}>
+                        {shortcuts.openWizard ? formatShortcutKeys(shortcuts.openWizard.keys) : '⇧⌘N'}
+                      </span>
+                    </button>
+                  )}
+                  <div className="my-1 border-t" style={{ borderColor: theme.colors.border }} />
                   <button
                     onClick={() => { setShortcutsHelpOpen(true); setMenuOpen(false); }}
                     className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md hover:bg-white/10 transition-colors text-left"
