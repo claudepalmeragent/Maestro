@@ -14,8 +14,10 @@ import { registerAutorunHandlers } from './autorun';
 import { registerPlaybooksHandlers } from './playbooks';
 import { registerHistoryHandlers, HistoryHandlerDependencies } from './history';
 import { registerAgentsHandlers, AgentsHandlerDependencies } from './agents';
+import { registerProcessHandlers, ProcessHandlerDependencies } from './process';
 import { HistoryEntry } from '../../../shared/types';
 import { AgentDetector } from '../../agent-detector';
+import { ProcessManager } from '../../process-manager';
 
 // Re-export individual handlers for selective registration
 export { registerGitHandlers };
@@ -23,8 +25,10 @@ export { registerAutorunHandlers };
 export { registerPlaybooksHandlers };
 export { registerHistoryHandlers };
 export { registerAgentsHandlers };
+export { registerProcessHandlers };
 export type { HistoryHandlerDependencies };
 export type { AgentsHandlerDependencies };
+export type { ProcessHandlerDependencies };
 
 /**
  * Interface for history store data (matches main/index.ts definition)
@@ -41,6 +45,14 @@ interface AgentConfigsData {
 }
 
 /**
+ * Interface for Maestro settings store
+ */
+interface MaestroSettings {
+  defaultShell: string;
+  [key: string]: any;
+}
+
+/**
  * Dependencies required for handler registration
  */
 export interface HandlerDependencies {
@@ -54,6 +66,9 @@ export interface HandlerDependencies {
   // Agents-specific dependencies
   getAgentDetector: () => AgentDetector | null;
   agentConfigsStore: Store<AgentConfigsData>;
+  // Process-specific dependencies
+  getProcessManager: () => ProcessManager | null;
+  settingsStore: Store<MaestroSettings>;
 }
 
 /**
@@ -73,8 +88,13 @@ export function registerAllHandlers(deps: HandlerDependencies): void {
     getAgentDetector: deps.getAgentDetector,
     agentConfigsStore: deps.agentConfigsStore,
   });
+  registerProcessHandlers({
+    getProcessManager: deps.getProcessManager,
+    getAgentDetector: deps.getAgentDetector,
+    agentConfigsStore: deps.agentConfigsStore,
+    settingsStore: deps.settingsStore,
+  });
   // Future handlers will be registered here:
-  // registerProcessHandlers();
   // registerPersistenceHandlers();
   // registerSystemHandlers();
 }

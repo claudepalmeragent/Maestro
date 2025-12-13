@@ -14,7 +14,7 @@ import { tunnelManager } from './tunnel-manager';
 import { getThemeById } from './themes';
 import { checkForUpdates } from './update-checker';
 import Store from 'electron-store';
-import { registerGitHandlers, registerAutorunHandlers, registerHistoryHandlers, registerAgentsHandlers } from './ipc/handlers';
+import { registerGitHandlers, registerAutorunHandlers, registerHistoryHandlers, registerAgentsHandlers, registerProcessHandlers } from './ipc/handlers';
 
 // Demo mode: use a separate data directory for fresh demos
 const DEMO_MODE = process.argv.includes('--demo') || !!process.env.MAESTRO_DEMO_DIR;
@@ -1046,143 +1046,6 @@ function setupIpcHandlers() {
     return false;
   });
 
-  // Session/Process management
-  ipcMain.handle('process:spawn', async (_, config: {
-    sessionId: string;
-    toolType: string;
-    cwd: string;
-    command: string;
-    args: string[];
-    prompt?: string;
-    shell?: string;
-    images?: string[]; // Base64 data URLs for images
-  }) => {
-    if (!processManager) throw new Error('Process manager not initialized');
-    if (!agentDetector) throw new Error('Agent detector not initialized');
-
-    // Get agent definition to access config options
-    const agent = await agentDetector.getAgent(config.toolType);
-    let finalArgs = [...config.args];
-
-    // Build additional args from agent configuration
-    if (agent && agent.configOptions) {
-      const agentConfig = agentConfigsStore.get('configs', {})[config.toolType] || {};
-
-      for (const option of agent.configOptions) {
-        if (option.argBuilder) {
-          // Get config value, fallback to default
-          const value = agentConfig[option.key] !== undefined
-            ? agentConfig[option.key]
-            : option.default;
-
-          // Build args from this config value
-          const additionalArgs = option.argBuilder(value);
-          finalArgs = [...finalArgs, ...additionalArgs];
-        }
-      }
-    }
-
-    // If no shell is specified and this is a terminal session, use the default shell from settings
-    const shellToUse = config.shell || (config.toolType === 'terminal' ? store.get('defaultShell', 'zsh') : undefined);
-
-    // Extract Claude session ID from --resume arg if present
-    const resumeArgIndex = finalArgs.indexOf('--resume');
-    const claudeSessionId = resumeArgIndex !== -1 ? finalArgs[resumeArgIndex + 1] : undefined;
-
-    logger.info(`Spawning process: ${config.command}`, 'ProcessManager', {
-      sessionId: config.sessionId,
-      toolType: config.toolType,
-      cwd: config.cwd,
-      command: config.command,
-      args: finalArgs,
-      requiresPty: agent?.requiresPty || false,
-      shell: shellToUse,
-      ...(claudeSessionId && { claudeSessionId }),
-      ...(config.prompt && { prompt: config.prompt.length > 500 ? config.prompt.substring(0, 500) + '...' : config.prompt })
-    });
-
-    const result = processManager.spawn({
-      ...config,
-      args: finalArgs,
-      requiresPty: agent?.requiresPty,
-      prompt: config.prompt,
-      shell: shellToUse
-    });
-
-    logger.info(`Process spawned successfully`, 'ProcessManager', {
-      sessionId: config.sessionId,
-      pid: result.pid
-    });
-    return result;
-  });
-
-  ipcMain.handle('process:write', async (_, sessionId: string, data: string) => {
-    if (!processManager) throw new Error('Process manager not initialized');
-    logger.debug(`Writing to process: ${sessionId}`, 'ProcessManager', { sessionId, dataLength: data.length });
-    return processManager.write(sessionId, data);
-  });
-
-  ipcMain.handle('process:interrupt', async (_, sessionId: string) => {
-    if (!processManager) throw new Error('Process manager not initialized');
-    logger.info(`Interrupting process: ${sessionId}`, 'ProcessManager', { sessionId });
-    return processManager.interrupt(sessionId);
-  });
-
-  ipcMain.handle('process:kill', async (_, sessionId: string) => {
-    if (!processManager) throw new Error('Process manager not initialized');
-    logger.info(`Killing process: ${sessionId}`, 'ProcessManager', { sessionId });
-    return processManager.kill(sessionId);
-  });
-
-  ipcMain.handle('process:resize', async (_, sessionId: string, cols: number, rows: number) => {
-    if (!processManager) throw new Error('Process manager not initialized');
-    return processManager.resize(sessionId, cols, rows);
-  });
-
-  // Get all active processes managed by the ProcessManager
-  ipcMain.handle('process:getActiveProcesses', async () => {
-    if (!processManager) throw new Error('Process manager not initialized');
-    const processes = processManager.getAll();
-    // Return serializable process info (exclude non-serializable PTY/child process objects)
-    return processes.map(p => ({
-      sessionId: p.sessionId,
-      toolType: p.toolType,
-      pid: p.pid,
-      cwd: p.cwd,
-      isTerminal: p.isTerminal,
-      isBatchMode: p.isBatchMode || false,
-      startTime: p.startTime,
-    }));
-  });
-
-  // Run a single command and capture only stdout/stderr (no PTY echo/prompts)
-  ipcMain.handle('process:runCommand', async (_, config: {
-    sessionId: string;
-    command: string;
-    cwd: string;
-    shell?: string;
-  }) => {
-    if (!processManager) throw new Error('Process manager not initialized');
-
-    // Get the shell from settings if not provided
-    // Shell name (e.g., 'zsh') will be resolved to full path in process-manager
-    const shell = config.shell || store.get('defaultShell', 'zsh');
-
-    logger.debug(`Running command: ${config.command}`, 'ProcessManager', {
-      sessionId: config.sessionId,
-      cwd: config.cwd,
-      shell
-    });
-
-    return processManager.runCommand(
-      config.sessionId,
-      config.command,
-      config.cwd,
-      shell
-    );
-  });
-
-
   // Git operations - extracted to src/main/ipc/handlers/git.ts
   registerGitHandlers();
 
@@ -1204,6 +1067,14 @@ function setupIpcHandlers() {
   registerAgentsHandlers({
     getAgentDetector: () => agentDetector,
     agentConfigsStore,
+  });
+
+  // Process management operations - extracted to src/main/ipc/handlers/process.ts
+  registerProcessHandlers({
+    getProcessManager: () => processManager,
+    getAgentDetector: () => agentDetector,
+    agentConfigsStore,
+    settingsStore: store,
   });
 
   // File system operations
