@@ -33,6 +33,13 @@ import { useLongPressMenu } from '../hooks/useLongPressMenu';
 import { RecentCommandChips } from './RecentCommandChips';
 import { SlashCommandAutocomplete, type SlashCommand, DEFAULT_SLASH_COMMANDS } from './SlashCommandAutocomplete';
 import { QuickActionsMenu } from './QuickActionsMenu';
+import {
+  InputModeToggleButton,
+  VoiceInputButton,
+  SlashCommandButton,
+  SendInterruptButton,
+  ExpandedModeSendInterruptButton,
+} from './CommandInputButtons';
 import type { CommandHistoryEntry } from '../hooks/useCommandHistory';
 
 /** Minimum touch target size per Apple HIG guidelines (44pt) */
@@ -633,90 +640,11 @@ export function CommandInputBar({
           />
 
           {/* Full-width send button below textarea */}
-          {inputMode === 'ai' && isSessionBusy ? (
-            <button
-              type="button"
-              onClick={handleInterrupt}
-              style={{
-                width: '100%',
-                padding: '12px',
-                borderRadius: '12px',
-                backgroundColor: '#ef4444',
-                color: '#ffffff',
-                fontSize: '15px',
-                fontWeight: 600,
-                border: 'none',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '8px',
-                transition: 'opacity 150ms ease, background-color 150ms ease',
-                WebkitTapHighlightColor: 'transparent',
-              }}
-              onTouchStart={(e) => {
-                e.currentTarget.style.backgroundColor = '#dc2626';
-              }}
-              onTouchEnd={(e) => {
-                e.currentTarget.style.backgroundColor = '#ef4444';
-              }}
-              aria-label="Cancel running AI query"
-            >
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <line x1="18" y1="6" x2="6" y2="18" />
-                <line x1="6" y1="6" x2="18" y2="18" />
-              </svg>
-              <span>Stop</span>
-            </button>
-          ) : (
-            <button
-              type="submit"
-              disabled={isDisabled || !value.trim()}
-              style={{
-                width: '100%',
-                padding: '12px',
-                borderRadius: '12px',
-                backgroundColor: colors.accent,
-                color: '#ffffff',
-                fontSize: '15px',
-                fontWeight: 600,
-                border: 'none',
-                cursor: isDisabled || !value.trim() ? 'default' : 'pointer',
-                opacity: isDisabled || !value.trim() ? 0.5 : 1,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '8px',
-                transition: 'opacity 150ms ease, background-color 150ms ease',
-                WebkitTapHighlightColor: 'transparent',
-              }}
-              aria-label="Send message"
-            >
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <line x1="12" y1="19" x2="12" y2="5" />
-                <polyline points="5 12 12 5 19 12" />
-              </svg>
-              <span>Send</span>
-            </button>
-          )}
+          <ExpandedModeSendInterruptButton
+            isInterruptMode={inputMode === 'ai' && isSessionBusy}
+            isSendDisabled={isDisabled || !value.trim()}
+            onInterrupt={handleInterrupt}
+          />
         </form>
       ) : (
       /* NORMAL MODE - Original layout with side buttons */
@@ -735,202 +663,28 @@ export function CommandInputBar({
       >
         {/* Mode toggle button - AI / Terminal */}
         {/* NOTE: Mode toggle is NOT disabled when session is busy - user should always be able to switch modes */}
-        <button
-          type="button"
-          onClick={handleModeToggle}
+        <InputModeToggleButton
+          inputMode={inputMode}
+          onModeToggle={handleModeToggle}
           disabled={externalDisabled || isOffline || !isConnected}
-          style={{
-            padding: '10px',
-            borderRadius: '12px',
-            backgroundColor: inputMode === 'ai' ? `${colors.accent}20` : `${colors.textDim}20`,
-            border: `2px solid ${inputMode === 'ai' ? colors.accent : colors.textDim}`,
-            cursor: (externalDisabled || isOffline || !isConnected) ? 'default' : 'pointer',
-            opacity: (externalDisabled || isOffline || !isConnected) ? 0.5 : 1,
-            // Touch-friendly size - meets Apple HIG 44pt minimum
-            width: `${MIN_TOUCH_TARGET + 4}px`,
-            height: `${MIN_INPUT_HEIGHT}px`,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '2px',
-            // Smooth transitions
-            transition: 'all 150ms ease',
-            // Prevent button from shrinking
-            flexShrink: 0,
-            // Active state feedback
-            WebkitTapHighlightColor: 'transparent',
-          }}
-          onTouchStart={(e) => {
-            if (!(externalDisabled || isOffline || !isConnected)) {
-              e.currentTarget.style.transform = 'scale(0.95)';
-            }
-          }}
-          onTouchEnd={(e) => {
-            e.currentTarget.style.transform = 'scale(1)';
-          }}
-          aria-label={`Switch to ${inputMode === 'ai' ? 'terminal' : 'AI'} mode. Currently in ${inputMode === 'ai' ? 'AI' : 'terminal'} mode.`}
-          aria-pressed={inputMode === 'ai'}
-        >
-          {/* Mode icon - AI sparkle or Terminal prompt */}
-          {inputMode === 'ai' ? (
-            // AI sparkle icon
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke={colors.accent}
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M12 3v2M12 19v2M5.64 5.64l1.42 1.42M16.95 16.95l1.41 1.41M3 12h2M19 12h2M5.64 18.36l1.42-1.42M16.95 7.05l1.41-1.41" />
-              <circle cx="12" cy="12" r="4" />
-            </svg>
-          ) : (
-            // Terminal prompt icon
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke={colors.textDim}
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <polyline points="4 17 10 11 4 5" />
-              <line x1="12" y1="19" x2="20" y2="19" />
-            </svg>
-          )}
-          {/* Mode label */}
-          <span
-            style={{
-              fontSize: '9px',
-              fontWeight: 600,
-              color: inputMode === 'ai' ? colors.accent : colors.textDim,
-              textTransform: 'uppercase',
-              letterSpacing: '0.5px',
-            }}
-          >
-            {inputMode === 'ai' ? 'AI' : 'CLI'}
-          </span>
-        </button>
+        />
 
         {/* Voice input button - only shown if speech recognition is supported */}
         {voiceSupported && (
-          <button
-            type="button"
-            onClick={handleVoiceToggle}
+          <VoiceInputButton
+            isListening={isListening}
+            onToggle={handleVoiceToggle}
             disabled={isDisabled}
-            style={{
-              padding: '10px',
-              borderRadius: '12px',
-              backgroundColor: isListening ? '#ef444420' : `${colors.textDim}15`,
-              border: `2px solid ${isListening ? '#ef4444' : colors.border}`,
-              cursor: isDisabled ? 'default' : 'pointer',
-              opacity: isDisabled ? 0.5 : 1,
-              // Touch-friendly size - meets Apple HIG 44pt minimum
-              width: `${MIN_TOUCH_TARGET + 4}px`,
-              height: `${MIN_INPUT_HEIGHT}px`,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              // Smooth transitions
-              transition: 'all 150ms ease',
-              // Prevent button from shrinking
-              flexShrink: 0,
-              // Active state feedback
-              WebkitTapHighlightColor: 'transparent',
-              // Pulsing animation when listening
-              animation: isListening ? 'pulse 1.5s ease-in-out infinite' : 'none',
-            }}
-            onTouchStart={(e) => {
-              if (!isDisabled) {
-                e.currentTarget.style.transform = 'scale(0.95)';
-              }
-            }}
-            onTouchEnd={(e) => {
-              e.currentTarget.style.transform = 'scale(1)';
-            }}
-            aria-label={isListening ? 'Stop voice input' : 'Start voice input'}
-            aria-pressed={isListening}
-          >
-            {/* Microphone icon */}
-            <svg
-              width="20"
-              height="20"
-              viewBox="0 0 24 24"
-              fill={isListening ? '#ef4444' : 'none'}
-              stroke={isListening ? '#ef4444' : colors.textDim}
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
-              <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-              <line x1="12" x2="12" y1="19" y2="22" />
-            </svg>
-          </button>
+          />
         )}
-
-        {/* Inline CSS styles moved to bottom of component */}
 
         {/* Slash command button - only shown in AI mode */}
         {inputMode === 'ai' && (
-          <button
-            type="button"
-            onClick={() => {
-              // Just open autocomplete without adding slash to input
-              // The slash will be added when a command is selected
-              openSlashCommandAutocomplete();
-              // Don't focus textarea - we want to show slash commands without expanding the input
-              // User can tap the input separately if they want to type
-            }}
+          <SlashCommandButton
+            isOpen={slashCommandOpen}
+            onOpen={openSlashCommandAutocomplete}
             disabled={isDisabled}
-            style={{
-              padding: '10px',
-              borderRadius: '12px',
-              backgroundColor: slashCommandOpen ? `${colors.accent}20` : `${colors.textDim}15`,
-              border: `2px solid ${slashCommandOpen ? colors.accent : colors.border}`,
-              cursor: isDisabled ? 'default' : 'pointer',
-              opacity: isDisabled ? 0.5 : 1,
-              // Touch-friendly size - meets Apple HIG 44pt minimum
-              width: `${MIN_TOUCH_TARGET + 4}px`,
-              height: `${MIN_INPUT_HEIGHT}px`,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              // Smooth transitions
-              transition: 'all 150ms ease',
-              // Prevent button from shrinking
-              flexShrink: 0,
-              // Active state feedback
-              WebkitTapHighlightColor: 'transparent',
-            }}
-            onTouchStart={(e) => {
-              if (!isDisabled) {
-                e.currentTarget.style.transform = 'scale(0.95)';
-              }
-            }}
-            onTouchEnd={(e) => {
-              e.currentTarget.style.transform = 'scale(1)';
-            }}
-            aria-label="Open slash commands"
-          >
-            {/* Slash icon */}
-            <span
-              style={{
-                fontSize: '20px',
-                fontWeight: 600,
-                color: slashCommandOpen ? colors.accent : colors.textDim,
-                fontFamily: 'ui-monospace, monospace',
-              }}
-            >
-              /
-            </span>
-          </button>
+          />
         )}
 
         {/* Terminal mode: $ prefix + input in a container - single line, tight height */}
@@ -1081,109 +835,15 @@ export function CommandInputBar({
 
         {/* Action button - shows either Interrupt (Red X) when AI is busy, or Send button otherwise */}
         {/* The X button only shows in AI mode when busy - terminal mode always shows Send */}
-        {inputMode === 'ai' && isSessionBusy ? (
-          <button
-            type="button"
-            onClick={handleInterrupt}
-            style={{
-              padding: '14px',
-              borderRadius: '12px',
-              backgroundColor: '#ef4444', // Red color for interrupt
-              color: '#ffffff',
-              fontSize: '14px',
-              fontWeight: 500,
-              border: 'none',
-              cursor: 'pointer',
-              // Touch-friendly size - meets Apple HIG 44pt minimum
-              width: `${MIN_TOUCH_TARGET + 4}px`,
-              height: `${MIN_INPUT_HEIGHT}px`,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              // Smooth transitions
-              transition: 'opacity 150ms ease, background-color 150ms ease, transform 100ms ease',
-              // Prevent button from shrinking
-              flexShrink: 0,
-              // Active state feedback
-              WebkitTapHighlightColor: 'transparent',
-            }}
-            onTouchStart={(e) => {
-              // Scale down slightly on touch for tactile feedback
-              e.currentTarget.style.transform = 'scale(0.95)';
-              e.currentTarget.style.backgroundColor = '#dc2626'; // Darker red on press
-            }}
-            onTouchEnd={(e) => {
-              e.currentTarget.style.transform = 'scale(1)';
-              e.currentTarget.style.backgroundColor = '#ef4444';
-            }}
-            aria-label="Cancel running command or AI query"
-          >
-            {/* X icon for interrupt - larger for touch */}
-            <svg
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-          </button>
-        ) : (
-          /* Send button - large touch target matching input height */
-          /* Long-press shows quick actions menu */
-          <button
-            ref={sendButtonRef}
-            type="submit"
-            disabled={isDisabled || !value.trim()}
-            style={{
-              padding: '14px',
-              borderRadius: '12px',
-              backgroundColor: colors.accent,
-              color: '#ffffff',
-              fontSize: '14px',
-              fontWeight: 500,
-              border: 'none',
-              cursor: isDisabled || !value.trim() ? 'default' : 'pointer',
-              opacity: isDisabled || !value.trim() ? 0.5 : 1,
-              // Touch-friendly size - meets Apple HIG 44pt minimum
-              width: `${MIN_TOUCH_TARGET + 4}px`,
-              height: `${MIN_INPUT_HEIGHT}px`,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              // Smooth transitions
-              transition: 'opacity 150ms ease, background-color 150ms ease, transform 100ms ease',
-              // Prevent button from shrinking
-              flexShrink: 0,
-              // Active state feedback
-              WebkitTapHighlightColor: 'transparent',
-            }}
-            onTouchStart={handleSendButtonTouchStart}
-            onTouchEnd={handleSendButtonTouchEnd}
-            onTouchMove={handleSendButtonTouchMove}
-            aria-label="Send command (long press for quick actions)"
-          >
-            {/* Arrow up icon for send - larger for touch */}
-            <svg
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <line x1="12" y1="19" x2="12" y2="5" />
-              <polyline points="5 12 12 5 19 12" />
-            </svg>
-          </button>
-        )}
+        <SendInterruptButton
+          isInterruptMode={inputMode === 'ai' && isSessionBusy}
+          isSendDisabled={isDisabled || !value.trim()}
+          onInterrupt={handleInterrupt}
+          sendButtonRef={sendButtonRef}
+          onTouchStart={handleSendButtonTouchStart}
+          onTouchEnd={handleSendButtonTouchEnd}
+          onTouchMove={handleSendButtonTouchMove}
+        />
       </form>
       )}
 
