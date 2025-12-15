@@ -487,6 +487,12 @@ contextBridge.exposeInMainWorld('maestro', {
   history: {
     getAll: (projectPath?: string, sessionId?: string) =>
       ipcRenderer.invoke('history:getAll', projectPath, sessionId),
+    // Paginated API for large datasets
+    getAllPaginated: (options?: {
+      projectPath?: string;
+      sessionId?: string;
+      pagination?: { limit?: number; offset?: number };
+    }) => ipcRenderer.invoke('history:getAllPaginated', options),
     add: (entry: {
       id: string;
       type: 'AUTO' | 'USER';
@@ -1014,6 +1020,39 @@ export interface MaestroAPI {
       elapsedTimeMs?: number;
       validated?: boolean;
     }>>;
+    getAllPaginated: (options?: {
+      projectPath?: string;
+      sessionId?: string;
+      pagination?: { limit?: number; offset?: number };
+    }) => Promise<{
+      entries: Array<{
+        id: string;
+        type: 'AUTO' | 'USER';
+        timestamp: number;
+        summary: string;
+        fullResponse?: string;
+        claudeSessionId?: string;
+        projectPath: string;
+        sessionId?: string;
+        sessionName?: string;
+        contextUsage?: number;
+        usageStats?: {
+          inputTokens: number;
+          outputTokens: number;
+          cacheReadInputTokens: number;
+          cacheCreationInputTokens: number;
+          totalCostUsd: number;
+          contextWindow: number;
+        };
+        success?: boolean;
+        elapsedTimeMs?: number;
+        validated?: boolean;
+      }>;
+      total: number;
+      limit: number;
+      offset: number;
+      hasMore: boolean;
+    }>;
     add: (entry: {
       id: string;
       type: 'AUTO' | 'USER';

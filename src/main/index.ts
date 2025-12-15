@@ -560,7 +560,7 @@ process.on('unhandledRejection', (reason: any, promise: Promise<any>) => {
   );
 });
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   // Load logger settings first
   const logLevel = store.get('logLevel', 'info');
   logger.setLogLevel(logLevel);
@@ -597,7 +597,8 @@ app.whenReady().then(() => {
   // Initialize history manager (handles migration from legacy format if needed)
   logger.info('Initializing history manager', 'Startup');
   const historyManager = getHistoryManager();
-  historyManager.initialize().then(() => {
+  try {
+    await historyManager.initialize();
     logger.info('History manager initialized', 'Startup');
     // Start watching history directory for external changes (from CLI, etc.)
     historyManager.startWatching((sessionId) => {
@@ -606,9 +607,12 @@ app.whenReady().then(() => {
         mainWindow.webContents.send('history:externalChange', sessionId);
       }
     });
-  }).catch((error) => {
+  } catch (error) {
+    // Migration failed - log error but continue with app startup
+    // History will be unavailable but the app will still function
     logger.error(`Failed to initialize history manager: ${error}`, 'Startup');
-  });
+    logger.warn('Continuing without history - history features will be unavailable', 'Startup');
+  }
 
   // Set up IPC handlers
   logger.debug('Setting up IPC handlers', 'Startup');

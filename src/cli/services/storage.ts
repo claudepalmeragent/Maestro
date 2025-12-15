@@ -5,20 +5,17 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import type { Group, SessionInfo, HistoryEntry } from '../../shared/types';
-
-// Per-session history constants (must match src/main/history-manager.ts)
-const HISTORY_VERSION = 1;
-const MAX_ENTRIES_PER_SESSION = 5000;
-
-/**
- * Per-session history file format (must match src/main/history-manager.ts)
- */
-interface HistoryFileData {
-  version: number;
-  sessionId: string;
-  projectPath: string;
-  entries: HistoryEntry[];
-}
+import {
+  HISTORY_VERSION,
+  MAX_ENTRIES_PER_SESSION,
+  ORPHANED_SESSION_ID,
+  HistoryFileData,
+  PaginationOptions,
+  PaginatedResult,
+  sanitizeSessionId,
+  paginateEntries,
+  sortEntriesByTimestamp,
+} from '../../shared/history';
 
 // Get the Maestro config directory path
 function getConfigDir(): string {
@@ -114,8 +111,7 @@ function getHistoryDir(): string {
  * Get file path for a session's history file
  */
 function getSessionHistoryPath(sessionId: string): string {
-  // Sanitize sessionId for filesystem safety (same logic as HistoryManager)
-  const safeId = sessionId.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const safeId = sanitizeSessionId(sessionId);
   return path.join(getHistoryDir(), `${safeId}.json`);
 }
 
@@ -173,7 +169,7 @@ export function readHistory(projectPath?: string, sessionId?: string): HistoryEn
           entries.push(...sessionEntries);
         }
       }
-      return entries.sort((a, b) => b.timestamp - a.timestamp);
+      return sortEntriesByTimestamp(entries);
     }
 
     // Return all entries (global view)
@@ -182,7 +178,7 @@ export function readHistory(projectPath?: string, sessionId?: string): HistoryEn
     for (const sid of sessions) {
       allEntries.push(...readSessionHistory(sid));
     }
-    return allEntries.sort((a, b) => b.timestamp - a.timestamp);
+    return sortEntriesByTimestamp(allEntries);
   }
 
   // Fall back to legacy format
@@ -198,6 +194,19 @@ export function readHistory(projectPath?: string, sessionId?: string): HistoryEn
   }
 
   return entries;
+}
+
+/**
+ * Read history entries from storage with pagination support
+ * Supports both legacy single-file and new per-session format.
+ * Optionally filter by project path or session ID.
+ */
+export function readHistoryPaginated(
+  options?: { projectPath?: string; sessionId?: string; pagination?: PaginationOptions }
+): PaginatedResult<HistoryEntry> {
+  const { projectPath, sessionId, pagination } = options || {};
+  const entries = readHistory(projectPath, sessionId);
+  return paginateEntries(entries, pagination);
 }
 
 /**
@@ -368,7 +377,7 @@ export function addHistoryEntry(entry: HistoryEntry): void {
   try {
     if (hasMigrated()) {
       // Use new per-session format
-      const sessionId = entry.sessionId || '_orphaned';
+      const sessionId = entry.sessionId || ORPHANED_SESSION_ID;
       const historyDir = getHistoryDir();
 
       // Ensure history directory exists

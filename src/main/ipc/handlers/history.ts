@@ -8,12 +8,14 @@
  * - 5,000 entries per session (up from 1,000 global)
  * - Per-session file storage in history/ directory
  * - Cross-session queries for global views
+ * - Pagination support for large datasets
  * - Context integration for AI agents via history:getFilePath
  */
 
 import { ipcMain } from 'electron';
 import { logger } from '../../utils/logger';
 import { HistoryEntry } from '../../../shared/types';
+import { PaginationOptions, ORPHANED_SESSION_ID } from '../../../shared/history';
 import { getHistoryManager } from '../../history-manager';
 
 const LOG_CONTEXT = '[History]';
@@ -22,7 +24,7 @@ const LOG_CONTEXT = '[History]';
  * Register all History-related IPC handlers.
  *
  * These handlers provide history persistence operations:
- * - Get all history entries (with optional project/session filtering)
+ * - Get all history entries (with optional project/session filtering and pagination)
  * - Add new history entry
  * - Clear history (all, by project, or by session)
  * - Delete individual history entry
@@ -34,12 +36,13 @@ export function registerHistoryHandlers(): void {
   const historyManager = getHistoryManager();
 
   // Get all history entries, optionally filtered by project and/or session
+  // Legacy handler - returns all entries (use history:getAllPaginated for large datasets)
   ipcMain.handle('history:getAll', async (_event, projectPath?: string, sessionId?: string) => {
     if (sessionId) {
       // Get entries for specific session
       const entries = historyManager.getEntries(sessionId);
       // Also include orphaned entries (legacy entries without sessionId)
-      const orphanedEntries = historyManager.getEntries('_orphaned');
+      const orphanedEntries = historyManager.getEntries(ORPHANED_SESSION_ID);
       const combined = [...entries, ...orphanedEntries];
       // Sort by timestamp descending
       combined.sort((a, b) => b.timestamp - a.timestamp);
@@ -55,6 +58,27 @@ export function registerHistoryHandlers(): void {
     return historyManager.getAllEntries();
   });
 
+  // Get history entries with pagination support
+  ipcMain.handle(
+    'history:getAllPaginated',
+    async (_event, options?: { projectPath?: string; sessionId?: string; pagination?: PaginationOptions }) => {
+      const { projectPath, sessionId, pagination } = options || {};
+
+      if (sessionId) {
+        // Get paginated entries for specific session
+        return historyManager.getEntriesPaginated(sessionId, pagination);
+      }
+
+      if (projectPath) {
+        // Get paginated entries for sessions in this project
+        return historyManager.getEntriesByProjectPathPaginated(projectPath, pagination);
+      }
+
+      // Return paginated entries (for global view)
+      return historyManager.getAllEntriesPaginated(pagination);
+    }
+  );
+
   // Force reload history from disk (no-op for new format since we read fresh each time)
   // Kept for API compatibility
   ipcMain.handle('history:reload', async () => {
@@ -64,7 +88,7 @@ export function registerHistoryHandlers(): void {
 
   // Add a new history entry
   ipcMain.handle('history:add', async (_event, entry: HistoryEntry) => {
-    const sessionId = entry.sessionId || '_orphaned';
+    const sessionId = entry.sessionId || ORPHANED_SESSION_ID;
     historyManager.addEntry(sessionId, entry.projectPath, entry);
     logger.info(`Added history entry: ${entry.type}`, LOG_CONTEXT, { summary: entry.summary });
     return true;

@@ -16,30 +16,20 @@ import * as path from 'path';
 import { app } from 'electron';
 import { logger } from './utils/logger';
 import { HistoryEntry } from '../shared/types';
+import {
+  HISTORY_VERSION,
+  MAX_ENTRIES_PER_SESSION,
+  ORPHANED_SESSION_ID,
+  HistoryFileData,
+  MigrationMarker,
+  PaginationOptions,
+  PaginatedResult,
+  sanitizeSessionId,
+  paginateEntries,
+  sortEntriesByTimestamp,
+} from '../shared/history';
 
 const LOG_CONTEXT = '[HistoryManager]';
-const HISTORY_VERSION = 1;
-const MAX_ENTRIES_PER_SESSION = 5000;
-
-/**
- * Per-session history file format
- */
-interface HistoryFileData {
-  version: number;
-  sessionId: string;
-  projectPath: string;
-  entries: HistoryEntry[];
-}
-
-/**
- * Migration marker file format
- */
-interface MigrationMarker {
-  migratedAt: number;
-  version: number;
-  legacyEntryCount: number;
-  sessionsMigrated: number;
-}
 
 /**
  * HistoryManager handles per-session history storage with automatic migration
@@ -151,12 +141,12 @@ export class HistoryManager {
       if (orphanedEntries.length > 0) {
         const orphanedFileData: HistoryFileData = {
           version: HISTORY_VERSION,
-          sessionId: '_orphaned',
+          sessionId: ORPHANED_SESSION_ID,
           projectPath: '',
           entries: orphanedEntries.slice(0, MAX_ENTRIES_PER_SESSION),
         };
         fs.writeFileSync(
-          this.getSessionFilePath('_orphaned'),
+          this.getSessionFilePath(ORPHANED_SESSION_ID),
           JSON.stringify(orphanedFileData, null, 2),
           'utf-8'
         );
@@ -187,8 +177,7 @@ export class HistoryManager {
    * Get file path for a session's history
    */
   private getSessionFilePath(sessionId: string): string {
-    // Sanitize sessionId for filesystem safety
-    const safeId = sessionId.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const safeId = sanitizeSessionId(sessionId);
     return path.join(this.historyDir, `${safeId}.json`);
   }
 
@@ -237,8 +226,12 @@ export class HistoryManager {
     // Update projectPath if it changed
     data.projectPath = projectPath;
 
-    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
-    logger.debug(`Added history entry for session ${sessionId}`, LOG_CONTEXT);
+    try {
+      fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
+      logger.debug(`Added history entry for session ${sessionId}`, LOG_CONTEXT);
+    } catch (error) {
+      logger.error(`Failed to write history for session ${sessionId}: ${error}`, LOG_CONTEXT);
+    }
   }
 
   /**
@@ -259,8 +252,13 @@ export class HistoryManager {
         return false; // Entry not found
       }
 
-      fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
-      return true;
+      try {
+        fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
+        return true;
+      } catch (writeError) {
+        logger.error(`Failed to write history after delete for session ${sessionId}: ${writeError}`, LOG_CONTEXT);
+        return false;
+      }
     } catch {
       return false;
     }
@@ -284,8 +282,13 @@ export class HistoryManager {
       }
 
       data.entries[index] = { ...data.entries[index], ...updates };
-      fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
-      return true;
+      try {
+        fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
+        return true;
+      } catch (writeError) {
+        logger.error(`Failed to write history after update for session ${sessionId}: ${writeError}`, LOG_CONTEXT);
+        return false;
+      }
     } catch {
       return false;
     }
@@ -297,8 +300,12 @@ export class HistoryManager {
   clearSession(sessionId: string): void {
     const filePath = this.getSessionFilePath(sessionId);
     if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
-      logger.info(`Cleared history for session ${sessionId}`, LOG_CONTEXT);
+      try {
+        fs.unlinkSync(filePath);
+        logger.info(`Cleared history for session ${sessionId}`, LOG_CONTEXT);
+      } catch (error) {
+        logger.error(`Failed to clear history for session ${sessionId}: ${error}`, LOG_CONTEXT);
+      }
     }
   }
 
@@ -326,6 +333,7 @@ export class HistoryManager {
   /**
    * Get all entries across all sessions (for cross-session views)
    * Returns entries sorted by timestamp (most recent first)
+   * @deprecated Use getAllEntriesPaginated for large datasets
    */
   getAllEntries(limit?: number): HistoryEntry[] {
     const sessions = this.listSessionsWithHistory();
@@ -336,14 +344,30 @@ export class HistoryManager {
       allEntries.push(...entries);
     }
 
-    // Sort by timestamp descending
-    allEntries.sort((a, b) => b.timestamp - a.timestamp);
+    const sorted = sortEntriesByTimestamp(allEntries);
+    return limit ? sorted.slice(0, limit) : sorted;
+  }
 
-    return limit ? allEntries.slice(0, limit) : allEntries;
+  /**
+   * Get all entries across all sessions with pagination support
+   * Returns entries sorted by timestamp (most recent first)
+   */
+  getAllEntriesPaginated(options?: PaginationOptions): PaginatedResult<HistoryEntry> {
+    const sessions = this.listSessionsWithHistory();
+    const allEntries: HistoryEntry[] = [];
+
+    for (const sessionId of sessions) {
+      const entries = this.getEntries(sessionId);
+      allEntries.push(...entries);
+    }
+
+    const sorted = sortEntriesByTimestamp(allEntries);
+    return paginateEntries(sorted, options);
   }
 
   /**
    * Get entries filtered by project path
+   * @deprecated Use getEntriesByProjectPathPaginated for large datasets
    */
   getEntriesByProjectPath(projectPath: string): HistoryEntry[] {
     const sessions = this.listSessionsWithHistory();
@@ -356,7 +380,36 @@ export class HistoryManager {
       }
     }
 
-    return entries.sort((a, b) => b.timestamp - a.timestamp);
+    return sortEntriesByTimestamp(entries);
+  }
+
+  /**
+   * Get entries filtered by project path with pagination support
+   */
+  getEntriesByProjectPathPaginated(
+    projectPath: string,
+    options?: PaginationOptions
+  ): PaginatedResult<HistoryEntry> {
+    const sessions = this.listSessionsWithHistory();
+    const entries: HistoryEntry[] = [];
+
+    for (const sessionId of sessions) {
+      const sessionEntries = this.getEntries(sessionId);
+      if (sessionEntries.length > 0 && sessionEntries[0].projectPath === projectPath) {
+        entries.push(...sessionEntries);
+      }
+    }
+
+    const sorted = sortEntriesByTimestamp(entries);
+    return paginateEntries(sorted, options);
+  }
+
+  /**
+   * Get entries for a specific session with pagination support
+   */
+  getEntriesPaginated(sessionId: string, options?: PaginationOptions): PaginatedResult<HistoryEntry> {
+    const entries = this.getEntries(sessionId);
+    return paginateEntries(entries, options);
   }
 
   /**
