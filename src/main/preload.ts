@@ -375,6 +375,26 @@ contextBridge.exposeInMainWorld('maestro', {
       releasesUrl: string;
       error?: string;
     }>,
+    // Auto-updater APIs (electron-updater)
+    download: () => ipcRenderer.invoke('updates:download') as Promise<{ success: boolean; error?: string }>,
+    install: () => ipcRenderer.invoke('updates:install') as Promise<void>,
+    getStatus: () => ipcRenderer.invoke('updates:getStatus') as Promise<{
+      status: 'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error';
+      info?: { version: string };
+      progress?: { percent: number; bytesPerSecond: number; total: number; transferred: number };
+      error?: string;
+    }>,
+    // Subscribe to update status changes
+    onStatus: (callback: (status: {
+      status: 'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error';
+      info?: { version: string };
+      progress?: { percent: number; bytesPerSecond: number; total: number; transferred: number };
+      error?: string;
+    }) => void) => {
+      const handler = (_: any, status: any) => callback(status);
+      ipcRenderer.on('updates:status', handler);
+      return () => ipcRenderer.removeListener('updates:status', handler);
+    },
   },
 
   // Logger API
@@ -523,6 +543,9 @@ contextBridge.exposeInMainWorld('maestro', {
       ipcRenderer.invoke('history:delete', entryId, sessionId),
     update: (entryId: string, updates: { validated?: boolean }, sessionId?: string) =>
       ipcRenderer.invoke('history:update', entryId, updates, sessionId),
+    // Update sessionName for all entries matching a claudeSessionId (used when renaming tabs)
+    updateSessionName: (claudeSessionId: string, sessionName: string) =>
+      ipcRenderer.invoke('history:updateSessionName', claudeSessionId, sessionName),
     // NEW: Get history file path for AI context integration
     getFilePath: (sessionId: string) =>
       ipcRenderer.invoke('history:getFilePath', sessionId),
@@ -876,6 +899,20 @@ export interface MaestroAPI {
       releasesUrl: string;
       error?: string;
     }>;
+    download: () => Promise<{ success: boolean; error?: string }>;
+    install: () => Promise<void>;
+    getStatus: () => Promise<{
+      status: 'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error';
+      info?: { version: string };
+      progress?: { percent: number; bytesPerSecond: number; total: number; transferred: number };
+      error?: string;
+    }>;
+    onStatus: (callback: (status: {
+      status: 'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error';
+      info?: { version: string };
+      progress?: { percent: number; bytesPerSecond: number; total: number; transferred: number };
+      error?: string;
+    }) => void) => () => void;
   };
   logger: {
     log: (level: string, message: string, context?: string, data?: unknown) => Promise<void>;
@@ -1079,6 +1116,8 @@ export interface MaestroAPI {
     clear: (projectPath?: string) => Promise<boolean>;
     delete: (entryId: string, sessionId?: string) => Promise<boolean>;
     update: (entryId: string, updates: { validated?: boolean }, sessionId?: string) => Promise<boolean>;
+    // Update sessionName for all entries matching a claudeSessionId (used when renaming tabs)
+    updateSessionName: (claudeSessionId: string, sessionName: string) => Promise<number>;
     onExternalChange: (handler: () => void) => () => void;
     reload: () => Promise<boolean>;
     // NEW: Get history file path for AI context integration

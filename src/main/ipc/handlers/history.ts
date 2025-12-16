@@ -166,6 +166,13 @@ export function registerHistoryHandlers(): void {
     return false;
   });
 
+  // Update sessionName for all entries matching a claudeSessionId (used when renaming tabs)
+  ipcMain.handle('history:updateSessionName', async (_event, claudeSessionId: string, sessionName: string) => {
+    const count = historyManager.updateSessionNameByClaudeSessionId(claudeSessionId, sessionName);
+    logger.info(`Updated sessionName for ${count} history entries with claudeSessionId ${claudeSessionId}`, LOG_CONTEXT);
+    return count;
+  });
+
   // NEW: Get history file path for AI context integration
   ipcMain.handle('history:getFilePath', async (_event, sessionId: string) => {
     return historyManager.getHistoryFilePath(sessionId);

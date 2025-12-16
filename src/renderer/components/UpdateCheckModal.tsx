@@ -1,5 +1,5 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { X, Download, ExternalLink, Loader2, CheckCircle2, AlertCircle, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { X, Download, ExternalLink, Loader2, CheckCircle2, AlertCircle, RefreshCw, ChevronDown, ChevronRight, RotateCcw } from 'lucide-react';
 import type { Theme } from '../types';
 import { useLayerStack } from '../contexts/LayerStackContext';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
@@ -23,6 +23,13 @@ interface UpdateCheckResult {
   error?: string;
 }
 
+interface UpdateStatus {
+  status: 'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error';
+  info?: { version: string };
+  progress?: { percent: number; bytesPerSecond: number; total: number; transferred: number };
+  error?: string;
+}
+
 interface UpdateCheckModalProps {
   theme: Theme;
   onClose: () => void;
@@ -36,6 +43,10 @@ export function UpdateCheckModal({ theme, onClose }: UpdateCheckModalProps) {
   const [result, setResult] = useState<UpdateCheckResult | null>(null);
   const [expandedReleases, setExpandedReleases] = useState<Set<string>>(new Set());
 
+  // Auto-updater state
+  const [downloadStatus, setDownloadStatus] = useState<UpdateStatus>({ status: 'idle' });
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 
@@ -44,8 +55,20 @@ export function UpdateCheckModal({ theme, onClose }: UpdateCheckModalProps) {
     checkForUpdates();
   }, []);
 
+  // Subscribe to update status changes
+  useEffect(() => {
+    const unsubscribe = window.maestro.updates.onStatus((status) => {
+      setDownloadStatus(status);
+      if (status.status === 'error' && status.error) {
+        setDownloadError(status.error);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
   const checkForUpdates = async () => {
     setLoading(true);
+    setDownloadError(null);
     try {
       const updateResult = await window.maestro.updates.check();
       setResult(updateResult);
@@ -90,6 +113,29 @@ export function UpdateCheckModal({ theme, onClose }: UpdateCheckModalProps) {
     });
   };
 
+  const formatBytes = (bytes: number) => {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+  };
+
+  const handleDownloadUpdate = async () => {
+    setDownloadError(null);
+    setDownloadStatus({ status: 'downloading', progress: { percent: 0, bytesPerSecond: 0, total: 0, transferred: 0 } });
+
+    const downloadResult = await window.maestro.updates.download();
+    if (!downloadResult.success && downloadResult.error) {
+      setDownloadError(downloadResult.error);
+      setDownloadStatus({ status: 'error', error: downloadResult.error });
+    }
+  };
+
+  const handleInstallUpdate = () => {
+    window.maestro.updates.install();
+  };
+
   // Register layer on mount
   useEffect(() => {
     const id = registerLayer({
@@ -111,6 +157,9 @@ export function UpdateCheckModal({ theme, onClose }: UpdateCheckModalProps) {
       }
     };
   }, [registerLayer, unregisterLayer]);
+
+  const isDownloading = downloadStatus.status === 'downloading';
+  const isDownloaded = downloadStatus.status === 'downloaded';
 
   return (
     <div
@@ -139,7 +188,7 @@ export function UpdateCheckModal({ theme, onClose }: UpdateCheckModalProps) {
           <div className="flex items-center gap-2">
             <button
               onClick={checkForUpdates}
-              disabled={loading}
+              disabled={loading || isDownloading}
               className="p-1 rounded hover:bg-white/10 transition-colors disabled:opacity-50"
               title="Refresh"
             >
@@ -207,27 +256,6 @@ export function UpdateCheckModal({ theme, onClose }: UpdateCheckModalProps) {
                       Current: v{result.currentVersion} → Latest: v{result.latestVersion}
                     </div>
                   </div>
-                </div>
-              </div>
-
-              {/* Upgrade Instructions */}
-              <div
-                className="p-4 rounded border"
-                style={{ borderColor: theme.colors.border, backgroundColor: theme.colors.bgActivity }}
-              >
-                <div className="text-sm font-bold mb-2" style={{ color: theme.colors.textMain }}>
-                  How to Upgrade
-                </div>
-                <div className="text-xs space-y-1" style={{ color: theme.colors.textDim }}>
-                  <p>Upgrading is simple - just download and replace the app binary:</p>
-                  <ol className="list-decimal list-inside ml-2 space-y-1">
-                    <li>Download the latest release for your platform</li>
-                    <li>Replace the existing Maestro app</li>
-                    <li>Restart Maestro</li>
-                  </ol>
-                  <p className="mt-2 pt-2 border-t" style={{ borderColor: theme.colors.border, color: theme.colors.success }}>
-                    All your data (sessions, settings, history) will persist automatically.
-                  </p>
                 </div>
               </div>
 
@@ -313,16 +341,100 @@ export function UpdateCheckModal({ theme, onClose }: UpdateCheckModalProps) {
                 </div>
               </div>
 
-              {/* Download Button */}
-              <button
-                onClick={() => window.maestro.shell.openExternal(result.releasesUrl)}
-                className="w-full flex items-center justify-center gap-2 p-3 rounded-lg font-bold text-sm transition-colors hover:opacity-90"
-                style={{ backgroundColor: theme.colors.accent, color: theme.colors.bgMain }}
-              >
-                <Download className="w-4 h-4" />
-                Download Latest Release
-                <ExternalLink className="w-3 h-3" />
-              </button>
+              {/* Download Error */}
+              {downloadError && (
+                <div
+                  className="p-3 rounded border text-xs"
+                  style={{
+                    backgroundColor: `${theme.colors.error}15`,
+                    borderColor: theme.colors.error,
+                    color: theme.colors.error
+                  }}
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <AlertCircle className="w-4 h-4" />
+                    <span className="font-bold">Download failed</span>
+                  </div>
+                  <p style={{ color: theme.colors.textDim }}>{downloadError}</p>
+                  <button
+                    onClick={() => window.maestro.shell.openExternal(result.releasesUrl)}
+                    className="flex items-center gap-1 mt-2 hover:underline"
+                    style={{ color: theme.colors.accent }}
+                  >
+                    Download manually from GitHub
+                    <ExternalLink className="w-3 h-3" />
+                  </button>
+                </div>
+              )}
+
+              {/* Download Progress */}
+              {isDownloading && downloadStatus.progress && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-xs" style={{ color: theme.colors.textDim }}>
+                    <span>Downloading update...</span>
+                    <span>{Math.round(downloadStatus.progress.percent)}%</span>
+                  </div>
+                  <div
+                    className="h-2 rounded-full overflow-hidden"
+                    style={{ backgroundColor: theme.colors.bgActivity }}
+                  >
+                    <div
+                      className="h-full transition-all duration-300 rounded-full"
+                      style={{
+                        width: `${downloadStatus.progress.percent}%`,
+                        backgroundColor: theme.colors.accent
+                      }}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between text-xs" style={{ color: theme.colors.textDim }}>
+                    <span>{formatBytes(downloadStatus.progress.transferred)} / {formatBytes(downloadStatus.progress.total)}</span>
+                    <span>{formatBytes(downloadStatus.progress.bytesPerSecond)}/s</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="space-y-2">
+                {isDownloaded ? (
+                  <button
+                    onClick={handleInstallUpdate}
+                    className="w-full flex items-center justify-center gap-2 p-3 rounded-lg font-bold text-sm transition-colors hover:opacity-90"
+                    style={{ backgroundColor: theme.colors.success, color: theme.colors.bgMain }}
+                  >
+                    <RotateCcw className="w-4 h-4" />
+                    Restart to Update
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleDownloadUpdate}
+                    disabled={isDownloading}
+                    className="w-full flex items-center justify-center gap-2 p-3 rounded-lg font-bold text-sm transition-colors hover:opacity-90 disabled:opacity-50"
+                    style={{ backgroundColor: theme.colors.accent, color: theme.colors.bgMain }}
+                  >
+                    {isDownloading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Downloading...
+                      </>
+                    ) : (
+                      <>
+                        <Download className="w-4 h-4" />
+                        Download and Install Update
+                      </>
+                    )}
+                  </button>
+                )}
+
+                {/* Fallback link */}
+                <button
+                  onClick={() => window.maestro.shell.openExternal(result.releasesUrl)}
+                  className="w-full flex items-center justify-center gap-2 p-2 rounded text-xs transition-colors hover:bg-white/5"
+                  style={{ color: theme.colors.textDim }}
+                >
+                  Or download manually from GitHub
+                  <ExternalLink className="w-3 h-3" />
+                </button>
+              </div>
             </>
           ) : (
             <div className="flex flex-col items-center justify-center py-8 gap-3">

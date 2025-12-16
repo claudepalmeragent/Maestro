@@ -4745,6 +4745,11 @@ export default function MaestroConsole() {
                   tab.claudeSessionId,
                   newName || ''
                 ).catch(err => console.error('Failed to persist tab name:', err));
+                // Also update past history entries with this claudeSessionId
+                window.maestro.history.updateSessionName(
+                  tab.claudeSessionId,
+                  newName || ''
+                ).catch(err => console.error('Failed to update history session names:', err));
               }
               return {
                 ...s,

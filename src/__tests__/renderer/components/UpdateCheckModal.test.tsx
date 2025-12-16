@@ -17,6 +17,10 @@ import React from 'react';
 if (!(window.maestro as any).updates) {
   (window.maestro as any).updates = {
     check: vi.fn(),
+    download: vi.fn(),
+    install: vi.fn(),
+    getStatus: vi.fn(),
+    onStatus: vi.fn(() => vi.fn()), // Returns an unsubscribe function
   };
 }
 
@@ -212,19 +216,6 @@ describe('UpdateCheckModal', () => {
       });
     });
 
-    it('shows upgrade instructions', async () => {
-      render(
-        <UpdateCheckModal
-          theme={createMockTheme()}
-          onClose={vi.fn()}
-        />
-      );
-
-      await waitFor(() => {
-        expect(screen.getByText('How to Upgrade')).toBeInTheDocument();
-      });
-    });
-
     it('shows release notes section', async () => {
       render(
         <UpdateCheckModal
@@ -247,11 +238,13 @@ describe('UpdateCheckModal', () => {
       );
 
       await waitFor(() => {
-        expect(screen.getByText('Download Latest Release')).toBeInTheDocument();
+        expect(screen.getByText('Download and Install Update')).toBeInTheDocument();
       });
     });
 
-    it('opens releases URL when download button clicked', async () => {
+    it('starts download when download button clicked', async () => {
+      (window.maestro.updates.download as any).mockResolvedValue({ success: true });
+
       render(
         <UpdateCheckModal
           theme={createMockTheme()}
@@ -260,14 +253,25 @@ describe('UpdateCheckModal', () => {
       );
 
       await waitFor(() => {
-        expect(screen.getByText('Download Latest Release')).toBeInTheDocument();
+        expect(screen.getByText('Download and Install Update')).toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getByText('Download Latest Release'));
+      fireEvent.click(screen.getByText('Download and Install Update'));
 
-      expect(window.maestro.shell.openExternal).toHaveBeenCalledWith(
-        'https://github.com/pedramamini/Maestro/releases'
+      expect(window.maestro.updates.download).toHaveBeenCalled();
+    });
+
+    it('shows fallback link to GitHub', async () => {
+      render(
+        <UpdateCheckModal
+          theme={createMockTheme()}
+          onClose={vi.fn()}
+        />
       );
+
+      await waitFor(() => {
+        expect(screen.getByText('Or download manually from GitHub')).toBeInTheDocument();
+      });
     });
   });
 
@@ -888,6 +892,559 @@ describe('UpdateCheckModal', () => {
 
       // Should be collapsed (no markdown visible)
       expect(screen.queryByTestId('react-markdown')).not.toBeInTheDocument();
+    });
+  });
+
+  // =============================================================================
+  // AUTO-UPDATE DOWNLOAD FLOW
+  // =============================================================================
+
+  describe('auto-update download flow', () => {
+    beforeEach(() => {
+      // Reset download mock
+      (window.maestro.updates.download as any).mockReset();
+      (window.maestro.updates.install as any).mockReset();
+    });
+
+    it('calls download API when download button is clicked', async () => {
+      (window.maestro.updates.download as any).mockResolvedValue({ success: true });
+
+      render(
+        <UpdateCheckModal
+          theme={createMockTheme()}
+          onClose={vi.fn()}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText('Download and Install Update')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText('Download and Install Update'));
+
+      expect(window.maestro.updates.download).toHaveBeenCalledTimes(1);
+    });
+
+    it('shows downloading state when download starts', async () => {
+      // Make download take some time
+      (window.maestro.updates.download as any).mockImplementation(
+        () => new Promise((resolve) => setTimeout(() => resolve({ success: true }), 100))
+      );
+
+      render(
+        <UpdateCheckModal
+          theme={createMockTheme()}
+          onClose={vi.fn()}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText('Download and Install Update')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText('Download and Install Update'));
+
+      // Should show downloading state
+      await waitFor(() => {
+        expect(screen.getByText('Downloading...')).toBeInTheDocument();
+      });
+    });
+
+    it('disables download button while downloading', async () => {
+      (window.maestro.updates.download as any).mockImplementation(
+        () => new Promise((resolve) => setTimeout(() => resolve({ success: true }), 100))
+      );
+
+      render(
+        <UpdateCheckModal
+          theme={createMockTheme()}
+          onClose={vi.fn()}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText('Download and Install Update')).toBeInTheDocument();
+      });
+
+      const downloadButton = screen.getByText('Download and Install Update').closest('button');
+      fireEvent.click(downloadButton!);
+
+      await waitFor(() => {
+        const downloadingButton = screen.getByText('Downloading...').closest('button');
+        expect(downloadingButton).toBeDisabled();
+      });
+    });
+
+    it('disables refresh button while downloading', async () => {
+      (window.maestro.updates.download as any).mockImplementation(
+        () => new Promise((resolve) => setTimeout(() => resolve({ success: true }), 100))
+      );
+
+      render(
+        <UpdateCheckModal
+          theme={createMockTheme()}
+          onClose={vi.fn()}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText('Download and Install Update')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText('Download and Install Update'));
+
+      await waitFor(() => {
+        expect(screen.getByText('Downloading...')).toBeInTheDocument();
+      });
+
+      const refreshButton = screen.getByTitle('Refresh');
+      expect(refreshButton).toBeDisabled();
+    });
+
+    it('shows download error when download fails', async () => {
+      (window.maestro.updates.download as any).mockResolvedValue({
+        success: false,
+        error: 'Download failed: network error',
+      });
+
+      render(
+        <UpdateCheckModal
+          theme={createMockTheme()}
+          onClose={vi.fn()}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText('Download and Install Update')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText('Download and Install Update'));
+
+      await waitFor(() => {
+        expect(screen.getByText('Download failed')).toBeInTheDocument();
+        expect(screen.getByText('Download failed: network error')).toBeInTheDocument();
+      });
+    });
+
+    it('shows manual download link on error', async () => {
+      (window.maestro.updates.download as any).mockResolvedValue({
+        success: false,
+        error: 'Some error',
+      });
+
+      render(
+        <UpdateCheckModal
+          theme={createMockTheme()}
+          onClose={vi.fn()}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText('Download and Install Update')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText('Download and Install Update'));
+
+      await waitFor(() => {
+        expect(screen.getByText('Download manually from GitHub')).toBeInTheDocument();
+      });
+    });
+
+    it('opens GitHub releases when manual download link is clicked after error', async () => {
+      (window.maestro.updates.download as any).mockResolvedValue({
+        success: false,
+        error: 'Some error',
+      });
+
+      render(
+        <UpdateCheckModal
+          theme={createMockTheme()}
+          onClose={vi.fn()}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText('Download and Install Update')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText('Download and Install Update'));
+
+      await waitFor(() => {
+        expect(screen.getByText('Download manually from GitHub')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText('Download manually from GitHub'));
+
+      expect(window.maestro.shell.openExternal).toHaveBeenCalledWith(
+        'https://github.com/pedramamini/Maestro/releases'
+      );
+    });
+
+    it('subscribes to status updates on mount', async () => {
+      render(
+        <UpdateCheckModal
+          theme={createMockTheme()}
+          onClose={vi.fn()}
+        />
+      );
+
+      expect(window.maestro.updates.onStatus).toHaveBeenCalled();
+    });
+
+    it('unsubscribes from status updates on unmount', async () => {
+      const mockUnsubscribe = vi.fn();
+      (window.maestro.updates.onStatus as any).mockReturnValue(mockUnsubscribe);
+
+      const { unmount } = render(
+        <UpdateCheckModal
+          theme={createMockTheme()}
+          onClose={vi.fn()}
+        />
+      );
+
+      unmount();
+
+      expect(mockUnsubscribe).toHaveBeenCalled();
+    });
+  });
+
+  // =============================================================================
+  // AUTO-UPDATE INSTALL FLOW
+  // =============================================================================
+
+  describe('auto-update install flow', () => {
+    it('calls install API when restart button is clicked', async () => {
+      // Simulate downloaded state via onStatus callback
+      let statusCallback: ((status: any) => void) | null = null;
+      (window.maestro.updates.onStatus as any).mockImplementation((cb: any) => {
+        statusCallback = cb;
+        return vi.fn();
+      });
+
+      render(
+        <UpdateCheckModal
+          theme={createMockTheme()}
+          onClose={vi.fn()}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText('Download and Install Update')).toBeInTheDocument();
+      });
+
+      // Simulate update downloaded status
+      statusCallback!({ status: 'downloaded', info: { version: '1.1.0' } });
+
+      await waitFor(() => {
+        expect(screen.getByText('Restart to Update')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText('Restart to Update'));
+
+      expect(window.maestro.updates.install).toHaveBeenCalled();
+    });
+
+    it('shows restart button after download completes', async () => {
+      let statusCallback: ((status: any) => void) | null = null;
+      (window.maestro.updates.onStatus as any).mockImplementation((cb: any) => {
+        statusCallback = cb;
+        return vi.fn();
+      });
+
+      render(
+        <UpdateCheckModal
+          theme={createMockTheme()}
+          onClose={vi.fn()}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText('Download and Install Update')).toBeInTheDocument();
+      });
+
+      // Simulate download completed
+      statusCallback!({ status: 'downloaded', info: { version: '1.1.0' } });
+
+      await waitFor(() => {
+        expect(screen.getByText('Restart to Update')).toBeInTheDocument();
+      });
+
+      // Download button should be replaced
+      expect(screen.queryByText('Download and Install Update')).not.toBeInTheDocument();
+    });
+
+    it('restart button has success styling', async () => {
+      let statusCallback: ((status: any) => void) | null = null;
+      (window.maestro.updates.onStatus as any).mockImplementation((cb: any) => {
+        statusCallback = cb;
+        return vi.fn();
+      });
+
+      const theme = createMockTheme();
+
+      render(
+        <UpdateCheckModal
+          theme={theme}
+          onClose={vi.fn()}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText('Download and Install Update')).toBeInTheDocument();
+      });
+
+      statusCallback!({ status: 'downloaded', info: { version: '1.1.0' } });
+
+      await waitFor(() => {
+        const restartButton = screen.getByText('Restart to Update').closest('button');
+        expect(restartButton).toHaveStyle({ backgroundColor: theme.colors.success });
+      });
+    });
+  });
+
+  // =============================================================================
+  // DOWNLOAD PROGRESS
+  // =============================================================================
+
+  describe('download progress', () => {
+    it('shows progress bar during download', async () => {
+      let statusCallback: ((status: any) => void) | null = null;
+      (window.maestro.updates.onStatus as any).mockImplementation((cb: any) => {
+        statusCallback = cb;
+        return vi.fn();
+      });
+
+      render(
+        <UpdateCheckModal
+          theme={createMockTheme()}
+          onClose={vi.fn()}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText('Download and Install Update')).toBeInTheDocument();
+      });
+
+      // Simulate downloading with progress
+      statusCallback!({
+        status: 'downloading',
+        progress: { percent: 50, bytesPerSecond: 1000000, total: 10000000, transferred: 5000000 },
+      });
+
+      await waitFor(() => {
+        expect(screen.getByText('Downloading update...')).toBeInTheDocument();
+        expect(screen.getByText('50%')).toBeInTheDocument();
+      });
+    });
+
+    it('shows download speed', async () => {
+      let statusCallback: ((status: any) => void) | null = null;
+      (window.maestro.updates.onStatus as any).mockImplementation((cb: any) => {
+        statusCallback = cb;
+        return vi.fn();
+      });
+
+      render(
+        <UpdateCheckModal
+          theme={createMockTheme()}
+          onClose={vi.fn()}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText('Download and Install Update')).toBeInTheDocument();
+      });
+
+      statusCallback!({
+        status: 'downloading',
+        progress: { percent: 25, bytesPerSecond: 1048576, total: 10485760, transferred: 2621440 },
+      });
+
+      await waitFor(() => {
+        expect(screen.getByText('1 MB/s')).toBeInTheDocument();
+      });
+    });
+
+    it('shows transferred and total bytes', async () => {
+      let statusCallback: ((status: any) => void) | null = null;
+      (window.maestro.updates.onStatus as any).mockImplementation((cb: any) => {
+        statusCallback = cb;
+        return vi.fn();
+      });
+
+      render(
+        <UpdateCheckModal
+          theme={createMockTheme()}
+          onClose={vi.fn()}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText('Download and Install Update')).toBeInTheDocument();
+      });
+
+      statusCallback!({
+        status: 'downloading',
+        progress: { percent: 50, bytesPerSecond: 500000, total: 10485760, transferred: 5242880 },
+      });
+
+      await waitFor(() => {
+        expect(screen.getByText('5 MB / 10 MB')).toBeInTheDocument();
+      });
+    });
+
+    it('updates progress bar width based on percent', async () => {
+      let statusCallback: ((status: any) => void) | null = null;
+      (window.maestro.updates.onStatus as any).mockImplementation((cb: any) => {
+        statusCallback = cb;
+        return vi.fn();
+      });
+
+      render(
+        <UpdateCheckModal
+          theme={createMockTheme()}
+          onClose={vi.fn()}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText('Download and Install Update')).toBeInTheDocument();
+      });
+
+      statusCallback!({
+        status: 'downloading',
+        progress: { percent: 75, bytesPerSecond: 1000000, total: 10000000, transferred: 7500000 },
+      });
+
+      await waitFor(() => {
+        expect(screen.getByText('75%')).toBeInTheDocument();
+      });
+
+      // Check progress bar width
+      const progressContainer = screen.getByText('75%').closest('div')?.parentElement;
+      const progressBar = progressContainer?.querySelector('[class*="h-full"]');
+      expect(progressBar).toHaveStyle({ width: '75%' });
+    });
+
+    it('handles error status from onStatus callback', async () => {
+      let statusCallback: ((status: any) => void) | null = null;
+      (window.maestro.updates.onStatus as any).mockImplementation((cb: any) => {
+        statusCallback = cb;
+        return vi.fn();
+      });
+
+      render(
+        <UpdateCheckModal
+          theme={createMockTheme()}
+          onClose={vi.fn()}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText('Download and Install Update')).toBeInTheDocument();
+      });
+
+      // Simulate error during download
+      statusCallback!({
+        status: 'error',
+        error: 'Connection timed out',
+      });
+
+      await waitFor(() => {
+        expect(screen.getByText('Download failed')).toBeInTheDocument();
+        expect(screen.getByText('Connection timed out')).toBeInTheDocument();
+      });
+    });
+  });
+
+  // =============================================================================
+  // FALLBACK LINK
+  // =============================================================================
+
+  describe('fallback link', () => {
+    it('always shows fallback link when update is available', async () => {
+      render(
+        <UpdateCheckModal
+          theme={createMockTheme()}
+          onClose={vi.fn()}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText('Or download manually from GitHub')).toBeInTheDocument();
+      });
+    });
+
+    it('opens GitHub when fallback link is clicked', async () => {
+      render(
+        <UpdateCheckModal
+          theme={createMockTheme()}
+          onClose={vi.fn()}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText('Or download manually from GitHub')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText('Or download manually from GitHub'));
+
+      expect(window.maestro.shell.openExternal).toHaveBeenCalledWith(
+        'https://github.com/pedramamini/Maestro/releases'
+      );
+    });
+
+    it('fallback link is visible during download', async () => {
+      let statusCallback: ((status: any) => void) | null = null;
+      (window.maestro.updates.onStatus as any).mockImplementation((cb: any) => {
+        statusCallback = cb;
+        return vi.fn();
+      });
+
+      render(
+        <UpdateCheckModal
+          theme={createMockTheme()}
+          onClose={vi.fn()}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText('Download and Install Update')).toBeInTheDocument();
+      });
+
+      statusCallback!({
+        status: 'downloading',
+        progress: { percent: 50, bytesPerSecond: 1000000, total: 10000000, transferred: 5000000 },
+      });
+
+      await waitFor(() => {
+        expect(screen.getByText('Or download manually from GitHub')).toBeInTheDocument();
+      });
+    });
+
+    it('fallback link is visible after download completes', async () => {
+      let statusCallback: ((status: any) => void) | null = null;
+      (window.maestro.updates.onStatus as any).mockImplementation((cb: any) => {
+        statusCallback = cb;
+        return vi.fn();
+      });
+
+      render(
+        <UpdateCheckModal
+          theme={createMockTheme()}
+          onClose={vi.fn()}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText('Download and Install Update')).toBeInTheDocument();
+      });
+
+      statusCallback!({ status: 'downloaded', info: { version: '1.1.0' } });
+
+      await waitFor(() => {
+        expect(screen.getByText('Or download manually from GitHub')).toBeInTheDocument();
+      });
     });
   });
 });

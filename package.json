@@ -43,6 +43,11 @@
   "build": {
     "appId": "com.maestro.app",
     "productName": "Maestro",
+    "publish": {
+      "provider": "github",
+      "owner": "pedramamini",
+      "repo": "Maestro"
+    },
     "directories": {
       "output": "release",
       "buildResources": "build"
@@ -143,6 +148,7 @@
     "diff": "^8.0.2",
     "dompurify": "^3.3.0",
     "electron-store": "^8.1.0",
+    "electron-updater": "^6.6.2",
     "fastify": "^4.25.2",
     "js-tiktoken": "^1.0.21",
     "mermaid": "^11.12.1",

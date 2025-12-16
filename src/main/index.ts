@@ -13,6 +13,7 @@ import Store from 'electron-store';
 import { getHistoryManager } from './history-manager';
 import { registerGitHandlers, registerAutorunHandlers, registerPlaybooksHandlers, registerHistoryHandlers, registerAgentsHandlers, registerProcessHandlers, registerPersistenceHandlers, registerSystemHandlers, setupLoggerEventForwarding } from './ipc/handlers';
 import { DEMO_MODE, DEMO_DATA_PATH, CLAUDE_SESSION_PARSE_LIMITS, CLAUDE_PRICING } from './constants';
+import { initAutoUpdater } from './auto-updater';
 import {
   SessionStatsCache,
   GlobalStatsCache,
@@ -533,6 +534,12 @@ function createWindow() {
     logger.info('Browser window closed', 'Window');
     mainWindow = null;
   });
+
+  // Initialize auto-updater (only in production)
+  if (process.env.NODE_ENV !== 'development') {
+    initAutoUpdater(mainWindow);
+    logger.info('Auto-updater initialized', 'Window');
+  }
 }
 
 // Set up global error handlers for uncaught exceptions
