@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Folder, FileText, Play, CheckSquare } from 'lucide-react';
 import type { Theme } from '../types';
-import { Modal, ModalFooter } from './ui/Modal';
+import { Modal, ModalFooter, FormInput } from './ui';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 
 interface AutoRunSetupModalProps {
@@ -204,27 +204,25 @@ export function AutoRunSetupModal({ theme, onClose, onFolderSelected, currentFol
           className="p-4 rounded-lg border mt-5"
           style={{ borderColor: theme.colors.border, backgroundColor: theme.colors.bgMain + '50' }}
         >
-          <label className="block text-xs font-bold opacity-70 uppercase mb-2" style={{ color: theme.colors.textMain }}>
-            Auto Run Folder
-          </label>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={selectedFolder}
-              onChange={(e) => setSelectedFolder(e.target.value)}
-              placeholder={sessionName ? `Select Auto Run folder for ${sessionName}` : 'Select Auto Run folder'}
-              className="flex-1 p-2 rounded border bg-transparent outline-none font-mono text-sm"
-              style={{ borderColor: theme.colors.border, color: theme.colors.textMain }}
-            />
-            <button
-              onClick={handleSelectFolder}
-              className="p-2 rounded border hover:bg-white/5 transition-colors"
-              style={{ borderColor: theme.colors.border, color: theme.colors.textMain }}
-              title="Browse folders (Cmd+O)"
-            >
-              <Folder className="w-5 h-5" />
-            </button>
-          </div>
+          <FormInput
+            theme={theme}
+            label="Auto Run Folder"
+            value={selectedFolder}
+            onChange={setSelectedFolder}
+            placeholder={sessionName ? `Select Auto Run folder for ${sessionName}` : 'Select Auto Run folder'}
+            monospace
+            heightClass="p-2"
+            addon={
+              <button
+                onClick={handleSelectFolder}
+                className="p-2 rounded border hover:bg-white/5 transition-colors"
+                style={{ borderColor: theme.colors.border, color: theme.colors.textMain }}
+                title="Browse folders (Cmd+O)"
+              >
+                <Folder className="w-5 h-5" />
+              </button>
+            }
+          />
           {selectedFolder && (
             <div className="mt-2 text-xs">
               {folderValidation.checking ? (
