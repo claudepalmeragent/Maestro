@@ -197,6 +197,38 @@ contextBridge.exposeInMainWorld('maestro', {
       ipcRenderer.on('process:usage', handler);
       return () => ipcRenderer.removeListener('process:usage', handler);
     },
+    // Agent error event listener (auth expired, token exhaustion, rate limits, etc.)
+    onAgentError: (callback: (sessionId: string, error: {
+      type: string;
+      message: string;
+      recoverable: boolean;
+      agentId: string;
+      sessionId?: string;
+      timestamp: number;
+      raw?: {
+        exitCode?: number;
+        stderr?: string;
+        stdout?: string;
+        errorLine?: string;
+      };
+    }) => void) => {
+      const handler = (_: any, sessionId: string, error: any) => callback(sessionId, error);
+      ipcRenderer.on('agent:error', handler);
+      return () => ipcRenderer.removeListener('agent:error', handler);
+    },
+  },
+
+  // Agent Error Handling API
+  agentError: {
+    // Clear an error state for a session (called after recovery action)
+    clearError: (sessionId: string) =>
+      ipcRenderer.invoke('agent:clearError', sessionId),
+    // Retry the last operation after an error
+    retryAfterError: (sessionId: string, options?: {
+      prompt?: string;
+      newSession?: boolean;
+    }) =>
+      ipcRenderer.invoke('agent:retryAfterError', sessionId, options),
   },
 
   // Web interface API
@@ -774,6 +806,27 @@ export interface MaestroAPI {
       totalCostUsd: number;
       contextWindow: number;
     }) => void) => () => void;
+    onAgentError: (callback: (sessionId: string, error: {
+      type: string;
+      message: string;
+      recoverable: boolean;
+      agentId: string;
+      sessionId?: string;
+      timestamp: number;
+      raw?: {
+        exitCode?: number;
+        stderr?: string;
+        stdout?: string;
+        errorLine?: string;
+      };
+    }) => void) => () => void;
+  };
+  agentError: {
+    clearError: (sessionId: string) => Promise<{ success: boolean }>;
+    retryAfterError: (sessionId: string, options?: {
+      prompt?: string;
+      newSession?: boolean;
+    }) => Promise<{ success: boolean }>;
   };
   git: {
     status: (cwd: string) => Promise<string>;
