@@ -5562,6 +5562,8 @@ export default function MaestroConsole() {
             setPreviewFile(filePreviewHistory[index]);
           }
         }}
+        onClearAgentError={activeSession?.agentError ? () => handleClearAgentError(activeSession.id) : undefined}
+        onShowAgentErrorModal={activeSession?.agentError ? () => setAgentErrorModalSessionId(activeSession.id) : undefined}
       />
       )}
 

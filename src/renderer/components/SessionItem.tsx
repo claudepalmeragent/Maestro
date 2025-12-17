@@ -1,5 +1,5 @@
 import React from 'react';
-import { Activity, GitBranch, Bot, Bookmark } from 'lucide-react';
+import { Activity, GitBranch, Bot, Bookmark, AlertCircle } from 'lucide-react';
 import type { Session, Group, Theme } from '../types';
 import { getStatusColor } from '../utils/theme';
 
@@ -248,6 +248,18 @@ export function SessionItem({
           >
             <Bot className="w-2.5 h-2.5" />
             AUTO
+          </div>
+        )}
+
+        {/* Agent Error Indicator */}
+        {session.agentError && (
+          <div
+            className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase"
+            style={{ backgroundColor: theme.colors.error + '30', color: theme.colors.error }}
+            title={`Error: ${session.agentError.message}`}
+          >
+            <AlertCircle className="w-2.5 h-2.5" />
+            ERR
           </div>
         )}
 

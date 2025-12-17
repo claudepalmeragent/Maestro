@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, forwardRef, useImperativeHandle } from 'react';
-import { Wand2, ExternalLink, Columns, Copy, Loader2, GitBranch, ArrowUp, ArrowDown, FileEdit, List } from 'lucide-react';
+import { Wand2, ExternalLink, Columns, Copy, Loader2, GitBranch, ArrowUp, ArrowDown, FileEdit, List, AlertCircle, X } from 'lucide-react';
 import { LogViewer } from './LogViewer';
 import { TerminalOutput } from './TerminalOutput';
 import { InputArea } from './InputArea';
@@ -175,6 +175,10 @@ interface MainPanelProps {
   forwardHistory?: {name: string; content: string; path: string}[];
   currentHistoryIndex?: number;
   onNavigateToIndex?: (index: number) => void;
+
+  // Agent error handling
+  onClearAgentError?: () => void;
+  onShowAgentErrorModal?: () => void;
 }
 
 export const MainPanel = forwardRef<MainPanelHandle, MainPanelProps>(function MainPanel(props, ref) {
@@ -798,6 +802,47 @@ export const MainPanel = forwardRef<MainPanelHandle, MainPanelProps>(function Ma
               onToggleUnreadFilter={onToggleUnreadFilter}
               onOpenTabSearch={onOpenTabSearch}
             />
+          )}
+
+          {/* Agent Error Banner */}
+          {activeSession.agentError && (
+            <div
+              className="flex items-center gap-3 px-4 py-2 border-b shrink-0"
+              style={{
+                backgroundColor: theme.colors.error + '15',
+                borderColor: theme.colors.error + '40',
+              }}
+            >
+              <AlertCircle className="w-4 h-4 shrink-0" style={{ color: theme.colors.error }} />
+              <div className="flex-1 min-w-0">
+                <span className="text-sm font-medium" style={{ color: theme.colors.error }}>
+                  {activeSession.agentError.message}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {props.onShowAgentErrorModal && (
+                  <button
+                    onClick={props.onShowAgentErrorModal}
+                    className="px-2 py-1 text-xs font-medium rounded hover:opacity-80 transition-opacity"
+                    style={{
+                      backgroundColor: theme.colors.error,
+                      color: '#ffffff',
+                    }}
+                  >
+                    View Details
+                  </button>
+                )}
+                {props.onClearAgentError && activeSession.agentError.recoverable && (
+                  <button
+                    onClick={props.onClearAgentError}
+                    className="p-1 rounded hover:bg-white/10 transition-colors"
+                    title="Dismiss error"
+                  >
+                    <X className="w-4 h-4" style={{ color: theme.colors.error }} />
+                  </button>
+                )}
+              </div>
+            </div>
           )}
 
           {/* Show File Preview in main area when open, otherwise show terminal output and input */}
