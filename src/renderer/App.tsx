@@ -317,6 +317,7 @@ export default function MaestroConsole() {
   const [lightboxImages, setLightboxImages] = useState<string[]>([]); // Context images for navigation
   const [lightboxSource, setLightboxSource] = useState<'staged' | 'history'>('history'); // Track source for delete permission
   const lightboxIsGroupChatRef = useRef<boolean>(false); // Track if lightbox was opened from group chat
+  const lightboxAllowDeleteRef = useRef<boolean>(false); // Track if delete should be allowed (set synchronously before state updates)
   const [aboutModalOpen, setAboutModalOpen] = useState(false);
   const [updateCheckModalOpen, setUpdateCheckModalOpen] = useState(false);
   const [leaderboardRegistrationOpen, setLeaderboardRegistrationOpen] = useState(false);
@@ -2958,9 +2959,11 @@ export default function MaestroConsole() {
   // Handler to open lightbox with optional context images for navigation
   // source: 'staged' allows deletion, 'history' is read-only
   const handleSetLightboxImage = useCallback((image: string | null, contextImages?: string[], source: 'staged' | 'history' = 'history') => {
-    // Capture group chat state SYNCHRONOUSLY in ref before any state updates
-    // This ensures the value is available immediately when the component re-renders
+    // Capture state SYNCHRONOUSLY in refs before any state updates
+    // This ensures values are available immediately when the component re-renders
+    // React batches state updates, so refs are more reliable for immediate access
     lightboxIsGroupChatRef.current = activeGroupChatId !== null;
+    lightboxAllowDeleteRef.current = source === 'staged';
 
     setLightboxImage(image);
     setLightboxImages(contextImages || []);
@@ -5786,12 +5789,15 @@ export default function MaestroConsole() {
             setLightboxImages([]);
             setLightboxSource('history');
             lightboxIsGroupChatRef.current = false;
+            lightboxAllowDeleteRef.current = false;
             // Return focus to input after closing carousel
             setTimeout(() => inputRef.current?.focus(), 0);
           }}
           onNavigate={(img) => setLightboxImage(img)}
-          // Allow delete when source is 'staged' - use ref to determine which setter to use
-          onDelete={lightboxSource === 'staged' ? (img: string) => {
+          // Use ref for delete permission - refs are set synchronously before React batches state updates
+          // This ensures Cmd+Y and click both correctly enable delete when source is 'staged'
+          onDelete={lightboxAllowDeleteRef.current ? (img: string) => {
+            // Use ref for group chat check too, for consistency
             if (lightboxIsGroupChatRef.current) {
               setGroupChatStagedImages(prev => prev.filter(i => i !== img));
             } else {

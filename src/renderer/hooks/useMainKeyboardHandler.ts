@@ -223,7 +223,7 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
         // Use group chat staged images when group chat is active
         const images = ctx.activeGroupChatId ? ctx.groupChatStagedImages : ctx.stagedImages;
         if (images && images.length > 0) {
-          ctx.handleSetLightboxImage(images[0], images);
+          ctx.handleSetLightboxImage(images[0], images, 'staged');
         }
       }
       else if (ctx.isShortcut(e, 'toggleTabStar')) {
