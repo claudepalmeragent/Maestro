@@ -731,57 +731,110 @@ export function FilePreview({ file, onClose, theme, markdownEditMode, setMarkdow
     };
   }, [searchQuery, file.content, isMarkdown, isImage, theme.colors.accent]);
 
-  // Search matches in markdown preview mode - use browser's native find to scroll
+  // Search matches in markdown preview mode - use CSS Custom Highlight API
   useEffect(() => {
     if (!isMarkdown || markdownEditMode || !searchQuery.trim() || !markdownContainerRef.current) {
       if (isMarkdown && !markdownEditMode) {
         setTotalMatches(0);
         setCurrentMatchIndex(0);
         matchElementsRef.current = [];
+        // Clear any existing highlights
+        if ('highlights' in CSS) {
+          (CSS as any).highlights.delete('search-results');
+          (CSS as any).highlights.delete('search-current');
+        }
       }
       return;
     }
 
-    // Count matches in the raw content for the counter display
+    const container = markdownContainerRef.current;
     const escapedQuery = searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const regex = new RegExp(escapedQuery, 'gi');
-    const matches = file.content.match(regex);
-    const count = matches ? matches.length : 0;
+    const searchRegex = new RegExp(escapedQuery, 'gi');
 
-    setTotalMatches(count);
-    if (count > 0 && currentMatchIndex >= count) {
-      setCurrentMatchIndex(0);
-    }
-
-    // Use CSS.highlights API if available (modern browsers), otherwise use window.find
-    if (count > 0 && markdownContainerRef.current) {
-      // Find text nodes containing the search query and scroll to the nth occurrence
-      const container = markdownContainerRef.current;
+    // Check if CSS Custom Highlight API is available
+    if ('highlights' in CSS) {
+      const allRanges: Range[] = [];
       const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
-      let matchCount = 0;
-      const targetIndex = Math.max(0, Math.min(currentMatchIndex, count - 1));
 
-      let node;
-      while ((node = walker.nextNode())) {
-        const text = node.textContent || '';
-        const nodeMatches = text.match(regex);
-        if (nodeMatches) {
-          for (const _ of nodeMatches) {
-            if (matchCount === targetIndex) {
-              // Found the target match - scroll its parent element into view
-              const parentElement = node.parentElement;
-              if (parentElement) {
-                parentElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                // Briefly flash the parent element to indicate the match location
-                const originalBg = parentElement.style.backgroundColor;
-                parentElement.style.backgroundColor = `${theme.colors.accent}40`;
-                setTimeout(() => {
-                  parentElement.style.backgroundColor = originalBg;
-                }, 1500);
+      // Find all text nodes and create ranges for matches
+      let textNode;
+      while ((textNode = walker.nextNode())) {
+        const text = textNode.textContent || '';
+        let match;
+        const localRegex = new RegExp(escapedQuery, 'gi');
+        while ((match = localRegex.exec(text)) !== null) {
+          const range = document.createRange();
+          range.setStart(textNode, match.index);
+          range.setEnd(textNode, match.index + match[0].length);
+          allRanges.push(range);
+        }
+      }
+
+      // Update match count
+      setTotalMatches(allRanges.length);
+      if (allRanges.length > 0 && currentMatchIndex >= allRanges.length) {
+        setCurrentMatchIndex(0);
+      }
+
+      // Create highlights
+      if (allRanges.length > 0) {
+        const targetIndex = Math.max(0, Math.min(currentMatchIndex, allRanges.length - 1));
+
+        // Create highlight for all matches (yellow)
+        const allHighlight = new (window as any).Highlight(...allRanges);
+        (CSS as any).highlights.set('search-results', allHighlight);
+
+        // Create highlight for current match (accent color)
+        const currentHighlight = new (window as any).Highlight(allRanges[targetIndex]);
+        (CSS as any).highlights.set('search-current', currentHighlight);
+
+        // Scroll to current match
+        const currentRange = allRanges[targetIndex];
+        const rect = currentRange.getBoundingClientRect();
+        const containerRect = container.getBoundingClientRect();
+        const scrollParent = contentRef.current;
+
+        if (scrollParent && rect) {
+          // Calculate scroll position to center the match
+          const scrollTop = scrollParent.scrollTop + rect.top - containerRect.top - scrollParent.clientHeight / 2 + rect.height / 2;
+          scrollParent.scrollTo({ top: scrollTop, behavior: 'smooth' });
+        }
+      } else {
+        (CSS as any).highlights.delete('search-results');
+        (CSS as any).highlights.delete('search-current');
+      }
+
+      // Cleanup function
+      return () => {
+        (CSS as any).highlights.delete('search-results');
+        (CSS as any).highlights.delete('search-current');
+      };
+    } else {
+      // Fallback: count matches and scroll to location (no highlighting)
+      const matches = file.content.match(searchRegex);
+      const count = matches ? matches.length : 0;
+      setTotalMatches(count);
+
+      if (count > 0) {
+        const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+        let matchCount = 0;
+        const targetIndex = Math.max(0, Math.min(currentMatchIndex, count - 1));
+
+        let textNode;
+        while ((textNode = walker.nextNode())) {
+          const text = textNode.textContent || '';
+          const nodeMatches = text.match(searchRegex);
+          if (nodeMatches) {
+            for (const _ of nodeMatches) {
+              if (matchCount === targetIndex) {
+                const parentElement = (textNode as Text).parentElement;
+                if (parentElement) {
+                  parentElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+                return;
               }
-              return;
+              matchCount++;
             }
-            matchCount++;
           }
         }
       }
@@ -1034,6 +1087,18 @@ export function FilePreview({ file, onClose, theme, markdownEditMode, setMarkdow
       tabIndex={0}
       onKeyDown={handleKeyDown}
     >
+      {/* CSS for Custom Highlight API */}
+      <style>{`
+        ::highlight(search-results) {
+          background-color: #ffd700;
+          color: #000;
+        }
+        ::highlight(search-current) {
+          background-color: ${theme.colors.accent};
+          color: #fff;
+        }
+      `}</style>
+
       {/* Header */}
       <div className="shrink-0" style={{ backgroundColor: theme.colors.bgSidebar }}>
         {/* Main header row */}

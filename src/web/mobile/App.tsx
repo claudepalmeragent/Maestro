@@ -478,8 +478,32 @@ export default function MobileApp() {
 
   // Connect on mount - use empty dependency array to only connect once
   // The connect function is stable via useRef pattern in useWebSocket
+  // On mobile browsers, ensure the document is fully loaded before connecting
+  // to avoid race conditions with __MAESTRO_CONFIG__ injection
   useEffect(() => {
-    connect();
+    const attemptConnect = () => {
+      // Verify config is available before connecting
+      if (window.__MAESTRO_CONFIG__) {
+        connect();
+      } else {
+        // Config not ready, retry after a short delay
+        webLogger.warn('Config not ready, retrying connection in 100ms', 'Mobile');
+        setTimeout(attemptConnect, 100);
+      }
+    };
+
+    // On mobile Safari, the document may not be fully ready even when React mounts
+    // Use a small delay to ensure everything is initialized
+    if (document.readyState === 'complete') {
+      setTimeout(attemptConnect, 50);
+    } else {
+      // Wait for page to fully load
+      const onLoad = () => {
+        setTimeout(attemptConnect, 50);
+      };
+      window.addEventListener('load', onLoad);
+      return () => window.removeEventListener('load', onLoad);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
