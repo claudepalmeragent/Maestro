@@ -208,7 +208,8 @@ async function parseSessionFile(
       // First line may not be metadata, continue parsing
     }
 
-    // Count messages and find first user message
+    // Count messages and find first assistant response (preferred) or user message (fallback)
+    let firstAssistantMessage = '';
     let firstUserMessage = '';
     let userMessageCount = 0;
     let assistantMessageCount = 0;
@@ -246,6 +247,7 @@ async function parseSessionFile(
         if (entry.type === 'message') {
           if (entry.role === 'user') {
             userMessageCount++;
+            // Capture first user message as fallback preview
             if (!firstUserMessage && entry.content) {
               const text = extractTextFromContent(entry.content);
               if (text.trim()) {
@@ -261,6 +263,13 @@ async function parseSessionFile(
             }
           } else if (entry.role === 'assistant') {
             assistantMessageCount++;
+            // Capture first assistant message as preferred preview
+            if (!firstAssistantMessage && entry.content) {
+              const text = extractTextFromContent(entry.content);
+              if (text.trim()) {
+                firstAssistantMessage = text;
+              }
+            }
           }
         }
 
@@ -268,6 +277,7 @@ async function parseSessionFile(
         if (entry.type === 'response_item' && entry.payload?.type === 'message') {
           if (entry.payload.role === 'user') {
             userMessageCount++;
+            // Capture first user message as fallback preview
             if (!firstUserMessage && entry.payload.content) {
               const text = extractTextFromContent(entry.payload.content);
               if (text.trim()) {
@@ -283,6 +293,13 @@ async function parseSessionFile(
             }
           } else if (entry.payload.role === 'assistant') {
             assistantMessageCount++;
+            // Capture first assistant message as preferred preview
+            if (!firstAssistantMessage && entry.payload.content) {
+              const text = extractTextFromContent(entry.payload.content);
+              if (text.trim()) {
+                firstAssistantMessage = text;
+              }
+            }
           }
         }
 
@@ -290,8 +307,9 @@ async function parseSessionFile(
         if (entry.type === 'item.completed' && entry.item) {
           if (entry.item.type === 'agent_message') {
             assistantMessageCount++;
-            if (!firstUserMessage && entry.item.text) {
-              firstUserMessage = entry.item.text;
+            // Capture first agent message as preferred preview
+            if (!firstAssistantMessage && entry.item.text) {
+              firstAssistantMessage = entry.item.text;
             }
           }
         }
@@ -314,6 +332,9 @@ async function parseSessionFile(
       }
     }
 
+    // Use assistant response as preview if available, otherwise fall back to user message
+    const previewMessage = firstAssistantMessage || firstUserMessage;
+
     const messageCount = userMessageCount + assistantMessageCount;
 
     const startTime = new Date(firstTimestamp).getTime();
@@ -325,7 +346,7 @@ async function parseSessionFile(
       projectPath: sessionProjectPath ? normalizeProjectPath(sessionProjectPath) : '',
       timestamp: firstTimestamp,
       modifiedAt: new Date(stats.mtimeMs).toISOString(),
-      firstMessage: firstUserMessage.slice(0, CODEX_SESSION_PARSE_LIMITS.FIRST_MESSAGE_PREVIEW_LENGTH),
+      firstMessage: previewMessage.slice(0, CODEX_SESSION_PARSE_LIMITS.FIRST_MESSAGE_PREVIEW_LENGTH),
       messageCount,
       sizeBytes: stats.size,
       // Note: costUsd omitted - Codex doesn't provide cost and pricing varies by model
