@@ -152,10 +152,10 @@ describe('Group Chat Modals', () => {
         expect(screen.getByText('Claude Code')).toBeInTheDocument();
       });
 
-      // Select the agent first
-      const agentButton = screen.getByText('Claude Code').closest('button');
-      expect(agentButton).not.toBeNull();
-      fireEvent.click(agentButton!);
+      // Select the agent first (the tile is now a div with role="button")
+      const agentTile = screen.getByText('Claude Code').closest('[role="button"]');
+      expect(agentTile).not.toBeNull();
+      fireEvent.click(agentTile!);
 
       // Click the Customize button to open config panel
       const customizeButton = screen.getByText('Customize');

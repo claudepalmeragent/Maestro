@@ -425,10 +425,18 @@ export function EditGroupChatModal({
                 const isSelected = selectedAgent === tile.id;
 
                 return (
-                  <button
+                  <div
                     key={tile.id}
+                    role="button"
+                    tabIndex={0}
                     onClick={() => setSelectedAgent(tile.id)}
-                    className="relative flex flex-col items-center p-4 pb-10 rounded-lg border-2 transition-all outline-none"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setSelectedAgent(tile.id);
+                      }
+                    }}
+                    className="relative flex flex-col items-center p-4 pb-10 rounded-lg border-2 transition-all outline-none cursor-pointer"
                     style={{
                       backgroundColor: isSelected
                         ? `${tile.brandColor}15`
@@ -485,7 +493,7 @@ export function EditGroupChatModal({
                         />
                       )}
                     </button>
-                  </button>
+                  </div>
                 );
               })}
             </div>
