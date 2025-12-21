@@ -39,9 +39,19 @@ import type { ToolType } from '../../shared/types';
 const LOG_CONTEXT = '[OpenCodeSessionStorage]';
 
 /**
- * OpenCode storage base directory
+ * Get OpenCode storage base directory (platform-specific)
+ * - Linux/macOS: ~/.local/share/opencode/storage
+ * - Windows: %APPDATA%\opencode\storage
  */
-const OPENCODE_STORAGE_DIR = path.join(os.homedir(), '.local', 'share', 'opencode', 'storage');
+function getOpenCodeStorageDir(): string {
+  if (process.platform === 'win32') {
+    const appData = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
+    return path.join(appData, 'opencode', 'storage');
+  }
+  return path.join(os.homedir(), '.local', 'share', 'opencode', 'storage');
+}
+
+const OPENCODE_STORAGE_DIR = getOpenCodeStorageDir();
 
 /**
  * OpenCode project metadata structure

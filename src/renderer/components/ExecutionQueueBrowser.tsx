@@ -283,7 +283,7 @@ export function ExecutionQueueBrowser({
           className="px-4 py-3 border-t text-xs"
           style={{ borderColor: theme.colors.border, color: theme.colors.textDim }}
         >
-          Items are processed sequentially per project to prevent file conflicts.
+          Drag and drop to reorder. Items are processed sequentially per project to prevent file conflicts.
         </div>
       </div>
     </div>

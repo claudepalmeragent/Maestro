@@ -41,9 +41,16 @@ import type { ToolType } from '../../shared/types';
 const LOG_CONTEXT = '[CodexSessionStorage]';
 
 /**
- * Codex storage base directory
+ * Get Codex sessions base directory (platform-specific)
+ * - Linux/macOS: ~/.codex/sessions
+ * - Windows: %USERPROFILE%\.codex\sessions (Codex uses dotfile convention on all platforms)
  */
-const CODEX_SESSIONS_DIR = path.join(os.homedir(), '.codex', 'sessions');
+function getCodexSessionsDir(): string {
+  // Codex CLI uses ~/.codex on all platforms (including Windows)
+  return path.join(os.homedir(), '.codex', 'sessions');
+}
+
+const CODEX_SESSIONS_DIR = getCodexSessionsDir();
 
 const CODEX_SESSION_CACHE_VERSION = 1;
 const CODEX_SESSION_CACHE_FILENAME = 'codex-sessions-cache.json';
