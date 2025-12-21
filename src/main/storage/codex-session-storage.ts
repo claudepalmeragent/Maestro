@@ -20,11 +20,11 @@
  * ```
  */
 
+import { app } from 'electron';
 import path from 'path';
 import os from 'os';
 import fs from 'fs/promises';
 import { logger } from '../utils/logger';
-import { execFileNoThrow } from '../utils/execFile';
 import type {
   AgentSessionStorage,
   AgentSessionInfo,
@@ -44,6 +44,9 @@ const LOG_CONTEXT = '[CodexSessionStorage]';
  * Codex storage base directory
  */
 const CODEX_SESSIONS_DIR = path.join(os.homedir(), '.codex', 'sessions');
+
+const CODEX_SESSION_CACHE_VERSION = 1;
+const CODEX_SESSION_CACHE_FILENAME = 'codex-sessions-cache.json';
 
 /**
  * Parse limits for session files
@@ -109,40 +112,63 @@ function extractTextFromContent(content: CodexMessageContent[] | undefined): str
   return textParts.join(' ');
 }
 
-
-/**
- * Get the git remote URL for a project path
- */
-async function getGitRemoteUrl(projectPath: string): Promise<string | null> {
-  try {
-    const result = await execFileNoThrow('git', ['remote', 'get-url', 'origin'], projectPath);
-    if (result.exitCode === 0 && result.stdout) {
-      return result.stdout.trim();
-    }
-  } catch {
-    // Not a git repo or no remote
-  }
-  return null;
+function extractCwdFromText(text: string): string | null {
+  const match = text.match(/<cwd>([^<]+)<\/cwd>/i);
+  return match ? match[1].trim() : null;
 }
 
-/**
- * Normalize git URL for comparison
- * Handles SSH vs HTTPS differences and trailing .git
- */
-function normalizeGitUrl(url: string | undefined): string {
-  if (!url) return '';
+function normalizeProjectPath(projectPath: string): string {
+  return path.resolve(projectPath);
+}
 
-  // Remove trailing .git
-  let normalized = url.replace(/\.git$/, '');
-
-  // Convert SSH to HTTPS format for comparison
-  // git@github.com:user/repo -> https://github.com/user/repo
-  const sshMatch = normalized.match(/^git@([^:]+):(.+)$/);
-  if (sshMatch) {
-    normalized = `https://${sshMatch[1]}/${sshMatch[2]}`;
+function isSessionForProject(sessionProjectPath: string, projectPath: string): boolean {
+  const normalizedSession = normalizeProjectPath(sessionProjectPath);
+  const normalizedProject = normalizeProjectPath(projectPath);
+  if (normalizedSession === normalizedProject) {
+    return true;
   }
+  const prefix = normalizedProject.endsWith(path.sep) ? normalizedProject : `${normalizedProject}${path.sep}`;
+  return normalizedSession.startsWith(prefix);
+}
 
-  return normalized.toLowerCase();
+interface CodexSessionCacheEntry {
+  session: AgentSessionInfo;
+  fileMtimeMs: number;
+}
+
+interface CodexSessionCache {
+  version: number;
+  lastProcessedAt: number;
+  sessions: Record<string, CodexSessionCacheEntry>;
+}
+
+function getCodexSessionCachePath(): string {
+  return path.join(app.getPath('userData'), 'stats-cache', CODEX_SESSION_CACHE_FILENAME);
+}
+
+async function loadCodexSessionCache(): Promise<CodexSessionCache | null> {
+  try {
+    const cachePath = getCodexSessionCachePath();
+    const content = await fs.readFile(cachePath, 'utf-8');
+    const cache = JSON.parse(content) as CodexSessionCache;
+    if (cache.version !== CODEX_SESSION_CACHE_VERSION) {
+      return null;
+    }
+    return cache;
+  } catch {
+    return null;
+  }
+}
+
+async function saveCodexSessionCache(cache: CodexSessionCache): Promise<void> {
+  try {
+    const cachePath = getCodexSessionCachePath();
+    const cacheDir = path.dirname(cachePath);
+    await fs.mkdir(cacheDir, { recursive: true });
+    await fs.writeFile(cachePath, JSON.stringify(cache), 'utf-8');
+  } catch (error) {
+    logger.warn('Failed to save Codex session cache', LOG_CONTEXT, { error });
+  }
 }
 
 /**
@@ -151,7 +177,6 @@ function normalizeGitUrl(url: string | undefined): string {
 async function parseSessionFile(
   filePath: string,
   sessionId: string,
-  projectPath: string,
   stats: { size: number; mtimeMs: number }
 ): Promise<AgentSessionInfo | null> {
   try {
@@ -185,6 +210,7 @@ async function parseSessionFile(
     let totalCachedTokens = 0;
     let firstTimestamp = timestamp;
     let lastTimestamp = timestamp;
+    let sessionProjectPath: string | null = null;
 
     for (let i = 0; i < lines.length; i++) {
       try {
@@ -198,6 +224,17 @@ async function parseSessionFile(
           totalCachedTokens += entry.usage.cached_input_tokens || 0;
         }
 
+        // Handle Codex "event_msg" usage stats
+        if (entry.type === 'event_msg' && entry.payload?.type === 'token_count') {
+          const usage = entry.payload.info?.total_token_usage;
+          if (usage) {
+            totalInputTokens += usage.input_tokens || 0;
+            totalOutputTokens += usage.output_tokens || 0;
+            totalOutputTokens += usage.reasoning_output_tokens || 0;
+            totalCachedTokens += usage.cached_input_tokens || 0;
+          }
+        }
+
         // Handle message entries
         if (entry.type === 'message') {
           if (entry.role === 'user') {
@@ -208,7 +245,36 @@ async function parseSessionFile(
                 firstUserMessage = text;
               }
             }
+            if (!sessionProjectPath && entry.content) {
+              const text = extractTextFromContent(entry.content);
+              const cwd = extractCwdFromText(text);
+              if (cwd) {
+                sessionProjectPath = cwd;
+              }
+            }
           } else if (entry.role === 'assistant') {
+            assistantMessageCount++;
+          }
+        }
+
+        // Handle response_item entries (newer Codex format)
+        if (entry.type === 'response_item' && entry.payload?.type === 'message') {
+          if (entry.payload.role === 'user') {
+            userMessageCount++;
+            if (!firstUserMessage && entry.payload.content) {
+              const text = extractTextFromContent(entry.payload.content);
+              if (text.trim()) {
+                firstUserMessage = text;
+              }
+            }
+            if (!sessionProjectPath && entry.payload.content) {
+              const text = extractTextFromContent(entry.payload.content);
+              const cwd = extractCwdFromText(text);
+              if (cwd) {
+                sessionProjectPath = cwd;
+              }
+            }
+          } else if (entry.payload.role === 'assistant') {
             assistantMessageCount++;
           }
         }
@@ -249,7 +315,7 @@ async function parseSessionFile(
 
     return {
       sessionId: metadata?.id || sessionId,
-      projectPath,
+      projectPath: sessionProjectPath ? normalizeProjectPath(sessionProjectPath) : '',
       timestamp: firstTimestamp,
       modifiedAt: new Date(stats.mtimeMs).toISOString(),
       firstMessage: firstUserMessage.slice(0, CODEX_SESSION_PARSE_LIMITS.FIRST_MESSAGE_PREVIEW_LENGTH),
@@ -354,72 +420,65 @@ export class CodexSessionStorage implements AgentSessionStorage {
     return sessionFiles;
   }
 
-  /**
-   * Check if a session belongs to a project based on git repository URL
-   */
-  private async sessionMatchesProject(
-    sessionFilePath: string,
-    projectGitUrl: string | null
-  ): Promise<boolean> {
-    if (!projectGitUrl) {
-      // If project has no git remote, we can't filter sessions by git URL
-      // Return false to avoid showing unrelated sessions
-      return false;
-    }
-
-    try {
-      const content = await fs.readFile(sessionFilePath, 'utf-8');
-      const firstLine = content.split('\n')[0];
-
-      if (!firstLine) return false;
-
-      const metadata = JSON.parse(firstLine) as CodexSessionMetadata;
-
-      if (metadata.git?.repository_url) {
-        const sessionGitUrl = normalizeGitUrl(metadata.git.repository_url);
-        const normalizedProjectUrl = normalizeGitUrl(projectGitUrl);
-        return sessionGitUrl === normalizedProjectUrl;
-      }
-
-      // No git info in session metadata - can't determine match
-      return false;
-    } catch {
-      return false;
-    }
-  }
-
   async listSessions(projectPath: string): Promise<AgentSessionInfo[]> {
-    const projectGitUrl = await getGitRemoteUrl(projectPath);
     const allSessionFiles = await this.findAllSessionFiles();
 
-    if (allSessionFiles.length === 0) {
-      logger.info(`No Codex sessions found`, LOG_CONTEXT);
-      return [];
-    }
+    const cache = (await loadCodexSessionCache()) || {
+      version: CODEX_SESSION_CACHE_VERSION,
+      lastProcessedAt: 0,
+      sessions: {},
+    };
 
-    // Filter and parse sessions that match the project
     const sessions: AgentSessionInfo[] = [];
+    const currentFilePaths = new Set<string>();
+    let cacheUpdated = false;
 
     for (const { filePath, filename } of allSessionFiles) {
-      // Check if session matches project
-      const matches = await this.sessionMatchesProject(filePath, projectGitUrl);
-      if (!matches) continue;
-
-      const sessionId = extractSessionIdFromFilename(filename) || filename;
+      currentFilePaths.add(filePath);
+      let stats: { size: number; mtimeMs: number };
 
       try {
-        const stats = await fs.stat(filePath);
-        const session = await parseSessionFile(filePath, sessionId, projectPath, {
-          size: stats.size,
-          mtimeMs: stats.mtimeMs,
-        });
+        const fileStat = await fs.stat(filePath);
+        if (fileStat.size === 0) continue;
+        stats = { size: fileStat.size, mtimeMs: fileStat.mtimeMs };
+      } catch (error) {
+        logger.error(`Error stating Codex session file: ${filename}`, LOG_CONTEXT, error);
+        continue;
+      }
 
-        if (session) {
+      const cached = cache.sessions[filePath];
+      if (cached && cached.fileMtimeMs >= stats.mtimeMs) {
+        if (cached.session.projectPath && isSessionForProject(cached.session.projectPath, projectPath)) {
+          sessions.push(cached.session);
+        }
+        continue;
+      }
+
+      const sessionId = extractSessionIdFromFilename(filename) || filename;
+      const session = await parseSessionFile(filePath, sessionId, {
+        size: stats.size,
+        mtimeMs: stats.mtimeMs,
+      });
+
+      if (session) {
+        cache.sessions[filePath] = { session, fileMtimeMs: stats.mtimeMs };
+        cacheUpdated = true;
+        if (session.projectPath && isSessionForProject(session.projectPath, projectPath)) {
           sessions.push(session);
         }
-      } catch (error) {
-        logger.error(`Error processing Codex session file: ${filename}`, LOG_CONTEXT, error);
       }
+    }
+
+    for (const cachedPath of Object.keys(cache.sessions)) {
+      if (!currentFilePaths.has(cachedPath)) {
+        delete cache.sessions[cachedPath];
+        cacheUpdated = true;
+      }
+    }
+
+    if (cacheUpdated) {
+      cache.lastProcessedAt = Date.now();
+      await saveCodexSessionCache(cache);
     }
 
     // Sort by modified date (newest first)
@@ -427,10 +486,14 @@ export class CodexSessionStorage implements AgentSessionStorage {
       (a, b) => new Date(b.modifiedAt).getTime() - new Date(a.modifiedAt).getTime()
     );
 
-    logger.info(
-      `Found ${sessions.length} Codex sessions for project: ${projectPath}`,
-      LOG_CONTEXT
-    );
+    if (allSessionFiles.length === 0) {
+      logger.info(`No Codex sessions found`, LOG_CONTEXT);
+    } else {
+      logger.info(
+        `Found ${sessions.length} Codex sessions for project: ${projectPath}`,
+        LOG_CONTEXT
+      );
+    }
 
     return sessions;
   }
@@ -497,6 +560,24 @@ export class CodexSessionStorage implements AgentSessionStorage {
                 uuid: `codex-msg-${messageIndex}`,
               });
               messageIndex++;
+            }
+          }
+
+          // Handle response_item messages (newer Codex format)
+          if (entry.type === 'response_item' && entry.payload?.type === 'message') {
+            if (entry.payload.role === 'user' || entry.payload.role === 'assistant') {
+              const textContent = extractTextFromContent(entry.payload.content);
+
+              if (textContent) {
+                messages.push({
+                  type: entry.payload.role,
+                  role: entry.payload.role,
+                  content: textContent,
+                  timestamp: entry.timestamp || '',
+                  uuid: entry.payload.id || `codex-msg-${messageIndex}`,
+                });
+                messageIndex++;
+              }
             }
           }
 

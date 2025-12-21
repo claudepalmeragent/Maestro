@@ -674,6 +674,7 @@ contextBridge.exposeInMainWorld('maestro', {
     // Get all named sessions across all providers
     getAllNamedSessions: () =>
       ipcRenderer.invoke('agentSessions:getAllNamedSessions') as Promise<Array<{
+        agentId: string;
         agentSessionId: string;
         projectPath: string;
         sessionName: string;
@@ -989,6 +990,10 @@ contextBridge.exposeInMainWorld('maestro', {
       ipcRenderer.invoke('groupChat:clearHistory', id),
     getHistoryFilePath: (id: string) =>
       ipcRenderer.invoke('groupChat:getHistoryFilePath', id),
+
+    // Export
+    getImages: (id: string) =>
+      ipcRenderer.invoke('groupChat:getImages', id) as Promise<Record<string, string>>,
 
     // Events
     onMessage: (callback: (groupChatId: string, message: {

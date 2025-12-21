@@ -512,6 +512,47 @@ export function registerGroupChatHandlers(deps: GroupChatHandlerDependencies): v
     })
   );
 
+  // Get all images from a group chat as base64 data URLs
+  ipcMain.handle(
+    'groupChat:getImages',
+    withIpcErrorLogging(handlerOpts('getImages'), async (id: string): Promise<Record<string, string>> => {
+      const chat = await loadGroupChat(id);
+      if (!chat) {
+        throw new Error(`Group chat not found: ${id}`);
+      }
+
+      const images: Record<string, string> = {};
+      const fs = await import('fs/promises');
+      const path = await import('path');
+
+      try {
+        const files = await fs.readdir(chat.imagesDir);
+        const imageExtensions = ['.png', '.jpg', '.jpeg', '.gif', '.webp'];
+
+        for (const file of files) {
+          const ext = path.extname(file).toLowerCase();
+          if (imageExtensions.includes(ext)) {
+            const filePath = path.join(chat.imagesDir, file);
+            const buffer = await fs.readFile(filePath);
+            const mimeType = ext === '.png' ? 'image/png'
+              : ext === '.gif' ? 'image/gif'
+              : ext === '.webp' ? 'image/webp'
+              : 'image/jpeg';
+            images[file] = `data:${mimeType};base64,${buffer.toString('base64')}`;
+          }
+        }
+      } catch (error: unknown) {
+        // Directory might not exist or be empty, that's fine
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+          logger.warn(`Error reading images directory: ${error}`, LOG_CONTEXT);
+        }
+      }
+
+      logger.debug(`Retrieved ${Object.keys(images).length} images from ${id}`, LOG_CONTEXT);
+      return images;
+    })
+  );
+
   // ========== Event Emission Helpers ==========
   // These are stored in module scope for access by the exported emitters
 

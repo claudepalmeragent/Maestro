@@ -548,6 +548,7 @@ export function registerAgentSessionsHandlers(deps?: AgentSessionsHandlerDepende
       handlerOpts('getAllNamedSessions'),
       async (): Promise<
         Array<{
+          agentId: string;
           agentSessionId: string;
           projectPath: string;
           sessionName: string;
@@ -557,6 +558,7 @@ export function registerAgentSessionsHandlers(deps?: AgentSessionsHandlerDepende
       > => {
         // Aggregate named sessions from all providers that support it
         const allNamedSessions: Array<{
+          agentId: string;
           agentSessionId: string;
           projectPath: string;
           sessionName: string;
@@ -569,7 +571,10 @@ export function registerAgentSessionsHandlers(deps?: AgentSessionsHandlerDepende
           if ('getAllNamedSessions' in storage && typeof storage.getAllNamedSessions === 'function') {
             try {
               const sessions = await storage.getAllNamedSessions();
-              allNamedSessions.push(...sessions);
+              allNamedSessions.push(...sessions.map((session: { agentSessionId: string; projectPath: string; sessionName: string; starred?: boolean; lastActivityAt?: number }) => ({
+                agentId: storage.agentId,
+                ...session,
+              })));
             } catch (error) {
               logger.warn(
                 `Failed to get named sessions from ${storage.agentId}: ${error}`,

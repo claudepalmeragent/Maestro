@@ -361,6 +361,7 @@ interface MaestroAPI {
       }>;
     }) => void) => () => void;
     getAllNamedSessions: () => Promise<Array<{
+      agentId: string;
       agentSessionId: string;
       projectPath: string;
       sessionName: string;

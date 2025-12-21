@@ -11,6 +11,7 @@ import { formatTokensCompact, formatRelativeTime, formatCost } from '../utils/fo
 
 /** Named session from the store (not currently open) */
 interface NamedSession {
+  agentId: string;
   agentSessionId: string;
   projectPath: string;
   sessionName: string;
@@ -28,6 +29,7 @@ interface TabSwitcherModalProps {
   tabs: AITab[];
   activeTabId: string;
   projectRoot: string; // The initial project directory (used for Claude session storage)
+  agentId?: string;
   shortcut?: Shortcut;
   onTabSelect: (tabId: string) => void;
   onNamedSessionSelect: (agentSessionId: string, projectPath: string, sessionName: string, starred?: boolean) => void;
@@ -138,6 +140,7 @@ export function TabSwitcherModal({
   tabs,
   activeTabId,
   projectRoot,
+  agentId = 'claude-code',
   shortcut,
   onTabSelect,
   onNamedSessionSelect,
@@ -209,14 +212,14 @@ export function TabSwitcherModal({
       );
       // Then load all named sessions (including the ones we just synced)
       const sessions = await window.maestro.agentSessions.getAllNamedSessions();
-      setNamedSessions(sessions);
+      setNamedSessions(sessions.filter(session => session.agentId === agentId));
       setNamedSessionsLoaded(true);
     };
 
     if (!namedSessionsLoaded) {
       syncAndLoad();
     }
-  }, [namedSessionsLoaded, tabs, projectRoot]);
+  }, [namedSessionsLoaded, tabs, projectRoot, agentId]);
 
   // Track scroll position to determine which items are visible
   const handleScroll = () => {

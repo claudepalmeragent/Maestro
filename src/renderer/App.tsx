@@ -6971,6 +6971,7 @@ export default function MaestroConsole() {
           tabs={activeSession.aiTabs}
           activeTabId={activeSession.activeTabId}
           projectRoot={activeSession.projectRoot}
+          agentId={activeSession.toolType}
           shortcut={TAB_SHORTCUTS.tabSwitcher}
           onTabSelect={(tabId) => {
             setSessions(prev => prev.map(s =>

@@ -874,6 +874,7 @@ describe('TabSwitcherModal', () => {
 
       vi.mocked(window.maestro.agentSessions.getAllNamedSessions).mockResolvedValue([
         {
+          agentId: 'claude-code',
           agentSessionId: 'closed-123-abc-def-789',
           projectPath: '/test',
           sessionName: 'Closed Session',
@@ -933,6 +934,7 @@ describe('TabSwitcherModal', () => {
     it('shows "Closed" badge for closed named sessions', async () => {
       vi.mocked(window.maestro.agentSessions.getAllNamedSessions).mockResolvedValue([
         {
+          agentId: 'claude-code',
           agentSessionId: 'closed-session-id',
           projectPath: '/test',
           sessionName: 'Closed Session',
@@ -966,14 +968,22 @@ describe('TabSwitcherModal', () => {
     it('filters named sessions by current project', async () => {
       vi.mocked(window.maestro.agentSessions.getAllNamedSessions).mockResolvedValue([
         {
+          agentId: 'claude-code',
           agentSessionId: 'same-project-id',
           projectPath: '/test',
           sessionName: 'Same Project Session',
         },
         {
+          agentId: 'claude-code',
           agentSessionId: 'different-project-id',
           projectPath: '/other-project',
           sessionName: 'Different Project Session',
+        },
+        {
+          agentId: 'codex',
+          agentSessionId: 'other-agent-id',
+          projectPath: '/test',
+          sessionName: 'Other Agent Session',
         },
       ]);
 
@@ -998,6 +1008,7 @@ describe('TabSwitcherModal', () => {
       await waitFor(() => {
         expect(screen.getByText('Same Project Session')).toBeInTheDocument();
         expect(screen.queryByText('Different Project Session')).not.toBeInTheDocument();
+        expect(screen.queryByText('Other Agent Session')).not.toBeInTheDocument();
       });
     });
 
@@ -1007,12 +1018,14 @@ describe('TabSwitcherModal', () => {
 
       vi.mocked(window.maestro.agentSessions.getAllNamedSessions).mockResolvedValue([
         {
+          agentId: 'claude-code',
           agentSessionId: 'starred-closed-123',
           projectPath: '/test',
           sessionName: 'Starred Closed Session',
           starred: true,
         },
         {
+          agentId: 'claude-code',
           agentSessionId: 'unstarred-closed-456',
           projectPath: '/test',
           sessionName: 'Unstarred Closed Session',
@@ -1085,6 +1098,7 @@ describe('TabSwitcherModal', () => {
 
       vi.mocked(window.maestro.agentSessions.getAllNamedSessions).mockResolvedValue([
         {
+          agentId: 'claude-code',
           agentSessionId: 'starred-closed-abc',
           projectPath: '/test',
           sessionName: 'Starred Closed',
@@ -1561,6 +1575,7 @@ describe('TabSwitcherModal', () => {
     it('calls onNamedSessionSelect when clicking a closed named session', async () => {
       vi.mocked(window.maestro.agentSessions.getAllNamedSessions).mockResolvedValue([
         {
+          agentId: 'claude-code',
           agentSessionId: 'closed-abc-123',
           projectPath: '/test',
           sessionName: 'Closed Session',
