@@ -70,13 +70,8 @@ export const gitService = {
           const result = await window.maestro.git.diff(cwd);
           return { diff: result.stdout };
         }
-        // Get diff for each file and concatenate
-        const diffs: string[] = [];
-        for (const file of files) {
-          const result = await window.maestro.git.diff(cwd, file);
-          diffs.push(result.stdout);
-        }
-        return { diff: diffs.join('\n') };
+        // Otherwise get diff for specific files
+        return window.maestro.git.diff(cwd, files);
       },
       errorContext: 'Git diff',
       defaultValue: { diff: '' },

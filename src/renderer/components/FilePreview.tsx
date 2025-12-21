@@ -362,8 +362,7 @@ function MarkdownImage({
 // Remark plugin to support ==highlighted text== syntax
 function remarkHighlight() {
   return (tree: any) => {
-    // Use explicit typing to bypass strict unist-util-visit overload matching
-    (visit as Function)(tree, 'text', (node: any, index: number, parent: any) => {
+    visit(tree, 'text', (node: any, index: number, parent: any) => {
       const text = node.value;
       const regex = /==([^=]+)==/g;
 
@@ -1571,20 +1570,17 @@ export function FilePreview({ file, onClose, theme, markdownEditMode, setMarkdow
                     </a>
                   );
                 },
-                code: ({ node, className, children, ...props }: any) => {
+                code: ({ node, inline, className, children, ...props }) => {
                   const match = (className || '').match(/language-(\w+)/);
                   const language = match ? match[1] : 'text';
                   const codeContent = String(children).replace(/\n$/, '');
-                  // In newer react-markdown, inline is determined by whether there's a language class
-                  // Inline code has no className, fenced code blocks have language-xxx
-                  const isBlock = match != null;
 
                   // Handle mermaid code blocks
-                  if (isBlock && language === 'mermaid') {
+                  if (!inline && language === 'mermaid') {
                     return <MermaidRenderer chart={codeContent} theme={theme} />;
                   }
 
-                  return isBlock ? (
+                  return !inline && match ? (
                     <SyntaxHighlighter
                       language={language}
                       style={vscDarkPlus}
