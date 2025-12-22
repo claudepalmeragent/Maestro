@@ -148,7 +148,7 @@ export function SessionItem({
               className={`font-medium truncate ${variant === 'worktree' ? 'text-xs' : 'text-sm'}`}
               style={{ color: isActive ? theme.colors.textMain : theme.colors.textDim }}
             >
-              {variant === 'worktree' ? (session.worktreeBranch || session.name) : session.name}
+              {session.name}
             </span>
           </div>
         )}
