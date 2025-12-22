@@ -5,6 +5,9 @@ import * as path from 'path';
 let cloudflaredInstalledCache: boolean | null = null;
 let cloudflaredPathCache: string | null = null;
 
+let ghInstalledCache: boolean | null = null;
+let ghPathCache: string | null = null;
+
 /**
  * Build an expanded PATH that includes common binary installation locations.
  * This is necessary because packaged Electron apps don't inherit shell environment.
@@ -85,4 +88,62 @@ export function getCloudflaredPath(): string | null {
 
 export function clearCloudflaredCache(): void {
   cloudflaredInstalledCache = null;
+  cloudflaredPathCache = null;
+}
+
+/**
+ * Check if GitHub CLI (gh) is installed and cache the result.
+ * Uses platform-appropriate detection: 'where' on Windows, 'which' on Unix.
+ */
+export async function isGhInstalled(): Promise<boolean> {
+  // Return cached result if available
+  if (ghInstalledCache !== null) {
+    return ghInstalledCache;
+  }
+
+  // Use 'which' on macOS/Linux, 'where' on Windows
+  const command = process.platform === 'win32' ? 'where' : 'which';
+  const env = getExpandedEnv();
+  const result = await execFileNoThrow(command, ['gh'], undefined, env);
+
+  if (result.exitCode === 0 && result.stdout.trim()) {
+    ghInstalledCache = true;
+    // On Windows, 'where' can return multiple paths - take the first one
+    ghPathCache = result.stdout.trim().split('\n')[0];
+  } else {
+    ghInstalledCache = false;
+  }
+
+  return ghInstalledCache;
+}
+
+/**
+ * Get the cached path to the gh CLI binary.
+ * Returns null if gh is not installed or detection hasn't run yet.
+ */
+export function getGhPath(): string | null {
+  return ghPathCache;
+}
+
+/**
+ * Get the gh CLI path, auto-detecting if not already cached.
+ * Allows override with a custom path.
+ * @param customPath Optional custom path to gh binary
+ * @returns The path to use for gh commands
+ */
+export async function resolveGhPath(customPath?: string): Promise<string> {
+  if (customPath) {
+    return customPath;
+  }
+
+  // Ensure detection has run
+  await isGhInstalled();
+
+  // Return cached path or fallback to 'gh'
+  return ghPathCache || 'gh';
+}
+
+export function clearGhCache(): void {
+  ghInstalledCache = null;
+  ghPathCache = null;
 }

@@ -4,7 +4,7 @@ import path from 'path';
 import { execFileNoThrow } from '../../utils/execFile';
 import { logger } from '../../utils/logger';
 import { withIpcErrorLogging, createIpcHandler, CreateHandlerOptions } from '../../utils/ipcHandler';
-import { getExpandedEnv } from '../../utils/cliDetection';
+import { resolveGhPath } from '../../utils/cliDetection';
 import {
   parseGitBranches,
   parseGitTags,
@@ -489,25 +489,9 @@ export function registerGitHandlers(): void {
   ipcMain.handle('git:createPR', withIpcErrorLogging(
     handlerOpts('createPR'),
     async (worktreePath: string, baseBranch: string, title: string, body: string, ghPath?: string) => {
-      // Use custom path if provided
-      let ghCommand = ghPath || 'gh';
-
-      // Auto-detect gh location if no custom path provided
-      if (!ghPath) {
-        // Use platform-appropriate command: 'where' on Windows, 'which' on Unix
-        const command = process.platform === 'win32' ? 'where' : 'which';
-        const env = getExpandedEnv(); // Expanded PATH for finding binaries
-        const whichResult = await execFileNoThrow(command, ['gh'], undefined, env);
-
-        if (whichResult.exitCode === 0 && whichResult.stdout.trim()) {
-          // On Windows, 'where' can return multiple paths - take the first one
-          ghCommand = whichResult.stdout.trim().split('\n')[0];
-          logger.debug(`Auto-detected gh CLI at: ${ghCommand}`, LOG_CONTEXT);
-        } else {
-          // If detection fails, fall back to 'gh' and let execFileNoThrow handle the error
-          logger.debug('Auto-detection failed, using default "gh" command', LOG_CONTEXT);
-        }
-      }
+      // Resolve gh CLI path (uses cached detection or custom path)
+      const ghCommand = await resolveGhPath(ghPath);
+      logger.debug(`Using gh CLI at: ${ghCommand}`, LOG_CONTEXT);
 
       // First, push the current branch to origin
       const pushResult = await execFileNoThrow('git', ['push', '-u', 'origin', 'HEAD'], worktreePath);
@@ -542,26 +526,9 @@ export function registerGitHandlers(): void {
   ipcMain.handle('git:checkGhCli', withIpcErrorLogging(
     handlerOpts('checkGhCli'),
     async (ghPath?: string) => {
-      // Use custom path if provided
-      let ghCommand = ghPath || 'gh';
-      logger.debug(`Checking gh CLI (custom path: ${ghPath || 'auto-detect'})`, LOG_CONTEXT);
-
-      // Auto-detect gh location if no custom path provided
-      if (!ghPath) {
-        // Use platform-appropriate command: 'where' on Windows, 'which' on Unix
-        const command = process.platform === 'win32' ? 'where' : 'which';
-        const env = getExpandedEnv(); // Expanded PATH for finding binaries
-        const whichResult = await execFileNoThrow(command, ['gh'], undefined, env);
-
-        if (whichResult.exitCode === 0 && whichResult.stdout.trim()) {
-          // On Windows, 'where' can return multiple paths - take the first one
-          ghCommand = whichResult.stdout.trim().split('\n')[0];
-          logger.debug(`Auto-detected gh CLI at: ${ghCommand}`, LOG_CONTEXT);
-        } else {
-          // If detection fails, fall back to 'gh' and let execFileNoThrow handle the error
-          logger.debug('Auto-detection failed, using default "gh" command', LOG_CONTEXT);
-        }
-      }
+      // Resolve gh CLI path (uses cached detection or custom path)
+      const ghCommand = await resolveGhPath(ghPath);
+      logger.debug(`Checking gh CLI at: ${ghCommand}`, LOG_CONTEXT);
 
       // Check if gh is installed by running gh --version
       const versionResult = await execFileNoThrow(ghCommand, ['--version']);
