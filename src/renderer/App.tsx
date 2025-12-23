@@ -187,6 +187,7 @@ export default function MaestroConsole() {
     enterToSendAI, setEnterToSendAI,
     enterToSendTerminal, setEnterToSendTerminal,
     defaultSaveToHistory, setDefaultSaveToHistory,
+    defaultShowThinking, setDefaultShowThinking,
     leftSidebarWidth, setLeftSidebarWidth,
     rightPanelWidth, setRightPanelWidth,
     markdownEditMode, setMarkdownEditMode,
@@ -2208,14 +2209,14 @@ export default function MaestroConsole() {
     // Create a new tab in the session to start fresh
     setSessions(prev => prev.map(s => {
       if (s.id !== sessionId) return s;
-      const result = createTab(s);
+      const result = createTab(s, { saveToHistory: defaultSaveToHistory, showThinking: defaultShowThinking });
       if (!result) return s;
       return result.session;
     }));
 
     // Focus the input after creating new tab
     setTimeout(() => inputRef.current?.focus(), 0);
-  }, [sessions, handleClearAgentError]);
+  }, [sessions, handleClearAgentError, defaultSaveToHistory, defaultShowThinking]);
 
   // Handler to retry after error (recovery action)
   const handleRetryAfterError = useCallback((sessionId: string) => {
@@ -2302,6 +2303,7 @@ export default function MaestroConsole() {
     setSessions,
     setActiveSessionId,
     defaultSaveToHistory,
+    defaultShowThinking,
   });
 
   // Web broadcasting hook - handles external history change notifications
@@ -2604,6 +2606,7 @@ export default function MaestroConsole() {
     setAgentSessionsOpen,
     rightPanelRef,
     defaultSaveToHistory,
+    defaultShowThinking,
   });
 
   // Note: spawnBackgroundSynopsisRef and spawnAgentWithPromptRef are now updated in useAgentExecution hook
@@ -6134,7 +6137,7 @@ export default function MaestroConsole() {
     processMonitorOpen, logViewerOpen, createGroupModalOpen, confirmModalOpen, renameInstanceModalOpen,
     renameGroupModalOpen, activeSession, previewFile, fileTreeFilter, fileTreeFilterOpen, gitDiffPreview,
     gitLogOpen, lightboxImage, hasOpenLayers, hasOpenModal, visibleSessions, sortedSessions, groups,
-    bookmarksCollapsed, leftSidebarOpen, editingSessionId, editingGroupId, markdownEditMode, defaultSaveToHistory,
+    bookmarksCollapsed, leftSidebarOpen, editingSessionId, editingGroupId, markdownEditMode, defaultSaveToHistory, defaultShowThinking,
     setLeftSidebarOpen, setRightPanelOpen, addNewSession, deleteSession, setQuickActionInitialMode,
     setQuickActionOpen, cycleSession, toggleInputMode, setShortcutsHelpOpen, setSettingsModalOpen,
     setSettingsTab, setActiveRightTab, handleSetActiveRightTab, setActiveFocus, setBookmarksCollapsed, setGroups,
@@ -7600,7 +7603,7 @@ export default function MaestroConsole() {
           if (activeSession) {
             setSessions(prev => prev.map(s => {
               if (s.id !== activeSession.id) return s;
-              const result = createTab(s, { saveToHistory: defaultSaveToHistory });
+              const result = createTab(s, { saveToHistory: defaultSaveToHistory, showThinking: defaultShowThinking });
               if (!result) return s;
               return result.session;
             }));
@@ -7800,7 +7803,7 @@ export default function MaestroConsole() {
           // Use functional setState to compute from fresh state (avoids stale closure issues)
           setSessions(prev => prev.map(s => {
             if (s.id !== activeSession.id) return s;
-            const result = createTab(s, { saveToHistory: defaultSaveToHistory });
+            const result = createTab(s, { saveToHistory: defaultSaveToHistory, showThinking: defaultShowThinking });
             if (!result) return s;
             return result.session;
           }));
@@ -8388,6 +8391,8 @@ export default function MaestroConsole() {
         setEnterToSendTerminal={setEnterToSendTerminal}
         defaultSaveToHistory={defaultSaveToHistory}
         setDefaultSaveToHistory={setDefaultSaveToHistory}
+        defaultShowThinking={defaultShowThinking}
+        setDefaultShowThinking={setDefaultShowThinking}
         fontFamily={fontFamily}
         setFontFamily={setFontFamily}
         fontSize={fontSize}

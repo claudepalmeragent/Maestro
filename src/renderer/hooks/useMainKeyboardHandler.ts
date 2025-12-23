@@ -344,7 +344,7 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
         }
         if (ctx.isTabShortcut(e, 'newTab')) {
           e.preventDefault();
-          const result = ctx.createTab(ctx.activeSession, { saveToHistory: ctx.defaultSaveToHistory });
+          const result = ctx.createTab(ctx.activeSession, { saveToHistory: ctx.defaultSaveToHistory, showThinking: ctx.defaultShowThinking });
           if (result) {
             ctx.setSessions((prev: Session[]) => prev.map((s: Session) =>
               s.id === ctx.activeSession!.id ? result.session : s
