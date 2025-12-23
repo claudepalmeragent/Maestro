@@ -43,6 +43,7 @@ import { CreatePRModal, PRDetails } from './components/CreatePRModal';
 import { DeleteWorktreeModal } from './components/DeleteWorktreeModal';
 import { MergeSessionModal } from './components/MergeSessionModal';
 import { MergeProgressModal } from './components/MergeProgressModal';
+import { SendToAgentModal } from './components/SendToAgentModal';
 
 // Group Chat Components
 import { GroupChatPanel } from './components/GroupChatPanel';
@@ -96,7 +97,7 @@ import type {
   ToolType, SessionState, RightPanelTab, SettingsTab,
   FocusArea, LogEntry, Session, Group, AITab, UsageStats, QueuedItem, BatchRunConfig,
   AgentError, BatchRunState, GroupChat, GroupChatMessage, GroupChatState,
-  SpecKitCommand
+  SpecKitCommand, AgentConfig
 } from './types';
 import { THEMES } from './constants/themes';
 import { generateId } from './utils/ids';
@@ -477,6 +478,10 @@ export default function MaestroConsole() {
 
   // Merge Session Modal State
   const [mergeSessionModalOpen, setMergeSessionModalOpen] = useState(false);
+
+  // Send to Agent Modal State
+  const [sendToAgentModalOpen, setSendToAgentModalOpen] = useState(false);
+  const [sendToAgentAvailableAgents, setSendToAgentAvailableAgents] = useState<AgentConfig[]>([]);
 
   // Group Chat Modal State
   const [showNewGroupChatModal, setShowNewGroupChatModal] = useState(false);
@@ -2618,6 +2623,20 @@ export default function MaestroConsole() {
       );
     },
   });
+
+  // Fetch available agents when Send to Agent modal opens
+  useEffect(() => {
+    if (sendToAgentModalOpen) {
+      (async () => {
+        try {
+          const agents = await window.maestro.agents.detect();
+          setSendToAgentAvailableAgents(agents);
+        } catch (error) {
+          console.error('Failed to detect agents for Send to Agent modal:', error);
+        }
+      })();
+    }
+  }, [sendToAgentModalOpen]);
 
   // Combine built-in slash commands with custom AI commands, spec-kit commands, AND agent-specific commands for autocomplete
   const allSlashCommands = useMemo(() => {
@@ -6853,6 +6872,7 @@ export default function MaestroConsole() {
           activeGroupChatId={activeGroupChatId}
           hasActiveSessionCapability={hasActiveSessionCapability}
           onOpenMergeSession={() => setMergeSessionModalOpen(true)}
+          onOpenSendToAgent={() => setSendToAgentModalOpen(true)}
           onOpenCreatePR={(session) => {
             setCreatePRSession(session);
             setCreatePRModalOpen(true);
@@ -7440,6 +7460,30 @@ export default function MaestroConsole() {
           onCancel={() => {
             cancelMerge();
             setMergeSessionModalOpen(false);
+          }}
+        />
+      )}
+
+      {/* --- SEND TO AGENT MODAL --- */}
+      {sendToAgentModalOpen && activeSession && activeSession.activeTabId && (
+        <SendToAgentModal
+          theme={theme}
+          isOpen={sendToAgentModalOpen}
+          sourceSession={activeSession}
+          sourceTabId={activeSession.activeTabId}
+          availableAgents={sendToAgentAvailableAgents}
+          allSessions={sessions}
+          onClose={() => setSendToAgentModalOpen(false)}
+          onSend={async (targetAgentId, options) => {
+            // TODO: Implement transfer logic in Phase 3 Task 7 (Transfer Execution Logic)
+            // For now, just close the modal and show a placeholder toast
+            setSendToAgentModalOpen(false);
+            addToast({
+              type: 'info',
+              title: 'Send to Agent',
+              message: `Transfer to ${targetAgentId} - implementation pending`,
+            });
+            return { success: true };
           }}
         />
       )}

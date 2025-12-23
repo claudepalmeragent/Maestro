@@ -81,6 +81,8 @@ interface QuickActionsModalProps {
   hasActiveSessionCapability?: (capability: 'supportsSessionStorage' | 'supportsSlashCommands' | 'supportsContextMerge') => boolean;
   // Merge session
   onOpenMergeSession?: () => void;
+  // Send to agent
+  onOpenSendToAgent?: () => void;
   // Remote control
   onToggleRemoteControl?: () => void;
   // Worktree PR creation
@@ -101,7 +103,7 @@ export function QuickActionsModal(props: QuickActionsModalProps) {
     onRenameTab, onToggleReadOnlyMode, onToggleTabShowThinking, onOpenTabSwitcher, tabShortcuts, isAiMode, setPlaygroundOpen, onRefreshGitFileState,
     onDebugReleaseQueuedItem, markdownEditMode, onToggleMarkdownEditMode, setUpdateCheckModalOpen, openWizard, wizardGoToStep, setDebugWizardModalOpen, setDebugPackageModalOpen, startTour, setFuzzyFileSearchOpen, onEditAgent,
     groupChats, onNewGroupChat, onOpenGroupChat, onCloseGroupChat, onDeleteGroupChat, activeGroupChatId,
-    hasActiveSessionCapability, onOpenMergeSession, onOpenCreatePR
+    hasActiveSessionCapability, onOpenMergeSession, onOpenSendToAgent, onOpenCreatePR
   } = props;
 
   const [search, setSearch] = useState('');
@@ -297,6 +299,7 @@ export function QuickActionsModal(props: QuickActionsModalProps) {
     { id: 'processes', label: 'View System Processes', shortcut: shortcuts.processMonitor, action: () => { setProcessMonitorOpen(true); setQuickActionOpen(false); } },
     ...(activeSession && hasActiveSessionCapability?.('supportsSessionStorage') ? [{ id: 'agentSessions', label: `View Agent Sessions for ${activeSession.name}`, shortcut: shortcuts.agentSessions, action: () => { setActiveAgentSessionId(null); setAgentSessionsOpen(true); setQuickActionOpen(false); } }] : []),
     ...(activeSession && hasActiveSessionCapability?.('supportsContextMerge') && onOpenMergeSession ? [{ id: 'mergeSession', label: 'Merge with another session', shortcut: shortcuts.mergeSession, subtext: 'Combine contexts from multiple sessions', action: () => { onOpenMergeSession(); setQuickActionOpen(false); } }] : []),
+    ...(activeSession && hasActiveSessionCapability?.('supportsContextMerge') && onOpenSendToAgent ? [{ id: 'sendToAgent', label: 'Send to another agent', shortcut: shortcuts.sendToAgent, subtext: 'Transfer context to a different AI agent', action: () => { onOpenSendToAgent(); setQuickActionOpen(false); } }] : []),
     ...(activeSession?.isGitRepo ? [{ id: 'gitDiff', label: 'View Git Diff', shortcut: shortcuts.viewGitDiff, action: async () => {
       const cwd = activeSession.inputMode === 'terminal' ? (activeSession.shellCwd || activeSession.cwd) : activeSession.cwd;
       const diff = await gitService.getDiff(cwd);
