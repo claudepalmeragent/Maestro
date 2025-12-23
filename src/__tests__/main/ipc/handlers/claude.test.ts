@@ -1696,4 +1696,335 @@ not valid json at all
       expect(writtenContent.trim()).toBe('');
     });
   });
+
+  describe('error handling', () => {
+    describe('file permission errors', () => {
+      it('should handle EACCES permission error in listSessions gracefully', async () => {
+        const fs = await import('fs/promises');
+
+        // Simulate permission denied when accessing directory
+        const permissionError = new Error('EACCES: permission denied');
+        (permissionError as NodeJS.ErrnoException).code = 'EACCES';
+        vi.mocked(fs.default.access).mockRejectedValue(permissionError);
+
+        const handler = handlers.get('claude:listSessions');
+        const result = await handler!({} as any, '/restricted/project');
+
+        // Should return empty array instead of throwing
+        expect(result).toEqual([]);
+      });
+
+      it('should handle EACCES permission error in listSessionsPaginated gracefully', async () => {
+        const fs = await import('fs/promises');
+
+        const permissionError = new Error('EACCES: permission denied');
+        (permissionError as NodeJS.ErrnoException).code = 'EACCES';
+        vi.mocked(fs.default.access).mockRejectedValue(permissionError);
+
+        const handler = handlers.get('claude:listSessionsPaginated');
+        const result = await handler!({} as any, '/restricted/project', {});
+
+        expect(result).toEqual({
+          sessions: [],
+          hasMore: false,
+          totalCount: 0,
+          nextCursor: null,
+        });
+      });
+
+      it('should skip individual session files with permission errors in listSessions', async () => {
+        const fs = await import('fs/promises');
+
+        vi.mocked(fs.default.access).mockResolvedValue(undefined);
+        vi.mocked(fs.default.readdir).mockResolvedValue([
+          'session-readable.jsonl',
+          'session-restricted.jsonl',
+        ] as unknown as Awaited<ReturnType<typeof fs.default.readdir>>);
+
+        // First stat call succeeds, second fails with permission error
+        let statCallCount = 0;
+        vi.mocked(fs.default.stat).mockImplementation(async () => {
+          statCallCount++;
+          if (statCallCount === 2) {
+            const permissionError = new Error('EACCES: permission denied');
+            (permissionError as NodeJS.ErrnoException).code = 'EACCES';
+            throw permissionError;
+          }
+          return {
+            size: 1024,
+            mtime: new Date('2024-01-15T10:00:00Z'),
+          } as unknown as Awaited<ReturnType<typeof fs.default.stat>>;
+        });
+
+        const sessionContent = `{"type":"user","message":{"role":"user","content":"Test"},"timestamp":"2024-01-15T09:00:00Z","uuid":"uuid-1"}`;
+        vi.mocked(fs.default.readFile).mockResolvedValue(sessionContent);
+
+        const handler = handlers.get('claude:listSessions');
+        const result = await handler!({} as any, '/test/project');
+
+        // Should only return the readable session
+        expect(result).toHaveLength(1);
+        expect(result[0].sessionId).toBe('session-readable');
+      });
+
+      it('should handle EACCES when reading session file in readSessionMessages', async () => {
+        const fs = await import('fs/promises');
+
+        const permissionError = new Error('EACCES: permission denied');
+        (permissionError as NodeJS.ErrnoException).code = 'EACCES';
+        vi.mocked(fs.default.readFile).mockRejectedValue(permissionError);
+
+        const handler = handlers.get('claude:readSessionMessages');
+
+        await expect(handler!({} as any, '/test/project', 'session-restricted', {}))
+          .rejects.toThrow('EACCES');
+      });
+
+      it('should handle EACCES when writing in deleteMessagePair', async () => {
+        const fs = await import('fs/promises');
+
+        const sessionContent = `{"type":"user","message":{"role":"user","content":"Delete me"},"timestamp":"2024-01-15T09:00:00Z","uuid":"uuid-del"}
+{"type":"assistant","message":{"role":"assistant","content":"Response"},"timestamp":"2024-01-15T09:01:00Z","uuid":"uuid-resp"}`;
+
+        vi.mocked(fs.default.readFile).mockResolvedValue(sessionContent);
+
+        const permissionError = new Error('EACCES: permission denied, open for writing');
+        (permissionError as NodeJS.ErrnoException).code = 'EACCES';
+        vi.mocked(fs.default.writeFile).mockRejectedValue(permissionError);
+
+        const handler = handlers.get('claude:deleteMessagePair');
+
+        await expect(handler!({} as any, '/test/project', 'session-123', 'uuid-del'))
+          .rejects.toThrow('EACCES');
+      });
+
+      it('should handle permission error in searchSessions gracefully', async () => {
+        const fs = await import('fs/promises');
+
+        const permissionError = new Error('EACCES: permission denied');
+        (permissionError as NodeJS.ErrnoException).code = 'EACCES';
+        vi.mocked(fs.default.access).mockRejectedValue(permissionError);
+
+        const handler = handlers.get('claude:searchSessions');
+        const result = await handler!({} as any, '/restricted/project', 'search', 'all');
+
+        expect(result).toEqual([]);
+      });
+    });
+
+    describe('disk full errors (ENOSPC)', () => {
+      it('should throw appropriate error when disk is full during deleteMessagePair write', async () => {
+        const fs = await import('fs/promises');
+
+        const sessionContent = `{"type":"user","message":{"role":"user","content":"Delete me"},"timestamp":"2024-01-15T09:00:00Z","uuid":"uuid-del"}
+{"type":"assistant","message":{"role":"assistant","content":"Response"},"timestamp":"2024-01-15T09:01:00Z","uuid":"uuid-resp"}`;
+
+        vi.mocked(fs.default.readFile).mockResolvedValue(sessionContent);
+
+        const diskFullError = new Error('ENOSPC: no space left on device');
+        (diskFullError as NodeJS.ErrnoException).code = 'ENOSPC';
+        vi.mocked(fs.default.writeFile).mockRejectedValue(diskFullError);
+
+        const handler = handlers.get('claude:deleteMessagePair');
+
+        await expect(handler!({} as any, '/test/project', 'session-123', 'uuid-del'))
+          .rejects.toThrow('ENOSPC');
+      });
+
+      it('should propagate disk full error with appropriate error code', async () => {
+        const fs = await import('fs/promises');
+
+        const sessionContent = `{"type":"user","message":{"role":"user","content":"Test"},"timestamp":"2024-01-15T09:00:00Z","uuid":"uuid-1"}`;
+        vi.mocked(fs.default.readFile).mockResolvedValue(sessionContent);
+
+        const diskFullError = new Error('ENOSPC: no space left on device');
+        (diskFullError as NodeJS.ErrnoException).code = 'ENOSPC';
+        vi.mocked(fs.default.writeFile).mockRejectedValue(diskFullError);
+
+        const handler = handlers.get('claude:deleteMessagePair');
+
+        try {
+          await handler!({} as any, '/test/project', 'session-123', 'uuid-1');
+          expect.fail('Should have thrown');
+        } catch (error) {
+          expect((error as NodeJS.ErrnoException).code).toBe('ENOSPC');
+          expect((error as Error).message).toContain('no space left on device');
+        }
+      });
+    });
+
+    describe('network path unavailable errors', () => {
+      it('should handle ENOENT for network path in listSessions gracefully', async () => {
+        const fs = await import('fs/promises');
+
+        // Simulate network path not available (appears as ENOENT or similar)
+        const networkError = new Error('ENOENT: no such file or directory, access //network/share/project');
+        (networkError as NodeJS.ErrnoException).code = 'ENOENT';
+        vi.mocked(fs.default.access).mockRejectedValue(networkError);
+
+        const handler = handlers.get('claude:listSessions');
+        const result = await handler!({} as any, '//network/share/project');
+
+        // Should return empty array for unavailable network path
+        expect(result).toEqual([]);
+      });
+
+      it('should handle ETIMEDOUT for network operations gracefully', async () => {
+        const fs = await import('fs/promises');
+
+        vi.mocked(fs.default.access).mockResolvedValue(undefined);
+        vi.mocked(fs.default.readdir).mockResolvedValue([
+          'session-1.jsonl',
+        ] as unknown as Awaited<ReturnType<typeof fs.default.readdir>>);
+
+        vi.mocked(fs.default.stat).mockResolvedValue({
+          size: 1024,
+          mtime: new Date('2024-01-15T10:00:00Z'),
+        } as unknown as Awaited<ReturnType<typeof fs.default.stat>>);
+
+        // Simulate timeout when reading file from network share
+        const timeoutError = new Error('ETIMEDOUT: connection timed out');
+        (timeoutError as NodeJS.ErrnoException).code = 'ETIMEDOUT';
+        vi.mocked(fs.default.readFile).mockRejectedValue(timeoutError);
+
+        const handler = handlers.get('claude:listSessions');
+        const result = await handler!({} as any, '//network/share/project');
+
+        // Should return empty array when network operations fail
+        // (the session is skipped due to read failure)
+        expect(result).toEqual([]);
+      });
+
+      it('should handle EHOSTUNREACH for network operations in listSessionsPaginated', async () => {
+        const fs = await import('fs/promises');
+
+        // Simulate host unreachable
+        const hostUnreachableError = new Error('EHOSTUNREACH: host unreachable');
+        (hostUnreachableError as NodeJS.ErrnoException).code = 'EHOSTUNREACH';
+        vi.mocked(fs.default.access).mockRejectedValue(hostUnreachableError);
+
+        const handler = handlers.get('claude:listSessionsPaginated');
+        const result = await handler!({} as any, '//network/share/project', {});
+
+        expect(result).toEqual({
+          sessions: [],
+          hasMore: false,
+          totalCount: 0,
+          nextCursor: null,
+        });
+      });
+
+      it('should handle ECONNREFUSED for network operations in searchSessions', async () => {
+        const fs = await import('fs/promises');
+
+        // Simulate connection refused
+        const connRefusedError = new Error('ECONNREFUSED: connection refused');
+        (connRefusedError as NodeJS.ErrnoException).code = 'ECONNREFUSED';
+        vi.mocked(fs.default.access).mockRejectedValue(connRefusedError);
+
+        const handler = handlers.get('claude:searchSessions');
+        const result = await handler!({} as any, '//network/share/project', 'test query', 'all');
+
+        expect(result).toEqual([]);
+      });
+
+      it('should handle EIO (I/O error) for network paths in readSessionMessages', async () => {
+        const fs = await import('fs/promises');
+
+        // Simulate I/O error (common with network file systems)
+        const ioError = new Error('EIO: input/output error');
+        (ioError as NodeJS.ErrnoException).code = 'EIO';
+        vi.mocked(fs.default.readFile).mockRejectedValue(ioError);
+
+        const handler = handlers.get('claude:readSessionMessages');
+
+        await expect(handler!({} as any, '//network/share/project', 'session-123', {}))
+          .rejects.toThrow('EIO');
+      });
+    });
+
+    describe('combined error scenarios', () => {
+      it('should handle mixed errors when some sessions are readable and others fail', async () => {
+        const fs = await import('fs/promises');
+
+        vi.mocked(fs.default.access).mockResolvedValue(undefined);
+        vi.mocked(fs.default.readdir).mockResolvedValue([
+          'session-ok.jsonl',
+          'session-permission.jsonl',
+          'session-io-error.jsonl',
+          'session-ok2.jsonl',
+        ] as unknown as Awaited<ReturnType<typeof fs.default.readdir>>);
+
+        // All stat calls succeed
+        vi.mocked(fs.default.stat).mockResolvedValue({
+          size: 1024,
+          mtime: new Date('2024-01-15T10:00:00Z'),
+        } as unknown as Awaited<ReturnType<typeof fs.default.stat>>);
+
+        // Different errors for different files
+        vi.mocked(fs.default.readFile).mockImplementation(async (filePath) => {
+          const filename = String(filePath).split('/').pop() || '';
+
+          if (filename === 'session-permission.jsonl') {
+            const permError = new Error('EACCES: permission denied');
+            (permError as NodeJS.ErrnoException).code = 'EACCES';
+            throw permError;
+          }
+          if (filename === 'session-io-error.jsonl') {
+            const ioError = new Error('EIO: input/output error');
+            (ioError as NodeJS.ErrnoException).code = 'EIO';
+            throw ioError;
+          }
+
+          return `{"type":"user","message":{"role":"user","content":"Test message"},"timestamp":"2024-01-15T09:00:00Z","uuid":"uuid-1"}`;
+        });
+
+        const handler = handlers.get('claude:listSessions');
+        const result = await handler!({} as any, '/test/project');
+
+        // Should return only the two readable sessions
+        expect(result).toHaveLength(2);
+        const sessionIds = result.map((s: { sessionId: string }) => s.sessionId);
+        expect(sessionIds).toContain('session-ok');
+        expect(sessionIds).toContain('session-ok2');
+        expect(sessionIds).not.toContain('session-permission');
+        expect(sessionIds).not.toContain('session-io-error');
+      });
+
+      it('should handle stat failures mixed with successful stats', async () => {
+        const fs = await import('fs/promises');
+
+        vi.mocked(fs.default.access).mockResolvedValue(undefined);
+        vi.mocked(fs.default.readdir).mockResolvedValue([
+          'session-good.jsonl',
+          'session-stat-fail.jsonl',
+          'session-good2.jsonl',
+        ] as unknown as Awaited<ReturnType<typeof fs.default.readdir>>);
+
+        // Stat fails for the middle file
+        vi.mocked(fs.default.stat).mockImplementation(async (filePath) => {
+          const filename = String(filePath).split('/').pop() || '';
+          if (filename === 'session-stat-fail.jsonl') {
+            const statError = new Error('ENOENT: file disappeared');
+            (statError as NodeJS.ErrnoException).code = 'ENOENT';
+            throw statError;
+          }
+          return {
+            size: 1024,
+            mtime: new Date('2024-01-15T10:00:00Z'),
+          } as unknown as Awaited<ReturnType<typeof fs.default.stat>>;
+        });
+
+        const sessionContent = `{"type":"user","message":{"role":"user","content":"Test"},"timestamp":"2024-01-15T09:00:00Z","uuid":"uuid-1"}`;
+        vi.mocked(fs.default.readFile).mockResolvedValue(sessionContent);
+
+        const handler = handlers.get('claude:listSessionsPaginated');
+        const result = await handler!({} as any, '/test/project', {});
+
+        // Should only include sessions where stat succeeded
+        expect(result.totalCount).toBe(2);
+        expect(result.sessions).toHaveLength(2);
+      });
+    });
+  });
 });
