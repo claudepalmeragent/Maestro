@@ -165,7 +165,7 @@ function SessionPill({ session, isActive, onSelect, onLongPress }: SessionPillPr
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
       onTouchCancel={handleTouchCancel}
-      onClick={(e) => {
+      onClick={(_e) => {
         // For non-touch devices (mouse), use onClick
         // Touch devices will have already handled via touch events
         if (!('ontouchstart' in window)) {

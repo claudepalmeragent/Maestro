@@ -123,7 +123,7 @@ export function GroupChatRightPanel({
       setColorPreferences(prev => ({ ...prev, ...prefsToSave }));
       saveColorPreferences({ ...colorPreferences, ...prefsToSave });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [colorResult]);
 
   // Notify parent when colors are computed (use ref to prevent infinite loops)

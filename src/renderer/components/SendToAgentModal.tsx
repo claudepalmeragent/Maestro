@@ -14,7 +14,7 @@
  */
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { Search, ArrowRight, Check, X, Loader2, Circle } from 'lucide-react';
+import { Search, ArrowRight, X, Loader2, Circle } from 'lucide-react';
 import type { Theme, Session, AITab, ToolType } from '../types';
 import type { MergeResult } from '../types/contextMerge';
 import { fuzzyMatchWithScore } from '../utils/search';

@@ -586,7 +586,7 @@ export function TabBar({
   }, [onRequestRename]);
 
   // Count unread tabs for the filter toggle tooltip
-  const unreadCount = tabs.filter(t => t.hasUnread).length;
+  const _unreadCount = tabs.filter(t => t.hasUnread).length;
 
   // Filter tabs based on unread filter state
   // When filter is on, show: unread tabs + active tab + tabs with drafts

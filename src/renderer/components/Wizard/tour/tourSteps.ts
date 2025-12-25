@@ -13,7 +13,7 @@
  * replaced with the user's configured keyboard shortcut at runtime.
  */
 
-import type { TourStepConfig, TourUIAction } from './useTour';
+import type { TourStepConfig } from './useTour';
 import type { Shortcut } from '../../../types';
 import { formatShortcutKeys } from '../../../utils/shortcutFormatter';
 

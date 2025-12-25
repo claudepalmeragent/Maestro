@@ -379,7 +379,7 @@ export function CommandHistoryDrawer({
    * Handle touch end - determine if should snap open or closed
    */
   const handleTouchEnd = useCallback(
-    (e: React.TouchEvent) => {
+    (_e: React.TouchEvent) => {
       if (!isDragging.current) return;
       isDragging.current = false;
 

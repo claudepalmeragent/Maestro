@@ -146,7 +146,7 @@ export function CreatePRModal({
     try {
       const status = await window.maestro.git.checkGhCli();
       setGhCliStatus(status);
-    } catch (_err) {
+    } catch {
       setGhCliStatus({ installed: false, authenticated: false });
     }
   };
@@ -157,7 +157,7 @@ export function CreatePRModal({
       const lines = result.stdout.trim().split('\n').filter((line: string) => line.length > 0);
       setUncommittedCount(lines.length);
       setHasUncommittedChanges(lines.length > 0);
-    } catch (_err) {
+    } catch {
       setHasUncommittedChanges(false);
       setUncommittedCount(0);
     }

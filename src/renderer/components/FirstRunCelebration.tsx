@@ -165,7 +165,7 @@ export function FirstRunCelebration({
   // Fire confetti on mount
   useEffect(() => {
     fireConfetti();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, []);
 
   // Handle close with confetti

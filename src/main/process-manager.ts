@@ -844,7 +844,7 @@ export class ProcessManager extends EventEmitter {
                     this.emit('usage', sessionId, usageStats);
                   }
                 }
-              } catch (_e) {
+              } catch {
                 // If it's not valid JSON, emit as raw text
                 this.emit('data', sessionId, line);
               }

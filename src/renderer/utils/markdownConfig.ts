@@ -325,7 +325,7 @@ export function createMarkdownComponents(options: MarkdownComponentsOptions): Pa
     strong: ({ children }: any) => React.createElement('strong', null, withHighlight(children)),
     em: ({ children }: any) => React.createElement('em', null, withHighlight(children)),
     // Code block with syntax highlighting and custom language support
-    code: ({ node, inline, className, children, ...props }: any) => {
+    code: ({ node: _node, inline, className, children, ...props }: any) => {
       const match = (className || '').match(/language-(\w+)/);
       const language = match ? match[1] : 'text';
       const codeContent = String(children).replace(/\n$/, '');
@@ -360,14 +360,14 @@ export function createMarkdownComponents(options: MarkdownComponentsOptions): Pa
 
   // Custom image renderer if provided
   if (imageRenderer) {
-    components.img = ({ node, src, alt, ...props }: any) => {
+    components.img = ({ node: _node, src, alt, ...props }: any) => {
       return React.createElement(imageRenderer, { src, alt, ...props });
     };
   }
 
   // Link handler - supports both internal file links and external links
   if (onFileClick || onExternalLinkClick) {
-    components.a = ({ node, href, children, ...props }: any) => {
+    components.a = ({ node: _node, href, children, ...props }: any) => {
       // Check for maestro-file:// protocol OR data-maestro-file attribute
       // (data attribute is fallback when rehype strips custom protocols)
       const dataFilePath = props['data-maestro-file'];

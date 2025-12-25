@@ -354,7 +354,7 @@ export function CustomThemeBuilder({
         } else {
           onImportError?.('Invalid theme file: missing colors object');
         }
-      } catch (_err) {
+      } catch {
         onImportError?.('Failed to parse theme file: invalid JSON format');
       }
     };

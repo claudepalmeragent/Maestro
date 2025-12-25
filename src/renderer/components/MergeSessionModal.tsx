@@ -813,7 +813,7 @@ export function MergeSessionModal({
                             style={{ borderColor: theme.colors.border }}
                             role="group"
                           >
-                            {items.map((item, itemIndex) => {
+                            {items.map((item, _itemIndex) => {
                               const flatIndex = filteredItems.indexOf(item);
                               const isSelected = flatIndex === selectedIndex;
                               const isTarget = selectedTarget?.tabId === item.tabId;

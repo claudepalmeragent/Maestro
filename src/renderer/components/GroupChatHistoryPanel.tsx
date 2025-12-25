@@ -297,7 +297,6 @@ function GroupChatActivityGraph({
 
           // Build stacked segments for each participant
           const segments: { name: string; percent: number; color: string }[] = [];
-          let runningTotal = 0;
           for (const name of participantOrder) {
             if (bucket[name]) {
               const segmentPercent = (bucket[name] / total) * 100;
@@ -306,7 +305,6 @@ function GroupChatActivityGraph({
                 percent: segmentPercent,
                 color: participantColors[name] || theme.colors.textDim,
               });
-              runningTotal += bucket[name];
             }
           }
 

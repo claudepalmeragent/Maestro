@@ -63,7 +63,7 @@ export const GroupChatInput = React.memo(function GroupChatInput({
   theme,
   state,
   onSend,
-  participants,
+  participants: _participants,
   sessions,
   groupChatId,
   draftMessage,

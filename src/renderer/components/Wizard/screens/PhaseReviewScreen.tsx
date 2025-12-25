@@ -23,7 +23,6 @@ import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import {
   Eye,
   Edit,
-  Image,
   Loader2,
   Rocket,
   Compass,
@@ -334,7 +333,7 @@ function DocumentEditor({
   onDocumentSelect: (index: number) => void;
   statsText: string;
 }): JSX.Element {
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const _fileInputRef = useRef<HTMLInputElement>(null);
   const [attachmentsExpanded, setAttachmentsExpanded] = useState(true);
 
   // Handle image paste
@@ -418,7 +417,7 @@ function DocumentEditor({
   );
 
   // Handle file input for manual image upload
-  const handleFileSelect = useCallback(
+  const _handleFileSelect = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       if (!file || !folderPath || !selectedFile) return;

@@ -67,7 +67,7 @@ export function useGroupManagement(
   deps: UseGroupManagementDeps
 ): UseGroupManagementReturn {
   const {
-    groups,
+    groups: _groups,
     setGroups,
     setSessions,
     draggingSessionId,

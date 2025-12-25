@@ -455,7 +455,7 @@ function buildWebSocketUrl(baseUrl?: string, sessionId?: string): string {
 export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketReturn {
   const {
     url: baseUrl,
-    token,
+    token: _token,
     autoReconnect = DEFAULT_OPTIONS.autoReconnect,
     maxReconnectAttempts = DEFAULT_OPTIONS.maxReconnectAttempts,
     reconnectDelay = DEFAULT_OPTIONS.reconnectDelay,

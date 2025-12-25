@@ -46,7 +46,7 @@ export function HistoryDetailModal({
   theme,
   entry,
   onClose,
-  onJumpToAgentSession,
+  onJumpToAgentSession: _onJumpToAgentSession,
   onResumeSession,
   onDelete,
   onUpdate,

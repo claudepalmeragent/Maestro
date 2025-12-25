@@ -137,7 +137,7 @@ export function KeyboardMasteryCelebration({
       timeoutsRef.current.forEach(clearTimeout);
       timeoutsRef.current = [];
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, []);
 
   // Handle close with confetti - use ref to avoid stale state

@@ -338,7 +338,7 @@ export function DirectorySelectionScreen({ theme }: DirectorySelectionScreenProp
   /**
    * Handle back button click
    */
-  const handleBack = useCallback(() => {
+  const _handleBack = useCallback(() => {
     previousStep();
   }, [previousStep]);
 

@@ -55,7 +55,7 @@ export function useAtMentionCompletion(session: Session | null): UseAtMentionCom
           const files: { name: string; type: 'file' | 'folder'; path: string }[] = [];
 
           // Traverse the Auto Run tree (similar to fileTree traversal)
-          const traverse = (nodes: AutoRunTreeNode[], currentPath = '') => {
+          const traverse = (nodes: AutoRunTreeNode[], _currentPath = '') => {
             for (const node of nodes) {
               // Auto Run tree already has the path property, but we need to add .md extension for files
               const displayPath = node.type === 'file' ? `${node.path}.md` : node.path;

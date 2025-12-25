@@ -587,7 +587,7 @@ export function CommandInputBar({
               overflowX: 'hidden',
               wordWrap: 'break-word',
             }}
-            onBlur={(e) => {
+            onBlur={(_e) => {
               // Delay collapse to allow click on send button
               setTimeout(() => {
                 if (!containerRef.current?.contains(document.activeElement)) {

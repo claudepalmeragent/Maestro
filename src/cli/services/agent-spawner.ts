@@ -536,7 +536,7 @@ export function readDocAndCountTasks(folderPath: string, filename: string): { co
       content,
       taskCount: matches ? matches.length : 0,
     };
-  } catch (_error) {
+  } catch {
     return { content: '', taskCount: 0 };
   }
 }
@@ -554,7 +554,7 @@ export function readDocAndGetTasks(folderPath: string, filename: string): { cont
       ? matches.map(m => m.replace(/^[\s]*-\s*\[\s*\]\s*/, '').trim())
       : [];
     return { content, tasks };
-  } catch (_error) {
+  } catch {
     return { content: '', tasks: [] };
   }
 }

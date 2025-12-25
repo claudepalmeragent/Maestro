@@ -95,7 +95,7 @@ export function LeaderboardRegistrationModal({
 
   // Polling state - generate clientToken once if not already persisted
   const [clientToken] = useState(() => existingRegistration?.clientToken || generateClientToken());
-  const [isPolling, setIsPolling] = useState(false);
+  const [_isPolling, setIsPolling] = useState(false);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Manual token entry state

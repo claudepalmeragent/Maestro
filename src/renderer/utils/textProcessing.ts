@@ -101,7 +101,7 @@ export const filterTextByLinesHelper = (
       });
       return filteredLines.join('\n');
     }
-  } catch (error) {
+  } catch {
     // Fall back to plain text search if regex is invalid
     const lowerQuery = query.toLowerCase();
     const filteredLines = lines.filter(line => {

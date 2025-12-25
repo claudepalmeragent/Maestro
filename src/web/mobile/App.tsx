@@ -26,7 +26,7 @@ import { DEFAULT_SLASH_COMMANDS, type SlashCommand } from './SlashCommandAutocom
 // CommandHistoryDrawer and RecentCommandChips removed for simpler mobile UI
 import { ResponseViewer, type ResponseItem } from './ResponseViewer';
 import { OfflineQueueBanner } from './OfflineQueueBanner';
-import { MessageHistory, type LogEntry } from './MessageHistory';
+import { MessageHistory } from './MessageHistory';
 import { AutoRunIndicator } from './AutoRunIndicator';
 import { TabBar } from './TabBar';
 import { TabSearchModal } from './TabSearchModal';
@@ -279,7 +279,7 @@ export default function MobileApp() {
   const {
     isSmallScreen,
     savedState,
-    savedScrollState,
+    savedScrollState: _savedScrollState,
     persistViewState,
     persistHistoryState,
     persistSessionSelection,
@@ -325,7 +325,7 @@ export default function MobileApp() {
   const {
     addUnread: addUnreadResponse,
     markAllRead: markAllResponsesRead,
-    unreadCount,
+    unreadCount: _unreadCount,
   } = useUnreadBadge({
     autoClearOnVisible: true, // Clear badge when user opens the app
     onCountChange: (count) => {
@@ -528,7 +528,7 @@ export default function MobileApp() {
         window.removeEventListener('load', onLoad);
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, []);
 
   // Update sendRef after WebSocket is initialized (for offline queue)
@@ -746,7 +746,7 @@ export default function MobileApp() {
   }, [sessions]);
 
   // Handle expanding response to full-screen viewer
-  const handleExpandResponse = useCallback((response: LastResponsePreview) => {
+  const _handleExpandResponse = useCallback((response: LastResponsePreview) => {
     setSelectedResponse(response);
 
     // Find the index of this response in allResponses

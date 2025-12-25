@@ -18,7 +18,7 @@ interface RenameGroupModalProps {
 export function RenameGroupModal(props: RenameGroupModalProps) {
   const {
     theme, groupId, groupName, setGroupName, groupEmoji, setGroupEmoji,
-    onClose, groups, setGroups
+    onClose, groups: _groups, setGroups
   } = props;
 
   const inputRef = useRef<HTMLInputElement>(null);

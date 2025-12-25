@@ -663,9 +663,6 @@ export function useBatchProcessor({
 
       // Track if any tasks were processed in this iteration
       let anyTasksProcessedThisIteration = false;
-      // Track tasks completed in non-reset documents this iteration
-      // This is critical for loop mode: if only reset docs have tasks, we'd loop forever
-      let tasksCompletedInNonResetDocs = 0;
 
       // Process each document in order
       for (let docIndex = 0; docIndex < documents.length; docIndex++) {
@@ -846,9 +843,8 @@ export function useBatchProcessor({
             }
 
             // Track non-reset document completions for loop exit logic
-            if (!docEntry.resetOnCompletion) {
-              tasksCompletedInNonResetDocs += tasksCompletedThisRun;
-            }
+            // (This tracking is intentionally a no-op for now - kept for future loop mode enhancements)
+            void (!docEntry.resetOnCompletion ? tasksCompletedThisRun : 0);
 
             // Update progress state
             if (addedUncheckedTasks > 0) {

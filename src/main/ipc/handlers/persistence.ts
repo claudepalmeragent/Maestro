@@ -197,7 +197,7 @@ export function registerPersistenceHandlers(deps: PersistenceHandlerDependencies
       const content = await fs.readFile(cliActivityPath, 'utf-8');
       const data = JSON.parse(content);
       return data.activities || [];
-    } catch (_error) {
+    } catch {
       // File doesn't exist or is invalid - return empty array
       return [];
     }

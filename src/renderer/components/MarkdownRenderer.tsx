@@ -225,7 +225,7 @@ export const MarkdownRenderer = memo(({ content, theme, onCopy, className = '', 
         remarkPlugins={remarkPlugins}
         rehypePlugins={allowRawHtml ? [rehypeRaw] : undefined}
         components={{
-          a: ({ node, href, children, ...props }) => {
+          a: ({ node: _node, href, children, ...props }) => {
             // Check for maestro-file:// protocol OR data-maestro-file attribute
             // (data attribute is fallback when rehype strips custom protocols)
             const dataFilePath = (props as any)['data-maestro-file'];
@@ -250,7 +250,7 @@ export const MarkdownRenderer = memo(({ content, theme, onCopy, className = '', 
               </a>
             );
           },
-          code: ({ node, inline, className, children, ...props }: any) => {
+          code: ({ node: _node, inline, className, children, ...props }: any) => {
             const match = (className || '').match(/language-(\w+)/);
             const language = match ? match[1] : 'text';
             const codeContent = String(children).replace(/\n$/, '');
@@ -268,7 +268,7 @@ export const MarkdownRenderer = memo(({ content, theme, onCopy, className = '', 
               </code>
             );
           },
-          img: ({ node, src, alt, ...props }: any) => {
+          img: ({ node: _node, src, alt, ...props }: any) => {
             // Use LocalImage component to handle file:// URLs via IPC
             // Extract width from data-maestro-width attribute if present
             const widthStr = props['data-maestro-width'];

@@ -8,9 +8,8 @@
  * - Handling agent-specific initialization
  */
 
-import type { Session, ToolType, ProcessConfig, AgentConfig } from '../types';
+import type { Session, ToolType, ProcessConfig } from '../types';
 import { createMergedSession } from './tabHelpers';
-import { generateId } from './ids';
 
 /**
  * Options for creating a session for a specific agent type.

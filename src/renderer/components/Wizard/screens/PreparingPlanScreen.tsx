@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import type { Theme } from '../../../types';
 import { useWizard } from '../WizardContext';
-import { phaseGenerator, AUTO_RUN_FOLDER_NAME, type CreatedFileInfo } from '../services/phaseGenerator';
+import { phaseGenerator, type CreatedFileInfo } from '../services/phaseGenerator';
 import { ScreenReaderAnnouncement } from '../ScreenReaderAnnouncement';
 import { getNextAustinFact, parseFactWithLinks, type FactSegment } from '../services/austinFacts';
 import { formatSize, formatElapsedTime } from '../../../../shared/formatters';
@@ -877,7 +877,7 @@ export function PreparingPlanScreen({
       // Already have documents - auto-advance to review
       nextStep();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [state.generatedDocuments.length]);
 
   // Cleanup on unmount - abort any in-progress generation

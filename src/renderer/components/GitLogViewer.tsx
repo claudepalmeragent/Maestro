@@ -88,7 +88,7 @@ export const GitLogViewer = memo(function GitLogViewer({ cwd, theme, onClose }: 
     try {
       const result = await window.maestro.git.show(cwd, hash);
       setSelectedCommitDiff(result.stdout);
-    } catch (err) {
+    } catch {
       setSelectedCommitDiff(null);
     } finally {
       setLoadingDiff(false);
@@ -358,7 +358,6 @@ export const GitLogViewer = memo(function GitLogViewer({ cwd, theme, onClose }: 
                         {entry.refs.map((ref, i) => {
                           const isTag = ref.startsWith('tag:');
                           const isBranch = !isTag && !ref.includes('/');
-                          const isRemote = ref.includes('/');
 
                           return (
                             <span

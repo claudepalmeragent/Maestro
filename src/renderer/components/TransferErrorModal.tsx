@@ -15,7 +15,7 @@
  * Based on AgentErrorModal patterns, adapted for transfer-specific errors.
  */
 
-import React, { useRef, useMemo, useEffect } from 'react';
+import React, { useRef, useMemo } from 'react';
 import {
   AlertCircle,
   RefreshCw,
@@ -272,7 +272,7 @@ function formatDetails(error: TransferError): string | null {
  */
 export function TransferErrorModal({
   theme,
-  isOpen,
+  isOpen: _isOpen,
   error,
   onRetry,
   onSkipGrooming,

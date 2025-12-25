@@ -616,7 +616,7 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
         previewScrollPos: previewRef.current?.scrollTop || 0
       });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- setMode is a state setter and is stable; omitted to avoid adding unnecessary deps
+     
   }, [mode, onStateChange]);
 
   // Toggle between edit and preview modes
@@ -653,7 +653,7 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
       setMode(modeBeforeAutoRunRef.current);
       modeBeforeAutoRunRef.current = null;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- mode/setMode intentionally omitted; effect should only trigger on isLocked change to switch between locked preview and restored mode
+     
   }, [isLocked]);
 
   // Restore cursor and scroll positions when component mounts
@@ -665,7 +665,7 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
     if (previewRef.current && initialPreviewScrollPos > 0) {
       previewRef.current.scrollTop = initialPreviewScrollPos;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- Initial positions intentionally omitted; should only run once on mount to restore saved state
+     
   }, []);
 
   // Restore scroll position after content changes cause ReactMarkdown to rebuild DOM
@@ -789,7 +789,7 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
       setTotalMatches(0);
       setCurrentMatchIndex(0);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- currentMatchIndex intentionally omitted; we only want to recalculate matches when search or content changes, not when navigating between matches
+     
   }, [searchQuery, localContent]);
 
   // Navigate to next search match

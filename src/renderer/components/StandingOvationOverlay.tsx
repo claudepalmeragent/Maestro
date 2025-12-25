@@ -112,7 +112,7 @@ export function StandingOvationOverlay({
   // Fire confetti on mount only - empty deps to run once
   useEffect(() => {
     fireConfetti();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, []);
 
   // Handle graceful close with confetti

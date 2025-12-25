@@ -357,7 +357,7 @@ export function registerSystemHandlers(deps: SystemHandlerDependencies): void {
     if (!fsSync.existsSync(targetPath)) {
       try {
         fsSync.mkdirSync(targetPath, { recursive: true });
-      } catch (_error) {
+      } catch {
         return { success: false, error: `Cannot create directory: ${targetPath}` };
       }
     }

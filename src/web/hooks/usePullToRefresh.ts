@@ -156,7 +156,7 @@ export function usePullToRefresh(options: UsePullToRefreshOptions): UsePullToRef
    * Handle touch end
    */
   const handleTouchEnd = useCallback(
-    async (e: React.TouchEvent) => {
+    async (_e: React.TouchEvent) => {
       if (!enabled || isRefreshing || !isPulling.current) {
         isPulling.current = false;
         return;

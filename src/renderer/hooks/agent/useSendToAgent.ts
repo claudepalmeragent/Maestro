@@ -23,7 +23,6 @@ import type { Session, AITab, LogEntry, ToolType } from '../../types';
 import type {
   MergeResult,
   GroomingProgress,
-  ContextSource,
   MergeRequest,
 } from '../../types/contextMerge';
 import type { SendToAgentOptions } from '../../components/SendToAgentModal';
@@ -35,7 +34,7 @@ import {
   getAgentDisplayName,
 } from '../../services/contextGroomer';
 import { extractTabContext } from '../../utils/contextExtractor';
-import { createMergedSession, getActiveTab } from '../../utils/tabHelpers';
+import { createMergedSession } from '../../utils/tabHelpers';
 import { classifyTransferError } from '../../components/TransferErrorModal';
 import { generateId } from '../../utils/ids';
 
@@ -126,7 +125,7 @@ function getSessionDisplayName(session: Session): string {
 /**
  * Get the display name for a tab
  */
-function getTabDisplayName(tab: AITab): string {
+function _getTabDisplayName(tab: AITab): string {
   if (tab.name) return tab.name;
   if (tab.agentSessionId) {
     return tab.agentSessionId.split('-')[0].toUpperCase();

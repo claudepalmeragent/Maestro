@@ -22,7 +22,7 @@ export const DEFAULT_BATCH_FLUSH_INTERVAL = 150;
 /**
  * Types of updates that can be batched
  */
-type UpdateType =
+type _UpdateType =
   | { type: 'appendLog'; sessionId: string; tabId: string | null; isAi: boolean; data: string; isStderr?: boolean }
   | { type: 'setStatus'; sessionId: string; tabId: string | null; status: SessionState }
   | { type: 'setTabStatus'; sessionId: string; tabId: string; status: 'idle' | 'busy' }
@@ -164,7 +164,7 @@ export function useBatchedSessionUpdates(
           let shellStdoutTimestamp = 0;
           let shellStderrTimestamp = 0;
 
-          for (const [key, logAcc] of acc.logAccumulators) {
+          for (const [_key, logAcc] of acc.logAccumulators) {
             const combinedData = logAcc.chunks.join('');
             if (!combinedData) continue;
 

@@ -22,7 +22,6 @@ export type {
 // Import for extension in this file
 import type {
   WorktreeConfig as BaseWorktreeConfig,
-  BatchRunConfig as BaseBatchRunConfig,
   BatchDocumentEntry,
   UsageStats,
   ToolType,

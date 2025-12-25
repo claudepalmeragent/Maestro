@@ -90,7 +90,7 @@ const AUTO_SUBMIT_DELAY = 50;
  */
 export function useSlashCommandAutocomplete({
   inputValue,
-  isControlled,
+  isControlled: _isControlled,
   onChange,
   onSubmit,
   inputRef,

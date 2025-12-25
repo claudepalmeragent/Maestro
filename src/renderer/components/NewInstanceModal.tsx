@@ -690,7 +690,7 @@ export function EditAgentModal({ isOpen, onClose, onSave, theme, session, existi
   const [customPath, setCustomPath] = useState('');
   const [customArgs, setCustomArgs] = useState('');
   const [customEnvVars, setCustomEnvVars] = useState<Record<string, string>>({});
-  const [customModel, setCustomModel] = useState('');
+  const [_customModel, setCustomModel] = useState('');
   const [refreshingAgent, setRefreshingAgent] = useState(false);
 
   const nameInputRef = useRef<HTMLInputElement>(null);

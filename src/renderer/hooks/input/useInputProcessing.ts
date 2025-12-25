@@ -1,5 +1,5 @@
 import { useCallback, useRef } from 'react';
-import type { Session, SessionState, LogEntry, QueuedItem, AITab, CustomAICommand, BatchRunState } from '../../types';
+import type { Session, SessionState, LogEntry, QueuedItem, CustomAICommand, BatchRunState } from '../../types';
 import { getActiveTab } from '../../utils/tabHelpers';
 import { generateId } from '../../utils/ids';
 import { substituteTemplateVariables } from '../../utils/templateVariables';
@@ -165,7 +165,7 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
                 // Ignore git errors
               }
             }
-            const substitutedPrompt = substituteTemplateVariables(matchingCustomCommand.prompt, {
+            substituteTemplateVariables(matchingCustomCommand.prompt, {
               session: activeSession,
               gitBranch,
             });

@@ -228,7 +228,7 @@ export function useKeyboardNavigation(
       const totalSessions = sessions.length;
 
       // Helper to check if a session is in a collapsed group
-      const isInCollapsedGroup = (session: Session) => {
+      const _isInCollapsedGroup = (session: Session) => {
         if (!session.groupId) return false;
         const group = currentGroups.find(g => g.id === session.groupId);
         return group?.collapsed ?? false;
@@ -404,7 +404,7 @@ export function useKeyboardNavigation(
     if (currentIndex !== -1) {
       setSelectedSidebarIndex(currentIndex);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   }, [activeSessionId]); // Intentionally excluding sortedSessions - see comment above
 
   return {

@@ -15,8 +15,8 @@
  */
 
 import type { ToolType } from '../../shared/types';
-import type { SummarizeRequest, SummarizeProgress, SummarizeResult } from '../types/contextMerge';
-import type { LogEntry, AITab, Session } from '../types';
+import type { SummarizeRequest, SummarizeProgress } from '../types/contextMerge';
+import type { LogEntry } from '../types';
 import { formatLogsForGrooming, parseGroomedOutput, estimateTextTokenCount } from '../utils/contextExtractor';
 import { contextSummarizePrompt } from '../../prompts';
 

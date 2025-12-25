@@ -20,18 +20,16 @@
  */
 
 import { useState, useCallback, useRef, useMemo } from 'react';
-import type { Session, AITab, LogEntry, ToolType } from '../../types';
+import type { Session, AITab, LogEntry } from '../../types';
 import type {
   MergeResult,
   GroomingProgress,
-  ContextSource,
   MergeRequest,
 } from '../../types/contextMerge';
 import type { MergeOptions } from '../../components/MergeSessionModal';
 import {
   ContextGroomingService,
   contextGroomingService,
-  type GroomingResult,
 } from '../../services/contextGroomer';
 import { extractTabContext } from '../../utils/contextExtractor';
 import { createMergedSession, getActiveTab } from '../../utils/tabHelpers';
@@ -148,7 +146,7 @@ function getSessionDisplayName(session: Session): string {
 /**
  * Get the display name for a tab
  */
-function getTabDisplayName(tab: AITab): string {
+function _getTabDisplayName(tab: AITab): string {
   if (tab.name) return tab.name;
   if (tab.agentSessionId) {
     return tab.agentSessionId.split('-')[0].toUpperCase();
@@ -161,9 +159,9 @@ function getTabDisplayName(tab: AITab): string {
  */
 function generateMergedSessionName(
   sourceSession: Session,
-  sourceTab: AITab,
+  _sourceTab: AITab,
   targetSession: Session,
-  targetTab: AITab
+  _targetTab: AITab
 ): string {
   const sourceName = getSessionDisplayName(sourceSession);
   const targetName = getSessionDisplayName(targetSession);
@@ -844,11 +842,6 @@ export function useMergeSessionWithSessions(
         }));
 
         // Log merge operation to history
-        const sourceNames = [
-          getSessionDisplayName(sourceSession),
-          getSessionDisplayName(targetSession),
-        ].filter((name, i, arr) => arr.indexOf(name) === i);
-
         try {
           await window.maestro.history.add({
             id: generateId(),

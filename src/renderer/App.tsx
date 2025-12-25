@@ -67,7 +67,6 @@ import {
   useActivityTracker,
   useNavigationHistory,
   useSessionNavigation,
-  useBatchedSessionUpdates,
   useSortedSessions,
   compareNamesIgnoringEmojis,
   useGroupManagement,
@@ -125,7 +124,7 @@ import { parseSynopsis } from '../shared/synopsis';
 // Note: GroupChat, GroupChatState are now imported via GroupChatContext; GroupChatMessage still used locally
 import type {
   ToolType, SessionState, RightPanelTab, SettingsTab,
-  FocusArea, LogEntry, Session, Group, AITab, UsageStats, QueuedItem, BatchRunConfig,
+  FocusArea, LogEntry, Session, AITab, UsageStats, QueuedItem, BatchRunConfig,
   AgentError, BatchRunState, GroupChatMessage,
   SpecKitCommand
 } from './types';
@@ -327,7 +326,7 @@ function MaestroConsoleInner() {
     batchedUpdater,
     activeSession,
     cyclePositionRef,
-    removedWorktreePaths, setRemovedWorktreePaths, removedWorktreePathsRef,
+    removedWorktreePaths: _removedWorktreePaths, setRemovedWorktreePaths, removedWorktreePathsRef,
   } = useSession();
 
   // Spec Kit commands (loaded from bundled prompts)
@@ -635,7 +634,7 @@ function MaestroConsoleInner() {
     if (previewFile !== null) {
       setPreviewFile(null);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [activeSessionId]);
 
   // Restore a persisted session by respawning its process
@@ -847,7 +846,7 @@ function MaestroConsoleInner() {
       }
     };
     loadSessionsAndGroups();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- Load once on mount; activeSessionId/setActiveSessionId are intentionally omitted to prevent reload loops
+     
   }, []);
 
   // Hide splash screen only when both settings and sessions have fully loaded
@@ -890,7 +889,7 @@ function MaestroConsoleInner() {
     }
   // autoRunStats.longestRunMs and getUnacknowledgedBadgeLevel intentionally omitted -
   // this effect runs once on startup to check for missed badges, not on every stats update
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   }, [settingsLoaded, sessionsLoaded]);
 
   // Check for unacknowledged badges when user returns to the app
@@ -974,7 +973,7 @@ function MaestroConsoleInner() {
     }
   // getUnacknowledgedKeyboardMasteryLevel intentionally omitted -
   // this effect runs once on startup to check for unacknowledged levels, not on function changes
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   }, [settingsLoaded, sessionsLoaded]);
 
   // Scan worktree directories on startup for sessions with worktreeConfig
@@ -1120,7 +1119,7 @@ function MaestroConsoleInner() {
     // Run once on startup with a small delay to let UI settle
     const timer = setTimeout(scanWorktreeConfigsOnStartup, 500);
     return () => clearTimeout(timer);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   }, [sessionsLoaded]); // Only run once when sessions are loaded
 
   // Check for updates on startup if enabled
@@ -2248,7 +2247,7 @@ function MaestroConsoleInner() {
       }
       thinkingChunkBuffer.clear();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- IPC subscription runs once on mount; refs/callbacks intentionally omitted to prevent re-subscription
+     
   }, []);
 
   // --- GROUP CHAT EVENT LISTENERS ---
@@ -2328,7 +2327,7 @@ function MaestroConsoleInner() {
       unsubParticipantState?.();
       unsubModeratorSessionId?.();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- IPC subscription for group chat events; setters from context are stable
+     
   }, [activeGroupChatId]);
 
   // Process group chat execution queue when state becomes idle
@@ -2563,7 +2562,7 @@ function MaestroConsoleInner() {
           ? (activeSession.shellCwd || activeSession.cwd)
           : activeSession.cwd)
       : '',
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- Using specific properties instead of full activeSession object to avoid unnecessary re-renders
+     
     [activeSession?.inputMode, activeSession?.shellCwd, activeSession?.cwd]
   );
 
@@ -3042,7 +3041,7 @@ function MaestroConsoleInner() {
     // The inputValue changes when we blur (syncAiInputToSession), but we don't want
     // to read it back into local state - that would cause a feedback loop.
     // We only need to load inputValue when switching TO a different tab.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [activeTab?.id]);
 
   // Input sync handlers (extracted to useInputSync hook)
@@ -3078,7 +3077,7 @@ function MaestroConsoleInner() {
       // Update ref to current session
       prevActiveSessionIdRef.current = activeSession.id;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [activeSession?.id]);
 
   // Use local state for responsive typing - no session state update on every keystroke
@@ -3091,7 +3090,7 @@ function MaestroConsoleInner() {
     if (!activeSession || activeSession.inputMode !== 'ai') return [];
     const activeTab = getActiveTab(activeSession);
     return activeTab?.stagedImages || [];
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- Using specific properties instead of full activeSession object to avoid unnecessary re-renders
+     
   }, [activeSession?.aiTabs, activeSession?.activeTabId, activeSession?.inputMode]);
 
   // Set staged images on the active tab
@@ -3837,7 +3836,7 @@ function MaestroConsoleInner() {
         window.maestro.git.unwatchWorktreeDirectory(session.id);
       }
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   }, [
     // Re-run when worktreeConfig changes on any session
     worktreeConfigKey,
@@ -3995,7 +3994,7 @@ function MaestroConsoleInner() {
     return () => {
       clearInterval(intervalId);
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   }, [sessions.length, defaultSaveToHistory]); // Re-run when session count changes (removedWorktreePaths accessed via ref)
 
   // Handler to open batch runner modal
@@ -4370,7 +4369,7 @@ function MaestroConsoleInner() {
     if (activeSession && fileTreeContainerRef.current && activeSession.fileExplorerScrollPos !== undefined) {
       fileTreeContainerRef.current.scrollTop = activeSession.fileExplorerScrollPos;
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   }, [activeSessionId]); // Only restore on session switch, not on scroll position changes
 
   // Track navigation history when session or AI tab changes
@@ -4381,7 +4380,7 @@ function MaestroConsoleInner() {
         tabId: activeSession.inputMode === 'ai' && activeSession.aiTabs?.length > 0 ? activeSession.activeTabId : undefined
       });
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   }, [activeSessionId, activeSession?.activeTabId]); // Track session and tab changes
 
   // Reset shortcuts search when modal closes
@@ -6856,7 +6855,7 @@ function MaestroConsoleInner() {
     // Then apply hidden files filter to match what FileExplorerPanel displays
     const displayTree = filterHiddenFiles(filteredFileTree);
     setFlatFileList(flattenTree(displayTree, expandedSet));
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- Using specific properties instead of full activeSession object to avoid unnecessary re-renders
+     
   }, [activeSession?.fileExplorerExpanded, filteredFileTree, showHiddenFiles]);
 
   // Handle pending jump path from /jump command
@@ -6889,7 +6888,7 @@ function MaestroConsoleInner() {
     setSessions(prev => prev.map(s =>
       s.id === activeSession.id ? { ...s, pendingJumpPath: undefined } : s
     ));
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- Using specific properties instead of full activeSession object to avoid unnecessary re-renders
+     
   }, [activeSession?.pendingJumpPath, flatFileList, activeSession?.id]);
 
   // Scroll to selected file item when selection changes via keyboard

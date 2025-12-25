@@ -677,7 +677,7 @@ export class AgentDetector {
       }
 
       return { exists: false };
-    } catch (_error) {
+    } catch {
       return { exists: false };
     }
   }

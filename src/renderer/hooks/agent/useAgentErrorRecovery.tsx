@@ -27,7 +27,7 @@ import {
   Wifi,
   Terminal,
 } from 'lucide-react';
-import type { AgentError, AgentErrorType, ToolType } from '../../types';
+import type { AgentError, ToolType } from '../../types';
 import type { RecoveryAction } from '../../components/AgentErrorModal';
 
 export interface UseAgentErrorRecoveryOptions {

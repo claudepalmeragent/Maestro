@@ -9,7 +9,6 @@ import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 import { getActiveTab } from '../utils/tabHelpers';
 import { useDebouncedValue, useThrottledCallback } from '../hooks';
 import {
-  processCarriageReturns,
   processLogTextHelper,
   filterTextByLinesHelper,
   getCachedAnsiHtml,
@@ -858,9 +857,9 @@ interface TerminalOutputProps {
 
 export const TerminalOutput = forwardRef<HTMLDivElement, TerminalOutputProps>((props, ref) => {
   const {
-    session, theme, fontFamily, activeFocus, outputSearchOpen, outputSearchQuery,
+    session, theme, fontFamily, activeFocus: _activeFocus, outputSearchOpen, outputSearchQuery,
     setOutputSearchOpen, setOutputSearchQuery, setActiveFocus, setLightboxImage,
-    inputRef, logsEndRef, maxOutputLines, onDeleteLog, onRemoveQueuedItem, onInterrupt,
+    inputRef, logsEndRef, maxOutputLines, onDeleteLog, onRemoveQueuedItem, onInterrupt: _onInterrupt,
     audioFeedbackCommand, onScrollPositionChange, onAtBottomChange, initialScrollTop,
     markdownEditMode, setMarkdownEditMode, onReplayMessage,
     fileTree, cwd, projectRoot, onFileClick, onShowErrorDetails
@@ -879,7 +878,7 @@ export const TerminalOutput = forwardRef<HTMLDivElement, TerminalOutputProps>((p
   const expandedLogsRef = useRef(expandedLogs);
   expandedLogsRef.current = expandedLogs;
   // Counter to force re-render of LogItem when expanded state changes
-  const [expandedTrigger, setExpandedTrigger] = useState(0);
+  const [_expandedTrigger, setExpandedTrigger] = useState(0);
 
   // Track local filters per log entry (log ID -> filter query)
   const [localFilters, setLocalFilters] = useState<Map<string, string>>(new Map());
@@ -890,7 +889,7 @@ export const TerminalOutput = forwardRef<HTMLDivElement, TerminalOutputProps>((p
   const activeLocalFilterRef = useRef(activeLocalFilter);
   activeLocalFilterRef.current = activeLocalFilter;
   // Counter to force re-render when local filter state changes
-  const [filterTrigger, setFilterTrigger] = useState(0);
+  const [_filterTrigger, setFilterTrigger] = useState(0);
 
   // Track filter modes per log entry (log ID -> {mode: 'include'|'exclude', regex: boolean})
   const [filterModes, setFilterModes] = useState<Map<string, { mode: 'include' | 'exclude'; regex: boolean }>>(new Map());
@@ -902,7 +901,7 @@ export const TerminalOutput = forwardRef<HTMLDivElement, TerminalOutputProps>((p
   const deleteConfirmLogIdRef = useRef(deleteConfirmLogId);
   deleteConfirmLogIdRef.current = deleteConfirmLogId;
   // Counter to force re-render when delete confirmation changes
-  const [deleteConfirmTrigger, setDeleteConfirmTrigger] = useState(0);
+  const [_deleteConfirmTrigger, _setDeleteConfirmTrigger] = useState(0);
 
 
   // Copy to clipboard notification state

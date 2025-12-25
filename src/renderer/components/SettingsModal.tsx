@@ -244,7 +244,7 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 
   // Sync/storage location state
   const [defaultStoragePath, setDefaultStoragePath] = useState<string>('');
-  const [currentStoragePath, setCurrentStoragePath] = useState<string>('');
+  const [_currentStoragePath, setCurrentStoragePath] = useState<string>('');
   const [customSyncPath, setCustomSyncPath] = useState<string | undefined>(undefined);
   const [syncRestartRequired, setSyncRestartRequired] = useState(false);
   const [syncMigrating, setSyncMigrating] = useState(false);

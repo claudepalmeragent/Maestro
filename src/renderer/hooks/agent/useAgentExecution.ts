@@ -142,41 +142,35 @@ export function useAgentExecution(
         let responseText = '';
         let taskUsageStats: UsageStats | undefined;
 
-        // Cleanup functions will be set when listeners are registered
-        let cleanupData: (() => void) | undefined;
-        let cleanupSessionId: (() => void) | undefined;
-        let cleanupExit: (() => void) | undefined;
-        let cleanupUsage: (() => void) | undefined;
+        // Array to collect cleanup functions as listeners are registered
+        const cleanupFns: (() => void)[] = [];
 
         const cleanup = () => {
-          cleanupData?.();
-          cleanupSessionId?.();
-          cleanupExit?.();
-          cleanupUsage?.();
+          cleanupFns.forEach(fn => fn());
         };
 
         // Set up listeners for this specific agent run
-        cleanupData = window.maestro.process.onData((sid: string, data: string) => {
+        cleanupFns.push(window.maestro.process.onData((sid: string, data: string) => {
           if (sid === targetSessionId) {
             responseText += data;
           }
-        });
+        }));
 
-        cleanupSessionId = window.maestro.process.onSessionId((sid: string, capturedId: string) => {
+        cleanupFns.push(window.maestro.process.onSessionId((sid: string, capturedId: string) => {
           if (sid === targetSessionId) {
             agentSessionId = capturedId;
           }
-        });
+        }));
 
         // Capture usage stats for this specific task
-        cleanupUsage = window.maestro.process.onUsage((sid: string, usageStats) => {
+        cleanupFns.push(window.maestro.process.onUsage((sid: string, usageStats) => {
           if (sid === targetSessionId) {
             // Accumulate usage stats for this task (there may be multiple usage events per task)
             taskUsageStats = accumulateUsageStats(taskUsageStats, usageStats);
           }
-        });
+        }));
 
-        cleanupExit = window.maestro.process.onExit((sid: string) => {
+        cleanupFns.push(window.maestro.process.onExit((sid: string) => {
           if (sid === targetSessionId) {
             // Clean up listeners
             cleanup();
@@ -296,7 +290,7 @@ export function useAgentExecution(
               resolve({ success: true, response: responseText, agentSessionId, usageStats: taskUsageStats });
             }
           }
-        });
+        }));
 
         // Spawn the agent for batch processing
         // Use effectiveCwd which may be a worktree path for parallel execution
@@ -368,44 +362,39 @@ export function useAgentExecution(
         let responseText = '';
         let synopsisUsageStats: UsageStats | undefined;
 
-        let cleanupData: (() => void) | undefined;
-        let cleanupSessionId: (() => void) | undefined;
-        let cleanupExit: (() => void) | undefined;
-        let cleanupUsage: (() => void) | undefined;
+        // Array to collect cleanup functions as listeners are registered
+        const cleanupFns: (() => void)[] = [];
 
         const cleanup = () => {
-          cleanupData?.();
-          cleanupSessionId?.();
-          cleanupExit?.();
-          cleanupUsage?.();
+          cleanupFns.forEach(fn => fn());
         };
 
-        cleanupData = window.maestro.process.onData((sid: string, data: string) => {
+        cleanupFns.push(window.maestro.process.onData((sid: string, data: string) => {
           if (sid === targetSessionId) {
             responseText += data;
           }
-        });
+        }));
 
-        cleanupSessionId = window.maestro.process.onSessionId((sid: string, capturedId: string) => {
+        cleanupFns.push(window.maestro.process.onSessionId((sid: string, capturedId: string) => {
           if (sid === targetSessionId) {
             agentSessionId = capturedId;
           }
-        });
+        }));
 
         // Capture usage stats for this synopsis request
-        cleanupUsage = window.maestro.process.onUsage((sid: string, usageStats) => {
+        cleanupFns.push(window.maestro.process.onUsage((sid: string, usageStats) => {
           if (sid === targetSessionId) {
             // Accumulate usage stats (there may be multiple events)
             synopsisUsageStats = accumulateUsageStats(synopsisUsageStats, usageStats);
           }
-        });
+        }));
 
-        cleanupExit = window.maestro.process.onExit((sid: string) => {
+        cleanupFns.push(window.maestro.process.onExit((sid: string) => {
           if (sid === targetSessionId) {
             cleanup();
             resolve({ success: true, response: responseText, agentSessionId, usageStats: synopsisUsageStats });
           }
-        });
+        }));
 
         // Spawn with session resume - the IPC handler will use the agent's resumeArgs builder
         const commandToUse = agent.path || agent.command;

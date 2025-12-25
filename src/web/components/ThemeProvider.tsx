@@ -88,7 +88,7 @@ function getDefaultThemeForScheme(colorScheme: ColorSchemePreference): Theme {
 }
 
 // Keep backwards compatibility - export defaultTheme as alias for defaultDarkTheme
-const defaultTheme = defaultDarkTheme;
+const _defaultTheme = defaultDarkTheme;
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 

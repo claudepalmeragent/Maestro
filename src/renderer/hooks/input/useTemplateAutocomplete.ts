@@ -91,7 +91,7 @@ export function useTemplateAutocomplete({
 
     document.body.appendChild(mirror);
 
-    const textareaRect = textarea.getBoundingClientRect();
+    const _textareaRect = textarea.getBoundingClientRect();
     const spanRect = span.getBoundingClientRect();
     const mirrorRect = mirror.getBoundingClientRect();
 

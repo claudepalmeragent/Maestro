@@ -48,7 +48,7 @@
  * ```
  */
 
-import { useState, useCallback, useRef, useMemo } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { useThrottledCallback } from '../utils';
 
 export interface UseScrollPositionOptions {

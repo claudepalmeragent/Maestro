@@ -197,7 +197,7 @@ export function FileExplorerPanel(props: FileExplorerPanelProps) {
       layerIdRef.current = id;
       return () => unregisterLayer(id);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- setters (setFileTreeFilter, setFileTreeFilterOpen) intentionally omitted; layer registration should stay stable
+     
   }, [fileTreeFilterOpen, registerLayer, unregisterLayer]);
 
   // Update handler when dependencies change
@@ -347,7 +347,7 @@ export function FileExplorerPanel(props: FileExplorerPanelProps) {
         )}
       </div>
     );
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- Using specific session properties instead of full session object to avoid unnecessary re-renders
+     
   }, [session.fullPath, session.changedFiles, session.fileExplorerExpanded, session.id, previewFile?.path, activeFocus, activeRightTab, selectedFileIndex, theme, toggleFolder, setSessions, setSelectedFileIndex, setActiveFocus, handleFileClick, fileTreeFilter]);
 
   return (

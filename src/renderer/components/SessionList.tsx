@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Wand2, Plus, Settings, ChevronRight, ChevronDown, ChevronUp, X, Keyboard,
   Radio, Copy, ExternalLink, PanelLeftClose, PanelLeftOpen, Folder, Info, GitBranch, Bot, Clock,
@@ -788,7 +788,7 @@ export function SessionList(props: SessionListProps) {
     setLiveOverlayOpen,
     liveOverlayRef,
     cloudflaredInstalled,
-    cloudflaredChecked,
+    cloudflaredChecked: _cloudflaredChecked,
     tunnelStatus,
     tunnelUrl,
     tunnelError,
@@ -916,7 +916,7 @@ export function SessionList(props: SessionListProps) {
   };
 
   // Helper: Check if a session has worktree children
-  const hasWorktreeChildren = (sessionId: string): boolean => {
+  const _hasWorktreeChildren = (sessionId: string): boolean => {
     return sessions.some(s => s.parentSessionId === sessionId);
   };
 
@@ -924,7 +924,7 @@ export function SessionList(props: SessionListProps) {
   const renderCollapsedPill = (
     session: Session,
     keyPrefix: string,
-    onExpand: () => void
+    _onExpand: () => void
   ) => {
     const worktreeChildren = getWorktreeChildren(session.id);
     const allSessions = [session, ...worktreeChildren];
@@ -1187,7 +1187,7 @@ export function SessionList(props: SessionListProps) {
         setPreFilterBookmarksCollapsed(null);
       }
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   }, [sessionFilterOpen]);
 
   // Temporarily expand groups when filtering to show matching sessions
@@ -1227,7 +1227,7 @@ export function SessionList(props: SessionListProps) {
       setGroups(prev => prev.map(g => ({ ...g, collapsed: true })));
       setBookmarksCollapsed(false);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   }, [sessionFilter]);
 
   // Get the jump number (1-9, 0=10th) for a session based on its position in visibleSessions

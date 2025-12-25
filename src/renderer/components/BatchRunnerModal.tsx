@@ -220,7 +220,7 @@ export function BatchRunnerModal(props: BatchRunnerModalProps) {
         unregisterLayer(layerIdRef.current);
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- onClose/setShowSavePlaybookModal intentionally omitted; layer registration should stay stable, handler updates are handled in a separate effect
+     
   }, [registerLayer, unregisterLayer, showSavePlaybookModal, showDeleteConfirmModal, handleCancelDeletePlaybook]);
 
   // Update handler when dependencies change
@@ -236,7 +236,7 @@ export function BatchRunnerModal(props: BatchRunnerModalProps) {
         }
       });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- setShowSavePlaybookModal is a state setter (stable); intentionally omitted
+     
   }, [onClose, updateLayerHandler, showSavePlaybookModal, showDeleteConfirmModal, handleCancelDeletePlaybook]);
 
   // Focus textarea on mount
