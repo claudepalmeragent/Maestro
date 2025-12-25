@@ -6643,6 +6643,7 @@ export default function MaestroConsole() {
   // Recursive File Tree Renderer
 
   const handleFileClick = useCallback(async (node: any, path: string) => {
+    if (!activeSession) return; // Guard against null session
     if (node.type === 'file') {
       try {
         // Construct full file path
@@ -6683,7 +6684,7 @@ export default function MaestroConsole() {
         console.error('Failed to read file:', error);
       }
     }
-  }, [activeSession.fullPath, filePreviewHistory, filePreviewHistoryIndex, setConfirmModalMessage, setConfirmModalOnConfirm, setConfirmModalOpen, setFilePreviewHistory, setFilePreviewHistoryIndex, setPreviewFile, setActiveFocus]);
+  }, [activeSession, filePreviewHistory, filePreviewHistoryIndex, setConfirmModalMessage, setConfirmModalOnConfirm, setConfirmModalOpen, setFilePreviewHistory, setFilePreviewHistoryIndex, setPreviewFile, setActiveFocus]);
 
 
   const updateSessionWorkingDirectory = async () => {
