@@ -23,3 +23,13 @@ export type {
 // Visibility-aware time tracking hook
 export { useTimeTracking } from './useTimeTracking';
 export type { UseTimeTrackingOptions, UseTimeTrackingReturn } from './useTimeTracking';
+
+// Document processing hook
+export { useDocumentProcessor } from './useDocumentProcessor';
+export type {
+  DocumentProcessorConfig,
+  TaskResult,
+  DocumentReadResult,
+  DocumentProcessorCallbacks,
+  UseDocumentProcessorReturn,
+} from './useDocumentProcessor';
