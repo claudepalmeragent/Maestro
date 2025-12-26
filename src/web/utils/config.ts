@@ -14,6 +14,8 @@ export interface MaestroConfig {
   securityToken: string;
   /** Session ID if viewing a specific session, null for dashboard */
   sessionId: string | null;
+  /** Tab ID if viewing a specific tab within a session, null for default tab */
+  tabId: string | null;
   /** Base path for API requests (e.g., "/$TOKEN/api") */
   apiBase: string;
   /** WebSocket URL path (e.g., "/$TOKEN/ws") */
@@ -47,9 +49,14 @@ export function getMaestroConfig(): MaestroConfig {
   // Check if we're on a session route (e.g., /$TOKEN/session/$SESSION_ID)
   const sessionId = pathParts[1] === 'session' ? pathParts[2] || null : null;
 
+  // Extract tabId from query parameter (e.g., ?tabId=abc123)
+  const urlParams = new URLSearchParams(window.location.search);
+  const tabId = urlParams.get('tabId');
+
   return {
     securityToken: token,
     sessionId,
+    tabId,
     apiBase: `/${token}/api`,
     wsUrl: `/${token}/ws`,
   };
@@ -116,7 +123,30 @@ export function getDashboardUrl(): string {
 /**
  * Get the URL for a specific session
  */
-export function getSessionUrl(sessionId: string): string {
+export function getSessionUrl(sessionId: string, tabId?: string | null): string {
   const config = getMaestroConfig();
-  return `${window.location.origin}/${config.securityToken}/session/${sessionId}`;
+  const baseUrl = `${window.location.origin}/${config.securityToken}/session/${sessionId}`;
+  if (tabId) {
+    return `${baseUrl}?tabId=${encodeURIComponent(tabId)}`;
+  }
+  return baseUrl;
+}
+
+/**
+ * Get the current tab ID from URL (if specified)
+ */
+export function getCurrentTabId(): string | null {
+  return getMaestroConfig().tabId;
+}
+
+/**
+ * Update the URL to reflect current session and tab without page reload
+ * Uses history.replaceState to update the URL bar without navigation
+ */
+export function updateUrlForSessionTab(sessionId: string, tabId?: string | null): void {
+  const newUrl = getSessionUrl(sessionId, tabId);
+  // Only update if URL actually changed
+  if (window.location.href !== newUrl) {
+    window.history.replaceState({ sessionId, tabId }, '', newUrl);
+  }
 }

@@ -10,6 +10,8 @@ interface GitStatusWidgetProps {
   isGitRepo: boolean;
   theme: Theme;
   onViewDiff: () => void;
+  /** Use compact mode - just show file count without breakdown */
+  compact?: boolean;
 }
 
 /**
@@ -21,7 +23,7 @@ interface GitStatusWidgetProps {
  * The context provides detailed file changes (with line additions/deletions)
  * only for the active session. Non-active sessions will show basic file counts.
  */
-export function GitStatusWidget({ sessionId, isGitRepo, theme, onViewDiff }: GitStatusWidgetProps) {
+export function GitStatusWidget({ sessionId, isGitRepo, theme, onViewDiff, compact = false }: GitStatusWidgetProps) {
   // Tooltip hover state with timeout for smooth UX
   const [tooltipOpen, setTooltipOpen] = useState(false);
   const tooltipTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -73,28 +75,40 @@ export function GitStatusWidget({ sessionId, isGitRepo, theme, onViewDiff }: Git
         onClick={onViewDiff}
         className="flex items-center gap-2 px-2 py-1 rounded text-xs transition-colors hover:bg-white/5"
         style={{ color: theme.colors.textMain }}
+        title={compact ? `+${additions} −${deletions} ~${modified}` : undefined}
       >
-        <GitBranch className="w-3 h-3" />
-
-        {additions > 0 && (
-          <span className="flex items-center gap-0.5 text-green-500">
-            <Plus className="w-3 h-3" />
-            {additions}
+        {compact ? (
+          // Compact mode: just show file count
+          <span className="flex items-center gap-1">
+            <FileDiff className="w-3 h-3" style={{ color: theme.colors.textDim }} />
+            <span style={{ color: theme.colors.textDim }}>{statusData.fileCount}</span>
           </span>
-        )}
+        ) : (
+          // Full mode: show breakdown by type
+          <>
+            <GitBranch className="w-3 h-3" />
 
-        {deletions > 0 && (
-          <span className="flex items-center gap-0.5 text-red-500">
-            <Minus className="w-3 h-3" />
-            {deletions}
-          </span>
-        )}
+            {additions > 0 && (
+              <span className="flex items-center gap-0.5 text-green-500">
+                <Plus className="w-3 h-3" />
+                {additions}
+              </span>
+            )}
 
-        {modified > 0 && (
-          <span className="flex items-center gap-0.5 text-orange-500">
-            <FileEdit className="w-3 h-3" />
-            {modified}
-          </span>
+            {deletions > 0 && (
+              <span className="flex items-center gap-0.5 text-red-500">
+                <Minus className="w-3 h-3" />
+                {deletions}
+              </span>
+            )}
+
+            {modified > 0 && (
+              <span className="flex items-center gap-0.5 text-orange-500">
+                <FileEdit className="w-3 h-3" />
+                {modified}
+              </span>
+            )}
+          </>
         )}
       </button>
 

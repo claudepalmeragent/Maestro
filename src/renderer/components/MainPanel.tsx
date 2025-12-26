@@ -373,8 +373,9 @@ export const MainPanel = React.memo(forwardRef<MainPanelHandle, MainPanelProps>(
     };
   }, []);
 
-  // Responsive breakpoints for hiding widgets
+  // Responsive breakpoints for hiding/simplifying widgets
   const showCostWidget = panelWidth > 500;
+  const useCompactGitWidget = panelWidth < 700;
 
   // Git status from centralized context (replaces local polling)
   // The context handles polling for all sessions and provides detailed data for the active session
@@ -518,11 +519,14 @@ export const MainPanel = React.memo(forwardRef<MainPanelHandle, MainPanelProps>(
                         setGitLogOpen?.(true);
                       }
                     }}
+                    title={activeSession.isGitRepo && gitInfo?.branch ? gitInfo.branch : undefined}
                   >
                     {activeSession.isGitRepo ? (
                       <>
                         <GitBranch className="w-3 h-3" />
-                        {gitInfo?.branch || 'GIT'}
+                        <span className="max-w-[120px] truncate">
+                          {gitInfo?.branch || 'GIT'}
+                        </span>
                       </>
                     ) : 'LOCAL'}
                   </span>
@@ -672,6 +676,7 @@ export const MainPanel = React.memo(forwardRef<MainPanelHandle, MainPanelProps>(
                 isGitRepo={activeSession.isGitRepo}
                 theme={theme}
                 onViewDiff={handleViewGitDiff}
+                compact={useCompactGitWidget}
               />
 
             </div>

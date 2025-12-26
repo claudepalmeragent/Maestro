@@ -7,6 +7,7 @@
  * 3. Wiki-style with alias: `[[Folder/Note|Display Text]]` - links to Note but shows "Display Text"
  * 4. Absolute paths: `/Users/name/Project/file.md` (converted to relative if within projectRoot)
  * 5. Image embeds (Obsidian): `![[image.png]]` - renders image inline
+ * 6. Standard markdown links: `[Display Text](file.md)` - converted to internal links if file exists
  *
  * Links are validated against the provided fileTree before conversion.
  * Uses `maestro-file://` protocol for internal file preview handling.
@@ -517,6 +518,40 @@ export function remarkFileLinks(options: RemarkFileLinksOptions) {
         };
         parent.children.splice(index, 1, link);
         return index + 1;
+      }
+    });
+
+    // Process existing link nodes - convert relative file references to maestro-file:// protocol
+    // This handles standard markdown links like [Kira Systems](Kira Systems.md)
+    visit(tree, 'link', (node: Link) => {
+      const href = node.url;
+
+      // Skip if already processed, external URL, or anchor link
+      if (!href ||
+          href.startsWith('maestro-file://') ||
+          href.startsWith('http://') ||
+          href.startsWith('https://') ||
+          href.startsWith('mailto:') ||
+          href.startsWith('#') ||
+          href.startsWith('file://')) {
+        return;
+      }
+
+      // Decode URL-encoded characters (e.g., %20 -> space)
+      const decodedHref = decodeURIComponent(href);
+
+      // Try to resolve the reference as a file path
+      const resolvedPath = findClosestMatch(decodedHref, filenameIndex, allPaths, cwd);
+
+      if (resolvedPath) {
+        // Convert to maestro-file:// protocol
+        node.url = `maestro-file://${resolvedPath}`;
+        // Add data attribute for fallback (in case rehype strips custom protocols)
+        node.data = node.data || {};
+        (node.data as any).hProperties = {
+          ...((node.data as any).hProperties || {}),
+          'data-maestro-file': resolvedPath,
+        };
       }
     });
   };

@@ -51,7 +51,7 @@ export class StaticRoutes {
    * Serve the index.html file for SPA routes
    * Rewrites asset paths to include the security token
    */
-  private serveIndexHtml(reply: FastifyReply, sessionId?: string): void {
+  private serveIndexHtml(reply: FastifyReply, sessionId?: string, tabId?: string | null): void {
     if (!this.webAssetsPath) {
       reply.code(503).send({
         error: 'Service Unavailable',
@@ -84,6 +84,7 @@ export class StaticRoutes {
         window.__MAESTRO_CONFIG__ = {
           securityToken: "${this.securityToken}",
           sessionId: ${sessionId ? `"${sessionId}"` : 'null'},
+          tabId: ${tabId ? `"${tabId}"` : 'null'},
           apiBase: "/${this.securityToken}/api",
           wsUrl: "/${this.securityToken}/ws"
         };
@@ -151,10 +152,12 @@ export class StaticRoutes {
     });
 
     // Single session view - works for any valid session (security token protects access)
+    // Supports ?tabId=xxx query parameter for deep-linking to specific tabs
     server.get(`/${token}/session/:sessionId`, async (request, reply) => {
       const { sessionId } = request.params as { sessionId: string };
+      const { tabId } = request.query as { tabId?: string };
       // Note: Session validation happens in the frontend via the sessions list
-      this.serveIndexHtml(reply, sessionId);
+      this.serveIndexHtml(reply, sessionId, tabId || null);
     });
 
     // Catch-all for invalid tokens - redirect to GitHub

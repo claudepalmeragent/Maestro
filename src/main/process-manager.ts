@@ -403,8 +403,11 @@ export class ProcessManager extends EventEmitter {
 
           // Apply custom shell environment variables from user configuration
           if (shellEnvVars && Object.keys(shellEnvVars).length > 0) {
+            const homeDir = os.homedir();
             for (const [key, value] of Object.entries(shellEnvVars)) {
-              ptyEnv[key] = value;
+              // Expand tilde (~) to home directory - shells do this automatically,
+              // but environment variables passed programmatically need manual expansion
+              ptyEnv[key] = value.startsWith('~/') ? path.join(homeDir, value.slice(2)) : value;
             }
             logger.debug('Applied custom shell env vars to PTY', 'ProcessManager', {
               keys: Object.keys(shellEnvVars)
@@ -521,7 +524,9 @@ export class ProcessManager extends EventEmitter {
         // See: https://github.com/pedramamini/Maestro/issues/41
         if (customEnvVars && Object.keys(customEnvVars).length > 0) {
           for (const [key, value] of Object.entries(customEnvVars)) {
-            env[key] = value;
+            // Expand tilde (~) to home directory - shells do this automatically,
+            // but environment variables passed programmatically need manual expansion
+            env[key] = value.startsWith('~/') ? path.join(home, value.slice(2)) : value;
           }
           logger.debug('[ProcessManager] Applied custom env vars', 'ProcessManager', {
             sessionId,
@@ -1298,8 +1303,11 @@ export class ProcessManager extends EventEmitter {
 
       // Apply custom shell environment variables from user configuration
       if (shellEnvVars && Object.keys(shellEnvVars).length > 0) {
+        const homeDir = os.homedir();
         for (const [key, value] of Object.entries(shellEnvVars)) {
-          env[key] = value;
+          // Expand tilde (~) to home directory - shells do this automatically,
+          // but environment variables passed programmatically need manual expansion
+          env[key] = value.startsWith('~/') ? path.join(homeDir, value.slice(2)) : value;
         }
         logger.debug('[ProcessManager] Applied custom shell env vars to runCommand', 'ProcessManager', {
           keys: Object.keys(shellEnvVars)

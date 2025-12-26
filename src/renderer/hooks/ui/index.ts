@@ -34,3 +34,7 @@ export { useHoverTooltip } from './useHoverTooltip';
 // Theme styling utilities
 export { useThemeStyles } from './useThemeStyles';
 export type { UseThemeStylesDeps, UseThemeStylesReturn, ThemeColors } from './useThemeStyles';
+
+// App-level handlers (drag, file, folder operations)
+export { useAppHandlers } from './useAppHandlers';
+export type { UseAppHandlersDeps, UseAppHandlersReturn, FilePreview } from './useAppHandlers';

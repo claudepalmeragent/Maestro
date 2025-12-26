@@ -7,7 +7,7 @@
  * Phase 1 of App.tsx decomposition - see refactor-details-2.md for full plan.
  */
 
-import React, { createContext, useContext, useState, useCallback, useMemo, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useCallback, useMemo, ReactNode, Dispatch, SetStateAction } from 'react';
 import type { SettingsTab, Session } from '../types';
 import type { ConductorBadge } from '../constants/conductorBadges';
 import type { SerializableWizardState } from '../components/Wizard';
@@ -164,11 +164,11 @@ export interface ModalContextValue {
 
   // Batch Runner Modal
   batchRunnerModalOpen: boolean;
-  setBatchRunnerModalOpen: (open: boolean) => void;
+  setBatchRunnerModalOpen: Dispatch<SetStateAction<boolean>>;
 
   // Auto Run Setup Modal
   autoRunSetupModalOpen: boolean;
-  setAutoRunSetupModalOpen: (open: boolean) => void;
+  setAutoRunSetupModalOpen: Dispatch<SetStateAction<boolean>>;
 
   // Wizard Resume Modal
   wizardResumeModalOpen: boolean;

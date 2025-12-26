@@ -36,7 +36,7 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import type { Session } from './useSessions';
 import type { WebSocketState, AITabData, AutoRunState, CustomCommand } from './useWebSocket';
-import { buildApiUrl } from '../utils/config';
+import { buildApiUrl, getMaestroConfig, updateUrlForSessionTab } from '../utils/config';
 import { webLogger } from '../utils/logger';
 import type { Theme } from '../../shared/theme-types';
 
@@ -156,6 +156,7 @@ export interface UseMobileSessionManagementReturn {
  * - Active session/tab selection
  * - Session logs fetching
  * - WebSocket event handlers for session updates
+ * - URL synchronization for shareable links
  *
  * @param deps - Dependencies including saved state, network status, and callbacks
  * @returns Session state and handlers
@@ -176,10 +177,15 @@ export function useMobileSessionManagement(
     onAutoRunStateChange,
   } = deps;
 
-  // Session state
+  // Get URL-based session/tab from config (takes precedence over localStorage)
+  const config = getMaestroConfig();
+  const urlSessionId = config.sessionId;
+  const urlTabId = config.tabId;
+
+  // Session state - URL takes precedence over saved state
   const [sessions, setSessions] = useState<Session[]>([]);
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(savedActiveSessionId);
-  const [activeTabId, setActiveTabId] = useState<string | null>(savedActiveTabId);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(urlSessionId || savedActiveSessionId);
+  const [activeTabId, setActiveTabId] = useState<string | null>(urlTabId || savedActiveTabId);
 
   // Session logs state
   const [sessionLogs, setSessionLogs] = useState<SessionLogsState>({
@@ -205,6 +211,14 @@ export function useMobileSessionManagement(
   useEffect(() => {
     activeTabIdRef.current = activeTabId;
   }, [activeTabId]);
+
+  // Update URL to reflect current session and tab (for shareable links)
+  // Only update if we're in session mode (not dashboard)
+  useEffect(() => {
+    if (activeSessionId) {
+      updateUrlForSessionTab(activeSessionId, activeTabId);
+    }
+  }, [activeSessionId, activeTabId]);
 
   // Get active session object
   const activeSession = useMemo(() => {

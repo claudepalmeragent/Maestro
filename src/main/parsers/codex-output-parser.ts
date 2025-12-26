@@ -275,9 +275,11 @@ export class CodexOutputParser implements AgentOutputParser {
       case 'reasoning':
         // Reasoning shows model's thinking process
         // Emit as text but mark it as partial/streaming
+        // Format reasoning text: add line breaks before ** SECTION ** markers
+        // Codex uses this pattern to separate thinking stages
         return {
           type: 'text',
-          text: item.text || '',
+          text: this.formatReasoningText(item.text || ''),
           isPartial: true,
           raw: msg,
         };
@@ -322,6 +324,20 @@ export class CodexOutputParser implements AgentOutputParser {
           raw: msg,
         };
     }
+  }
+
+  /**
+   * Format reasoning text by adding line breaks before **section** markers
+   * Codex uses patterns like **Thinking**, **Planning**, **Executing** etc.
+   * to separate different stages of its thinking process
+   */
+  private formatReasoningText(text: string): string {
+    if (!text) {
+      return text;
+    }
+    // Match patterns like **some description** (bold markdown sections)
+    // Add a blank line before each section marker for better readability
+    return text.replace(/(\*\*[^*]+\*\*)/g, '\n\n$1');
   }
 
   /**

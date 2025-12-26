@@ -50,21 +50,27 @@ interface MaestroModeContextValue {
   isSession: boolean;
   /** Current session ID (if in session mode) */
   sessionId: string | null;
+  /** Current tab ID from URL (if specified) */
+  tabId: string | null;
   /** Security token for API/WS calls */
   securityToken: string;
   /** Navigate to dashboard */
   goToDashboard: () => void;
-  /** Navigate to a specific session */
-  goToSession: (sessionId: string) => void;
+  /** Navigate to a specific session (optionally with a specific tab) */
+  goToSession: (sessionId: string, tabId?: string | null) => void;
+  /** Update URL to reflect current session and tab without navigation */
+  updateUrl: (sessionId: string, tabId?: string | null) => void;
 }
 
 const MaestroModeContext = createContext<MaestroModeContextValue>({
   isDashboard: true,
   isSession: false,
   sessionId: null,
+  tabId: null,
   securityToken: '',
   goToDashboard: () => {},
   goToSession: () => {},
+  updateUrl: () => {},
 });
 
 /**
@@ -105,16 +111,32 @@ export function createMaestroModeContextValue(config: MaestroConfig): MaestroMod
   const baseUrl = `${window.location.origin}/${config.securityToken}`;
   const isDashboard = config.sessionId === null;
 
+  const buildSessionUrl = (sessionId: string, tabId?: string | null) => {
+    let url = `${baseUrl}/session/${sessionId}`;
+    if (tabId) {
+      url += `?tabId=${encodeURIComponent(tabId)}`;
+    }
+    return url;
+  };
+
   return {
     isDashboard,
     isSession: !isDashboard,
     sessionId: config.sessionId,
+    tabId: config.tabId,
     securityToken: config.securityToken,
     goToDashboard: () => {
       window.location.href = baseUrl;
     },
-    goToSession: (sessionId: string) => {
-      window.location.href = `${baseUrl}/session/${sessionId}`;
+    goToSession: (sessionId: string, tabId?: string | null) => {
+      window.location.href = buildSessionUrl(sessionId, tabId);
+    },
+    updateUrl: (sessionId: string, tabId?: string | null) => {
+      const newUrl = buildSessionUrl(sessionId, tabId);
+      // Only update if URL actually changed
+      if (window.location.href !== newUrl) {
+        window.history.replaceState({ sessionId, tabId }, '', newUrl);
+      }
     },
   };
 }
@@ -195,7 +217,7 @@ export function App() {
 
   const modeContextValue = useMemo(
     () => createMaestroModeContextValue(config),
-    [config.securityToken, config.sessionId]
+    [config.securityToken, config.sessionId, config.tabId]
   );
 
   const handleDesktopTheme = useCallback((theme: Theme) => {

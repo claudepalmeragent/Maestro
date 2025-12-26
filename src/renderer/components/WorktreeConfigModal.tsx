@@ -12,6 +12,7 @@ interface WorktreeConfigModalProps {
   // Callbacks
   onSaveConfig: (config: { basePath: string; watchEnabled: boolean }) => void;
   onCreateWorktree: (branchName: string, basePath: string) => void;
+  onDisableConfig: () => void;
 }
 
 /**
@@ -29,6 +30,7 @@ export function WorktreeConfigModal({
   session,
   onSaveConfig,
   onCreateWorktree,
+  onDisableConfig,
 }: WorktreeConfigModalProps) {
   const { registerLayer, unregisterLayer } = useLayerStack();
   const onCloseRef = useRef(onClose);
@@ -40,6 +42,7 @@ export function WorktreeConfigModal({
   const [newBranchName, setNewBranchName] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const canDisable = !!(session.worktreeConfig?.basePath || basePath.trim());
 
   // gh CLI status
   const [ghCliStatus, setGhCliStatus] = useState<GhCliStatus | null>(null);
@@ -119,6 +122,15 @@ export function WorktreeConfigModal({
     } finally {
       setIsCreating(false);
     }
+  };
+
+  const handleDisable = () => {
+    setBasePath('');
+    setWatchEnabled(true);
+    setNewBranchName('');
+    setError(null);
+    onDisableConfig();
+    onClose();
   };
 
   if (!isOpen) return null;
@@ -312,6 +324,21 @@ export function WorktreeConfigModal({
           className="flex items-center justify-end gap-2 px-4 py-3 border-t shrink-0"
           style={{ borderColor: theme.colors.border }}
         >
+          <button
+            onClick={handleDisable}
+            disabled={!canDisable || isCreating}
+            className={`px-4 py-2 rounded text-sm font-medium border transition-colors ${
+              canDisable && !isCreating
+                ? 'hover:opacity-90'
+                : 'opacity-50 cursor-not-allowed'
+            }`}
+            style={{
+              borderColor: theme.colors.error,
+              color: theme.colors.error,
+            }}
+          >
+            Disable
+          </button>
           <button
             onClick={onClose}
             className="px-4 py-2 rounded text-sm hover:bg-white/10 transition-colors"

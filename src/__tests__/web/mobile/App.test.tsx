@@ -131,6 +131,14 @@ vi.mock('../../../web/hooks/useOfflineQueue', () => ({
 // Mock config
 vi.mock('../../../web/utils/config', () => ({
   buildApiUrl: (endpoint: string) => `http://localhost:3000${endpoint}`,
+  getMaestroConfig: () => ({
+    securityToken: 'test-token',
+    sessionId: null,
+    tabId: null,
+    apiBase: '/test-token/api',
+    wsUrl: '/test-token/ws',
+  }),
+  updateUrlForSessionTab: vi.fn(),
 }));
 
 // Mock constants

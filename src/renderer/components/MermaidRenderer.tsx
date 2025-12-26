@@ -253,6 +253,7 @@ export function MermaidRenderer({ chart, theme }: MermaidRendererProps) {
 
   // Update container with SVG when content changes
   // NOTE: This hook must be called before any conditional returns to satisfy rules-of-hooks
+  // We depend on isLoading to ensure we re-run once the container div is actually rendered
   useLayoutEffect(() => {
     if (containerRef.current && svgContent) {
       // Parse sanitized SVG and append to container
@@ -270,7 +271,7 @@ export function MermaidRenderer({ chart, theme }: MermaidRendererProps) {
         containerRef.current.appendChild(document.importNode(svgElement, true));
       }
     }
-  }, [svgContent]);
+  }, [svgContent, isLoading]);
 
   if (error) {
     return (
