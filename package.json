@@ -45,7 +45,8 @@
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:integration:watch": "vitest --config vitest.integration.config.ts",
     "test:performance": "vitest run --config vitest.performance.config.mts",
-    "refresh-speckit": "node scripts/refresh-speckit.mjs"
+    "refresh-speckit": "node scripts/refresh-speckit.mjs",
+    "refresh-openspec": "node scripts/refresh-openspec.mjs"
   },
   "build": {
     "npmRebuild": false,
@@ -99,6 +100,10 @@
         {
           "from": "src/prompts/speckit",
           "to": "prompts/speckit"
+        },
+        {
+          "from": "src/prompts/openspec",
+          "to": "prompts/openspec"
         }
       ]
     },
@@ -127,6 +132,10 @@
         {
           "from": "src/prompts/speckit",
           "to": "prompts/speckit"
+        },
+        {
+          "from": "src/prompts/openspec",
+          "to": "prompts/openspec"
         }
       ]
     },
@@ -164,6 +173,10 @@
         {
           "from": "src/prompts/speckit",
           "to": "prompts/speckit"
+        },
+        {
+          "from": "src/prompts/openspec",
+          "to": "prompts/openspec"
         }
       ]
     },
