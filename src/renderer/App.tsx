@@ -24,6 +24,7 @@ import { TourOverlay } from './components/Wizard/tour';
 import { CONDUCTOR_BADGES, getBadgeForTime } from './constants/conductorBadges';
 import { EmptyStateView } from './components/EmptyStateView';
 import { MarketplaceModal } from './components/MarketplaceModal';
+import { DocumentGraphView } from './components/DocumentGraph/DocumentGraphView';
 
 // Group Chat Components
 import { GroupChatPanel } from './components/GroupChatPanel';
@@ -8549,6 +8550,28 @@ function MaestroConsoleInner() {
           }}
         />
       )}
+
+      {/* --- DOCUMENT GRAPH VIEW --- */}
+      <DocumentGraphView
+        isOpen={isGraphViewOpen}
+        onClose={() => setIsGraphViewOpen(false)}
+        theme={theme}
+        rootPath={activeSession?.cwd ?? ''}
+        onDocumentOpen={(filePath) => {
+          // Open the document in file preview
+          const fullPath = `${activeSession?.cwd ?? ''}/${filePath}`;
+          window.maestro.fs.readFile(fullPath).then((content) => {
+            if (content !== null) {
+              setPreviewFile({ name: filePath.split('/').pop() || filePath, content, path: fullPath });
+            }
+          });
+          setIsGraphViewOpen(false);
+        }}
+        onExternalLinkOpen={(url) => {
+          // Open external URL in default browser
+          window.maestro.shell.openExternal(url);
+        }}
+      />
 
       {/* NOTE: All modals are now rendered via the unified <AppModals /> component above */}
 
