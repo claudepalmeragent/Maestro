@@ -123,8 +123,12 @@ async function scanMarkdownFiles(
 ): Promise<string[]> {
   const markdownFiles: string[] = [];
   let directoriesScanned = 0;
+  let isRootDirectory = true;
 
   async function scanDir(currentPath: string, relativePath: string): Promise<void> {
+    const isRoot = isRootDirectory;
+    isRootDirectory = false;
+
     try {
       const entries = await window.maestro.fs.readDir(currentPath);
       directoriesScanned++;
@@ -157,7 +161,13 @@ async function scanMarkdownFiles(
         }
       }
     } catch (error) {
-      // Log error but continue scanning other directories
+      // If the root directory fails to be read, propagate the error
+      if (isRoot) {
+        throw new Error(
+          `Failed to read directory: ${currentPath}. ${error instanceof Error ? error.message : 'Check permissions and path validity.'}`
+        );
+      }
+      // Log error but continue scanning other directories for non-root failures
       console.warn(`Failed to scan directory ${currentPath}:`, error);
     }
   }

@@ -497,7 +497,7 @@ describe('graphDataBuilder', () => {
       expect(result.nodes).toHaveLength(0);
     });
 
-    it('should handle directory scan errors gracefully', async () => {
+    it('should handle subdirectory scan errors gracefully', async () => {
       // First call succeeds with a directory, second call (subdirectory) fails
       mockReadDir
         .mockResolvedValueOnce([
@@ -516,6 +516,30 @@ describe('graphDataBuilder', () => {
 
       // Should still include the readable file
       expect(result.nodes).toHaveLength(1);
+    });
+
+    it('should throw error when root directory fails to be read', async () => {
+      // Root directory fails immediately
+      mockReadDir.mockRejectedValueOnce(new Error('Permission denied'));
+
+      await expect(
+        buildGraphData({
+          rootPath: '/inaccessible',
+          includeExternalLinks: false,
+        })
+      ).rejects.toThrow('Failed to read directory');
+    });
+
+    it('should include original error message in root directory failure', async () => {
+      // Root directory fails with specific error
+      mockReadDir.mockRejectedValueOnce(new Error('ENOENT: no such file or directory'));
+
+      await expect(
+        buildGraphData({
+          rootPath: '/nonexistent',
+          includeExternalLinks: false,
+        })
+      ).rejects.toThrow('ENOENT: no such file or directory');
     });
 
     it('should handle null/undefined file content', async () => {
