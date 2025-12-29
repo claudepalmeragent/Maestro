@@ -47,6 +47,7 @@ import { DocumentNode } from './DocumentNode';
 import { ExternalLinkNode } from './ExternalLinkNode';
 import { buildGraphData, GraphNodeData, ProgressData, DocumentNodeData, ExternalLinkNodeData } from './graphDataBuilder';
 import { NodeContextMenu } from './NodeContextMenu';
+import { NodeBreadcrumb } from './NodeBreadcrumb';
 import {
   applyForceLayout,
   applyHierarchicalLayout,
@@ -124,6 +125,7 @@ function DocumentGraphViewInner({
   const [layoutType, setLayoutType] = useState<LayoutType>('force');
   const [includeExternalLinks, setIncludeExternalLinks] = useState(true);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [selectedNodeData, setSelectedNodeData] = useState<(GraphNodeData & { theme: Theme }) | null>(null);
   const [progress, setProgress] = useState<ProgressData | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -631,6 +633,8 @@ function DocumentGraphViewInner({
       previousNodesRef.current = [];
       pendingFocusRef.current = null;
       setSearchQuery('');
+      setSelectedNodeId(null);
+      setSelectedNodeData(null);
     }
   }, [isOpen]);
 
@@ -701,13 +705,17 @@ function DocumentGraphViewInner({
   }, [searchQuery]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /**
-   * Handle selection change - track selected node for edge highlighting
+   * Handle selection change - track selected node for edge highlighting and breadcrumb
    */
   const handleSelectionChange: OnSelectionChangeFunc = useCallback(({ nodes: selectedNodes }) => {
     if (selectedNodes.length > 0) {
-      setSelectedNodeId(selectedNodes[0].id);
+      const selectedNode = selectedNodes[0];
+      setSelectedNodeId(selectedNode.id);
+      // Store the selected node data (with theme) for breadcrumb display
+      setSelectedNodeData(selectedNode.data as GraphNodeData & { theme: Theme });
     } else {
       setSelectedNodeId(null);
+      setSelectedNodeData(null);
     }
   }, []);
 
@@ -787,8 +795,9 @@ function DocumentGraphViewInner({
       const node = nodes.find((n) => n.id === nodeId);
 
       if (node) {
-        // Select the node to highlight it
+        // Select the node to highlight it and update breadcrumb
         setSelectedNodeId(nodeId);
+        setSelectedNodeData(node.data as GraphNodeData & { theme: Theme });
 
         // Focus on the node after a small delay to ensure layout is stable
         setTimeout(() => {
@@ -1160,6 +1169,13 @@ function DocumentGraphViewInner({
             </button>
           </div>
         </div>
+
+        {/* Breadcrumb for selected node */}
+        <NodeBreadcrumb
+          selectedNodeData={selectedNodeData}
+          theme={theme}
+          rootPath={rootPath}
+        />
 
         {/* Main Content - React Flow Canvas */}
         <div className="flex-1 relative" style={{ backgroundColor: theme.colors.bgMain }}>
