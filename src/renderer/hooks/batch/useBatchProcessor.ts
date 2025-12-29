@@ -1358,14 +1358,17 @@ export function useBatchProcessor({
   const pauseBatchOnError = useCallback((sessionId: string, error: AgentError, documentIndex: number, taskDescription?: string) => {
     if (!isMountedRef.current) return;
 
+    // Log detailed error to system logs with full context
     window.maestro.logger.autorun(
-      `Auto Run paused due to error: ${error.type}`,
+      `Auto Run paused due to ${error.type}: ${error.message}`,
       sessionId,
       {
         errorType: error.type,
         errorMessage: error.message,
+        recoverable: error.recoverable,
         documentIndex,
-        taskDescription
+        taskDescription,
+        rawError: error.raw
       }
     );
 

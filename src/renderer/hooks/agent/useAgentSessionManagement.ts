@@ -19,6 +19,8 @@ export interface HistoryEntryInput {
   projectPath?: string;
   /** Optional override for background operations (prevents cross-agent bleed) */
   sessionName?: string;
+  /** Whether the operation succeeded (false for errors/failures) */
+  success?: boolean;
 }
 
 /**
@@ -121,7 +123,9 @@ export function useAgentSessionManagement(
       ...(shouldIncludeContextUsage ? { contextUsage: activeSession?.contextUsage } : {}),
       // Only include usageStats if explicitly provided (per-task tracking)
       // Never use cumulative session stats - they're lifetime totals
-      usageStats: entry.usageStats
+      usageStats: entry.usageStats,
+      // Pass through success field for error/failure tracking
+      success: entry.success,
     });
 
     // Refresh history panel to show the new entry

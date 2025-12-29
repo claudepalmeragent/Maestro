@@ -120,6 +120,31 @@ import { isLikelyConcatenatedToolNames, getSlashCommandDescription } from './con
 
 // Note: DEFAULT_IMAGE_ONLY_PROMPT is now imported from useInputProcessing hook
 
+/**
+ * Get a human-readable title for an agent error type.
+ * Used for toast notifications and history entries.
+ */
+function getErrorTitleForType(type: AgentError['type']): string {
+  switch (type) {
+    case 'auth_expired':
+      return 'Authentication Required';
+    case 'token_exhaustion':
+      return 'Context Limit Reached';
+    case 'rate_limited':
+      return 'Rate Limit Exceeded';
+    case 'network_error':
+      return 'Connection Error';
+    case 'agent_crashed':
+      return 'Agent Error';
+    case 'permission_denied':
+      return 'Permission Denied';
+    case 'session_not_found':
+      return 'Session Not Found';
+    default:
+      return 'Error';
+  }
+}
+
 function MaestroConsoleInner() {
   // --- LAYER STACK (for blocking shortcuts when modals are open) ---
   const { hasOpenLayers, hasOpenModal } = useLayerStack();
@@ -2103,6 +2128,7 @@ function MaestroConsoleInner() {
       }));
 
       // Phase 5.10: Check if there's an active batch run for this session and pause it
+      // Also add history entry and toast for Auto Run errors
       if (getBatchStateRef.current && pauseBatchOnErrorRef.current) {
         const batchState = getBatchStateRef.current(actualSessionId);
         if (batchState.isRunning && !batchState.errorPaused) {
@@ -2114,6 +2140,54 @@ function MaestroConsoleInner() {
             batchState.currentDocumentIndex,
             currentDoc ? `Processing ${currentDoc}` : undefined
           );
+
+          // Get session for history entry
+          const session = sessionsRef.current.find(s => s.id === actualSessionId);
+
+          // Add history entry for Auto Run error (similar to stalled document entries)
+          if (addHistoryEntryRef.current && session) {
+            const errorTitle = getErrorTitleForType(agentError.type);
+            const errorExplanation = [
+              `**Auto Run Error: ${errorTitle}**`,
+              '',
+              `Auto Run encountered an error while processing:`,
+              currentDoc ? `- Document: ${currentDoc}` : '',
+              `- Error: ${agentError.message}`,
+              '',
+              '**What to do:**',
+              agentError.type === 'auth_expired'
+                ? '- Re-authenticate with the provider (e.g., run `claude login` in terminal)'
+                : agentError.type === 'token_exhaustion'
+                  ? '- Start a new session to reset the context window'
+                  : agentError.type === 'rate_limited'
+                    ? '- Wait a few minutes before retrying'
+                    : agentError.type === 'network_error'
+                      ? '- Check your internet connection and try again'
+                      : '- Review the error message and take appropriate action',
+              '',
+              'After resolving the issue, you can resume, skip, or abort the Auto Run.',
+            ].filter(Boolean).join('\n');
+
+            addHistoryEntryRef.current({
+              type: 'AUTO',
+              summary: `Auto Run error: ${errorTitle}${currentDoc ? ` (${currentDoc})` : ''}`,
+              fullResponse: errorExplanation,
+              projectPath: session.cwd,
+              sessionId: actualSessionId,
+              success: false,
+            });
+          }
+
+          // Show toast notification for Auto Run error
+          if (addToastRef.current) {
+            const errorTitle = getErrorTitleForType(agentError.type);
+            addToastRef.current({
+              type: 'error',
+              title: `Auto Run: ${errorTitle}`,
+              message: agentError.message,
+              sessionId: actualSessionId,
+            });
+          }
         }
       }
 
