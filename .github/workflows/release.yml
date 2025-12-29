@@ -171,6 +171,27 @@ jobs:
             exit 1
           fi
 
+      # Verify better-sqlite3 architecture (Linux ARM64 only)
+      - name: Verify better-sqlite3 architecture
+        if: matrix.platform == 'linux-arm64'
+        run: |
+          echo "Checking better-sqlite3 binary architecture..."
+          SQLITE_PATH=$(find node_modules/better-sqlite3 -name "better_sqlite3.node" -type f 2>/dev/null | head -1)
+          if [ -n "$SQLITE_PATH" ]; then
+            file "$SQLITE_PATH"
+            # Verify it's ARM64, not x86_64
+            if file "$SQLITE_PATH" | grep -q "ARM aarch64\|aarch64"; then
+              echo "✓ better-sqlite3 is correctly built for ARM64"
+            else
+              echo "✗ ERROR: better-sqlite3 is NOT built for ARM64!"
+              file "$SQLITE_PATH"
+              exit 1
+            fi
+          else
+            echo "✗ ERROR: better-sqlite3 binary not found!"
+            exit 1
+          fi
+
       - name: Build application
         run: npm run build
         env:
@@ -253,6 +274,23 @@ jobs:
             exit 1
           fi
 
+          # Verify better-sqlite3 binary was built correctly for x64 before packaging
+          echo "Verifying better-sqlite3 binary architecture before packaging..."
+          SQLITE_PATH=$(find node_modules/better-sqlite3 -name "better_sqlite3.node" -type f 2>/dev/null | head -1)
+          if [ -n "$SQLITE_PATH" ]; then
+            echo "Found better_sqlite3.node at: $SQLITE_PATH"
+            file "$SQLITE_PATH"
+            if file "$SQLITE_PATH" | grep -q "x86-64\|x86_64\|AMD64"; then
+              echo "✓ better-sqlite3 is correctly built for x64"
+            else
+              echo "✗ ERROR: better-sqlite3 is NOT built for x64!"
+              exit 1
+            fi
+          else
+            echo "✗ ERROR: better-sqlite3 binary not found!"
+            exit 1
+          fi
+
           # Package with x64 target
           npx electron-builder --linux --x64 --publish never --config.extraMetadata.version="$BUILD_VERSION"
 
@@ -291,6 +329,23 @@ jobs:
             exit 1
           fi
 
+          # Verify better-sqlite3 binary was built correctly for ARM64 before packaging
+          echo "Verifying better-sqlite3 binary architecture before packaging..."
+          SQLITE_PATH=$(find node_modules/better-sqlite3 -name "better_sqlite3.node" -type f 2>/dev/null | head -1)
+          if [ -n "$SQLITE_PATH" ]; then
+            echo "Found better_sqlite3.node at: $SQLITE_PATH"
+            file "$SQLITE_PATH"
+            if file "$SQLITE_PATH" | grep -q "ARM\|aarch64"; then
+              echo "✓ better-sqlite3 is correctly built for ARM64"
+            else
+              echo "✗ ERROR: better-sqlite3 is NOT built for ARM64!"
+              exit 1
+            fi
+          else
+            echo "✗ ERROR: better-sqlite3 binary not found!"
+            exit 1
+          fi
+
           # Package with ARM64 target
           npx electron-builder --linux --arm64 --publish never --config.extraMetadata.version="$BUILD_VERSION"
 
@@ -319,12 +374,14 @@ jobs:
             exit 1
           fi
 
-      # Verify pty.node is correctly included in unpacked resources (Linux ARM64)
-      - name: Verify pty.node in package (Linux ARM64)
+      # Verify native modules are correctly included in unpacked resources (Linux ARM64 only)
+      - name: Verify native modules in package
         if: matrix.platform == 'linux-arm64'
         run: |
-          echo "Checking for pty.node in unpacked resources..."
           UNPACKED_DIR="release/linux-arm64-unpacked/resources/app.asar.unpacked"
+
+          # Verify pty.node
+          echo "Checking for pty.node in unpacked resources..."
           PTY_NODE="$UNPACKED_DIR/node_modules/node-pty/build/Release/pty.node"
           if [ -f "$PTY_NODE" ]; then
             echo "✓ pty.node found at: $PTY_NODE"
@@ -340,7 +397,21 @@ jobs:
           else
             echo "✗ ERROR: pty.node not found in unpacked resources!"
             echo "Contents of app.asar.unpacked:"
-            find "$UNPACKED_DIR" -name "*.node" -o -name "pty*" 2>/dev/null || echo "Directory not found"
+            find "$UNPACKED_DIR" -name "*.node" 2>/dev/null || echo "Directory not found"
+            exit 1
+          fi
+
+          # Verify better_sqlite3.node
+          echo "Checking for better_sqlite3.node in unpacked resources..."
+          SQLITE_NODE="$UNPACKED_DIR/node_modules/better-sqlite3/build/Release/better_sqlite3.node"
+          if [ -f "$SQLITE_NODE" ]; then
+            echo "✓ better_sqlite3.node found at: $SQLITE_NODE"
+            file "$SQLITE_NODE"
+            ls -la "$SQLITE_NODE"
+          else
+            echo "✗ ERROR: better_sqlite3.node not found in unpacked resources!"
+            echo "Contents of app.asar.unpacked:"
+            find "$UNPACKED_DIR" -name "*.node" 2>/dev/null || echo "Directory not found"
             exit 1
           fi
 

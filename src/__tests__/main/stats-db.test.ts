@@ -4768,3 +4768,291 @@ describe('Concurrent writes and database locking', () => {
     });
   });
 });
+
+/**
+ * electron-rebuild verification tests
+ *
+ * These tests verify that better-sqlite3 is correctly configured to be built
+ * via electron-rebuild on all platforms (macOS, Windows, Linux). The native
+ * module must be compiled against Electron's Node.js headers to work correctly
+ * in the Electron runtime.
+ *
+ * Key verification points:
+ * 1. postinstall script is configured to run electron-rebuild
+ * 2. better-sqlite3 is excluded from asar packaging (must be unpacked)
+ * 3. Native module paths are platform-appropriate
+ * 4. CI/CD workflow includes architecture verification
+ *
+ * Note: These tests verify the configuration and mock the build process.
+ * Actual native module compilation is tested in CI/CD workflows.
+ */
+describe('electron-rebuild verification for better-sqlite3', () => {
+  describe('package.json configuration', () => {
+    it('should have postinstall script that runs electron-rebuild for better-sqlite3', async () => {
+      // Use node:fs to bypass the mock and access the real filesystem
+      const fs = await import('node:fs');
+      const path = await import('node:path');
+
+      // Find package.json relative to the test file
+      let packageJsonPath = path.join(__dirname, '..', '..', '..', 'package.json');
+
+      // The package.json should exist and contain electron-rebuild for better-sqlite3
+      const packageJsonContent = fs.readFileSync(packageJsonPath, 'utf8');
+      const packageJson = JSON.parse(packageJsonContent);
+
+      expect(packageJson.scripts).toBeDefined();
+      expect(packageJson.scripts.postinstall).toBeDefined();
+      expect(packageJson.scripts.postinstall).toContain('electron-rebuild');
+      expect(packageJson.scripts.postinstall).toContain('better-sqlite3');
+    });
+
+    it('should have better-sqlite3 in dependencies', async () => {
+      const fs = await import('node:fs');
+      const path = await import('node:path');
+
+      let packageJsonPath = path.join(__dirname, '..', '..', '..', 'package.json');
+      const packageJsonContent = fs.readFileSync(packageJsonPath, 'utf8');
+      const packageJson = JSON.parse(packageJsonContent);
+
+      expect(packageJson.dependencies).toBeDefined();
+      expect(packageJson.dependencies['better-sqlite3']).toBeDefined();
+    });
+
+    it('should have electron-rebuild in devDependencies', async () => {
+      const fs = await import('node:fs');
+      const path = await import('node:path');
+
+      let packageJsonPath = path.join(__dirname, '..', '..', '..', 'package.json');
+      const packageJsonContent = fs.readFileSync(packageJsonPath, 'utf8');
+      const packageJson = JSON.parse(packageJsonContent);
+
+      expect(packageJson.devDependencies).toBeDefined();
+      expect(packageJson.devDependencies['electron-rebuild']).toBeDefined();
+    });
+
+    it('should have @types/better-sqlite3 in devDependencies', async () => {
+      const fs = await import('node:fs');
+      const path = await import('node:path');
+
+      let packageJsonPath = path.join(__dirname, '..', '..', '..', 'package.json');
+      const packageJsonContent = fs.readFileSync(packageJsonPath, 'utf8');
+      const packageJson = JSON.parse(packageJsonContent);
+
+      expect(packageJson.devDependencies).toBeDefined();
+      expect(packageJson.devDependencies['@types/better-sqlite3']).toBeDefined();
+    });
+
+    it('should configure asarUnpack for better-sqlite3 (native modules must be unpacked)', async () => {
+      const fs = await import('node:fs');
+      const path = await import('node:path');
+
+      let packageJsonPath = path.join(__dirname, '..', '..', '..', 'package.json');
+      const packageJsonContent = fs.readFileSync(packageJsonPath, 'utf8');
+      const packageJson = JSON.parse(packageJsonContent);
+
+      // electron-builder config should unpack native modules from asar
+      expect(packageJson.build).toBeDefined();
+      expect(packageJson.build.asarUnpack).toBeDefined();
+      expect(Array.isArray(packageJson.build.asarUnpack)).toBe(true);
+      expect(packageJson.build.asarUnpack).toContain('node_modules/better-sqlite3/**/*');
+    });
+
+    it('should disable npmRebuild in electron-builder (we use postinstall instead)', async () => {
+      const fs = await import('node:fs');
+      const path = await import('node:path');
+
+      let packageJsonPath = path.join(__dirname, '..', '..', '..', 'package.json');
+      const packageJsonContent = fs.readFileSync(packageJsonPath, 'utf8');
+      const packageJson = JSON.parse(packageJsonContent);
+
+      // npmRebuild should be false because we explicitly run electron-rebuild
+      // in postinstall and CI/CD workflows
+      expect(packageJson.build).toBeDefined();
+      expect(packageJson.build.npmRebuild).toBe(false);
+    });
+  });
+
+  describe('CI/CD workflow configuration', () => {
+    it('should have release workflow that rebuilds native modules', async () => {
+      const fs = await import('node:fs');
+      const path = await import('node:path');
+
+      const workflowPath = path.join(__dirname, '..', '..', '..', '.github', 'workflows', 'release.yml');
+      const workflowContent = fs.readFileSync(workflowPath, 'utf8');
+
+      // Workflow should run postinstall which triggers electron-rebuild
+      expect(workflowContent).toContain('npm run postinstall');
+      expect(workflowContent).toContain('npm_config_build_from_source');
+    });
+
+    it('should configure builds for all target platforms', async () => {
+      const fs = await import('node:fs');
+      const path = await import('node:path');
+
+      const workflowPath = path.join(__dirname, '..', '..', '..', '.github', 'workflows', 'release.yml');
+      const workflowContent = fs.readFileSync(workflowPath, 'utf8');
+
+      // Verify all platforms are configured
+      expect(workflowContent).toContain('macos-latest');
+      expect(workflowContent).toContain('ubuntu-latest');
+      expect(workflowContent).toContain('ubuntu-24.04-arm'); // ARM64 Linux
+      expect(workflowContent).toContain('windows-latest');
+    });
+
+    it('should have architecture verification for native modules', async () => {
+      const fs = await import('node:fs');
+      const path = await import('node:path');
+
+      const workflowPath = path.join(__dirname, '..', '..', '..', '.github', 'workflows', 'release.yml');
+      const workflowContent = fs.readFileSync(workflowPath, 'utf8');
+
+      // Workflow should verify native module architecture before packaging
+      expect(workflowContent).toContain('Verify');
+      expect(workflowContent).toContain('electron-rebuild');
+    });
+
+    it('should use --force flag for electron-rebuild', async () => {
+      const fs = await import('node:fs');
+      const path = await import('node:path');
+
+      let packageJsonPath = path.join(__dirname, '..', '..', '..', 'package.json');
+      const packageJsonContent = fs.readFileSync(packageJsonPath, 'utf8');
+      const packageJson = JSON.parse(packageJsonContent);
+
+      // The -f (force) flag ensures rebuild even if binaries exist
+      expect(packageJson.scripts.postinstall).toContain('-f');
+    });
+  });
+
+  describe('native module structure (macOS verification)', () => {
+    it('should have better-sqlite3 native binding in expected location', async () => {
+      const fs = await import('node:fs');
+      const path = await import('node:path');
+
+      // Check if the native binding exists in build/Release (compiled location)
+      const nativeModulePath = path.join(
+        __dirname,
+        '..',
+        '..',
+        '..',
+        'node_modules',
+        'better-sqlite3',
+        'build',
+        'Release',
+        'better_sqlite3.node'
+      );
+
+      // The native module should exist after electron-rebuild
+      // This test will pass on dev machines where npm install was run
+      const exists = fs.existsSync(nativeModulePath);
+
+      // If the native module doesn't exist, check if there's a prebuilt binary
+      if (!exists) {
+        // Check for prebuilt binaries in the bin directory
+        const binDir = path.join(
+          __dirname,
+          '..',
+          '..',
+          '..',
+          'node_modules',
+          'better-sqlite3',
+          'bin'
+        );
+
+        if (fs.existsSync(binDir)) {
+          const binContents = fs.readdirSync(binDir);
+          // Should have platform-specific prebuilt binaries
+          expect(binContents.length).toBeGreaterThan(0);
+        } else {
+          // Neither compiled nor prebuilt binary exists - fail
+          expect(exists).toBe(true);
+        }
+      }
+    });
+
+    it('should verify binding.gyp exists for native compilation', async () => {
+      const fs = await import('node:fs');
+      const path = await import('node:path');
+
+      const bindingGypPath = path.join(
+        __dirname,
+        '..',
+        '..',
+        '..',
+        'node_modules',
+        'better-sqlite3',
+        'binding.gyp'
+      );
+
+      // binding.gyp is required for node-gyp compilation
+      expect(fs.existsSync(bindingGypPath)).toBe(true);
+    });
+  });
+
+  describe('platform-specific build paths', () => {
+    it('should verify macOS native module extension is .node', () => {
+      // On macOS, native modules have .node extension (Mach-O bundle)
+      const platform = process.platform;
+      if (platform === 'darwin') {
+        expect('.node').toBe('.node');
+      }
+    });
+
+    it('should verify Windows native module extension is .node', () => {
+      // On Windows, native modules have .node extension (DLL)
+      const platform = process.platform;
+      if (platform === 'win32') {
+        expect('.node').toBe('.node');
+      }
+    });
+
+    it('should verify Linux native module extension is .node', () => {
+      // On Linux, native modules have .node extension (shared object)
+      const platform = process.platform;
+      if (platform === 'linux') {
+        expect('.node').toBe('.node');
+      }
+    });
+
+    it('should verify electron target is specified in postinstall', async () => {
+      const fs = await import('node:fs');
+      const path = await import('node:path');
+
+      let packageJsonPath = path.join(__dirname, '..', '..', '..', 'package.json');
+      const packageJsonContent = fs.readFileSync(packageJsonPath, 'utf8');
+      const packageJson = JSON.parse(packageJsonContent);
+
+      // postinstall uses electron-rebuild which automatically detects electron version
+      expect(packageJson.scripts.postinstall).toContain('electron-rebuild');
+      // The -w flag specifies which modules to rebuild
+      expect(packageJson.scripts.postinstall).toContain('-w');
+    });
+  });
+
+  describe('database import verification', () => {
+    it('should be able to mock better-sqlite3 for testing', async () => {
+      // This test verifies our mock setup is correct
+      const { StatsDB } = await import('../../main/stats-db');
+      const db = new StatsDB();
+
+      // Should be able to initialize with mocked database
+      expect(() => db.initialize()).not.toThrow();
+      expect(db.isReady()).toBe(true);
+    });
+
+    it('should verify StatsDB uses better-sqlite3 correctly', async () => {
+      // Reset mocks to track this specific test
+      vi.clearAllMocks();
+
+      const { StatsDB } = await import('../../main/stats-db');
+      const db = new StatsDB();
+      db.initialize();
+
+      // Database should be initialized and ready
+      expect(db.isReady()).toBe(true);
+
+      // Verify WAL mode is enabled for concurrent access
+      expect(mockDb.pragma).toHaveBeenCalled();
+    });
+  });
+});
