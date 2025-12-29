@@ -78,6 +78,7 @@ export function UsageDashboardModal({
   const [isExporting, setIsExporting] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [containerWidth, setContainerWidth] = useState(0);
+  const [showNewDataIndicator, setShowNewDataIndicator] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -120,6 +121,9 @@ export function UsageDashboardModal({
       if (showRefresh) {
         // Keep refresh spinner visible briefly for visual feedback
         setTimeout(() => setIsRefreshing(false), 300);
+        // Show "new data" indicator for real-time updates
+        setShowNewDataIndicator(true);
+        setTimeout(() => setShowNewDataIndicator(false), 3000);
       }
     }
   }, [timeRange]);
@@ -253,6 +257,27 @@ export function UsageDashboardModal({
             <h2 className="text-lg font-semibold" style={{ color: theme.colors.textMain }}>
               Usage Dashboard
             </h2>
+            {/* New Data Indicator - appears briefly when real-time data arrives */}
+            {showNewDataIndicator && (
+              <div
+                className="flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium"
+                style={{
+                  backgroundColor: `${theme.colors.accent}20`,
+                  color: theme.colors.accent,
+                  animation: 'pulse-fade 3s ease-out forwards',
+                }}
+                data-testid="new-data-indicator"
+              >
+                <span
+                  className="w-2 h-2 rounded-full"
+                  style={{
+                    backgroundColor: theme.colors.accent,
+                    animation: 'pulse-dot 1s ease-in-out 3',
+                  }}
+                />
+                Updated
+              </div>
+            )}
           </div>
 
           <div className="flex items-center gap-3">

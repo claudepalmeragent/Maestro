@@ -787,4 +787,145 @@ describe('UsageDashboardModal', () => {
       expect(typeof subscribedCallback).toBe('function');
     });
   });
+
+  describe('New Data Visual Indicator', () => {
+    it('indicator does NOT appear for initial load', async () => {
+      const initialData = createSampleData();
+      mockGetAggregation.mockResolvedValue(initialData);
+
+      render(
+        <UsageDashboardModal isOpen={true} onClose={onClose} theme={theme} />
+      );
+
+      // Wait for initial load
+      await waitFor(() => {
+        expect(screen.getByTestId('usage-dashboard-content')).toBeInTheDocument();
+      });
+
+      // Indicator should NOT appear for initial load
+      expect(screen.queryByTestId('new-data-indicator')).not.toBeInTheDocument();
+    });
+
+    it('indicator appears after manual refresh completes', async () => {
+      const initialData = createSampleData();
+      mockGetAggregation.mockResolvedValue(initialData);
+
+      render(
+        <UsageDashboardModal isOpen={true} onClose={onClose} theme={theme} />
+      );
+
+      // Wait for initial load
+      await waitFor(() => {
+        expect(screen.getByTestId('usage-dashboard-content')).toBeInTheDocument();
+      });
+
+      // Click refresh button
+      fireEvent.click(screen.getByTitle('Refresh'));
+
+      // Wait for indicator to appear after refresh completes
+      await waitFor(() => {
+        expect(screen.getByTestId('new-data-indicator')).toBeInTheDocument();
+      }, { timeout: 2000 });
+
+      // Verify the "Updated" text is shown
+      expect(screen.getByText('Updated')).toBeInTheDocument();
+    });
+
+    it('indicator has pulse-fade animation styling', async () => {
+      const initialData = createSampleData();
+      mockGetAggregation.mockResolvedValue(initialData);
+
+      render(
+        <UsageDashboardModal isOpen={true} onClose={onClose} theme={theme} />
+      );
+
+      // Wait for initial load
+      await waitFor(() => {
+        expect(screen.getByTestId('usage-dashboard-content')).toBeInTheDocument();
+      });
+
+      // Click refresh button to trigger indicator
+      fireEvent.click(screen.getByTitle('Refresh'));
+
+      // Wait for indicator
+      await waitFor(() => {
+        const indicator = screen.getByTestId('new-data-indicator');
+        expect(indicator).toBeInTheDocument();
+        expect(indicator).toHaveStyle({ animation: 'pulse-fade 3s ease-out forwards' });
+      }, { timeout: 2000 });
+    });
+
+    it('indicator has pulsing dot element', async () => {
+      const initialData = createSampleData();
+      mockGetAggregation.mockResolvedValue(initialData);
+
+      render(
+        <UsageDashboardModal isOpen={true} onClose={onClose} theme={theme} />
+      );
+
+      // Wait for initial load
+      await waitFor(() => {
+        expect(screen.getByTestId('usage-dashboard-content')).toBeInTheDocument();
+      });
+
+      // Click refresh button to trigger indicator
+      fireEvent.click(screen.getByTitle('Refresh'));
+
+      // Wait for indicator with pulsing dot
+      await waitFor(() => {
+        const indicator = screen.getByTestId('new-data-indicator');
+        const dot = indicator.querySelector('span');
+        expect(dot).toBeInTheDocument();
+        expect(dot).toHaveStyle({ animation: 'pulse-dot 1s ease-in-out 3' });
+      }, { timeout: 2000 });
+    });
+
+    it('indicator is theme-aware with accent color', async () => {
+      const initialData = createSampleData();
+      mockGetAggregation.mockResolvedValue(initialData);
+
+      render(
+        <UsageDashboardModal isOpen={true} onClose={onClose} theme={theme} />
+      );
+
+      // Wait for initial load
+      await waitFor(() => {
+        expect(screen.getByTestId('usage-dashboard-content')).toBeInTheDocument();
+      });
+
+      // Click refresh button to trigger indicator
+      fireEvent.click(screen.getByTitle('Refresh'));
+
+      // Wait for indicator and check theme styling
+      await waitFor(() => {
+        const indicator = screen.getByTestId('new-data-indicator');
+        expect(indicator).toHaveStyle({ color: theme.colors.accent });
+        expect(indicator).toHaveStyle({ backgroundColor: `${theme.colors.accent}20` });
+      }, { timeout: 2000 });
+    });
+
+    it('indicator dot uses theme accent color for background', async () => {
+      const initialData = createSampleData();
+      mockGetAggregation.mockResolvedValue(initialData);
+
+      render(
+        <UsageDashboardModal isOpen={true} onClose={onClose} theme={theme} />
+      );
+
+      // Wait for initial load
+      await waitFor(() => {
+        expect(screen.getByTestId('usage-dashboard-content')).toBeInTheDocument();
+      });
+
+      // Click refresh button to trigger indicator
+      fireEvent.click(screen.getByTitle('Refresh'));
+
+      // Wait for indicator and check dot styling
+      await waitFor(() => {
+        const indicator = screen.getByTestId('new-data-indicator');
+        const dot = indicator.querySelector('span');
+        expect(dot).toHaveStyle({ backgroundColor: theme.colors.accent });
+      }, { timeout: 2000 });
+    });
+  });
 });
