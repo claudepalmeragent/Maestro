@@ -50,25 +50,33 @@ export const DocumentNode = memo(function DocumentNode({
 
   // Determine if this node should be dimmed (search active but not matching)
   const isDimmed = searchActive && !searchMatch;
+  // Determine if this node should be highlighted (search active and matching)
+  const isHighlighted = searchActive && searchMatch;
 
   // Memoize styles to prevent unnecessary recalculations
   const containerStyle = useMemo(() => ({
     backgroundColor: theme.colors.bgActivity,
-    borderColor: selected ? theme.colors.accent : theme.colors.border,
-    borderWidth: selected ? 2 : 1,
+    borderColor: isHighlighted
+      ? theme.colors.accent
+      : selected
+      ? theme.colors.accent
+      : theme.colors.border,
+    borderWidth: isHighlighted ? 2 : selected ? 2 : 1,
     borderStyle: 'solid' as const,
     borderRadius: 8,
     padding: 12,
     minWidth: 200,
     maxWidth: 280,
-    boxShadow: selected
+    boxShadow: isHighlighted
+      ? `0 0 0 3px ${theme.colors.accent}40, 0 4px 12px ${theme.colors.accentDim}`
+      : selected
       ? `0 4px 12px ${theme.colors.accentDim}`
       : '0 2px 8px rgba(0, 0, 0, 0.15)',
     transition: 'all 0.2s ease',
     cursor: 'pointer',
     opacity: isDimmed ? 0.35 : 1,
     filter: isDimmed ? 'grayscale(50%)' : 'none',
-  }), [theme.colors, selected, isDimmed]);
+  }), [theme.colors, selected, isDimmed, isHighlighted]);
 
   const titleStyle = useMemo(() => ({
     color: theme.colors.textMain,
@@ -116,7 +124,7 @@ export const DocumentNode = memo(function DocumentNode({
 
   return (
     <div
-      className="document-node"
+      className={`document-node${isHighlighted ? ' search-highlight' : ''}`}
       style={containerStyle}
       title={filePath}
     >

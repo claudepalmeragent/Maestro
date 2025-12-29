@@ -367,6 +367,23 @@ body {
   background-color: rgba(0, 0, 0, 0.85);
 }
 
+/* Document Graph - Search highlight animation for matching nodes */
+@keyframes search-highlight-glow {
+  0% {
+    box-shadow: 0 0 0 3px var(--search-highlight-color, rgba(99, 102, 241, 0.4)), 0 4px 12px var(--search-shadow-color, rgba(99, 102, 241, 0.2));
+  }
+  50% {
+    box-shadow: 0 0 0 5px var(--search-highlight-color, rgba(99, 102, 241, 0.25)), 0 4px 16px var(--search-shadow-color, rgba(99, 102, 241, 0.3));
+  }
+  100% {
+    box-shadow: 0 0 0 3px var(--search-highlight-color, rgba(99, 102, 241, 0.4)), 0 4px 12px var(--search-shadow-color, rgba(99, 102, 241, 0.2));
+  }
+}
+
+.search-highlight {
+  animation: search-highlight-glow 2s ease-in-out infinite;
+}
+
 /* React Flow - Document Graph edge hover styling */
 /* Subtle glow effect on edge hover */
 .react-flow__edge-path {
@@ -427,5 +444,10 @@ body {
     animation: none !important;
     opacity: 1 !important;
     transform: none !important;
+  }
+
+  /* Disable Document Graph search highlight animations */
+  .search-highlight {
+    animation: none !important;
   }
 }

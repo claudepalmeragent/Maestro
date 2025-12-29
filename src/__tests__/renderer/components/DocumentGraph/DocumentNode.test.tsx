@@ -335,4 +335,104 @@ describe('DocumentNode', () => {
       });
     });
   });
+
+  describe('Search Highlighting', () => {
+    it('applies accent border color when search is active and node matches', () => {
+      const props = createNodeProps({
+        searchActive: true,
+        searchMatch: true,
+      });
+
+      const { container } = renderWithProvider(<DocumentNode {...props} />);
+
+      const nodeElement = container.querySelector('.document-node');
+      expect(nodeElement).toHaveStyle({
+        borderColor: mockTheme.colors.accent,
+        borderWidth: '2px',
+      });
+    });
+
+    it('applies highlight glow box-shadow when search is active and node matches', () => {
+      const props = createNodeProps({
+        searchActive: true,
+        searchMatch: true,
+      });
+
+      const { container } = renderWithProvider(<DocumentNode {...props} />);
+
+      const nodeElement = container.querySelector('.document-node');
+      const style = nodeElement?.getAttribute('style') || '';
+      // Should have a box-shadow with the accent color for the glow effect
+      expect(style).toContain('box-shadow');
+      expect(style).toContain(mockTheme.colors.accent.replace('#', ''));
+    });
+
+    it('adds search-highlight class when search is active and node matches', () => {
+      const props = createNodeProps({
+        searchActive: true,
+        searchMatch: true,
+      });
+
+      const { container } = renderWithProvider(<DocumentNode {...props} />);
+
+      const nodeElement = container.querySelector('.document-node');
+      expect(nodeElement).toHaveClass('search-highlight');
+    });
+
+    it('does not add search-highlight class when search is not active', () => {
+      const props = createNodeProps({
+        searchActive: false,
+        searchMatch: true,
+      });
+
+      const { container } = renderWithProvider(<DocumentNode {...props} />);
+
+      const nodeElement = container.querySelector('.document-node');
+      expect(nodeElement).not.toHaveClass('search-highlight');
+    });
+
+    it('does not add search-highlight class when node does not match', () => {
+      const props = createNodeProps({
+        searchActive: true,
+        searchMatch: false,
+      });
+
+      const { container } = renderWithProvider(<DocumentNode {...props} />);
+
+      const nodeElement = container.querySelector('.document-node');
+      expect(nodeElement).not.toHaveClass('search-highlight');
+    });
+
+    it('prioritizes highlight border over selection border when both apply', () => {
+      const props = createNodeProps({
+        searchActive: true,
+        searchMatch: true,
+      });
+      const selectedProps = { ...props, selected: true };
+
+      const { container } = renderWithProvider(<DocumentNode {...selectedProps} />);
+
+      const nodeElement = container.querySelector('.document-node');
+      // Both highlight and selection would have accent border - should still be accent
+      expect(nodeElement).toHaveStyle({
+        borderColor: mockTheme.colors.accent,
+        borderWidth: '2px',
+      });
+      // Should still have the search-highlight class for animation
+      expect(nodeElement).toHaveClass('search-highlight');
+    });
+
+    it('does not apply highlight styling when searchActive/searchMatch are undefined', () => {
+      const props = createNodeProps();
+
+      const { container } = renderWithProvider(<DocumentNode {...props} />);
+
+      const nodeElement = container.querySelector('.document-node');
+      // Should use default border color, not accent
+      expect(nodeElement).toHaveStyle({
+        borderColor: mockTheme.colors.border,
+      });
+      expect(nodeElement).not.toHaveClass('search-highlight');
+    });
+  });
 });
