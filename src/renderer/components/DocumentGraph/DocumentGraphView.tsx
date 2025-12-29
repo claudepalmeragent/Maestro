@@ -38,7 +38,7 @@ import ReactFlow, {
   NodeMouseHandler,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
-import { X, LayoutGrid, Network, ExternalLink, RefreshCw, Maximize2, ChevronDown, Loader2, Search } from 'lucide-react';
+import { X, LayoutGrid, Network, ExternalLink, RefreshCw, Maximize2, ChevronDown, Loader2, Search, RotateCcw } from 'lucide-react';
 import type { Theme } from '../../types';
 import { useLayerStack } from '../../contexts/LayerStackContext';
 import { MODAL_PRIORITIES } from '../../constants/modalPriorities';
@@ -56,6 +56,7 @@ import {
   saveNodePositions,
   restoreNodePositions,
   hasSavedPositions,
+  clearNodePositions,
   diffNodes,
   createNodeEntryFrames,
   createNodeExitFrames,
@@ -1171,6 +1172,52 @@ function DocumentGraphViewInner({
   }, [fitView]);
 
   /**
+   * Handle reset view button - clears saved positions and re-applies the default layout with animation
+   */
+  const handleResetView = useCallback(() => {
+    if (nodes.length === 0 || isAnimatingRef.current) return;
+
+    // Clear saved positions for this graph
+    clearNodePositions(rootPath);
+
+    // Strip theme from nodes for layout calculation
+    const currentNodes = nodes.map((node) => {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { theme: _, ...data } = node.data as GraphNodeData & { theme: Theme };
+      return {
+        ...node,
+        data: data as GraphNodeData,
+      };
+    });
+
+    // Apply the current layout type fresh
+    const newLayoutedNodes =
+      layoutType === 'hierarchical'
+        ? applyHierarchicalLayout(currentNodes, edges, {
+            nodeWidth: 280,
+            nodeHeight: 120,
+            rankDirection: 'TB',
+            nodeSeparation: 60,
+            rankSeparation: 120,
+          })
+        : applyForceLayout(currentNodes, edges, {
+            nodeWidth: 280,
+            nodeHeight: 120,
+            nodeSeparation: 60,
+            centerX: 0,
+            centerY: 0,
+          });
+
+    // Animate the transition
+    animateLayoutTransition(currentNodes, newLayoutedNodes, () => {
+      // Save the new positions after animation completes
+      saveNodePositions(rootPath, newLayoutedNodes);
+      // Fit view after animation
+      fitView({ padding: 0.1, duration: 300 });
+    });
+  }, [nodes, edges, layoutType, rootPath, animateLayoutTransition, fitView]);
+
+  /**
    * Handle load more button - loads additional nodes
    */
   const handleLoadMore = useCallback(async () => {
@@ -1354,6 +1401,20 @@ function DocumentGraphViewInner({
               disabled={loading}
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            </button>
+
+            {/* Reset View Button */}
+            <button
+              onClick={handleResetView}
+              className="p-1.5 rounded transition-colors"
+              style={{ color: theme.colors.textDim }}
+              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = `${theme.colors.accent}20`)}
+              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+              title="Reset view to default layout"
+              disabled={loading || nodes.length === 0}
+              aria-label="Reset view to default layout"
+            >
+              <RotateCcw className="w-4 h-4" />
             </button>
 
             {/* Fit View Button */}

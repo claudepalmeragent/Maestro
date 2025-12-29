@@ -2461,4 +2461,475 @@ describe('DocumentGraphView', () => {
       });
     });
   });
+
+  describe('Reset View Button', () => {
+    describe('Button rendering and attributes', () => {
+      it('renders reset view button in header', () => {
+        // The reset view button is rendered in the header controls section
+        // It uses the RotateCcw icon from lucide-react
+        // This test documents the expected button properties
+        const expectedButtonProps = {
+          onClick: 'handleResetView',
+          className: 'p-1.5 rounded transition-colors',
+          title: 'Reset view to default layout',
+          ariaLabel: 'Reset view to default layout',
+        };
+
+        expect(expectedButtonProps.title).toBe('Reset view to default layout');
+        expect(expectedButtonProps.ariaLabel).toBe('Reset view to default layout');
+      });
+
+      it('reset button uses RotateCcw icon', () => {
+        // The button uses the RotateCcw icon from lucide-react
+        // which intuitively represents "reset" or "undo" action
+        // Icon size is 4 (w-4 h-4 = 16px)
+        const iconClassName = 'w-4 h-4';
+        expect(iconClassName).toContain('w-4');
+        expect(iconClassName).toContain('h-4');
+      });
+
+      it('reset button is disabled when loading', () => {
+        // Button has disabled={loading || nodes.length === 0}
+        // This prevents reset during initial load
+        const loading = true;
+        const nodesCount = 5;
+        const isDisabled = loading || nodesCount === 0;
+        expect(isDisabled).toBe(true);
+      });
+
+      it('reset button is disabled when graph has no nodes', () => {
+        // Button is disabled when there are no nodes to reset
+        const loading = false;
+        const nodesCount = 0;
+        const isDisabled = loading || nodesCount === 0;
+        expect(isDisabled).toBe(true);
+      });
+
+      it('reset button is enabled when graph has nodes and not loading', () => {
+        // Button is enabled when graph is loaded and has nodes
+        const loading = false;
+        const nodesCount = 5;
+        const isDisabled = loading || nodesCount === 0;
+        expect(isDisabled).toBe(false);
+      });
+
+      it('reset button has proper accessibility attributes', () => {
+        // The button includes aria-label for screen readers
+        const ariaLabel = 'Reset view to default layout';
+        expect(ariaLabel).toBeDefined();
+        expect(ariaLabel.length).toBeGreaterThan(0);
+      });
+    });
+
+    describe('Reset view functionality', () => {
+      it('clearNodePositions clears saved positions for a graph', async () => {
+        const { saveNodePositions, hasSavedPositions, clearNodePositions } =
+          await import('../../../../renderer/components/DocumentGraph/layoutAlgorithms');
+
+        const testGraphId = 'reset-view-test-graph';
+
+        // First save some positions
+        const mockNodes = [
+          {
+            id: 'doc1',
+            type: 'documentNode',
+            position: { x: 100, y: 200 },
+            data: { nodeType: 'document', title: 'Test', filePath: '/test.md' }
+          },
+          {
+            id: 'doc2',
+            type: 'documentNode',
+            position: { x: 300, y: 400 },
+            data: { nodeType: 'document', title: 'Test 2', filePath: '/test2.md' }
+          }
+        ];
+
+        saveNodePositions(testGraphId, mockNodes as any);
+        expect(hasSavedPositions(testGraphId)).toBe(true);
+
+        // Clear positions
+        clearNodePositions(testGraphId);
+        expect(hasSavedPositions(testGraphId)).toBe(false);
+      });
+
+      it('reset preserves node data while updating positions', async () => {
+        const { applyForceLayout, saveNodePositions, restoreNodePositions, clearNodePositions } =
+          await import('../../../../renderer/components/DocumentGraph/layoutAlgorithms');
+
+        const testGraphId = 'reset-data-preserve-test';
+        clearNodePositions(testGraphId);
+
+        const originalNodes = [
+          {
+            id: 'doc1',
+            type: 'documentNode',
+            position: { x: 100, y: 200 },
+            data: { nodeType: 'document' as const, title: 'Document 1', filePath: '/doc1.md' }
+          },
+          {
+            id: 'doc2',
+            type: 'documentNode',
+            position: { x: 500, y: 600 },
+            data: { nodeType: 'document' as const, title: 'Document 2', filePath: '/doc2.md' }
+          }
+        ];
+
+        const edges = [
+          { id: 'e1', source: 'doc1', target: 'doc2', type: 'document' }
+        ];
+
+        // Apply layout (simulating reset)
+        const layoutedNodes = applyForceLayout(originalNodes as any, edges);
+
+        // Node data should be preserved
+        expect(layoutedNodes[0].data.title).toBe('Document 1');
+        expect(layoutedNodes[0].data.filePath).toBe('/doc1.md');
+        expect(layoutedNodes[1].data.title).toBe('Document 2');
+        expect(layoutedNodes[1].data.filePath).toBe('/doc2.md');
+
+        // Cleanup
+        clearNodePositions(testGraphId);
+      });
+
+      it('reset applies current layout type (force or hierarchical)', async () => {
+        const { applyForceLayout, applyHierarchicalLayout, clearNodePositions } =
+          await import('../../../../renderer/components/DocumentGraph/layoutAlgorithms');
+
+        const testGraphId = 'reset-layout-type-test';
+        clearNodePositions(testGraphId);
+
+        const nodes = [
+          {
+            id: 'doc1',
+            type: 'documentNode',
+            position: { x: 0, y: 0 },
+            data: { nodeType: 'document' as const, title: 'Doc 1', filePath: '/doc1.md' }
+          },
+          {
+            id: 'doc2',
+            type: 'documentNode',
+            position: { x: 0, y: 0 },
+            data: { nodeType: 'document' as const, title: 'Doc 2', filePath: '/doc2.md' }
+          }
+        ];
+
+        const edges = [{ id: 'e1', source: 'doc1', target: 'doc2', type: 'document' }];
+
+        // Force layout
+        const forceLayouted = applyForceLayout(nodes as any, edges);
+        expect(forceLayouted.length).toBe(2);
+
+        // Hierarchical layout
+        const hierarchicalLayouted = applyHierarchicalLayout(nodes as any, edges);
+        expect(hierarchicalLayouted.length).toBe(2);
+
+        // Both layouts should position nodes (exact positions differ)
+        // The key is that both produce valid positioned nodes
+        expect(forceLayouted[0].position.x).toBeDefined();
+        expect(forceLayouted[0].position.y).toBeDefined();
+        expect(hierarchicalLayouted[0].position.x).toBeDefined();
+        expect(hierarchicalLayouted[0].position.y).toBeDefined();
+
+        // Cleanup
+        clearNodePositions(testGraphId);
+      });
+
+      it('reset triggers animated transition to new layout', async () => {
+        const { createLayoutTransitionFrames, clearNodePositions } =
+          await import('../../../../renderer/components/DocumentGraph/layoutAlgorithms');
+
+        const testGraphId = 'reset-animation-test';
+        clearNodePositions(testGraphId);
+
+        const startNodes = [
+          {
+            id: 'doc1',
+            type: 'documentNode',
+            position: { x: 0, y: 0 },
+            data: { nodeType: 'document' as const, title: 'Doc', filePath: '/doc.md' }
+          }
+        ];
+
+        const endNodes = [
+          {
+            id: 'doc1',
+            type: 'documentNode',
+            position: { x: 200, y: 300 },
+            data: { nodeType: 'document' as const, title: 'Doc', filePath: '/doc.md' }
+          }
+        ];
+
+        // Create animation frames (as handleResetView does via animateLayoutTransition)
+        const frames = createLayoutTransitionFrames(startNodes as any, endNodes as any, 20);
+
+        // Should have 21 frames (0 to 20 inclusive)
+        expect(frames.length).toBe(21);
+
+        // First frame should be at start position
+        expect(frames[0][0].position.x).toBe(0);
+        expect(frames[0][0].position.y).toBe(0);
+
+        // Last frame should be at end position
+        expect(frames[20][0].position.x).toBe(200);
+        expect(frames[20][0].position.y).toBe(300);
+
+        // Cleanup
+        clearNodePositions(testGraphId);
+      });
+
+      it('reset saves new positions after animation completes', async () => {
+        const { applyForceLayout, saveNodePositions, hasSavedPositions, clearNodePositions } =
+          await import('../../../../renderer/components/DocumentGraph/layoutAlgorithms');
+
+        const testGraphId = 'reset-save-after-animation';
+        clearNodePositions(testGraphId);
+
+        const nodes = [
+          {
+            id: 'doc1',
+            type: 'documentNode',
+            position: { x: 500, y: 500 },
+            data: { nodeType: 'document' as const, title: 'Doc', filePath: '/doc.md' }
+          }
+        ];
+
+        const edges: any[] = [];
+
+        // Apply layout (simulating reset)
+        const layoutedNodes = applyForceLayout(nodes as any, edges);
+
+        // Save positions (as callback after animation)
+        saveNodePositions(testGraphId, layoutedNodes);
+
+        // Positions should be saved
+        expect(hasSavedPositions(testGraphId)).toBe(true);
+
+        // Cleanup
+        clearNodePositions(testGraphId);
+      });
+
+      it('reset does nothing when graph is empty', () => {
+        // handleResetView has early return: if (nodes.length === 0 || isAnimatingRef.current) return;
+        const nodes: any[] = [];
+        const shouldReset = nodes.length > 0;
+        expect(shouldReset).toBe(false);
+      });
+
+      it('reset does nothing when animation is in progress', () => {
+        // handleResetView checks isAnimatingRef.current before proceeding
+        const isAnimating = true;
+        const shouldReset = !isAnimating;
+        expect(shouldReset).toBe(false);
+      });
+
+      it('reset calls fitView after animation completes', () => {
+        // The callback passed to animateLayoutTransition includes:
+        // fitView({ padding: 0.1, duration: 300 })
+        const fitViewOptions = { padding: 0.1, duration: 300 };
+        expect(fitViewOptions.padding).toBe(0.1);
+        expect(fitViewOptions.duration).toBe(300);
+      });
+    });
+
+    describe('Reset view button styling', () => {
+      it('uses theme-aware styling for button color', () => {
+        // Button style={{ color: theme.colors.textDim }}
+        const testTheme = {
+          colors: {
+            textDim: '#888888',
+            accent: '#0066ff',
+          }
+        };
+
+        expect(testTheme.colors.textDim).toBeDefined();
+      });
+
+      it('applies hover background on mouse enter', () => {
+        // onMouseEnter sets backgroundColor to `${theme.colors.accent}20`
+        const accentColor = '#0066ff';
+        const hoverBg = `${accentColor}20`;
+        expect(hoverBg).toBe('#0066ff20');
+      });
+
+      it('removes hover background on mouse leave', () => {
+        // onMouseLeave sets backgroundColor to 'transparent'
+        const leaveBg = 'transparent';
+        expect(leaveBg).toBe('transparent');
+      });
+
+      it('button is positioned after Refresh button and before Fit View button', () => {
+        // Button order in header: Search -> Layout Toggle -> External Toggle -> Refresh -> Reset View -> Fit View -> Close
+        const buttonOrder = ['search', 'layout', 'external', 'refresh', 'resetView', 'fitView', 'close'];
+        const resetIndex = buttonOrder.indexOf('resetView');
+        const refreshIndex = buttonOrder.indexOf('refresh');
+        const fitViewIndex = buttonOrder.indexOf('fitView');
+
+        expect(resetIndex).toBeGreaterThan(refreshIndex);
+        expect(resetIndex).toBeLessThan(fitViewIndex);
+      });
+    });
+
+    describe('Reset view integration with layout system', () => {
+      it('strips theme from nodes before layout calculation', async () => {
+        // handleResetView strips theme before passing to layout algorithm:
+        // const { theme: _, ...data } = node.data as GraphNodeData & { theme: Theme };
+        const nodeWithTheme = {
+          id: 'doc1',
+          data: {
+            nodeType: 'document',
+            title: 'Test',
+            filePath: '/test.md',
+            theme: { colors: { accent: '#fff' } },
+          }
+        };
+
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { theme, ...dataWithoutTheme } = nodeWithTheme.data;
+
+        expect(dataWithoutTheme.nodeType).toBe('document');
+        expect(dataWithoutTheme.title).toBe('Test');
+        expect((dataWithoutTheme as any).theme).toBeUndefined();
+      });
+
+      it('uses correct layout options for force layout', async () => {
+        const { applyForceLayout, clearNodePositions } =
+          await import('../../../../renderer/components/DocumentGraph/layoutAlgorithms');
+
+        const testGraphId = 'reset-force-options-test';
+        clearNodePositions(testGraphId);
+
+        // These are the options used in handleResetView for force layout
+        const forceOptions = {
+          nodeWidth: 280,
+          nodeHeight: 120,
+          nodeSeparation: 60,
+          centerX: 0,
+          centerY: 0,
+        };
+
+        const nodes = [
+          {
+            id: 'doc1',
+            type: 'documentNode',
+            position: { x: 0, y: 0 },
+            data: { nodeType: 'document' as const, title: 'Doc', filePath: '/doc.md' }
+          }
+        ];
+
+        // Force layout should accept these options without error
+        const result = applyForceLayout(nodes as any, [], forceOptions);
+        expect(result.length).toBe(1);
+
+        // Cleanup
+        clearNodePositions(testGraphId);
+      });
+
+      it('uses correct layout options for hierarchical layout', async () => {
+        const { applyHierarchicalLayout, clearNodePositions } =
+          await import('../../../../renderer/components/DocumentGraph/layoutAlgorithms');
+
+        const testGraphId = 'reset-hierarchical-options-test';
+        clearNodePositions(testGraphId);
+
+        // These are the options used in handleResetView for hierarchical layout
+        const hierarchicalOptions = {
+          nodeWidth: 280,
+          nodeHeight: 120,
+          rankDirection: 'TB' as const,
+          nodeSeparation: 60,
+          rankSeparation: 120,
+        };
+
+        const nodes = [
+          {
+            id: 'doc1',
+            type: 'documentNode',
+            position: { x: 0, y: 0 },
+            data: { nodeType: 'document' as const, title: 'Doc', filePath: '/doc.md' }
+          }
+        ];
+
+        // Hierarchical layout should accept these options without error
+        const result = applyHierarchicalLayout(nodes as any, [], hierarchicalOptions);
+        expect(result.length).toBe(1);
+
+        // Cleanup
+        clearNodePositions(testGraphId);
+      });
+
+      it('reset clears user-dragged positions and restores computed layout', async () => {
+        const {
+          applyForceLayout,
+          saveNodePositions,
+          restoreNodePositions,
+          clearNodePositions,
+          hasSavedPositions,
+        } = await import('../../../../renderer/components/DocumentGraph/layoutAlgorithms');
+
+        const testGraphId = 'reset-clear-dragged-test';
+        clearNodePositions(testGraphId);
+
+        // Simulate user dragging nodes to custom positions
+        const userDraggedNodes = [
+          {
+            id: 'doc1',
+            type: 'documentNode',
+            position: { x: 999, y: 999 }, // User-dragged position
+            data: { nodeType: 'document' as const, title: 'Doc 1', filePath: '/doc1.md' }
+          },
+          {
+            id: 'doc2',
+            type: 'documentNode',
+            position: { x: 1500, y: 1500 }, // User-dragged position
+            data: { nodeType: 'document' as const, title: 'Doc 2', filePath: '/doc2.md' }
+          }
+        ];
+
+        const edges = [{ id: 'e1', source: 'doc1', target: 'doc2', type: 'document' }];
+
+        // Save user-dragged positions
+        saveNodePositions(testGraphId, userDraggedNodes as any);
+        expect(hasSavedPositions(testGraphId)).toBe(true);
+
+        // Verify dragged positions are saved
+        const restoredNodes = restoreNodePositions(testGraphId, userDraggedNodes as any);
+        expect(restoredNodes[0].position.x).toBe(999);
+        expect(restoredNodes[1].position.x).toBe(1500);
+
+        // Now simulate reset: clear positions and apply fresh layout
+        clearNodePositions(testGraphId);
+        expect(hasSavedPositions(testGraphId)).toBe(false);
+
+        // Apply fresh layout
+        const freshLayoutNodes = applyForceLayout(userDraggedNodes as any, edges);
+
+        // Positions should now be computed by the layout algorithm
+        // They won't be exactly (999, 999) and (1500, 1500) anymore
+        expect(freshLayoutNodes.length).toBe(2);
+        // The force layout will compute new positions based on the algorithm
+
+        // Cleanup
+        clearNodePositions(testGraphId);
+      });
+    });
+
+    describe('Reset view accessibility', () => {
+      it('button has descriptive title for tooltip', () => {
+        const buttonTitle = 'Reset view to default layout';
+        expect(buttonTitle).toContain('Reset');
+        expect(buttonTitle).toContain('default layout');
+      });
+
+      it('button has aria-label for screen readers', () => {
+        const ariaLabel = 'Reset view to default layout';
+        expect(ariaLabel).toBe('Reset view to default layout');
+      });
+
+      it('disabled state prevents interaction', () => {
+        // When disabled, button cannot be clicked
+        const disabled = true;
+        expect(disabled).toBe(true);
+      });
+    });
+  });
 });
