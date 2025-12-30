@@ -1004,6 +1004,7 @@ function setupIpcHandlers() {
     mainWindow,
     getMainWindow: () => mainWindow,
     app,
+    settingsStore: store,
   });
 
   // Playbook operations - extracted to src/main/ipc/handlers/playbooks.ts

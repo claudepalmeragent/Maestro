@@ -872,21 +872,23 @@ interface MaestroAPI {
     getPath: (sessionId: string) => Promise<{ success: boolean; path: string }>;
   };
   // Auto Run file operations
+  // SSH remote support: Core operations accept optional sshRemoteId for remote file operations
   autorun: {
-    listDocs: (folderPath: string) => Promise<{
+    listDocs: (folderPath: string, sshRemoteId?: string) => Promise<{
       success: boolean;
       files: string[];
       tree?: AutoRunTreeNode[];
       error?: string;
     }>;
-    readDoc: (folderPath: string, filename: string) => Promise<{ success: boolean; content?: string; error?: string }>;
-    writeDoc: (folderPath: string, filename: string, content: string) => Promise<{ success: boolean; error?: string }>;
+    readDoc: (folderPath: string, filename: string, sshRemoteId?: string) => Promise<{ success: boolean; content?: string; error?: string }>;
+    writeDoc: (folderPath: string, filename: string, content: string, sshRemoteId?: string) => Promise<{ success: boolean; error?: string }>;
     saveImage: (folderPath: string, docName: string, base64Data: string, extension: string) => Promise<{ success: boolean; relativePath?: string; error?: string }>;
     deleteImage: (folderPath: string, relativePath: string) => Promise<{ success: boolean; error?: string }>;
     listImages: (folderPath: string, docName: string) => Promise<{ success: boolean; images?: Array<{ filename: string; relativePath: string }>; error?: string }>;
     deleteFolder: (projectPath: string) => Promise<{ success: boolean; error?: string }>;
     // File watching for live updates
-    watchFolder: (folderPath: string) => Promise<{ success: boolean; error?: string }>;
+    // For remote sessions (sshRemoteId provided), returns isRemote: true indicating polling should be used
+    watchFolder: (folderPath: string, sshRemoteId?: string) => Promise<{ success: boolean; isRemote?: boolean; message?: string; error?: string }>;
     unwatchFolder: (folderPath: string) => Promise<{ success: boolean; error?: string }>;
     onFileChanged: (handler: (data: { folderPath: string; filename: string; eventType: string }) => void) => () => void;
     // Backup operations for reset-on-completion documents (legacy)

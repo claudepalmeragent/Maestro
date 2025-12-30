@@ -1175,13 +1175,14 @@ contextBridge.exposeInMainWorld('maestro', {
   },
 
   // Auto Run API (file-system-based document runner)
+  // SSH remote support: Core operations accept optional sshRemoteId for remote file operations
   autorun: {
-    listDocs: (folderPath: string) =>
-      ipcRenderer.invoke('autorun:listDocs', folderPath),
-    readDoc: (folderPath: string, filename: string) =>
-      ipcRenderer.invoke('autorun:readDoc', folderPath, filename),
-    writeDoc: (folderPath: string, filename: string, content: string) =>
-      ipcRenderer.invoke('autorun:writeDoc', folderPath, filename, content),
+    listDocs: (folderPath: string, sshRemoteId?: string) =>
+      ipcRenderer.invoke('autorun:listDocs', folderPath, sshRemoteId),
+    readDoc: (folderPath: string, filename: string, sshRemoteId?: string) =>
+      ipcRenderer.invoke('autorun:readDoc', folderPath, filename, sshRemoteId),
+    writeDoc: (folderPath: string, filename: string, content: string, sshRemoteId?: string) =>
+      ipcRenderer.invoke('autorun:writeDoc', folderPath, filename, content, sshRemoteId),
     saveImage: (
       folderPath: string,
       docName: string,
@@ -1202,8 +1203,9 @@ contextBridge.exposeInMainWorld('maestro', {
     deleteFolder: (projectPath: string) =>
       ipcRenderer.invoke('autorun:deleteFolder', projectPath),
     // File watching for live updates
-    watchFolder: (folderPath: string) =>
-      ipcRenderer.invoke('autorun:watchFolder', folderPath),
+    // For remote sessions (sshRemoteId provided), returns isRemote: true indicating polling should be used
+    watchFolder: (folderPath: string, sshRemoteId?: string): Promise<{ isRemote?: boolean; message?: string }> =>
+      ipcRenderer.invoke('autorun:watchFolder', folderPath, sshRemoteId),
     unwatchFolder: (folderPath: string) =>
       ipcRenderer.invoke('autorun:unwatchFolder', folderPath),
     onFileChanged: (handler: (data: { folderPath: string; filename: string; eventType: string }) => void) => {
