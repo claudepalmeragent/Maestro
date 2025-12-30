@@ -238,8 +238,6 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
     setDocumentGraphShowExternalLinks,
     documentGraphMaxNodes,
     setDocumentGraphMaxNodes,
-    documentGraphLayoutMode,
-    setDocumentGraphLayoutMode,
     // Stats settings
     statsCollectionEnabled,
     setStatsCollectionEnabled,
@@ -1594,54 +1592,6 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
                   className="p-3 rounded border space-y-3"
                   style={{ borderColor: theme.colors.border, backgroundColor: theme.colors.bgMain }}
                 >
-                  {/* Default Layout Mode */}
-                  <div>
-                    <label className="block text-xs opacity-60 mb-2">Default layout mode</label>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => setDocumentGraphLayoutMode('force')}
-                        className={`flex-1 px-3 py-2 rounded text-xs font-medium transition-colors ${
-                          documentGraphLayoutMode === 'force' ? 'ring-2' : ''
-                        }`}
-                        style={{
-                          backgroundColor: documentGraphLayoutMode === 'force'
-                            ? theme.colors.accent + '20'
-                            : theme.colors.bgActivity,
-                          color: documentGraphLayoutMode === 'force'
-                            ? theme.colors.accent
-                            : theme.colors.textDim,
-                          borderColor: documentGraphLayoutMode === 'force'
-                            ? theme.colors.accent
-                            : 'transparent',
-                        }}
-                      >
-                        Force-Directed
-                      </button>
-                      <button
-                        onClick={() => setDocumentGraphLayoutMode('hierarchical')}
-                        className={`flex-1 px-3 py-2 rounded text-xs font-medium transition-colors ${
-                          documentGraphLayoutMode === 'hierarchical' ? 'ring-2' : ''
-                        }`}
-                        style={{
-                          backgroundColor: documentGraphLayoutMode === 'hierarchical'
-                            ? theme.colors.accent + '20'
-                            : theme.colors.bgActivity,
-                          color: documentGraphLayoutMode === 'hierarchical'
-                            ? theme.colors.accent
-                            : theme.colors.textDim,
-                          borderColor: documentGraphLayoutMode === 'hierarchical'
-                            ? theme.colors.accent
-                            : 'transparent',
-                        }}
-                      >
-                        Hierarchical
-                      </button>
-                    </div>
-                    <p className="text-xs opacity-50 mt-1">
-                      Layout algorithm used when opening the Document Graph.
-                    </p>
-                  </div>
-
                   {/* Show External Links */}
                   <div className="flex items-center justify-between">
                     <div>

@@ -846,7 +846,6 @@ const LOAD_MORE_INCREMENT = 25;
 
 ```typescript
 // In useSettings.ts
-documentGraphLayoutMode: 'force' | 'hierarchical'  // Saved layout preference
 documentGraphShowExternalLinks: boolean            // Show external link nodes (default: false)
 documentGraphMaxNodes: number                      // Initial pagination limit (50-1000, default: 200)
 ```

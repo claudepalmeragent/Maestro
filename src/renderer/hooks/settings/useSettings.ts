@@ -284,8 +284,6 @@ export interface UseSettingsReturn {
   setColorBlindMode: (value: boolean) => void;
 
   // Document Graph settings
-  documentGraphLayoutMode: 'force' | 'hierarchical';
-  setDocumentGraphLayoutMode: (value: 'force' | 'hierarchical') => void;
   documentGraphShowExternalLinks: boolean;
   setDocumentGraphShowExternalLinks: (value: boolean) => void;
   documentGraphMaxNodes: number;
@@ -412,7 +410,6 @@ export function useSettings(): UseSettingsReturn {
   const [colorBlindMode, setColorBlindModeState] = useState(false);
 
   // Document Graph settings
-  const [documentGraphLayoutMode, setDocumentGraphLayoutModeState] = useState<'force' | 'hierarchical'>('force');
   const [documentGraphShowExternalLinks, setDocumentGraphShowExternalLinksState] = useState(false); // Default: false
   const [documentGraphMaxNodes, setDocumentGraphMaxNodesState] = useState(200); // Default: 200
 
@@ -1105,12 +1102,6 @@ export function useSettings(): UseSettingsReturn {
     window.maestro.settings.set('colorBlindMode', value);
   }, []);
 
-  // Document Graph layout mode
-  const setDocumentGraphLayoutMode = useCallback((value: 'force' | 'hierarchical') => {
-    setDocumentGraphLayoutModeState(value);
-    window.maestro.settings.set('documentGraphLayoutMode', value);
-  }, []);
-
   // Document Graph show external links
   const setDocumentGraphShowExternalLinks = useCallback((value: boolean) => {
     setDocumentGraphShowExternalLinksState(value);
@@ -1202,7 +1193,6 @@ export function useSettings(): UseSettingsReturn {
       const savedContextManagementSettings = await window.maestro.settings.get('contextManagementSettings');
       const savedKeyboardMasteryStats = await window.maestro.settings.get('keyboardMasteryStats');
       const savedColorBlindMode = await window.maestro.settings.get('colorBlindMode');
-      const savedDocumentGraphLayoutMode = await window.maestro.settings.get('documentGraphLayoutMode');
       const savedDocumentGraphShowExternalLinks = await window.maestro.settings.get('documentGraphShowExternalLinks');
       const savedDocumentGraphMaxNodes = await window.maestro.settings.get('documentGraphMaxNodes');
       const savedStatsCollectionEnabled = await window.maestro.settings.get('statsCollectionEnabled');
@@ -1431,12 +1421,6 @@ export function useSettings(): UseSettingsReturn {
       if (savedColorBlindMode !== undefined) setColorBlindModeState(savedColorBlindMode as boolean);
 
       // Document Graph settings
-      if (savedDocumentGraphLayoutMode !== undefined) {
-        const validModes = ['force', 'hierarchical'];
-        if (validModes.includes(savedDocumentGraphLayoutMode as string)) {
-          setDocumentGraphLayoutModeState(savedDocumentGraphLayoutMode as 'force' | 'hierarchical');
-        }
-      }
       if (savedDocumentGraphShowExternalLinks !== undefined) {
         setDocumentGraphShowExternalLinksState(savedDocumentGraphShowExternalLinks as boolean);
       }
@@ -1603,8 +1587,6 @@ export function useSettings(): UseSettingsReturn {
     getUnacknowledgedKeyboardMasteryLevel,
     colorBlindMode,
     setColorBlindMode,
-    documentGraphLayoutMode,
-    setDocumentGraphLayoutMode,
     documentGraphShowExternalLinks,
     setDocumentGraphShowExternalLinks,
     documentGraphMaxNodes,
@@ -1734,8 +1716,6 @@ export function useSettings(): UseSettingsReturn {
     getUnacknowledgedKeyboardMasteryLevel,
     colorBlindMode,
     setColorBlindMode,
-    documentGraphLayoutMode,
-    setDocumentGraphLayoutMode,
     documentGraphShowExternalLinks,
     setDocumentGraphShowExternalLinks,
     documentGraphMaxNodes,

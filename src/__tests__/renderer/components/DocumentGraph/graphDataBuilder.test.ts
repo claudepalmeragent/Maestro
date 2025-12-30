@@ -557,7 +557,7 @@ describe('graphDataBuilder', () => {
     });
 
     // Note: Node positions are no longer set by graphDataBuilder.
-    // Positions are computed by the D3 force simulation in ForceGraph.tsx.
+    // Positions are computed by the layout algorithm in MindMap.tsx.
     // The graphDataBuilder now returns GraphNode[] without position property.
   });
 

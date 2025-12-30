@@ -1,14 +1,15 @@
 /**
  * DocumentGraphView - Main container component for the markdown document graph visualization.
  *
- * Rewritten to use react-force-graph-2d for a smoother, Obsidian-like experience.
+ * Uses a canvas-based MindMap component with deterministic layout.
  *
  * Features:
- * - Force-directed graph with smooth physics simulation
+ * - Centered mind map layout with focus document in the middle
+ * - Left/right columns for alphabetized document links
+ * - External URLs clustered at the bottom
  * - Neighbor depth slider for focused ego-network views
- * - Node size based on connection count
  * - Search highlighting
- * - External links toggle
+ * - Keyboard navigation (arrow keys, Enter to recenter, O to open)
  * - Theme-aware styling throughout
  */
 
@@ -24,8 +25,6 @@ import {
   Sliders,
   Focus,
   AlertCircle,
-  Settings2,
-  RotateCcw,
 } from 'lucide-react';
 import type { Theme } from '../../types';
 import { useLayerStack } from '../../contexts/LayerStackContext';
@@ -33,7 +32,7 @@ import { MODAL_PRIORITIES } from '../../constants/modalPriorities';
 import { Modal, ModalFooter } from '../ui/Modal';
 import { useDebouncedCallback } from '../../hooks/utils';
 import { buildGraphData, ProgressData, GraphNodeData } from './graphDataBuilder';
-import { ForceGraph, ForceGraphNode, ForceGraphLink, convertToForceGraphData, ForcePhysicsSettings, DEFAULT_PHYSICS } from './ForceGraph';
+import { MindMap, MindMapNode, MindMapLink, convertToMindMapData } from './MindMap';
 import { NodeContextMenu } from './NodeContextMenu';
 import { GraphLegend } from './GraphLegend';
 
@@ -60,14 +59,10 @@ export interface DocumentGraphViewProps {
   onDocumentOpen?: (filePath: string) => void;
   /** Optional callback when an external link node is double-clicked */
   onExternalLinkOpen?: (url: string) => void;
-  /** Optional file path (relative to rootPath) to focus on when the graph opens */
-  focusFilePath?: string;
+  /** Required file path (relative to rootPath) to focus on - the center of the mind map */
+  focusFilePath: string;
   /** Callback when focus file is consumed (cleared after focusing) */
   onFocusFileConsumed?: () => void;
-  /** Saved layout mode preference */
-  savedLayoutMode?: 'force' | 'hierarchical';
-  /** Callback to persist layout mode changes */
-  onLayoutModeChange?: (mode: 'force' | 'hierarchical') => void;
   /** Default setting for showing external links (from settings) */
   defaultShowExternalLinks?: boolean;
   /** Callback to persist external links toggle changes */
@@ -93,7 +88,7 @@ export function DocumentGraphView({
   onDocumentOpen,
   onExternalLinkOpen,
   focusFilePath,
-  onFocusFileConsumed,
+  onFocusFileConsumed: _onFocusFileConsumed,
   defaultShowExternalLinks = false,
   onExternalLinksChange,
   defaultMaxNodes = DEFAULT_MAX_NODES,
@@ -102,8 +97,8 @@ export function DocumentGraphView({
   sshRemoteId,
 }: DocumentGraphViewProps) {
   // Graph data state
-  const [nodes, setNodes] = useState<ForceGraphNode[]>([]);
-  const [links, setLinks] = useState<ForceGraphLink[]>([]);
+  const [nodes, setNodes] = useState<MindMapNode[]>([]);
+  const [links, setLinks] = useState<MindMapLink[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -113,12 +108,10 @@ export function DocumentGraphView({
   const [includeExternalLinks, setIncludeExternalLinks] = useState(defaultShowExternalLinks);
   const [neighborDepth, setNeighborDepth] = useState(defaultNeighborDepth);
   const [showDepthSlider, setShowDepthSlider] = useState(false);
-  const [showPhysicsPanel, setShowPhysicsPanel] = useState(false);
-  const [physics, setPhysics] = useState<ForcePhysicsSettings>(DEFAULT_PHYSICS);
 
   // Selection state
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-  const [selectedNode, setSelectedNode] = useState<ForceGraphNode | null>(null);
+  const [selectedNode, setSelectedNode] = useState<MindMapNode | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
   // Pagination state
@@ -154,10 +147,9 @@ export function DocumentGraphView({
   const hasLoadedDataRef = useRef(false);
   const prevRootPathRef = useRef(rootPath);
 
-  // Focus file tracking
-  const [activeFocusFile, setActiveFocusFile] = useState<string | null>(null);
-  const focusFilePathRef = useRef(focusFilePath);
-  focusFilePathRef.current = focusFilePath;
+  // Focus file tracking - activeFocusFile is the current center of the mind map
+  // Initially set from props, but can change when user double-clicks a node
+  const [activeFocusFile, setActiveFocusFile] = useState<string | null>(focusFilePath);
 
   /**
    * Handle escape - show confirmation modal
@@ -245,26 +237,24 @@ export function DocumentGraphView({
       setLoadedDocuments(graphData.loadedDocuments);
       setHasMore(graphData.hasMore);
 
-      // Convert to force graph format
-      const { nodes: forceNodes, links: forceLinks } = convertToForceGraphData(
+      // Convert to mind map format
+      const { nodes: mindMapNodes, links: mindMapLinks } = convertToMindMapData(
         graphData.nodes.map(n => ({ id: n.id, data: n.data })),
         graphData.edges.map(e => ({ source: e.source, target: e.target, type: e.type }))
       );
 
-      setNodes(forceNodes);
-      setLinks(forceLinks);
+      setNodes(mindMapNodes);
+      setLinks(mindMapLinks);
 
-      // Set active focus file if provided
-      if (focusFilePathRef.current) {
-        setActiveFocusFile(focusFilePathRef.current);
-      }
+      // Set active focus file from the required focusFilePath prop
+      setActiveFocusFile(focusFilePath);
     } catch (err) {
       console.error('Failed to build graph data:', err);
       setError(err instanceof Error ? err.message : 'Failed to load document graph');
     } finally {
       setLoading(false);
     }
-  }, [rootPath, includeExternalLinks, maxNodes, defaultMaxNodes, handleProgress]);
+  }, [rootPath, includeExternalLinks, maxNodes, defaultMaxNodes, handleProgress, focusFilePath]);
 
   /**
    * Debounced version of loadGraphData for settings changes
@@ -334,18 +324,18 @@ export function DocumentGraphView({
   /**
    * Handle node selection
    */
-  const handleNodeSelect = useCallback((node: ForceGraphNode | null) => {
+  const handleNodeSelect = useCallback((node: MindMapNode | null) => {
     setSelectedNodeId(node?.id ?? null);
     setSelectedNode(node);
     setContextMenu(null);
   }, []);
 
   /**
-   * Handle node double-click - focus on node to expand its neighbors
+   * Handle node double-click - recenter on this document
    */
-  const handleNodeDoubleClick = useCallback((node: ForceGraphNode) => {
+  const handleNodeDoubleClick = useCallback((node: MindMapNode) => {
     if (node.nodeType === 'document' && node.filePath) {
-      // Set this node as the focus to show its ego-network
+      // Set this node as the new center of the mind map
       setActiveFocusFile(node.filePath);
       // Ensure neighbor depth is set if it was 0 (show all)
       if (neighborDepth === 0) {
@@ -360,7 +350,7 @@ export function DocumentGraphView({
   /**
    * Handle node context menu
    */
-  const handleNodeContextMenu = useCallback((node: ForceGraphNode, event: MouseEvent) => {
+  const handleNodeContextMenu = useCallback((node: MindMapNode, event: MouseEvent) => {
     event.preventDefault();
     setContextMenu({
       x: event.clientX,
@@ -369,7 +359,7 @@ export function DocumentGraphView({
       nodeData: node.nodeType === 'document'
         ? {
             nodeType: 'document',
-            title: node.title || '',
+            title: node.label || '',
             filePath: node.filePath || '',
             description: node.description,
             lineCount: node.lineCount || 0,
@@ -379,7 +369,7 @@ export function DocumentGraphView({
         : {
             nodeType: 'external',
             domain: node.domain || '',
-            linkCount: node.linkCount || 0,
+            linkCount: node.connectionCount || 0,
             urls: node.urls || [],
           },
     });
@@ -404,14 +394,6 @@ export function DocumentGraphView({
     setNeighborDepth(newDepth);
     onNeighborDepthChange?.(newDepth);
   }, [onNeighborDepthChange]);
-
-  /**
-   * Handle focus file consumed
-   */
-  const handleFocusConsumed = useCallback(() => {
-    onFocusFileConsumed?.();
-  }, [onFocusFileConsumed]);
-
   /**
    * Clear focus mode
    */
@@ -453,13 +435,13 @@ export function DocumentGraphView({
       setLoadedDocuments(graphData.loadedDocuments);
       setHasMore(graphData.hasMore);
 
-      const { nodes: forceNodes, links: forceLinks } = convertToForceGraphData(
+      const { nodes: mindMapNodes, links: mindMapLinks } = convertToMindMapData(
         graphData.nodes.map(n => ({ id: n.id, data: n.data })),
         graphData.edges.map(e => ({ source: e.source, target: e.target, type: e.type }))
       );
 
-      setNodes(forceNodes);
-      setLinks(forceLinks);
+      setNodes(mindMapNodes);
+      setLinks(mindMapLinks);
     } catch (err) {
       console.error('Failed to load more documents:', err);
     } finally {
@@ -498,6 +480,15 @@ export function DocumentGraphView({
     }
     setContextMenu(null);
   }, [nodes, neighborDepth]);
+
+  /**
+   * Handle open file from mind map (clicking open icon or pressing O key)
+   */
+  const handleOpenFile = useCallback((filePath: string) => {
+    if (onDocumentOpen) {
+      onDocumentOpen(filePath);
+    }
+  }, [onDocumentOpen]);
 
   if (!isOpen) return null;
 
@@ -600,7 +591,7 @@ export function DocumentGraphView({
         const query = searchQuery.toLowerCase();
         if (n.nodeType === 'document') {
           return (
-            (n.title?.toLowerCase().includes(query) ?? false) ||
+            (n.label?.toLowerCase().includes(query) ?? false) ||
             (n.filePath?.toLowerCase().includes(query) ?? false)
           );
         } else {
@@ -810,159 +801,6 @@ export function DocumentGraphView({
               External
             </button>
 
-            {/* Physics Settings */}
-            <div className="relative">
-              <button
-                onClick={() => setShowPhysicsPanel(!showPhysicsPanel)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded text-sm transition-colors"
-                style={{
-                  backgroundColor: showPhysicsPanel ? `${theme.colors.accent}25` : `${theme.colors.accent}10`,
-                  color: showPhysicsPanel ? theme.colors.accent : theme.colors.textDim,
-                }}
-                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = `${theme.colors.accent}30`)}
-                onMouseLeave={(e) =>
-                  (e.currentTarget.style.backgroundColor = showPhysicsPanel
-                    ? `${theme.colors.accent}25`
-                    : `${theme.colors.accent}10`)
-                }
-                title="Adjust graph physics settings"
-              >
-                <Settings2 className="w-4 h-4" />
-                Forces
-              </button>
-
-              {showPhysicsPanel && (
-                <div
-                  className="absolute top-full right-0 mt-2 p-4 rounded-lg shadow-lg z-50"
-                  style={{
-                    backgroundColor: theme.colors.bgActivity,
-                    border: `1px solid ${theme.colors.border}`,
-                    minWidth: 260,
-                  }}
-                >
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-sm font-medium" style={{ color: theme.colors.textMain }}>
-                      Force Settings
-                    </span>
-                    <button
-                      onClick={() => setPhysics(DEFAULT_PHYSICS)}
-                      className="flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors"
-                      style={{
-                        backgroundColor: `${theme.colors.accent}15`,
-                        color: theme.colors.textDim,
-                      }}
-                      onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = `${theme.colors.accent}25`)}
-                      onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = `${theme.colors.accent}15`)}
-                      title="Reset to default settings"
-                    >
-                      <RotateCcw className="w-3 h-3" />
-                      Reset
-                    </button>
-                  </div>
-
-                  {/* Center Force */}
-                  <div className="mb-3">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs" style={{ color: theme.colors.textDim }}>
-                        Center Force
-                      </span>
-                      <span className="text-xs font-mono" style={{ color: theme.colors.textMain }}>
-                        {physics.centerForce.toFixed(2)}
-                      </span>
-                    </div>
-                    <input
-                      type="range"
-                      min="0"
-                      max="1"
-                      step="0.05"
-                      value={physics.centerForce}
-                      onChange={(e) => setPhysics(prev => ({ ...prev, centerForce: parseFloat(e.target.value) }))}
-                      className="w-full"
-                      style={{ accentColor: theme.colors.accent }}
-                    />
-                    <p className="text-xs mt-0.5" style={{ color: theme.colors.textDim, opacity: 0.7 }}>
-                      Pulls nodes toward the center
-                    </p>
-                  </div>
-
-                  {/* Repel Force */}
-                  <div className="mb-3">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs" style={{ color: theme.colors.textDim }}>
-                        Repel Force
-                      </span>
-                      <span className="text-xs font-mono" style={{ color: theme.colors.textMain }}>
-                        {physics.repelForce}
-                      </span>
-                    </div>
-                    <input
-                      type="range"
-                      min="0"
-                      max="500"
-                      step="10"
-                      value={physics.repelForce}
-                      onChange={(e) => setPhysics(prev => ({ ...prev, repelForce: parseInt(e.target.value, 10) }))}
-                      className="w-full"
-                      style={{ accentColor: theme.colors.accent }}
-                    />
-                    <p className="text-xs mt-0.5" style={{ color: theme.colors.textDim, opacity: 0.7 }}>
-                      Pushes nodes apart
-                    </p>
-                  </div>
-
-                  {/* Link Force */}
-                  <div className="mb-3">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs" style={{ color: theme.colors.textDim }}>
-                        Link Force
-                      </span>
-                      <span className="text-xs font-mono" style={{ color: theme.colors.textMain }}>
-                        {physics.linkForce.toFixed(2)}
-                      </span>
-                    </div>
-                    <input
-                      type="range"
-                      min="0"
-                      max="1"
-                      step="0.05"
-                      value={physics.linkForce}
-                      onChange={(e) => setPhysics(prev => ({ ...prev, linkForce: parseFloat(e.target.value) }))}
-                      className="w-full"
-                      style={{ accentColor: theme.colors.accent }}
-                    />
-                    <p className="text-xs mt-0.5" style={{ color: theme.colors.textDim, opacity: 0.7 }}>
-                      Pulls connected nodes together
-                    </p>
-                  </div>
-
-                  {/* Link Distance */}
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs" style={{ color: theme.colors.textDim }}>
-                        Link Distance
-                      </span>
-                      <span className="text-xs font-mono" style={{ color: theme.colors.textMain }}>
-                        {physics.linkDistance}px
-                      </span>
-                    </div>
-                    <input
-                      type="range"
-                      min="10"
-                      max="200"
-                      step="5"
-                      value={physics.linkDistance}
-                      onChange={(e) => setPhysics(prev => ({ ...prev, linkDistance: parseInt(e.target.value, 10) }))}
-                      className="w-full"
-                      style={{ accentColor: theme.colors.accent }}
-                    />
-                    <p className="text-xs mt-0.5" style={{ color: theme.colors.textDim, opacity: 0.7 }}>
-                      Target distance between connected nodes
-                    </p>
-                  </div>
-                </div>
-              )}
-            </div>
-
             {/* Refresh Button */}
             <button
               onClick={() => loadGraphData()}
@@ -1002,7 +840,7 @@ export function DocumentGraphView({
             {selectedNode.nodeType === 'document' ? (
               <>
                 <span style={{ color: theme.colors.accent, fontWeight: 500 }}>
-                  {selectedNode.title}
+                  {selectedNode.label}
                 </span>
                 <span style={{ color: theme.colors.textDim }}>
                   {selectedNode.filePath}
@@ -1103,24 +941,32 @@ export function DocumentGraphView({
               <p className="text-lg">No markdown files found</p>
               <p className="text-sm opacity-70">This directory doesn't contain any .md files</p>
             </div>
-          ) : (
-            <ForceGraph
+          ) : activeFocusFile ? (
+            <MindMap
+              centerFilePath={activeFocusFile}
               nodes={nodes}
               links={links}
               theme={theme}
               width={graphDimensions.width}
               height={graphDimensions.height}
+              maxDepth={neighborDepth || 2}
+              showExternalLinks={includeExternalLinks}
               selectedNodeId={selectedNodeId}
               onNodeSelect={handleNodeSelect}
               onNodeDoubleClick={handleNodeDoubleClick}
               onNodeContextMenu={handleNodeContextMenu}
+              onOpenFile={handleOpenFile}
               searchQuery={searchQuery}
-              showExternalLinks={includeExternalLinks}
-              neighborDepth={neighborDepth}
-              focusFilePath={activeFocusFile}
-              onFocusConsumed={handleFocusConsumed}
-              physics={physics}
             />
+          ) : (
+            <div
+              className="h-full flex flex-col items-center justify-center gap-2"
+              style={{ color: theme.colors.textDim }}
+            >
+              <Network className="w-12 h-12 opacity-30" />
+              <p className="text-lg">No focus document selected</p>
+              <p className="text-sm opacity-70">Select a document to view its connections</p>
+            </div>
           )}
 
           {/* Graph Legend */}
@@ -1192,7 +1038,7 @@ export function DocumentGraphView({
             )}
           </div>
           <span style={{ opacity: 0.7 }}>
-            Click to select • Double-click to open • Drag to move • Scroll to zoom • Esc to close
+            Click to select • Double-click to recenter • O to open • Arrow keys to navigate • Esc to close
           </span>
         </div>
       </div>
@@ -1227,13 +1073,10 @@ export function DocumentGraphView({
       )}
 
       {/* Click outside dropdowns to close them */}
-      {(showDepthSlider || showPhysicsPanel) && (
+      {showDepthSlider && (
         <div
           className="fixed inset-0 z-40"
-          onClick={() => {
-            setShowDepthSlider(false);
-            setShowPhysicsPanel(false);
-          }}
+          onClick={() => setShowDepthSlider(false)}
         />
       )}
     </div>

@@ -1,18 +1,18 @@
 /**
- * GraphLegend - Component explaining node types, edge types, and colors in the Document Graph.
+ * GraphLegend - Component explaining node types, edge types, and keyboard shortcuts in the Mind Map.
  *
  * Displays a collapsible legend panel showing:
- * - Document nodes: Markdown files with their distinctive styling
- * - External link nodes: Aggregated external URLs by domain
+ * - Document nodes: Card-style nodes with title and description
+ * - External link nodes: Smaller pill-shaped nodes with domain
  * - Internal edges: Solid lines connecting markdown documents
  * - External edges: Dashed lines connecting to external domains
- * - Selection state: Highlighted appearance when selected
+ * - Keyboard shortcuts: Arrow keys to navigate, Enter to recenter, O to open
  *
- * The legend is theme-aware and uses the same colors as the actual graph elements.
+ * The legend is theme-aware and uses the same colors as the actual mind map elements.
  */
 
 import React, { useState, memo, useCallback } from 'react';
-import { ChevronDown, ChevronUp, ArrowRight, AlertTriangle } from 'lucide-react';
+import { ChevronDown, ChevronUp, AlertTriangle, ExternalLink } from 'lucide-react';
 import type { Theme } from '../../types';
 
 /**
@@ -45,16 +45,24 @@ interface EdgeLegendItem {
   description: string;
 }
 
+/**
+ * Legend item for a keyboard shortcut
+ */
+interface KeyboardShortcutItem {
+  keys: string;
+  description: string;
+}
+
 const NODE_ITEMS: NodeLegendItem[] = [
   {
     type: 'document',
     label: 'Document',
-    description: 'Markdown file (size = connections)',
+    description: 'Card with title and description',
   },
   {
     type: 'external',
     label: 'External Link',
-    description: 'External domain (smaller, dimmer)',
+    description: 'Pill showing domain name',
   },
 ];
 
@@ -62,7 +70,7 @@ const EDGE_ITEMS: EdgeLegendItem[] = [
   {
     type: 'internal',
     label: 'Internal Link',
-    description: 'Connection between markdown documents',
+    description: 'Connection between markdown files',
   },
   {
     type: 'external',
@@ -71,8 +79,23 @@ const EDGE_ITEMS: EdgeLegendItem[] = [
   },
 ];
 
+const KEYBOARD_SHORTCUTS: KeyboardShortcutItem[] = [
+  {
+    keys: '↑ ↓ ← →',
+    description: 'Navigate between nodes',
+  },
+  {
+    keys: 'Enter',
+    description: 'Recenter on focused node',
+  },
+  {
+    keys: 'O',
+    description: 'Open file in preview',
+  },
+];
+
 /**
- * Mini preview of a document node for the legend (force graph style)
+ * Mini preview of a document node card for the legend (mind map style)
  */
 const DocumentNodePreview = memo(function DocumentNodePreview({
   theme,
@@ -83,26 +106,62 @@ const DocumentNodePreview = memo(function DocumentNodePreview({
 }) {
   return (
     <svg
-      width={24}
+      width={36}
       height={24}
-      viewBox="0 0 24 24"
+      viewBox="0 0 36 24"
       role="img"
-      aria-label={`Document node${selected ? ' (selected)' : ''}`}
+      aria-label={`Document node card${selected ? ' (selected)' : ''}`}
     >
-      <circle
-        cx={12}
-        cy={12}
-        r={selected ? 9 : 8}
-        fill={`${theme.colors.accent}BB`}
-        stroke={selected ? theme.colors.accent : 'none'}
-        strokeWidth={selected ? 2 : 0}
+      {/* Card background */}
+      <rect
+        x={1}
+        y={1}
+        width={34}
+        height={22}
+        rx={4}
+        fill={selected ? `${theme.colors.accent}30` : theme.colors.bgActivity}
+        stroke={selected ? theme.colors.accent : theme.colors.border}
+        strokeWidth={selected ? 1.5 : 1}
       />
+      {/* Title line */}
+      <rect
+        x={5}
+        y={6}
+        width={18}
+        height={3}
+        rx={1}
+        fill={theme.colors.textMain}
+      />
+      {/* Description line */}
+      <rect
+        x={5}
+        y={12}
+        width={22}
+        height={2}
+        rx={0.5}
+        fill={theme.colors.textDim}
+        opacity={0.6}
+      />
+      {/* Description line 2 */}
+      <rect
+        x={5}
+        y={16}
+        width={14}
+        height={2}
+        rx={0.5}
+        fill={theme.colors.textDim}
+        opacity={0.4}
+      />
+      {/* Open icon */}
+      <g transform="translate(28, 4)">
+        <ExternalLink size={6} style={{ color: theme.colors.textDim }} />
+      </g>
     </svg>
   );
 });
 
 /**
- * Mini preview of an external link node for the legend (force graph style)
+ * Mini preview of an external link node pill for the legend (mind map style)
  */
 const ExternalNodePreview = memo(function ExternalNodePreview({
   theme,
@@ -113,19 +172,32 @@ const ExternalNodePreview = memo(function ExternalNodePreview({
 }) {
   return (
     <svg
-      width={24}
-      height={24}
-      viewBox="0 0 24 24"
+      width={36}
+      height={18}
+      viewBox="0 0 36 18"
       role="img"
-      aria-label={`External link node${selected ? ' (selected)' : ''}`}
+      aria-label={`External link node pill${selected ? ' (selected)' : ''}`}
     >
-      <circle
-        cx={12}
-        cy={12}
-        r={selected ? 6 : 5}
-        fill={`${theme.colors.textDim}88`}
-        stroke={selected ? theme.colors.accent : 'none'}
-        strokeWidth={selected ? 2 : 0}
+      {/* Pill background */}
+      <rect
+        x={1}
+        y={2}
+        width={34}
+        height={14}
+        rx={7}
+        fill={theme.colors.bgMain}
+        stroke={selected ? theme.colors.accent : `${theme.colors.border}80`}
+        strokeWidth={1}
+      />
+      {/* Domain text representation */}
+      <rect
+        x={8}
+        y={7}
+        width={20}
+        height={4}
+        rx={1}
+        fill={theme.colors.textDim}
+        opacity={0.8}
       />
     </svg>
   );
@@ -144,8 +216,9 @@ const EdgePreview = memo(function EdgePreview({
   highlighted?: boolean;
 }) {
   const strokeColor = highlighted ? theme.colors.accent : theme.colors.textDim;
-  const strokeWidth = highlighted ? 2.5 : 1.5;
+  const strokeWidth = highlighted ? 2 : 1.5;
   const isDashed = type === 'external';
+  const opacity = type === 'external' && !highlighted ? 0.5 : 0.8;
 
   return (
     <svg
@@ -155,30 +228,47 @@ const EdgePreview = memo(function EdgePreview({
       role="img"
       aria-label={`${type === 'internal' ? 'Internal' : 'External'} link edge${highlighted ? ' (highlighted)' : ''}`}
     >
-      <line
-        x1={4}
-        y1={8}
-        x2={36}
-        y2={8}
-        stroke={strokeColor}
-        strokeWidth={strokeWidth}
-        strokeDasharray={isDashed ? '4 4' : undefined}
-      />
-      {/* Arrow head */}
+      {/* Curved bezier path to match mind map style */}
       <path
-        d="M32 4 L38 8 L32 12"
+        d={isDashed ? 'M4,8 C15,8 25,8 36,8' : 'M4,8 C12,3 28,13 36,8'}
         fill="none"
         stroke={strokeColor}
         strokeWidth={strokeWidth}
+        strokeDasharray={isDashed ? '4 3' : undefined}
+        opacity={opacity}
         strokeLinecap="round"
-        strokeLinejoin="round"
       />
     </svg>
   );
 });
 
 /**
- * GraphLegend component - Displays an explanation of graph elements
+ * Keyboard shortcut badge
+ */
+const KeyboardBadge = memo(function KeyboardBadge({
+  keys,
+  theme,
+}: {
+  keys: string;
+  theme: Theme;
+}) {
+  return (
+    <span
+      className="inline-flex items-center justify-center px-1.5 py-0.5 rounded text-[10px] font-mono"
+      style={{
+        backgroundColor: `${theme.colors.textDim}15`,
+        color: theme.colors.textMain,
+        border: `1px solid ${theme.colors.border}`,
+        minWidth: 24,
+      }}
+    >
+      {keys}
+    </span>
+  );
+});
+
+/**
+ * GraphLegend component - Displays an explanation of mind map elements
  */
 export const GraphLegend = memo(function GraphLegend({
   theme,
@@ -197,7 +287,7 @@ export const GraphLegend = memo(function GraphLegend({
       style={{
         backgroundColor: theme.colors.bgActivity,
         border: `1px solid ${theme.colors.border}`,
-        maxWidth: 280,
+        maxWidth: 300,
         zIndex: 10,
         // Position at bottom center
         bottom: 16,
@@ -205,7 +295,7 @@ export const GraphLegend = memo(function GraphLegend({
         transform: 'translateX(-50%)',
       }}
       role="region"
-      aria-label="Graph legend"
+      aria-label="Mind map legend"
     >
       {/* Header - Always visible */}
       <button
@@ -358,7 +448,7 @@ export const GraphLegend = memo(function GraphLegend({
                     className="text-xs block truncate"
                     style={{ color: theme.colors.textDim, opacity: 0.8 }}
                   >
-                    Click to select, highlights connections
+                    Click or navigate to select
                   </span>
                 </div>
               </div>
@@ -398,7 +488,7 @@ export const GraphLegend = memo(function GraphLegend({
                 <div
                   className="flex items-center justify-center rounded"
                   style={{
-                    width: 24,
+                    width: 36,
                     height: 24,
                     backgroundColor: '#f59e0b20',
                   }}
@@ -425,7 +515,38 @@ export const GraphLegend = memo(function GraphLegend({
             </div>
           </div>
 
-          {/* Interaction hints */}
+          {/* Keyboard shortcuts */}
+          <div
+            className="pt-2"
+            style={{
+              borderTop: `1px solid ${theme.colors.border}`,
+            }}
+          >
+            <h4
+              className="text-xs font-medium mb-2"
+              style={{ color: theme.colors.textDim }}
+            >
+              Keyboard Shortcuts
+            </h4>
+            <div className="space-y-1.5">
+              {KEYBOARD_SHORTCUTS.map((shortcut) => (
+                <div
+                  key={shortcut.keys}
+                  className="flex items-center justify-between gap-2"
+                >
+                  <KeyboardBadge keys={shortcut.keys} theme={theme} />
+                  <span
+                    className="text-xs flex-1 text-right"
+                    style={{ color: theme.colors.textDim, opacity: 0.8 }}
+                  >
+                    {shortcut.description}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Mouse interaction hints */}
           <div
             className="pt-2 text-xs"
             style={{
@@ -434,13 +555,21 @@ export const GraphLegend = memo(function GraphLegend({
               opacity: 0.7,
             }}
           >
-            <div className="flex items-center gap-1">
-              <ArrowRight size={10} />
-              <span>Double-click to open</span>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="font-medium">Click</span>
+              <span>Select node</span>
             </div>
-            <div className="flex items-center gap-1">
-              <ArrowRight size={10} />
-              <span>Right-click for context menu</span>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="font-medium">Double-click</span>
+              <span>Recenter view</span>
+            </div>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="font-medium">Right-click</span>
+              <span>Context menu</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="font-medium">Scroll</span>
+              <span>Zoom in/out</span>
             </div>
           </div>
         </div>

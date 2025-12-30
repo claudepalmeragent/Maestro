@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo, memo } from 'react';
 import { createPortal } from 'react-dom';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { ChevronRight, ChevronDown, ChevronUp, Folder, RefreshCw, Check, Eye, EyeOff, GitGraph, Target, Copy, ExternalLink, Server } from 'lucide-react';
+import { ChevronRight, ChevronDown, ChevronUp, Folder, RefreshCw, Check, Eye, EyeOff, Target, Copy, ExternalLink, Server } from 'lucide-react';
 import type { Session, Theme, FocusArea } from '../types';
 import type { FileNode } from '../types/fileTree';
 import type { FileTreeChanges } from '../utils/fileExplorer';
@@ -62,7 +62,6 @@ interface FileExplorerPanelProps {
   onShowFlash?: (message: string) => void;
   showHiddenFiles: boolean;
   setShowHiddenFiles: (value: boolean) => void;
-  onOpenGraphView?: () => void;
   /** Callback to open graph view focused on a specific file (relative path to session.cwd) */
   onFocusFileInGraph?: (relativePath: string) => void;
 }
@@ -73,7 +72,7 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
     filteredFileTree, selectedFileIndex, setSelectedFileIndex, activeFocus, activeRightTab,
     previewFile, setActiveFocus, fileTreeFilterInputRef, toggleFolder, handleFileClick, expandAllFolders,
     collapseAllFolders, updateSessionWorkingDirectory, refreshFileTree, setSessions, onAutoRefreshChange, onShowFlash,
-    showHiddenFiles, setShowHiddenFiles, onOpenGraphView, onFocusFileInGraph
+    showHiddenFiles, setShowHiddenFiles, onFocusFileInGraph
   } = props;
 
   const { registerLayer, unregisterLayer, updateLayerHandler } = useLayerStack();
@@ -480,16 +479,6 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
           ><bdi>{session.cwd}</bdi></span>
         </div>
         <div className="flex items-center gap-1 flex-shrink-0">
-          {onOpenGraphView && (
-            <button
-              onClick={onOpenGraphView}
-              className="p-1 rounded hover:bg-white/10 transition-colors"
-              title="Document Graph"
-              style={{ color: theme.colors.textDim }}
-            >
-              <GitGraph className="w-3.5 h-3.5" />
-            </button>
-          )}
           <button
             onClick={() => setShowHiddenFiles(!showHiddenFiles)}
             className="p-1 rounded hover:bg-white/10 transition-colors"
