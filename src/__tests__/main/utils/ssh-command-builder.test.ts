@@ -371,4 +371,143 @@ describe('ssh-command-builder', () => {
       expect(result).toBe("echo 'line1\nline2; rm -rf /'");
     });
   });
+
+  describe('useSshConfig mode', () => {
+    it('omits identity file when useSshConfig is true and no key provided', () => {
+      const config: SshRemoteConfig = {
+        ...baseConfig,
+        useSshConfig: true,
+        privateKeyPath: '', // Empty - will be inherited from SSH config
+        username: '', // Empty - will be inherited from SSH config
+      };
+
+      const result = buildSshCommand(config, {
+        command: 'claude',
+        args: ['--print'],
+      });
+
+      // Should NOT include -i flag when using SSH config without explicit key
+      expect(result.args).not.toContain('-i');
+      // Should use just the host pattern, not user@host
+      expect(result.args).toContain('dev.example.com');
+      expect(result.args).not.toContain('testuser@dev.example.com');
+    });
+
+    it('includes identity file when useSshConfig is true but key is provided as override', () => {
+      const config: SshRemoteConfig = {
+        ...baseConfig,
+        useSshConfig: true,
+        privateKeyPath: '~/.ssh/custom_key', // Explicit override
+        username: '',
+      };
+
+      const result = buildSshCommand(config, {
+        command: 'claude',
+        args: ['--print'],
+      });
+
+      // Should include -i flag with the override key
+      expect(result.args).toContain('-i');
+      expect(result.args).toContain('/Users/testuser/.ssh/custom_key');
+    });
+
+    it('uses user@host when username is provided as override in SSH config mode', () => {
+      const config: SshRemoteConfig = {
+        ...baseConfig,
+        useSshConfig: true,
+        privateKeyPath: '',
+        username: 'override-user', // Explicit override
+      };
+
+      const result = buildSshCommand(config, {
+        command: 'claude',
+        args: ['--print'],
+      });
+
+      // Should use user@host with the override username
+      expect(result.args).toContain('override-user@dev.example.com');
+    });
+
+    it('omits port flag when using SSH config with default port', () => {
+      const config: SshRemoteConfig = {
+        ...baseConfig,
+        useSshConfig: true,
+        port: 22, // Default port
+        privateKeyPath: '',
+        username: '',
+      };
+
+      const result = buildSshCommand(config, {
+        command: 'claude',
+        args: ['--print'],
+      });
+
+      // Should NOT include -p 22 when using SSH config with default port
+      expect(result.args).not.toContain('-p');
+    });
+
+    it('includes port flag when using SSH config with non-default port', () => {
+      const config: SshRemoteConfig = {
+        ...baseConfig,
+        useSshConfig: true,
+        port: 2222, // Non-default port as override
+        privateKeyPath: '',
+        username: '',
+      };
+
+      const result = buildSshCommand(config, {
+        command: 'claude',
+        args: ['--print'],
+      });
+
+      // Should include -p 2222 for non-default port
+      expect(result.args).toContain('-p');
+      expect(result.args).toContain('2222');
+    });
+
+    it('includes standard SSH options in SSH config mode', () => {
+      const config: SshRemoteConfig = {
+        ...baseConfig,
+        useSshConfig: true,
+        privateKeyPath: '',
+        username: '',
+      };
+
+      const result = buildSshCommand(config, {
+        command: 'claude',
+        args: ['--print'],
+      });
+
+      // Should still include BatchMode and other security options
+      expect(result.args).toContain('-o');
+      expect(result.args).toContain('BatchMode=yes');
+      expect(result.args).toContain('StrictHostKeyChecking=accept-new');
+      expect(result.args).toContain('ConnectTimeout=10');
+    });
+
+    it('supports SSH config host pattern as the host value', () => {
+      const config: SshRemoteConfig = {
+        id: 'test-remote',
+        name: 'Dev Server',
+        host: 'dev-server', // SSH config Host pattern
+        port: 22,
+        username: '',
+        privateKeyPath: '',
+        enabled: true,
+        useSshConfig: true,
+        sshConfigHost: 'dev-server',
+      };
+
+      const result = buildSshCommand(config, {
+        command: 'claude',
+        args: ['--print'],
+      });
+
+      // Should pass just the host pattern to SSH
+      expect(result.args).toContain('dev-server');
+      // The command should still be present
+      const remoteCommand = result.args[result.args.length - 1];
+      expect(remoteCommand).toContain('claude');
+    });
+  });
 });

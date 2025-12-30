@@ -227,6 +227,10 @@ export {
 /**
  * Configuration for an SSH remote host where agents can be executed.
  * Supports key-based authentication only (no password auth).
+ *
+ * When useSshConfig is true, the host field becomes the SSH config Host pattern
+ * (e.g., "dev-server" from ~/.ssh/config), and username/privateKeyPath can be
+ * omitted as they're inherited from the SSH config file.
  */
 export interface SshRemoteConfig {
   /** Unique identifier for this remote configuration */
@@ -235,16 +239,26 @@ export interface SshRemoteConfig {
   /** Display name for UI */
   name: string;
 
-  /** SSH server hostname or IP */
+  /**
+   * SSH server hostname or IP address.
+   * When useSshConfig is true, this is the Host pattern from ~/.ssh/config
+   * (e.g., "dev-server" instead of "192.168.1.100").
+   */
   host: string;
 
-  /** SSH server port (default: 22) */
+  /** SSH server port (default: 22). Optional when using SSH config. */
   port: number;
 
-  /** SSH username */
+  /**
+   * SSH username. Optional when useSshConfig is true and the SSH config
+   * provides the User directive.
+   */
   username: string;
 
-  /** Path to private key file (required, no password auth) */
+  /**
+   * Path to private key file. Optional when useSshConfig is true and the
+   * SSH config provides the IdentityFile directive.
+   */
   privateKeyPath: string;
 
   /** Default working directory on remote (optional) */
@@ -255,6 +269,19 @@ export interface SshRemoteConfig {
 
   /** Enable this remote configuration */
   enabled: boolean;
+
+  /**
+   * When true, use the host field as an SSH config Host pattern.
+   * Connection settings (User, IdentityFile, Port, HostName) will be
+   * inherited from ~/.ssh/config. Explicit settings here override config.
+   */
+  useSshConfig?: boolean;
+
+  /**
+   * Reference to the SSH config host pattern this was imported from.
+   * Used for display purposes to show where the config came from.
+   */
+  sshConfigHost?: string;
 }
 
 /**

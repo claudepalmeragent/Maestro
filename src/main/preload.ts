@@ -615,6 +615,19 @@ contextBridge.exposeInMainWorld('maestro', {
       remoteEnv?: Record<string, string>;
       enabled: boolean;
     }, agentCommand?: string) => ipcRenderer.invoke('ssh-remote:test', configOrId, agentCommand),
+    getSshConfigHosts: () => ipcRenderer.invoke('ssh-remote:getSshConfigHosts') as Promise<{
+      success: boolean;
+      hosts: Array<{
+        host: string;
+        hostName?: string;
+        port?: number;
+        user?: string;
+        identityFile?: string;
+        proxyJump?: string;
+      }>;
+      error?: string;
+      configPath: string;
+    }>,
   },
 
   // Sync API (custom storage location for cross-device sync)
@@ -1927,6 +1940,19 @@ export interface MaestroAPI {
         };
       };
       error?: string;
+    }>;
+    getSshConfigHosts: () => Promise<{
+      success: boolean;
+      hosts: Array<{
+        host: string;
+        hostName?: string;
+        port?: number;
+        user?: string;
+        identityFile?: string;
+        proxyJump?: string;
+      }>;
+      error?: string;
+      configPath: string;
     }>;
   };
   sync: {

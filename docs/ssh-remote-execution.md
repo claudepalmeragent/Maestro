@@ -28,16 +28,70 @@ SSH Remote Execution wraps agent commands in SSH, executing them on a configured
 | Field | Description |
 |-------|-------------|
 | **Name** | Display name for this remote (e.g., "Dev Server", "GPU Box") |
-| **Host** | Hostname or IP address |
+| **Host** | Hostname or IP address (or SSH config Host pattern when using SSH config) |
 | **Port** | SSH port (default: 22) |
-| **Username** | SSH username for authentication |
-| **Private Key Path** | Path to your SSH private key (e.g., `~/.ssh/id_rsa`) |
+| **Username** | SSH username for authentication (optional when using SSH config) |
+| **Private Key Path** | Path to your SSH private key (optional when using SSH config) |
 | **Remote Working Directory** | Optional default working directory on the remote host |
 | **Environment Variables** | Optional key-value pairs to set on the remote |
 | **Enabled** | Toggle to temporarily disable without deleting |
 
 5. Click **Test Connection** to verify connectivity
 6. Click **Save** to store the configuration
+
+### Using SSH Config File
+
+Maestro can import connection settings from your `~/.ssh/config` file, making setup faster and more consistent with your existing SSH workflow.
+
+#### Importing from SSH Config
+
+When adding a new remote, Maestro automatically detects hosts defined in your SSH config:
+
+1. Click **Add SSH Remote**
+2. If SSH config hosts are detected, you'll see an **Import from SSH Config** dropdown
+3. Select a host to auto-fill settings from your config
+4. The form shows "Using SSH Config" indicator when importing
+
+#### How It Works
+
+When using SSH config mode:
+- **Host** becomes the SSH config Host pattern (e.g., `dev-server` instead of `192.168.1.100`)
+- **Username** and **Private Key Path** become optional—SSH inherits them from your config
+- **Port** defaults to your config's value (only sent to SSH if overriding a non-default port)
+- You can still override any field to customize the connection
+
+Example `~/.ssh/config`:
+```
+Host dev-server
+    HostName 192.168.1.100
+    User developer
+    IdentityFile ~/.ssh/dev_key
+    Port 2222
+
+Host gpu-box
+    HostName gpu.example.com
+    User admin
+    IdentityFile ~/.ssh/gpu_key
+    ProxyJump bastion
+```
+
+With the above config, you can:
+1. Select "dev-server" from the dropdown
+2. Leave username/key fields empty (inherited from config)
+3. Optionally override specific settings
+4. Benefit from advanced features like `ProxyJump` for bastion hosts
+
+#### Field Labels
+
+When using SSH config mode, field labels indicate which values are optional:
+- **Username (optional override)** — leave empty to use SSH config's `User`
+- **Private Key Path (optional override)** — leave empty to use SSH config's `IdentityFile`
+
+#### Clearing SSH Config Mode
+
+To switch back to manual configuration:
+1. Click the **×** button next to "Using SSH Config" indicator
+2. Fill in all required fields manually
 
 ### Connection Testing
 
@@ -118,10 +172,11 @@ When a session is running via SSH remote:
 
 ### Tips
 
-- **Use SSH config**: Add hosts to `~/.ssh/config` for simpler configuration
+- **Import from SSH config**: Use the dropdown when adding remotes to import from `~/.ssh/config`—saves time and keeps configuration consistent
+- **Bastion hosts**: Use `ProxyJump` in your SSH config for multi-hop connections; Maestro inherits this automatically
 - **Key management**: Use `ssh-agent` to avoid passphrase prompts
 - **Keep-alive**: Configure `ServerAliveInterval` in SSH config for long sessions
-- **Test manually first**: Verify `ssh user@host 'claude --version'` works before configuring in Maestro
+- **Test manually first**: Verify `ssh host 'claude --version'` works before configuring in Maestro
 
 ## Security Considerations
 

@@ -83,7 +83,10 @@ export class SshRemoteManager {
    * Checks:
    * - Required fields are present
    * - Port is in valid range (1-65535)
-   * - Private key file exists and is readable
+   * - Private key file exists and is readable (unless using SSH config)
+   *
+   * When useSshConfig is true, username and privateKeyPath are optional
+   * as they can be inherited from ~/.ssh/config.
    *
    * @param config The SSH remote configuration to validate
    * @returns Validation result with any error messages
@@ -91,7 +94,7 @@ export class SshRemoteManager {
   validateConfig(config: SshRemoteConfig): SshRemoteValidation {
     const errors: string[] = [];
 
-    // Required field checks
+    // Required field checks (always required)
     if (!config.id || config.id.trim() === '') {
       errors.push('Configuration ID is required');
     }
@@ -104,12 +107,15 @@ export class SshRemoteManager {
       errors.push('Host is required');
     }
 
-    if (!config.username || config.username.trim() === '') {
-      errors.push('Username is required');
-    }
+    // Username and privateKeyPath are optional when using SSH config
+    if (!config.useSshConfig) {
+      if (!config.username || config.username.trim() === '') {
+        errors.push('Username is required');
+      }
 
-    if (!config.privateKeyPath || config.privateKeyPath.trim() === '') {
-      errors.push('Private key path is required');
+      if (!config.privateKeyPath || config.privateKeyPath.trim() === '') {
+        errors.push('Private key path is required');
+      }
     }
 
     // Port validation
@@ -117,7 +123,7 @@ export class SshRemoteManager {
       errors.push('Port must be between 1 and 65535');
     }
 
-    // Private key file existence check
+    // Private key file existence check (only if path is provided)
     if (config.privateKeyPath && config.privateKeyPath.trim() !== '') {
       const keyPath = this.expandPath(config.privateKeyPath);
       if (!this.deps.checkFileAccess(keyPath)) {
@@ -215,25 +221,48 @@ export class SshRemoteManager {
    * Constructs the argument array needed for spawning SSH with
    * proper authentication and connection options.
    *
+   * When config.useSshConfig is true, the arguments are minimal,
+   * allowing SSH to use settings from ~/.ssh/config.
+   *
    * @param config The SSH remote configuration
    * @returns Array of SSH command-line arguments
    */
   buildSshArgs(config: SshRemoteConfig): string[] {
     const args: string[] = [];
 
-    // Private key
-    args.push('-i', this.expandPath(config.privateKeyPath));
+    // Private key (only if provided, or required for non-SSH config mode)
+    if (config.useSshConfig) {
+      // Only add key if explicitly provided (as override)
+      if (config.privateKeyPath && config.privateKeyPath.trim()) {
+        args.push('-i', this.expandPath(config.privateKeyPath));
+      }
+    } else {
+      // Direct connection: require private key
+      args.push('-i', this.expandPath(config.privateKeyPath));
+    }
 
     // Default SSH options
     for (const [key, value] of Object.entries(this.defaultSshOptions)) {
       args.push('-o', `${key}=${value}`);
     }
 
-    // Port
-    args.push('-p', config.port.toString());
+    // Port (only add if not using SSH config, or if non-default)
+    if (!config.useSshConfig || config.port !== 22) {
+      args.push('-p', config.port.toString());
+    }
 
-    // User@host
-    args.push(`${config.username}@${config.host}`);
+    // Build destination
+    if (config.useSshConfig) {
+      // When using SSH config, just the Host pattern (or user@host if overriding)
+      if (config.username && config.username.trim()) {
+        args.push(`${config.username}@${config.host}`);
+      } else {
+        args.push(config.host);
+      }
+    } else {
+      // Direct connection: user@host
+      args.push(`${config.username}@${config.host}`);
+    }
 
     return args;
   }

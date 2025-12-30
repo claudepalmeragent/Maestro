@@ -7,6 +7,7 @@
  * - Get all SSH remote configurations
  * - Get/set the global default SSH remote ID
  * - Test SSH remote connections
+ * - Parse SSH config file (~/.ssh/config)
  */
 
 import { ipcMain } from 'electron';
@@ -17,6 +18,7 @@ import { sshRemoteManager } from '../../ssh-remote-manager';
 import { createIpcHandler, CreateHandlerOptions } from '../../utils/ipcHandler';
 import { logger } from '../../utils/logger';
 import { MaestroSettings } from './persistence';
+import { parseSshConfig, SshConfigHost, SshConfigParseResult } from '../../utils/ssh-config-parser';
 
 const LOG_CONTEXT = '[SshRemote]';
 
@@ -255,6 +257,28 @@ export function registerSshRemoteHandlers(deps: SshRemoteHandlerDependencies): v
         }
 
         return { result };
+      }
+    )
+  );
+
+  /**
+   * Get SSH hosts from ~/.ssh/config file.
+   *
+   * Parses the user's SSH config file and returns available host entries.
+   * This allows auto-filling connection details from existing SSH configurations.
+   */
+  ipcMain.handle(
+    'ssh-remote:getSshConfigHosts',
+    createIpcHandler(
+      handlerOpts('getSshConfigHosts', false),
+      async (): Promise<SshConfigParseResult> => {
+        const result = parseSshConfig();
+        if (result.success) {
+          logger.debug(`Found ${result.hosts.length} hosts in SSH config`, LOG_CONTEXT);
+        } else {
+          logger.warn(`Failed to parse SSH config: ${result.error}`, LOG_CONTEXT);
+        }
+        return result;
       }
     )
   );

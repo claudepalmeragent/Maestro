@@ -378,6 +378,11 @@ const mockMaestro = {
     setConfigs: vi.fn().mockResolvedValue({ success: true }),
     setDefaultId: vi.fn().mockResolvedValue({ success: true }),
     testConnection: vi.fn().mockResolvedValue({ success: true }),
+    getSshConfigHosts: vi.fn().mockResolvedValue({
+      success: true,
+      hosts: [],
+      configPath: '~/.ssh/config',
+    }),
   },
 };
 
