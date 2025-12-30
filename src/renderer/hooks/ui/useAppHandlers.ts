@@ -14,6 +14,12 @@ export interface FilePreview {
 /**
  * Dependencies for the useAppHandlers hook.
  */
+/** Loading state for file preview (shown while fetching remote files) */
+export interface FilePreviewLoading {
+  name: string;
+  path: string;
+}
+
 export interface UseAppHandlersDeps {
   /** Currently active session */
   activeSession: Session | null;
@@ -25,6 +31,8 @@ export interface UseAppHandlersDeps {
   setActiveFocus: React.Dispatch<React.SetStateAction<FocusArea>>;
   /** File preview setter */
   setPreviewFile: (file: FilePreview | null) => void;
+  /** File preview loading state setter (for remote file loading indicator) */
+  setFilePreviewLoading?: (loading: FilePreviewLoading | null) => void;
   /** File preview history */
   filePreviewHistory: FilePreview[];
   /** File preview history setter */
@@ -93,6 +101,7 @@ export function useAppHandlers(deps: UseAppHandlersDeps): UseAppHandlersReturn {
     setSessions,
     setActiveFocus,
     setPreviewFile,
+    setFilePreviewLoading,
     filePreviewHistory,
     setFilePreviewHistory,
     filePreviewHistoryIndex,
@@ -157,22 +166,27 @@ export function useAppHandlers(deps: UseAppHandlersDeps): UseAppHandlersReturn {
   const handleFileClick = useCallback(async (node: { name: string; type: string }, path: string) => {
     if (!activeSession) return; // Guard against null session
     if (node.type === 'file') {
+      // Construct full file path
+      const fullPath = `${activeSession.fullPath}/${path}`;
+
+      // Check if file should be opened externally
+      if (shouldOpenExternally(node.name)) {
+        // Show confirmation modal before opening externally
+        setConfirmModalMessage(`Open "${node.name}" in external application?`);
+        setConfirmModalOnConfirm(() => async () => {
+          await window.maestro.shell.openExternal(`file://${fullPath}`);
+          setConfirmModalOpen(false);
+        });
+        setConfirmModalOpen(true);
+        return;
+      }
+
+      // Show loading state for remote files (SSH sessions may be slow)
+      if (activeSession.sshRemoteId && setFilePreviewLoading) {
+        setFilePreviewLoading({ name: node.name, path: fullPath });
+      }
+
       try {
-        // Construct full file path
-        const fullPath = `${activeSession.fullPath}/${path}`;
-
-        // Check if file should be opened externally
-        if (shouldOpenExternally(node.name)) {
-          // Show confirmation modal before opening externally
-          setConfirmModalMessage(`Open "${node.name}" in external application?`);
-          setConfirmModalOnConfirm(() => async () => {
-            await window.maestro.shell.openExternal(`file://${fullPath}`);
-            setConfirmModalOpen(false);
-          });
-          setConfirmModalOpen(true);
-          return;
-        }
-
         // Pass SSH remote ID for remote sessions
         const content = await window.maestro.fs.readFile(fullPath, activeSession.sshRemoteId);
         const newFile = {
@@ -195,9 +209,14 @@ export function useAppHandlers(deps: UseAppHandlersDeps): UseAppHandlersReturn {
         setActiveFocus('main');
       } catch (error) {
         console.error('Failed to read file:', error);
+      } finally {
+        // Clear loading state
+        if (setFilePreviewLoading) {
+          setFilePreviewLoading(null);
+        }
       }
     }
-  }, [activeSession, filePreviewHistory, filePreviewHistoryIndex, setConfirmModalMessage, setConfirmModalOnConfirm, setConfirmModalOpen, setFilePreviewHistory, setFilePreviewHistoryIndex, setPreviewFile, setActiveFocus]);
+  }, [activeSession, filePreviewHistory, filePreviewHistoryIndex, setConfirmModalMessage, setConfirmModalOnConfirm, setConfirmModalOpen, setFilePreviewHistory, setFilePreviewHistoryIndex, setPreviewFile, setActiveFocus, setFilePreviewLoading]);
 
   const updateSessionWorkingDirectory = useCallback(async () => {
     const newPath = await window.maestro.dialog.selectFolder();

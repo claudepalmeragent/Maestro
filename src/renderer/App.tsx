@@ -422,6 +422,7 @@ function MaestroConsoleInner() {
 
   // File Explorer State
   const [previewFile, setPreviewFile] = useState<{name: string; content: string; path: string} | null>(null);
+  const [filePreviewLoading, setFilePreviewLoading] = useState<{name: string; path: string} | null>(null);
   const [selectedFileIndex, setSelectedFileIndex] = useState(0);
   const [flatFileList, setFlatFileList] = useState<any[]>([]);
   const [fileTreeFilter, setFileTreeFilter] = useState('');
@@ -2756,6 +2757,7 @@ function MaestroConsoleInner() {
     setSessions,
     setActiveFocus,
     setPreviewFile,
+    setFilePreviewLoading,
     filePreviewHistory,
     setFilePreviewHistory,
     filePreviewHistoryIndex,
@@ -9064,6 +9066,7 @@ function MaestroConsoleInner() {
         slashCommands={allSlashCommands}
         selectedSlashCommandIndex={selectedSlashCommandIndex}
         previewFile={previewFile}
+        filePreviewLoading={filePreviewLoading}
         markdownEditMode={markdownEditMode}
         shortcuts={shortcuts}
         rightPanelOpen={rightPanelOpen}

@@ -362,10 +362,10 @@ describe('ActivityHeatmap', () => {
 
       const firstCell = cells[0] as HTMLElement;
       expect(firstCell.style.transition).toContain('background-color');
-      expect(firstCell.style.transition).toContain('0.5s');
+      expect(firstCell.style.transition).toContain('0.3s');
     });
 
-    it('uses cubic-bezier easing for smooth animation curves', () => {
+    it('uses ease timing function for smooth animation curves', () => {
       const { container } = render(
         <ActivityHeatmap
           data={mockData}
@@ -378,7 +378,7 @@ describe('ActivityHeatmap', () => {
       expect(cells.length).toBeGreaterThan(0);
 
       const firstCell = cells[0] as HTMLElement;
-      expect(firstCell.style.transition).toContain('cubic-bezier');
+      expect(firstCell.style.transition).toContain('ease');
     });
 
     it('applies outline transition for hover effects', () => {

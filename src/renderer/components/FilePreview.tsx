@@ -213,7 +213,8 @@ function MarkdownImage({
   theme,
   showRemoteImages = false,
   isFromFileTree = false,
-  projectRoot
+  projectRoot,
+  sshRemoteId
 }: {
   src?: string;
   alt?: string;
@@ -222,6 +223,7 @@ function MarkdownImage({
   showRemoteImages?: boolean;
   isFromFileTree?: boolean; // If true, src is a path relative to project root, not markdown file
   projectRoot?: string; // Project root path for resolving file tree paths
+  sshRemoteId?: string; // SSH remote ID for remote file operations
 }) {
   const [dataUrl, setDataUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -281,8 +283,8 @@ function MarkdownImage({
       resolvedPath = resolveImagePath(decodedSrc, markdownFilePath);
     }
 
-    // Load the image via IPC
-    window.maestro.fs.readFile(resolvedPath)
+    // Load the image via IPC (supports SSH remote)
+    window.maestro.fs.readFile(resolvedPath, sshRemoteId)
       .then((result) => {
         // readFile returns a data URL for images
         if (result.startsWith('data:')) {
@@ -297,7 +299,7 @@ function MarkdownImage({
         setError(`Failed to load image: ${err.message || 'Unknown error'}`);
         setLoading(false);
       });
-  }, [src, markdownFilePath, showRemoteImages, isFromFileTree, projectRoot]);
+  }, [src, markdownFilePath, showRemoteImages, isFromFileTree, projectRoot, sshRemoteId]);
 
   if (loading) {
     return (
@@ -400,7 +402,7 @@ function remarkHighlight() {
   };
 }
 
-export function FilePreview({ file, onClose, theme, markdownEditMode, setMarkdownEditMode, onSave, shortcuts, fileTree, cwd, onFileClick, canGoBack, canGoForward, onNavigateBack, onNavigateForward, backHistory, forwardHistory, onNavigateToIndex, currentHistoryIndex, onOpenFuzzySearch, onShortcutUsed, ghCliAvailable, onPublishGist, onOpenInGraph }: FilePreviewProps) {
+export function FilePreview({ file, onClose, theme, markdownEditMode, setMarkdownEditMode, onSave, shortcuts, fileTree, cwd, onFileClick, canGoBack, canGoForward, onNavigateBack, onNavigateForward, backHistory, forwardHistory, onNavigateToIndex, currentHistoryIndex, onOpenFuzzySearch, onShortcutUsed, ghCliAvailable, onPublishGist, onOpenInGraph, sshRemoteId }: FilePreviewProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
   const [showCopyNotification, setShowCopyNotification] = useState(false);
@@ -1669,6 +1671,7 @@ export function FilePreview({ file, onClose, theme, markdownEditMode, setMarkdow
                       showRemoteImages={showRemoteImages}
                       isFromFileTree={isFromTree}
                       projectRoot={projectRootForImage}
+                      sshRemoteId={sshRemoteId}
                     />
                   );
                 }

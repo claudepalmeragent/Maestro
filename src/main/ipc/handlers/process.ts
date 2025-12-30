@@ -260,12 +260,24 @@ export function registerProcessHandlers(deps: ProcessHandlerDependencies): void 
           // SSH remote is configured - wrap the command for remote execution
           sshRemoteUsed = sshResult.config;
 
+          // For SSH execution, we need to include the prompt in the args here
+          // because ProcessManager.spawn() won't add it (we pass prompt: undefined for SSH)
+          // The prompt must be added with the '--' separator (unless noPromptSeparator is true)
+          let sshArgs = finalArgs;
+          if (config.prompt) {
+            if (agent?.noPromptSeparator) {
+              sshArgs = [...finalArgs, config.prompt];
+            } else {
+              sshArgs = [...finalArgs, '--', config.prompt];
+            }
+          }
+
           // Build the SSH command that wraps the agent execution
           // The cwd is the local project path which may not exist on remote
           // Remote should use remoteWorkingDir from SSH config if set
           const sshCommand = buildSshCommand(sshResult.config, {
             command: config.command,
-            args: finalArgs,
+            args: sshArgs,
             // Use the local cwd - the SSH command builder will handle remote path resolution
             // If SSH config has remoteWorkingDir, that takes precedence
             cwd: sshResult.config.remoteWorkingDir ? undefined : config.cwd,
@@ -295,8 +307,8 @@ export function registerProcessHandlers(deps: ProcessHandlerDependencies): void 
         // When using SSH, disable PTY (SSH provides its own terminal handling)
         // and env vars are passed via the remote command string
         requiresPty: sshRemoteUsed ? false : agent?.requiresPty,
-        // When using SSH, the prompt is already embedded in the SSH command args
-        // (via buildAgentArgs -> buildSshCommand), so don't pass it again
+        // When using SSH, the prompt was already added to sshArgs above before
+        // building the SSH command, so don't let ProcessManager add it again
         prompt: sshRemoteUsed ? undefined : config.prompt,
         shell: shellToUse,
         shellArgs: shellArgsStr,         // Shell-specific CLI args (for terminal sessions)

@@ -190,17 +190,18 @@ describe('Chart Performance: Recharts NOT Used (Custom SVG Charts)', () => {
       expect(allElements.length).toBeLessThan(600);
     });
 
-    it('ActivityHeatmap handles 365 days with ~52 weeks of cells', () => {
+    it('ActivityHeatmap handles 365 days with hour-by-day grid cells', () => {
       const data = generateLargeDataset(365);
       const { container } = render(
         <ActivityHeatmap data={data} timeRange="year" theme={theme} />
       );
 
-      // Should have cells for visible days
-      // 52 weeks * 7 days = 364-365 cells max
-      const cells = container.querySelectorAll('.rounded-sm[style*="width"]');
-      expect(cells.length).toBeGreaterThan(300);
-      expect(cells.length).toBeLessThanOrEqual(400); // Includes legend cells
+      // New design: hour-by-day grid with AM/PM rows
+      // 365 days * 2 AM/PM rows = 730 cells
+      // Query for cells in the grid structure (rounded-sm without width constraint)
+      const cells = container.querySelectorAll('.rounded-sm');
+      expect(cells.length).toBeGreaterThan(500); // At least most cells rendered
+      expect(cells.length).toBeLessThanOrEqual(800); // ~730 cells + legend cells
     });
 
     it('DurationTrendsChart X-axis labels are intelligently reduced for year view', () => {
@@ -367,9 +368,10 @@ describe('Chart Performance: Recharts NOT Used (Custom SVG Charts)', () => {
 
       const allElements = container.querySelectorAll('*');
 
-      // ~365 cells + week wrappers + labels + legend
-      // Should be under 500 elements
-      expect(allElements.length).toBeLessThan(500);
+      // New hour-by-day grid design:
+      // ~730 cells (365 days * 2 AM/PM rows) + day labels + hour labels + legend + wrappers
+      // Should be under 2000 elements for reasonable performance
+      expect(allElements.length).toBeLessThan(2000);
     });
 
     it('AgentComparisonChart scales linearly with agent count', () => {

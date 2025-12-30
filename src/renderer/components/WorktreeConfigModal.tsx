@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { X, GitBranch, FolderOpen, Plus, Loader2, AlertTriangle } from 'lucide-react';
+import { X, GitBranch, FolderOpen, Plus, Loader2, AlertTriangle, Server } from 'lucide-react';
 import type { Theme, Session, GhCliStatus } from '../types';
 import { useLayerStack } from '../contexts/LayerStackContext';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
@@ -13,6 +13,19 @@ interface WorktreeConfigModalProps {
   onSaveConfig: (config: { basePath: string; watchEnabled: boolean }) => void;
   onCreateWorktree: (branchName: string, basePath: string) => void;
   onDisableConfig: () => void;
+}
+
+/**
+ * Validates that a directory exists (works over SSH for remote sessions)
+ */
+async function validateDirectory(path: string, sshRemoteId?: string): Promise<boolean> {
+  if (!path.trim()) return false;
+  try {
+    await window.maestro.fs.readDir(path, sshRemoteId);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -41,11 +54,15 @@ export function WorktreeConfigModal({
   const [watchEnabled, setWatchEnabled] = useState(session.worktreeConfig?.watchEnabled ?? true);
   const [newBranchName, setNewBranchName] = useState('');
   const [isCreating, setIsCreating] = useState(false);
+  const [isValidating, setIsValidating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const canDisable = !!(session.worktreeConfig?.basePath || basePath.trim());
 
   // gh CLI status
   const [ghCliStatus, setGhCliStatus] = useState<GhCliStatus | null>(null);
+
+  // SSH remote awareness
+  const isRemoteSession = !!session.sshRemoteId;
 
   // Register with layer stack for Escape handling
   useEffect(() => {
@@ -83,19 +100,38 @@ export function WorktreeConfigModal({
   };
 
   const handleBrowse = async () => {
+    // Browse is only available for local sessions
+    if (isRemoteSession) return;
     const result = await window.maestro.dialog.selectFolder();
     if (result) {
       setBasePath(result);
     }
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!basePath.trim()) {
       setError('Please select a worktree directory');
       return;
     }
-    onSaveConfig({ basePath: basePath.trim(), watchEnabled });
-    onClose();
+
+    // Validate directory exists (via SSH for remote sessions)
+    setIsValidating(true);
+    setError(null);
+    try {
+      const exists = await validateDirectory(basePath.trim(), session.sshRemoteId);
+      if (!exists) {
+        setError(isRemoteSession
+          ? 'Directory not found on remote server. Please enter a valid path.'
+          : 'Directory not found. Please select a valid directory.');
+        return;
+      }
+      onSaveConfig({ basePath: basePath.trim(), watchEnabled });
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to validate directory');
+    } finally {
+      setIsValidating(false);
+    }
   };
 
   const handleCreateWorktree = async () => {
@@ -200,6 +236,22 @@ export function WorktreeConfigModal({
             </div>
           )}
 
+          {/* SSH Remote indicator */}
+          {isRemoteSession && (
+            <div
+              className="flex items-center gap-2 px-3 py-2 rounded border"
+              style={{
+                backgroundColor: theme.colors.accent + '15',
+                borderColor: theme.colors.accent + '40',
+              }}
+            >
+              <Server className="w-4 h-4" style={{ color: theme.colors.accent }} />
+              <span className="text-sm" style={{ color: theme.colors.textMain }}>
+                Remote session — enter the path on the remote server
+              </span>
+            </div>
+          )}
+
           {/* Worktree Base Directory */}
           <div>
             <label className="text-xs font-bold uppercase mb-1.5 block" style={{ color: theme.colors.textDim }}>
@@ -210,7 +262,7 @@ export function WorktreeConfigModal({
                 type="text"
                 value={basePath}
                 onChange={(e) => setBasePath(e.target.value)}
-                placeholder="/path/to/worktrees"
+                placeholder={isRemoteSession ? '/home/user/worktrees' : '/path/to/worktrees'}
                 className="flex-1 px-3 py-2 rounded border bg-transparent outline-none text-sm"
                 style={{
                   borderColor: theme.colors.border,
@@ -219,15 +271,21 @@ export function WorktreeConfigModal({
               />
               <button
                 onClick={handleBrowse}
-                className="px-3 py-2 rounded border hover:bg-white/5 transition-colors text-sm flex items-center gap-2"
+                disabled={isRemoteSession}
+                className={`px-3 py-2 rounded border transition-colors text-sm flex items-center gap-2 ${
+                  isRemoteSession ? 'opacity-50 cursor-not-allowed' : 'hover:bg-white/5'
+                }`}
                 style={{ borderColor: theme.colors.border, color: theme.colors.textMain }}
+                title={isRemoteSession ? 'Browse is not available for remote sessions' : 'Browse for directory'}
               >
                 <FolderOpen className="w-4 h-4" />
                 Browse
               </button>
             </div>
             <p className="text-[10px] mt-1" style={{ color: theme.colors.textDim }}>
-              Base directory where worktrees will be created
+              {isRemoteSession
+                ? 'Path on the remote server where worktrees will be created'
+                : 'Base directory where worktrees will be created'}
             </p>
           </div>
 
@@ -326,9 +384,9 @@ export function WorktreeConfigModal({
         >
           <button
             onClick={handleDisable}
-            disabled={!canDisable || isCreating}
+            disabled={!canDisable || isCreating || isValidating}
             className={`px-4 py-2 rounded text-sm font-medium border transition-colors ${
-              canDisable && !isCreating
+              canDisable && !isCreating && !isValidating
                 ? 'hover:opacity-90'
                 : 'opacity-50 cursor-not-allowed'
             }`}
@@ -348,13 +406,17 @@ export function WorktreeConfigModal({
           </button>
           <button
             onClick={handleSave}
-            className="px-4 py-2 rounded text-sm font-medium hover:opacity-90 transition-colors"
+            disabled={isValidating || isCreating}
+            className={`px-4 py-2 rounded text-sm font-medium transition-colors flex items-center gap-2 ${
+              isValidating || isCreating ? 'opacity-70' : 'hover:opacity-90'
+            }`}
             style={{
               backgroundColor: theme.colors.accent,
               color: theme.colors.accentForeground,
             }}
           >
-            Save Configuration
+            {isValidating && <Loader2 className="w-4 h-4 animate-spin" />}
+            {isValidating ? 'Validating...' : 'Save Configuration'}
           </button>
         </div>
       </div>

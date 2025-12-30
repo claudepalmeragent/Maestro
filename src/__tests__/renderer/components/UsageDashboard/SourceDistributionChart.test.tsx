@@ -303,68 +303,9 @@ describe('SourceDistributionChart', () => {
     });
   });
 
-  describe('Tooltip Functionality', () => {
-    it('shows tooltip on segment hover', () => {
-      const { container } = render(
-        <SourceDistributionChart data={mockData} theme={theme} />
-      );
-
-      const paths = container.querySelectorAll('svg path');
-
-      if (paths.length > 0) {
-        fireEvent.mouseEnter(paths[0]);
-
-        const tooltip = container.querySelector('.fixed.z-50');
-        expect(tooltip).toBeInTheDocument();
-      }
-    });
-
-    it('hides tooltip on mouse leave', () => {
-      const { container } = render(
-        <SourceDistributionChart data={mockData} theme={theme} />
-      );
-
-      const paths = container.querySelectorAll('svg path');
-
-      if (paths.length > 0) {
-        fireEvent.mouseEnter(paths[0]);
-        fireEvent.mouseLeave(paths[0]);
-
-        const tooltip = container.querySelector('.fixed.z-50');
-        expect(tooltip).not.toBeInTheDocument();
-      }
-    });
-
-    it('tooltip shows percentage of total', () => {
-      const { container } = render(
-        <SourceDistributionChart data={mockData} theme={theme} />
-      );
-
-      const paths = container.querySelectorAll('svg path');
-
-      if (paths.length > 0) {
-        fireEvent.mouseEnter(paths[0]);
-
-        const tooltip = container.querySelector('.fixed.z-50');
-        expect(tooltip?.textContent).toContain('of total');
-      }
-    });
-
-    it('tooltip shows queries in count mode', () => {
-      const { container } = render(
-        <SourceDistributionChart data={mockData} theme={theme} />
-      );
-
-      const paths = container.querySelectorAll('svg path');
-
-      if (paths.length > 0) {
-        fireEvent.mouseEnter(paths[0]);
-
-        const tooltip = container.querySelector('.fixed.z-50');
-        expect(tooltip?.textContent).toContain('queries');
-      }
-    });
-  });
+  // Note: Tooltip functionality was removed in commit 287821dd
+  // "Source distribution chart simplified by removing floating tooltip overlay"
+  // The chart now uses legend highlighting on hover instead of a floating tooltip
 
   describe('Hover Effects', () => {
     it('expands segment on hover', () => {

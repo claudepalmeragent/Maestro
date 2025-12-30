@@ -579,7 +579,7 @@ describe('AutoRunSetupModal', () => {
         await vi.runAllTimersAsync();
       });
 
-      expect(window.maestro.autorun.listDocs).toHaveBeenCalledWith('/abc');
+      expect(window.maestro.autorun.listDocs).toHaveBeenCalledWith('/abc', undefined);
     });
   });
 
@@ -611,7 +611,7 @@ describe('AutoRunSetupModal', () => {
         await vi.runAllTimersAsync();
       });
 
-      expect(window.maestro.autorun.listDocs).toHaveBeenCalledWith('/home/testuser/Documents');
+      expect(window.maestro.autorun.listDocs).toHaveBeenCalledWith('/home/testuser/Documents', undefined);
     });
 
     it('expands standalone ~ to home directory', async () => {
@@ -641,7 +641,7 @@ describe('AutoRunSetupModal', () => {
         await vi.runAllTimersAsync();
       });
 
-      expect(window.maestro.autorun.listDocs).toHaveBeenCalledWith('/home/testuser');
+      expect(window.maestro.autorun.listDocs).toHaveBeenCalledWith('/home/testuser', undefined);
     });
 
     it('waits for homeDir before validating tilde paths', async () => {
@@ -692,7 +692,7 @@ describe('AutoRunSetupModal', () => {
         await vi.runAllTimersAsync();
       });
 
-      expect(window.maestro.autorun.listDocs).toHaveBeenCalledWith('/home/testuser/path');
+      expect(window.maestro.autorun.listDocs).toHaveBeenCalledWith('/home/testuser/path', undefined);
     });
 
     it('expands tilde in path when continuing', async () => {
@@ -1482,7 +1482,7 @@ describe('AutoRunSetupModal', () => {
       });
 
       expect(input).toHaveValue(longPath);
-      expect(window.maestro.autorun.listDocs).toHaveBeenCalledWith(longPath);
+      expect(window.maestro.autorun.listDocs).toHaveBeenCalledWith(longPath, undefined);
     });
 
     it('handles paths with special characters', async () => {
@@ -1584,7 +1584,7 @@ describe('AutoRunSetupModal', () => {
       });
 
       // Only the last path should be validated
-      expect(window.maestro.autorun.listDocs).toHaveBeenCalledWith('/path9');
+      expect(window.maestro.autorun.listDocs).toHaveBeenCalledWith('/path9', undefined);
     });
 
     it('cancels previous validation request when folder changes quickly', async () => {
@@ -1619,7 +1619,7 @@ describe('AutoRunSetupModal', () => {
 
       // Only the second path should have been validated (first was cancelled by debounce)
       expect(window.maestro.autorun.listDocs).toHaveBeenCalledTimes(1);
-      expect(window.maestro.autorun.listDocs).toHaveBeenCalledWith('/second/path');
+      expect(window.maestro.autorun.listDocs).toHaveBeenCalledWith('/second/path', undefined);
       expect(screen.getByText('Found 1 markdown document')).toBeInTheDocument();
     });
   });

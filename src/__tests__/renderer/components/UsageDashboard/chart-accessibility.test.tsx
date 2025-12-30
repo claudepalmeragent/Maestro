@@ -175,7 +175,7 @@ describe('Chart Accessibility - ActivityHeatmap', () => {
     render(<ActivityHeatmap data={mockStatsData} timeRange="week" theme={mockTheme} />);
     const figure = screen.getByRole('figure');
     expect(figure.getAttribute('aria-label')).toContain('Activity heatmap');
-    expect(figure.getAttribute('aria-label')).toContain('Calendar grid');
+    expect(figure.getAttribute('aria-label')).toContain('days');
   });
 
   it('has aria-pressed on toggle buttons', () => {
@@ -427,8 +427,9 @@ describe('Chart Accessibility - Screen Reader Announcements', () => {
     const cells = screen.getAllByRole('gridcell');
 
     // Each cell should announce its date and query count
+    // Format: "Dec 24 0:00: 0 queries" or "Dec 24 AM: 0 queries"
     const firstCellLabel = cells[0].getAttribute('aria-label') || '';
-    expect(firstCellLabel).toMatch(/\w+,/); // Day name with comma
+    expect(firstCellLabel).toMatch(/\w+ \d+/); // Month and day (e.g., "Dec 24")
     expect(firstCellLabel).toContain('quer'); // query or queries
   });
 });

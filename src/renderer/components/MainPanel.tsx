@@ -62,6 +62,7 @@ interface MainPanelProps {
   atMentionSuggestions?: Array<{ value: string; type: 'file' | 'folder'; displayText: string; fullPath: string }>;
   selectedAtMentionIndex?: number;
   previewFile: { name: string; content: string; path: string } | null;
+  filePreviewLoading?: { name: string; path: string } | null;
   markdownEditMode: boolean;
   shortcuts: Record<string, Shortcut>;
   rightPanelOpen: boolean;
@@ -239,7 +240,7 @@ export const MainPanel = React.memo(forwardRef<MainPanelHandle, MainPanelProps>(
     setTabCompletionOpen, setSelectedTabCompletionIndex, setTabCompletionFilter,
     atMentionOpen, atMentionFilter, atMentionStartIndex, atMentionSuggestions, selectedAtMentionIndex,
     setAtMentionOpen, setAtMentionFilter, setAtMentionStartIndex, setSelectedAtMentionIndex,
-    previewFile, markdownEditMode, shortcuts, rightPanelOpen, maxOutputLines, gitDiffPreview: _gitDiffPreview,
+    previewFile, filePreviewLoading, markdownEditMode, shortcuts, rightPanelOpen, maxOutputLines, gitDiffPreview: _gitDiffPreview,
     fileTreeFilterOpen, logLevel, setGitDiffPreview, setLogViewerOpen, setAgentSessionsOpen, setActiveAgentSessionId,
     onResumeAgentSession, onNewAgentSession, setActiveFocus, setOutputSearchOpen, setOutputSearchQuery,
     setInputValue, setEnterToSendAI, setEnterToSendTerminal, setStagedImages, setLightboxImage, setCommandHistoryOpen,
@@ -1002,6 +1003,23 @@ export const MainPanel = React.memo(forwardRef<MainPanelHandle, MainPanelProps>(
                     <X className="w-4 h-4" style={{ color: theme.colors.error }} />
                   </button>
                 )}
+              </div>
+            </div>
+          )}
+
+          {/* Show File Preview loading state when fetching remote file */}
+          {filePreviewLoading && !previewFile && (
+            <div className="flex-1 flex items-center justify-center" style={{ backgroundColor: theme.colors.bgMain }}>
+              <div className="flex flex-col items-center gap-3">
+                <Loader2 className="w-8 h-8 animate-spin" style={{ color: theme.colors.accent }} />
+                <div className="text-center">
+                  <div className="text-sm font-medium" style={{ color: theme.colors.textMain }}>
+                    Loading {filePreviewLoading.name}
+                  </div>
+                  <div className="text-xs mt-1" style={{ color: theme.colors.textDim }}>
+                    Fetching from remote server...
+                  </div>
+                </div>
               </div>
             </div>
           )}
