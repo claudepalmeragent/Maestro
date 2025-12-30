@@ -159,7 +159,8 @@ export function useWorktreeValidation({
         if (branchMismatch && sameRepo) {
           try {
             // Use git status to check for uncommitted changes in the worktree
-            const statusResult = await window.maestro.git.status(worktreePath);
+            // Pass sshRemoteId to support remote worktree validation
+            const statusResult = await window.maestro.git.status(worktreePath, sshRemoteId);
             hasChanges = hasUncommittedChanges(statusResult.stdout);
           } catch {
             // If we can't check, assume no uncommitted changes

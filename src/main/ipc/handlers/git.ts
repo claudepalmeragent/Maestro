@@ -2,7 +2,6 @@ import { ipcMain, BrowserWindow } from 'electron';
 import fs from 'fs/promises';
 import path from 'path';
 import chokidar, { FSWatcher } from 'chokidar';
-import Store from 'electron-store';
 import { execFileNoThrow } from '../../utils/execFile';
 import { execGit } from '../../utils/remote-git';
 import { logger } from '../../utils/logger';
