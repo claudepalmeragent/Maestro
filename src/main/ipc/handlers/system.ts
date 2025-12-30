@@ -26,6 +26,7 @@ import { tunnelManager as tunnelManagerInstance } from '../../tunnel-manager';
 import { checkForUpdates } from '../../update-checker';
 import { setAllowPrerelease } from '../../auto-updater';
 import { WebServer } from '../../web-server';
+import { powerManager } from '../../power-manager';
 
 // Type for tunnel manager instance
 type TunnelManagerType = typeof tunnelManagerInstance;
@@ -471,6 +472,41 @@ export function registerSystemHandlers(deps: SystemHandlerDependencies): void {
       errors: errors.length > 0 ? errors : undefined,
       requiresRestart: true,
     };
+  });
+
+  // ============ Power Management Handlers ============
+
+  // Load saved preference and enable power manager if it was enabled
+  const savedPreventSleep = settingsStore.get('preventSleepEnabled' as keyof MaestroSettings);
+  if (savedPreventSleep === true) {
+    powerManager.setEnabled(true);
+    logger.info('Sleep prevention restored from settings', 'PowerManager');
+  }
+
+  // Set whether sleep prevention is enabled
+  ipcMain.handle('power:setEnabled', async (_event, enabled: boolean) => {
+    powerManager.setEnabled(enabled);
+    settingsStore.set('preventSleepEnabled' as keyof MaestroSettings, enabled);
+  });
+
+  // Check if sleep prevention is enabled
+  ipcMain.handle('power:isEnabled', async () => {
+    return powerManager.isEnabled();
+  });
+
+  // Get current power management status
+  ipcMain.handle('power:getStatus', async () => {
+    return powerManager.getStatus();
+  });
+
+  // Add a reason to block sleep (for renderer to signal auto-run, etc.)
+  ipcMain.handle('power:addReason', async (_event, reason: string) => {
+    powerManager.addBlockReason(reason);
+  });
+
+  // Remove a reason for blocking sleep
+  ipcMain.handle('power:removeReason', async (_event, reason: string) => {
+    powerManager.removeBlockReason(reason);
   });
 }
 

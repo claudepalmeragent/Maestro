@@ -672,6 +672,18 @@ interface MaestroAPI {
     close: () => Promise<void>;
     toggle: () => Promise<void>;
   };
+  power: {
+    setEnabled: (enabled: boolean) => Promise<void>;
+    isEnabled: () => Promise<boolean>;
+    getStatus: () => Promise<{
+      enabled: boolean;
+      blocking: boolean;
+      reasons: string[];
+      platform: 'darwin' | 'win32' | 'linux';
+    }>;
+    addReason: (reason: string) => Promise<void>;
+    removeReason: (reason: string) => Promise<void>;
+  };
   app: {
     onQuitConfirmationRequest: (callback: () => void) => () => void;
     confirmQuit: () => void;

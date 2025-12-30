@@ -196,6 +196,25 @@ export interface AgentErrorRecovery {
 }
 
 // ============================================================================
+// Power Management Types
+// ============================================================================
+
+/**
+ * Status information for the power management system.
+ * Returned by power:getStatus IPC handler.
+ */
+export interface PowerStatus {
+  /** Whether sleep prevention is enabled by user preference */
+  enabled: boolean;
+  /** Whether we are currently blocking sleep (enabled AND have active reasons) */
+  blocking: boolean;
+  /** List of active reasons for blocking (e.g., "session:abc123", "autorun:batch1") */
+  reasons: string[];
+  /** Current platform */
+  platform: 'darwin' | 'win32' | 'linux';
+}
+
+// ============================================================================
 // Marketplace Types (re-exported from marketplace-types.ts)
 // ============================================================================
 

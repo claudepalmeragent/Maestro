@@ -13,6 +13,7 @@ import {
 import { getSshRemoteConfig, createSshRemoteStoreAdapter } from '../../utils/ssh-remote-resolver';
 import { buildSshCommand } from '../../utils/ssh-command-builder';
 import type { SshRemoteConfig, AgentSshRemoteConfig } from '../../../shared/types';
+import { powerManager } from '../../power-manager';
 
 const LOG_CONTEXT = '[ProcessManager]';
 
@@ -312,6 +313,12 @@ export function registerProcessHandlers(deps: ProcessHandlerDependencies): void 
         pid: result.pid,
         ...(sshRemoteUsed && { sshRemoteId: sshRemoteUsed.id, sshRemoteName: sshRemoteUsed.name })
       });
+
+      // Add power block reason for AI sessions (not terminals)
+      // This prevents system sleep while AI is processing
+      if (config.toolType !== 'terminal') {
+        powerManager.addBlockReason(`session:${config.sessionId}`);
+      }
 
       // Emit SSH remote status event for renderer to update session state
       // This is emitted for all spawns (sshRemote will be null for local execution)

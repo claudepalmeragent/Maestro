@@ -674,6 +674,20 @@ contextBridge.exposeInMainWorld('maestro', {
     toggle: () => ipcRenderer.invoke('devtools:toggle'),
   },
 
+  // Power Management API (system sleep prevention)
+  power: {
+    setEnabled: (enabled: boolean) => ipcRenderer.invoke('power:setEnabled', enabled) as Promise<void>,
+    isEnabled: () => ipcRenderer.invoke('power:isEnabled') as Promise<boolean>,
+    getStatus: () => ipcRenderer.invoke('power:getStatus') as Promise<{
+      enabled: boolean;
+      blocking: boolean;
+      reasons: string[];
+      platform: 'darwin' | 'win32' | 'linux';
+    }>,
+    addReason: (reason: string) => ipcRenderer.invoke('power:addReason', reason) as Promise<void>,
+    removeReason: (reason: string) => ipcRenderer.invoke('power:removeReason', reason) as Promise<void>,
+  },
+
   // Updates API
   updates: {
     check: (includePrerelease?: boolean) => ipcRenderer.invoke('updates:check', includePrerelease) as Promise<{

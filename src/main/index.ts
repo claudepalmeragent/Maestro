@@ -9,6 +9,7 @@ import { WebServer } from './web-server';
 import { AgentDetector } from './agent-detector';
 import { logger } from './utils/logger';
 import { tunnelManager } from './tunnel-manager';
+import { powerManager } from './power-manager';
 import { getThemeById } from './themes';
 import Store from 'electron-store';
 import { getHistoryManager } from './history-manager';
@@ -2586,6 +2587,10 @@ function setupProcessListeners() {
     });
 
     processManager.on('exit', (sessionId: string, code: number) => {
+      // Remove power block reason for this session
+      // This allows system sleep when no AI sessions are active
+      powerManager.removeBlockReason(`session:${sessionId}`);
+
       // Handle group chat moderator exit - route buffered output and set state back to idle
       // Session ID format: group-chat-{groupChatId}-moderator-{uuid}
       // This handles BOTH initial moderator responses AND synthesis responses.

@@ -296,6 +296,10 @@ export interface UseSettingsReturn {
   setStatsCollectionEnabled: (value: boolean) => void;
   defaultStatsTimeRange: 'day' | 'week' | 'month' | 'year' | 'all';
   setDefaultStatsTimeRange: (value: 'day' | 'week' | 'month' | 'year' | 'all') => void;
+
+  // Power management settings
+  preventSleepEnabled: boolean;
+  setPreventSleepEnabled: (value: boolean) => Promise<void>;
 }
 
 export function useSettings(): UseSettingsReturn {
@@ -415,6 +419,9 @@ export function useSettings(): UseSettingsReturn {
   // Stats settings
   const [statsCollectionEnabled, setStatsCollectionEnabledState] = useState(true); // Default: enabled
   const [defaultStatsTimeRange, setDefaultStatsTimeRangeState] = useState<'day' | 'week' | 'month' | 'year' | 'all'>('week'); // Default: week
+
+  // Power management settings
+  const [preventSleepEnabled, setPreventSleepEnabledState] = useState(false); // Default: disabled
 
   // Wrapper functions that persist to electron-store
   // PERF: All wrapped in useCallback to prevent re-renders
@@ -1130,6 +1137,13 @@ export function useSettings(): UseSettingsReturn {
     window.maestro.settings.set('defaultStatsTimeRange', value);
   }, []);
 
+  // Sleep prevention enabled (persists to settings AND calls main process)
+  const setPreventSleepEnabled = useCallback(async (value: boolean) => {
+    setPreventSleepEnabledState(value);
+    await window.maestro.settings.set('preventSleepEnabled', value);
+    await window.maestro.power.setEnabled(value);
+  }, []);
+
   // Load settings from electron-store on mount
   useEffect(() => {
     console.log('[Settings] useEffect triggered, about to call loadSettings');
@@ -1193,6 +1207,7 @@ export function useSettings(): UseSettingsReturn {
       const savedDocumentGraphMaxNodes = await window.maestro.settings.get('documentGraphMaxNodes');
       const savedStatsCollectionEnabled = await window.maestro.settings.get('statsCollectionEnabled');
       const savedDefaultStatsTimeRange = await window.maestro.settings.get('defaultStatsTimeRange');
+      const savedPreventSleepEnabled = await window.maestro.settings.get('preventSleepEnabled');
 
       if (savedEnterToSendAI !== undefined) setEnterToSendAIState(savedEnterToSendAI as boolean);
       if (savedEnterToSendTerminal !== undefined) setEnterToSendTerminalState(savedEnterToSendTerminal as boolean);
@@ -1443,6 +1458,13 @@ export function useSettings(): UseSettingsReturn {
         }
       }
 
+      // Power management settings
+      // Note: The main process loads this setting on its own at startup from settingsStore,
+      // so we only need to sync the renderer state here.
+      if (savedPreventSleepEnabled !== undefined) {
+        setPreventSleepEnabledState(savedPreventSleepEnabled as boolean);
+      }
+
       } catch (error) {
         console.error('[Settings] Failed to load settings:', error);
       } finally {
@@ -1591,6 +1613,8 @@ export function useSettings(): UseSettingsReturn {
     setStatsCollectionEnabled,
     defaultStatsTimeRange,
     setDefaultStatsTimeRange,
+    preventSleepEnabled,
+    setPreventSleepEnabled,
   }), [
     // State values
     settingsLoaded,
@@ -1720,5 +1744,7 @@ export function useSettings(): UseSettingsReturn {
     setStatsCollectionEnabled,
     defaultStatsTimeRange,
     setDefaultStatsTimeRange,
+    preventSleepEnabled,
+    setPreventSleepEnabled,
   ]);
 }
