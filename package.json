@@ -289,5 +289,8 @@
     "vite": "^5.0.11",
     "vite-plugin-electron": "^0.28.2",
     "vitest": "^4.0.15"
+  },
+  "engines": {
+    "node": ">=20.0.0"
   }
 }

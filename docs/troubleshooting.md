@@ -78,6 +78,63 @@ The debug package is designed to be **safe to share publicly**:
 - Before: `/Users/johndoe/Projects/MyApp`
 - After: `~/Projects/MyApp`
 
+## WSL2 Issues (Windows)
+
+If you're running Maestro through WSL2, most issues stem from using Windows-mounted paths. See the [WSL2 installation guide](./installation#wsl2-users-windows-subsystem-for-linux) for the recommended setup.
+
+### Common WSL2 Problems
+
+**"EPERM: operation not permitted" on socket binding**
+
+The Vite dev server or Electron cannot bind to ports when running from `/mnt/...` paths.
+
+**Solution:** Move your project to the native Linux filesystem:
+```bash
+mv /mnt/c/projects/maestro ~/maestro
+cd ~/maestro
+npm install
+npm run dev
+```
+
+**"FATAL:sandbox_host_linux.cc" Electron crash**
+
+The Electron sandbox cannot operate correctly on Windows-mounted filesystems.
+
+**Solution:** Run from the Linux filesystem (`/home/...`), not from `/mnt/...`.
+
+**npm install timeouts or ENOTEMPTY errors**
+
+Cross-filesystem operations between WSL and Windows are unreliable for npm's file operations.
+
+**Solution:** Clone and install from the Linux filesystem:
+```bash
+cd ~
+git clone https://github.com/pedramamini/maestro.git
+cd maestro
+npm install
+```
+
+**electron-rebuild failures**
+
+The Windows temp directory may be inaccessible from WSL.
+
+**Solution:** Override the temp directory:
+```bash
+TMPDIR=/tmp npm run rebuild
+```
+
+**Git index corruption or lock file errors**
+
+NTFS and Linux inode handling are incompatible, causing git metadata issues.
+
+**Solution:** If you see "missing index" or spurious `.git/index.lock` errors:
+```bash
+rm -f .git/index.lock
+git checkout -f
+```
+
+For new projects, always clone to the Linux filesystem from the start.
+
 ## Getting Help
 
 - **GitHub Issues**: [Report bugs or request features](https://github.com/pedramamini/Maestro/issues)

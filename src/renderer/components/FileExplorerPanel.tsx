@@ -650,10 +650,10 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
       {/* Status bar at bottom */}
       {session.fileTreeStats && (
         <div
-          className="flex-shrink-0 flex items-center justify-center gap-3 px-3 py-1.5 text-xs border-t mt-2"
+          className="flex-shrink-0 flex items-center justify-center gap-3 px-3 py-1.5 text-xs rounded mt-2 mb-3"
           style={{
             backgroundColor: theme.colors.bgActivity,
-            borderColor: theme.colors.border,
+            border: `1px solid ${theme.colors.border}`,
             color: theme.colors.textDim
           }}
         >

@@ -24,6 +24,7 @@ import { DEMO_MODE, DEMO_DATA_PATH } from './constants';
 import type { SshRemoteConfig } from '../shared/types';
 import { initAutoUpdater } from './auto-updater';
 import { readDirRemote, readFileRemote, statRemote, directorySizeRemote } from './utils/remote-fs';
+import { checkWslEnvironment } from './utils/wslDetector';
 
 // ============================================================================
 // Custom Storage Location Configuration
@@ -737,6 +738,9 @@ app.whenReady().then(async () => {
     platform: process.platform,
     logLevel
   });
+
+  // Check for WSL + Windows mount issues early
+  checkWslEnvironment(process.cwd());
 
   // Initialize core services
   logger.info('Initializing core services', 'Startup');
