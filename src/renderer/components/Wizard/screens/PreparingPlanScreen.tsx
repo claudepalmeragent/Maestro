@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import type { Theme } from '../../../types';
 import { useWizard } from '../WizardContext';
-import { phaseGenerator, type CreatedFileInfo } from '../services/phaseGenerator';
+import { phaseGenerator, wizardDebugLogger, type CreatedFileInfo } from '../services/phaseGenerator';
 import { ScreenReaderAnnouncement } from '../ScreenReaderAnnouncement';
 import { getNextAustinFact, parseFactWithLinks, type FactSegment } from '../services/austinFacts';
 import { formatSize, formatElapsedTime } from '../../../../shared/formatters';
@@ -595,6 +595,10 @@ function ErrorDisplay({
   onSkip: () => void;
   theme: Theme;
 }): JSX.Element {
+  const handleDownloadDebugLogs = () => {
+    wizardDebugLogger.downloadLogs();
+  };
+
   return (
     <div className="flex-1 flex flex-col items-center justify-center p-8">
       {/* Error icon */}
@@ -654,6 +658,15 @@ function ErrorDisplay({
           Go Back
         </button>
       </div>
+
+      {/* Debug logs download link */}
+      <button
+        onClick={handleDownloadDebugLogs}
+        className="mt-6 text-xs underline hover:opacity-80 transition-opacity cursor-pointer"
+        style={{ color: theme.colors.textDim }}
+      >
+        (Debug Logs)
+      </button>
     </div>
   );
 }

@@ -847,7 +847,7 @@ const LOAD_MORE_INCREMENT = 25;
 ```typescript
 // In useSettings.ts
 documentGraphShowExternalLinks: boolean            // Show external link nodes (default: false)
-documentGraphMaxNodes: number                      // Initial pagination limit (50-1000, default: 200)
+documentGraphMaxNodes: number                      // Initial pagination limit (50-1000, default: 50)
 ```
 
 ## Debugging

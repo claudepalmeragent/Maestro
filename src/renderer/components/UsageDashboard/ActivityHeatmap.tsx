@@ -2,11 +2,11 @@
  * ActivityHeatmap
  *
  * Heatmap showing AI usage activity by hour of day.
- * For week view: shows hours (0-23) on Y-axis, days on X-axis.
- * For month view: shows AM/PM on Y-axis, days on X-axis.
+ * For day/week view: shows hours (0-23) on Y-axis, days on X-axis.
+ * For month+ view: single row with one pixel per day.
  *
  * Features:
- * - X-axis: days, Y-axis: hours (or AM/PM for month+)
+ * - X-axis: days, Y-axis: hours (or single row for month+)
  * - Color intensity toggle between query count and duration
  * - Tooltip on hover showing exact time and count/duration
  * - Theme-aware gradient colors (bgSecondary → accent)
@@ -71,9 +71,10 @@ function getDaysForRange(timeRange: StatsTimeRange): number {
 }
 
 /**
- * Check if we should use AM/PM grouping (for larger time ranges)
+ * Check if we should use single-day mode (one pixel per day, no hour breakdown)
+ * Used for month+ time ranges where AM/PM split would be too cramped
  */
-function shouldUseAmPm(timeRange: StatsTimeRange): boolean {
+function shouldUseSingleDayMode(timeRange: StatsTimeRange): boolean {
   return timeRange === 'month' || timeRange === 'year' || timeRange === 'all';
 }
 
@@ -173,7 +174,7 @@ export function ActivityHeatmap({ data, timeRange, theme, colorBlindMode = false
   const [hoveredCell, setHoveredCell] = useState<HourData | null>(null);
   const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(null);
 
-  const useAmPm = shouldUseAmPm(timeRange);
+  const singleDayMode = shouldUseSingleDayMode(timeRange);
 
   // Convert byDay data to a lookup map
   const dayDataMap = useMemo(() => {
@@ -191,10 +192,11 @@ export function ActivityHeatmap({ data, timeRange, theme, colorBlindMode = false
     const columns: DayColumn[] = [];
 
     // Determine hour rows based on mode
-    const hours = useAmPm ? [0, 12] : Array.from({ length: 24 }, (_, i) => i);
-    // Labels for Y-axis: show every 2 hours for readability
-    const labels = useAmPm
-      ? ['AM', 'PM']
+    // Single day mode: one row (whole day), hourly mode: 24 rows
+    const hours = singleDayMode ? [0] : Array.from({ length: 24 }, (_, i) => i);
+    // Labels for Y-axis
+    const labels = singleDayMode
+      ? [''] // No label needed for single row
       : ['12a', '1a', '2a', '3a', '4a', '5a', '6a', '7a', '8a', '9a', '10a', '11a', '12p', '1p', '2p', '3p', '4p', '5p', '6p', '7p', '8p', '9p', '10p', '11p'];
 
     // Track max values for intensity calculation
@@ -207,19 +209,16 @@ export function ActivityHeatmap({ data, timeRange, theme, colorBlindMode = false
       const dateString = format(date, 'yyyy-MM-dd');
       const dayStats = dayDataMap.get(dateString) || { count: 0, duration: 0 };
 
-      // For AM/PM mode, split the day's data in half
+      // For single day mode, use full day stats
       // For hourly mode, distribute evenly (since we don't have hourly granularity in data)
       const hourData: HourData[] = hours.map((hour) => {
         let count: number;
         let duration: number;
 
-        if (useAmPm) {
-          // Split day data between AM and PM
-          count = Math.floor(dayStats.count / 2);
-          duration = Math.floor(dayStats.duration / 2);
-          // Give remainder to PM if odd
-          if (hour === 12 && dayStats.count % 2 === 1) count++;
-          if (hour === 12 && dayStats.duration % 2 === 1) duration++;
+        if (singleDayMode) {
+          // Single day mode: use full day stats
+          count = dayStats.count;
+          duration = dayStats.duration;
         } else {
           // Distribute evenly across hours (simplified - real data would have hourly breakdown)
           count = Math.floor(dayStats.count / 24);
@@ -266,7 +265,7 @@ export function ActivityHeatmap({ data, timeRange, theme, colorBlindMode = false
       dayColumns: columns,
       hourLabels: labels,
     };
-  }, [dayDataMap, metricMode, timeRange, useAmPm]);
+  }, [dayDataMap, metricMode, timeRange, singleDayMode]);
 
   // Handle mouse events for tooltip
   const handleMouseEnter = useCallback(
@@ -293,7 +292,7 @@ export function ActivityHeatmap({ data, timeRange, theme, colorBlindMode = false
       className="p-4 rounded-lg"
       style={{ backgroundColor: theme.colors.bgMain }}
       role="figure"
-      aria-label={`Activity heatmap showing ${metricMode === 'count' ? 'query activity' : 'duration'} by ${useAmPm ? 'AM/PM' : 'hour'} over ${getDaysForRange(timeRange)} days.`}
+      aria-label={`Activity heatmap showing ${metricMode === 'count' ? 'query activity' : 'duration'} ${singleDayMode ? 'per day' : 'by hour'} over ${getDaysForRange(timeRange)} days.`}
     >
       {/* Header with title and metric toggle */}
       <div className="flex items-center justify-between mb-4">
@@ -357,23 +356,24 @@ export function ActivityHeatmap({ data, timeRange, theme, colorBlindMode = false
 
       {/* Heatmap grid */}
       <div className="flex gap-2">
-        {/* Hour labels (Y-axis) - only show every 2 hours for readability */}
-        <div className="flex flex-col flex-shrink-0" style={{ width: 28, paddingTop: 18 }}>
-          {hourLabels.map((label, idx) => (
-            <div
-              key={idx}
-              className="text-xs text-right flex items-center justify-end"
-              style={{
-                color: theme.colors.textDim,
-                // Match cell height + gap: 14px cell + 2px gap = 16px (or 34 + 2 = 36 for AM/PM)
-                height: useAmPm ? 36 : 16,
-              }}
-            >
-              {/* Only show labels for even hours (0, 2, 4, etc.) */}
-              {useAmPm || idx % 2 === 0 ? label : ''}
-            </div>
-          ))}
-        </div>
+        {/* Hour labels (Y-axis) - only show for hourly mode */}
+        {!singleDayMode && (
+          <div className="flex flex-col flex-shrink-0" style={{ width: 28, paddingTop: 18 }}>
+            {hourLabels.map((label, idx) => (
+              <div
+                key={idx}
+                className="text-xs text-right flex items-center justify-end"
+                style={{
+                  color: theme.colors.textDim,
+                  height: 16,
+                }}
+              >
+                {/* Only show labels for even hours (0, 2, 4, etc.) */}
+                {idx % 2 === 0 ? label : ''}
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Grid of cells */}
         <div className="flex-1">
@@ -392,13 +392,13 @@ export function ActivityHeatmap({ data, timeRange, theme, colorBlindMode = false
                 >
                   {col.dayLabel}
                 </div>
-                {/* Hour cells */}
+                {/* Hour cells (or single day cell) */}
                 {col.hours.map((hourData) => (
                   <div
                     key={hourData.hourKey}
                     className="rounded-sm cursor-default"
                     style={{
-                      height: useAmPm ? 34 : 14,
+                      height: singleDayMode ? 20 : 14,
                       backgroundColor: getIntensityColor(
                         hourData.intensity,
                         theme,
@@ -414,7 +414,7 @@ export function ActivityHeatmap({ data, timeRange, theme, colorBlindMode = false
                     onMouseEnter={(e) => handleMouseEnter(hourData, e)}
                     onMouseLeave={handleMouseLeave}
                     role="gridcell"
-                    aria-label={`${format(hourData.date, 'MMM d')} ${useAmPm ? (hourData.hour === 0 ? 'AM' : 'PM') : `${hourData.hour}:00`}: ${hourData.count} ${hourData.count === 1 ? 'query' : 'queries'}${hourData.duration > 0 ? `, ${formatDuration(hourData.duration)}` : ''}`}
+                    aria-label={`${format(hourData.date, 'MMM d')}${singleDayMode ? '' : ` ${hourData.hour}:00`}: ${hourData.count} ${hourData.count === 1 ? 'query' : 'queries'}${hourData.duration > 0 ? `, ${formatDuration(hourData.duration)}` : ''}`}
                     tabIndex={0}
                   />
                 ))}
@@ -494,8 +494,7 @@ export function ActivityHeatmap({ data, timeRange, theme, colorBlindMode = false
           >
             <div className="font-medium mb-0.5">
               {format(hoveredCell.date, 'EEEE, MMM d')}
-              {!useAmPm && ` at ${hoveredCell.hour}:00`}
-              {useAmPm && ` (${hoveredCell.hour === 0 ? 'AM' : 'PM'})`}
+              {!singleDayMode && ` at ${hoveredCell.hour}:00`}
             </div>
             <div style={{ color: theme.colors.textDim }}>
               {hoveredCell.count} {hoveredCell.count === 1 ? 'query' : 'queries'}

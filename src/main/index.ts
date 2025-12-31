@@ -4,6 +4,7 @@ import os from 'os';
 import fs from 'fs/promises';
 import fsSync from 'fs';
 import * as Sentry from '@sentry/electron/main';
+import { IPCMode } from '@sentry/electron/main';
 import { ProcessManager } from './process-manager';
 import { WebServer } from './web-server';
 import { AgentDetector } from './agent-detector';
@@ -120,6 +121,9 @@ if (crashReportingEnabled && !isDevelopment) {
     dsn: 'https://2303c5f787f910863d83ed5d27ce8ed2@o4510554134740992.ingest.us.sentry.io/4510554135789568',
     // Set release version for better debugging
     release: app.getVersion(),
+    // Use Classic IPC mode to avoid "sentry-ipc:// URL scheme not supported" errors
+    // See: https://github.com/getsentry/sentry-electron/issues/661
+    ipcMode: IPCMode.Classic,
     // Only send errors, not performance data
     tracesSampleRate: 0,
     // Filter out sensitive data

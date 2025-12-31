@@ -411,7 +411,7 @@ export function useSettings(): UseSettingsReturn {
 
   // Document Graph settings
   const [documentGraphShowExternalLinks, setDocumentGraphShowExternalLinksState] = useState(false); // Default: false
-  const [documentGraphMaxNodes, setDocumentGraphMaxNodesState] = useState(200); // Default: 200
+  const [documentGraphMaxNodes, setDocumentGraphMaxNodesState] = useState(50); // Default: 50
 
   // Stats settings
   const [statsCollectionEnabled, setStatsCollectionEnabledState] = useState(true); // Default: enabled

@@ -31,7 +31,7 @@ import { useLayerStack } from '../../contexts/LayerStackContext';
 import { MODAL_PRIORITIES } from '../../constants/modalPriorities';
 import { Modal, ModalFooter } from '../ui/Modal';
 import { useDebouncedCallback } from '../../hooks/utils';
-import { buildGraphData, ProgressData, GraphNodeData } from './graphDataBuilder';
+import { buildGraphData, ProgressData, GraphNodeData, CachedExternalData } from './graphDataBuilder';
 import { MindMap, MindMapNode, MindMapLink, convertToMindMapData } from './MindMap';
 import { NodeContextMenu } from './NodeContextMenu';
 import { GraphLegend } from './GraphLegend';
@@ -119,6 +119,16 @@ export function DocumentGraphView({
   const [loadedDocuments, setLoadedDocuments] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [maxNodes, setMaxNodes] = useState(defaultMaxNodes);
+
+  // Cached external data for instant toggling (without re-scanning)
+  const [cachedExternalData, setCachedExternalData] = useState<CachedExternalData | null>(null);
+  const [internalLinkCount, setInternalLinkCount] = useState(0);
+
+  // Store already-converted MindMap nodes/links for toggling (with all required fields)
+  const [documentOnlyNodes, setDocumentOnlyNodes] = useState<MindMapNode[]>([]);
+  const [documentOnlyLinks, setDocumentOnlyLinks] = useState<MindMapLink[]>([]);
+  const [allNodesWithExternal, setAllNodesWithExternal] = useState<MindMapNode[]>([]);
+  const [allLinksWithExternal, setAllLinksWithExternal] = useState<MindMapLink[]>([]);
 
   // Context menu state
   const [contextMenu, setContextMenu] = useState<{
@@ -239,6 +249,9 @@ export function DocumentGraphView({
         loadedDocuments: graphData.loadedDocuments,
         nodeCount: graphData.nodes.length,
         edgeCount: graphData.edges.length,
+        internalLinkCount: graphData.internalLinkCount,
+        externalLinkCount: graphData.cachedExternalData.totalLinkCount,
+        externalDomains: graphData.cachedExternalData.domainCount,
         sampleNodeIds: graphData.nodes.slice(0, 5).map(n => n.id),
       });
 
@@ -247,15 +260,39 @@ export function DocumentGraphView({
       setLoadedDocuments(graphData.loadedDocuments);
       setHasMore(graphData.hasMore);
 
-      // Convert to mind map format
-      const { nodes: mindMapNodes, links: mindMapLinks } = convertToMindMapData(
-        graphData.nodes.map(n => ({ id: n.id, data: n.data })),
-        graphData.edges.map(e => ({ source: e.source, target: e.target, type: e.type }))
+      // Cache external data and link counts for instant toggling
+      setCachedExternalData(graphData.cachedExternalData);
+      setInternalLinkCount(graphData.internalLinkCount);
+
+      // Convert document-only nodes/links to mind map format (for toggling)
+      const docOnlyNodes = graphData.nodes.filter(n => n.type === 'documentNode');
+      const docOnlyEdges = graphData.edges.filter(e => e.type !== 'external');
+      const { nodes: docMindMapNodes, links: docMindMapLinks } = convertToMindMapData(
+        docOnlyNodes.map(n => ({ id: n.id, data: n.data })),
+        docOnlyEdges.map(e => ({ source: e.source, target: e.target, type: e.type }))
       );
+      setDocumentOnlyNodes(docMindMapNodes);
+      setDocumentOnlyLinks(docMindMapLinks);
+
+      // Convert ALL nodes/links (with external) to mind map format (for toggling)
+      const allNodes = [...docOnlyNodes, ...graphData.cachedExternalData.externalNodes];
+      const allEdges = [...docOnlyEdges, ...graphData.cachedExternalData.externalEdges];
+      const { nodes: allMindMapNodes, links: allMindMapLinks } = convertToMindMapData(
+        allNodes.map(n => ({ id: n.id, data: n.data })),
+        allEdges.map(e => ({ source: e.source, target: e.target, type: e.type }))
+      );
+      setAllNodesWithExternal(allMindMapNodes);
+      setAllLinksWithExternal(allMindMapLinks);
+
+      // Set current display based on includeExternalLinks setting
+      const mindMapNodes = includeExternalLinks ? allMindMapNodes : docMindMapNodes;
+      const mindMapLinks = includeExternalLinks ? allMindMapLinks : docMindMapLinks;
 
       console.log('[DocumentGraph] Converted to mind map format:', {
         nodeCount: mindMapNodes.length,
         linkCount: mindMapLinks.length,
+        docOnlyCount: docMindMapNodes.length,
+        withExternalCount: allMindMapNodes.length,
         sampleFilePaths: mindMapNodes.filter(n => n.nodeType === 'document').slice(0, 5).map(n => n.filePath),
         focusFilePath,
       });
@@ -299,13 +336,30 @@ export function DocumentGraphView({
   }, [isOpen, rootPath, loadGraphData]);
 
   /**
-   * Reload when external links toggle changes
+   * Toggle external links using cached data (no re-scan needed)
    */
   useEffect(() => {
-    if (isOpen && hasLoadedDataRef.current) {
-      debouncedLoadGraphData();
+    // Only toggle if we have cached data and the modal is showing post-initial-load
+    if (!isOpen || !hasLoadedDataRef.current) return;
+    if (documentOnlyNodes.length === 0 && allNodesWithExternal.length === 0) return;
+
+    // Use pre-converted cached data to instantly toggle external links on/off
+    if (includeExternalLinks) {
+      setNodes(allNodesWithExternal);
+      setLinks(allLinksWithExternal);
+      console.log('[DocumentGraph] Added external links from cache:', {
+        totalNodes: allNodesWithExternal.length,
+        totalLinks: allLinksWithExternal.length,
+      });
+    } else {
+      setNodes(documentOnlyNodes);
+      setLinks(documentOnlyLinks);
+      console.log('[DocumentGraph] Removed external links (using cached document-only data):', {
+        totalNodes: documentOnlyNodes.length,
+        totalLinks: documentOnlyLinks.length,
+      });
     }
-  }, [includeExternalLinks]);
+  }, [includeExternalLinks, isOpen, documentOnlyNodes, documentOnlyLinks, allNodesWithExternal, allLinksWithExternal]);
 
   /**
    * Cancel debounced load on unmount
@@ -641,6 +695,12 @@ export function DocumentGraphView({
               Document Graph
             </h2>
             <span
+              className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase"
+              style={{ backgroundColor: theme.colors.warning + '30', color: theme.colors.warning }}
+            >
+              Beta
+            </span>
+            <span
               className="text-xs px-2 py-0.5 rounded"
               style={{
                 backgroundColor: `${theme.colors.accent}20`,
@@ -883,9 +943,9 @@ export function DocumentGraphView({
           style={{ backgroundColor: theme.colors.bgMain }}
         >
           {loading ? (
-            <div className="h-full flex flex-col items-center justify-center gap-4">
+            <div className="h-full flex flex-col items-center justify-center gap-8">
               <Loader2 className="w-8 h-8 animate-spin" style={{ color: theme.colors.accent }} />
-              <div className="flex flex-col items-center gap-2">
+              <div className="flex flex-col items-center gap-4">
                 <p className="text-sm" style={{ color: theme.colors.textDim }}>
                   {progress ? (
                     progress.phase === 'scanning'
@@ -916,6 +976,14 @@ export function DocumentGraphView({
                     title={progress.currentFile}
                   >
                     {progress.currentFile}
+                  </p>
+                )}
+                {progress && progress.phase === 'parsing' && (progress.internalLinksFound !== undefined || progress.externalLinksFound !== undefined) && (
+                  <p
+                    className="text-xs"
+                    style={{ color: theme.colors.textDim, opacity: 0.6 }}
+                  >
+                    {progress.internalLinksFound ?? 0} internal · {progress.externalLinksFound ?? 0} external links
                   </p>
                 )}
               </div>

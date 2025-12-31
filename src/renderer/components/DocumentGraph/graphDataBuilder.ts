@@ -63,6 +63,10 @@ export interface ProgressData {
   total: number;
   /** Current file being processed (during parsing phase) */
   currentFile?: string;
+  /** Running count of internal links found (during parsing phase) */
+  internalLinksFound?: number;
+  /** Running count of external links found (during parsing phase) */
+  externalLinksFound?: number;
 }
 
 /**
@@ -133,6 +137,20 @@ export interface GraphEdge {
 }
 
 /**
+ * Cached external link data for toggling without re-scan
+ */
+export interface CachedExternalData {
+  /** External domain nodes (can be added/removed from graph without re-parsing) */
+  externalNodes: GraphNode[];
+  /** Edges from documents to external domains */
+  externalEdges: GraphEdge[];
+  /** Total count of unique external domains */
+  domainCount: number;
+  /** Total count of external links (including duplicates) */
+  totalLinkCount: number;
+}
+
+/**
  * Result of building graph data
  */
 export interface GraphData {
@@ -146,6 +164,10 @@ export interface GraphData {
   loadedDocuments: number;
   /** Whether there are more documents to load */
   hasMore: boolean;
+  /** Cached external link data for instant toggling */
+  cachedExternalData: CachedExternalData;
+  /** Total count of internal links */
+  internalLinkCount: number;
 }
 
 /**
@@ -333,22 +355,30 @@ export async function buildGraphData(options: BuildOptions): Promise<GraphData> 
   // We yield to the event loop every BATCH_SIZE_BEFORE_YIELD files to prevent UI blocking
   const parseStart = perfMetrics.start();
   const parsedFiles: ParsedFile[] = [];
+  let runningInternalLinkCount = 0;
+  let runningExternalLinkCount = 0;
+
   for (let i = 0; i < pathsToProcess.length; i++) {
     const relativePath = pathsToProcess[i];
 
-    // Report parsing progress
+    const parsed = await parseFile(rootPath, relativePath);
+    if (parsed) {
+      parsedFiles.push(parsed);
+      // Update running link counts
+      runningInternalLinkCount += parsed.internalLinks.length;
+      runningExternalLinkCount += parsed.externalLinks.length;
+    }
+
+    // Report parsing progress with link counts
     if (onProgress) {
       onProgress({
         phase: 'parsing',
         current: i + 1,
         total: pathsToProcess.length,
         currentFile: relativePath,
+        internalLinksFound: runningInternalLinkCount,
+        externalLinksFound: runningExternalLinkCount,
       });
-    }
-
-    const parsed = await parseFile(rootPath, relativePath);
-    if (parsed) {
-      parsedFiles.push(parsed);
     }
 
     // Yield to event loop periodically to prevent UI blocking
@@ -368,12 +398,15 @@ export async function buildGraphData(options: BuildOptions): Promise<GraphData> 
   // Track which files we've loaded for edge filtering
   const loadedPaths = new Set(parsedFiles.map((f) => f.relativePath));
 
-  // Step 4: Build document nodes
-  const nodes: GraphNode[] = [];
-  const edges: GraphEdge[] = [];
+  // Step 4: Build document nodes and ALWAYS collect external link data (for caching)
+  const documentNodes: GraphNode[] = [];
+  const internalEdges: GraphEdge[] = [];
 
-  // Track external domains for deduplication
+  // Always track external domains for caching (regardless of includeExternalLinks setting)
   const externalDomains = new Map<string, { count: number; urls: string[] }>();
+  const externalEdges: GraphEdge[] = [];
+  let totalExternalLinkCount = 0;
+  let internalLinkCount = 0;
 
   for (let i = 0; i < parsedFiles.length; i++) {
     const file = parsedFiles[i];
@@ -383,7 +416,7 @@ export async function buildGraphData(options: BuildOptions): Promise<GraphData> 
     const brokenLinks = file.allInternalLinkPaths.filter((link) => !knownPaths.has(link));
 
     // Create document node
-    nodes.push({
+    documentNodes.push({
       id: nodeId,
       type: 'documentNode',
       data: {
@@ -399,58 +432,73 @@ export async function buildGraphData(options: BuildOptions): Promise<GraphData> 
       // Only create edge if target file exists AND is loaded (to avoid dangling edges)
       if (knownPaths.has(internalLink) && loadedPaths.has(internalLink)) {
         const targetNodeId = `doc-${internalLink}`;
-        edges.push({
+        internalEdges.push({
           id: `edge-${nodeId}-${targetNodeId}`,
           source: nodeId,
           target: targetNodeId,
           type: 'default',
         });
+        internalLinkCount++;
       }
     }
 
-    // Collect external links if enabled
-    if (includeExternalLinks) {
-      for (const externalLink of file.externalLinks) {
-        const existing = externalDomains.get(externalLink.domain);
-        if (existing) {
-          existing.count++;
-          if (!existing.urls.includes(externalLink.url)) {
-            existing.urls.push(externalLink.url);
-          }
-        } else {
-          externalDomains.set(externalLink.domain, {
-            count: 1,
-            urls: [externalLink.url],
-          });
+    // Always collect external links for caching (even if not currently displayed)
+    for (const externalLink of file.externalLinks) {
+      totalExternalLinkCount++;
+      const existing = externalDomains.get(externalLink.domain);
+      if (existing) {
+        existing.count++;
+        if (!existing.urls.includes(externalLink.url)) {
+          existing.urls.push(externalLink.url);
         }
-
-        // Create edge from document to external domain
-        const externalNodeId = `ext-${externalLink.domain}`;
-        edges.push({
-          id: `edge-${nodeId}-${externalNodeId}`,
-          source: nodeId,
-          target: externalNodeId,
-          type: 'external',
+      } else {
+        externalDomains.set(externalLink.domain, {
+          count: 1,
+          urls: [externalLink.url],
         });
       }
-    }
-  }
 
-  // Step 5: Create external domain nodes if enabled
-  if (includeExternalLinks) {
-    for (const [domain, data] of externalDomains) {
-      nodes.push({
-        id: `ext-${domain}`,
-        type: 'externalLinkNode',
-        data: {
-          nodeType: 'external',
-          domain,
-          linkCount: data.count,
-          urls: data.urls,
-        },
+      // Create edge from document to external domain (cached for later use)
+      const externalNodeId = `ext-${externalLink.domain}`;
+      externalEdges.push({
+        id: `edge-${nodeId}-${externalNodeId}`,
+        source: nodeId,
+        target: externalNodeId,
+        type: 'external',
       });
     }
   }
+
+  // Step 5: Build external domain nodes (always, for caching)
+  const externalNodes: GraphNode[] = [];
+  for (const [domain, data] of externalDomains) {
+    externalNodes.push({
+      id: `ext-${domain}`,
+      type: 'externalLinkNode',
+      data: {
+        nodeType: 'external',
+        domain,
+        linkCount: data.count,
+        urls: data.urls,
+      },
+    });
+  }
+
+  // Step 6: Assemble final nodes/edges based on includeExternalLinks setting
+  const nodes: GraphNode[] = includeExternalLinks
+    ? [...documentNodes, ...externalNodes]
+    : documentNodes;
+  const edges: GraphEdge[] = includeExternalLinks
+    ? [...internalEdges, ...externalEdges]
+    : internalEdges;
+
+  // Build cached external data for instant toggling
+  const cachedExternalData: CachedExternalData = {
+    externalNodes,
+    externalEdges,
+    domainCount: externalDomains.size,
+    totalLinkCount: totalExternalLinkCount,
+  };
 
   // Calculate pagination info
   const loadedDocuments = parsedFiles.length;
@@ -463,6 +511,7 @@ export async function buildGraphData(options: BuildOptions): Promise<GraphData> 
     nodeCount: nodes.length,
     edgeCount: edges.length,
     includeExternalLinks,
+    externalDomainsCached: externalDomains.size,
   });
 
   // Warn if build time exceeds thresholds
@@ -476,7 +525,15 @@ export async function buildGraphData(options: BuildOptions): Promise<GraphData> 
     );
   }
 
-  return { nodes, edges, totalDocuments, loadedDocuments, hasMore };
+  return {
+    nodes,
+    edges,
+    totalDocuments,
+    loadedDocuments,
+    hasMore,
+    cachedExternalData,
+    internalLinkCount,
+  };
 }
 
 /**

@@ -346,33 +346,67 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
     };
 
     // Track shell CWD changes when in terminal mode
+    // For SSH sessions, use remoteCwd; for local sessions, use shellCwd
+    const isRemoteSession = !!activeSession.sshRemoteId;
     let newShellCwd = activeSession.shellCwd || activeSession.cwd;
+    let newRemoteCwd = activeSession.remoteCwd;
     let cwdChanged = false;
+    let remoteCwdChanged = false;
     if (currentMode === 'terminal') {
       const trimmedInput = effectiveInputValue.trim();
-      // Handle bare "cd" command - go to session's original directory
+      // Get the current CWD based on whether this is a remote or local session
+      const currentCwd = isRemoteSession
+        ? (activeSession.remoteCwd || activeSession.sessionSshRemoteConfig?.workingDirOverride || activeSession.cwd)
+        : (activeSession.shellCwd || activeSession.cwd);
+
+      // Handle bare "cd" command - go to session's original directory (or remote working dir for SSH)
       if (trimmedInput === 'cd') {
-        cwdChanged = true;
-        newShellCwd = activeSession.cwd;
+        if (isRemoteSession) {
+          // For remote sessions, bare cd goes to remote working directory from SSH config
+          // We can't easily get the remote $HOME, so use the configured remoteWorkingDir or cwd
+          remoteCwdChanged = true;
+          newRemoteCwd = activeSession.sessionSshRemoteConfig?.workingDirOverride || activeSession.cwd;
+        } else {
+          cwdChanged = true;
+          newShellCwd = activeSession.cwd;
+        }
       }
       const cdMatch = trimmedInput.match(/^cd\s+(.+)$/);
       if (cdMatch) {
         const targetPath = cdMatch[1].trim().replace(/^['"]|['"]$/g, ''); // Remove quotes
         let candidatePath: string;
-        if (targetPath === '~') {
-          // Navigate to session's original directory
-          candidatePath = activeSession.cwd;
+        if (targetPath === '~' || targetPath.startsWith('~/')) {
+          // For remote sessions, ~ should expand to remote home
+          // Since we can't easily get remote $HOME, use remoteWorkingDir as fallback
+          if (isRemoteSession) {
+            // Use remoteWorkingDir or fall back to /home/<username> pattern
+            const basePath = activeSession.sessionSshRemoteConfig?.workingDirOverride || activeSession.cwd;
+            if (targetPath === '~') {
+              candidatePath = basePath;
+            } else {
+              // ~/subpath
+              const subPath = targetPath.slice(2); // Remove ~/
+              candidatePath = basePath + (basePath.endsWith('/') ? '' : '/') + subPath;
+            }
+          } else {
+            // Local: navigate to session's original directory
+            if (targetPath === '~') {
+              candidatePath = activeSession.cwd;
+            } else {
+              candidatePath = activeSession.cwd + (activeSession.cwd.endsWith('/') ? '' : '/') + targetPath.slice(2);
+            }
+          }
         } else if (targetPath.startsWith('/')) {
           // Absolute path
           candidatePath = targetPath;
         } else if (targetPath === '..') {
           // Go up one directory
-          const parts = newShellCwd.split('/').filter(Boolean);
+          const parts = currentCwd.split('/').filter(Boolean);
           parts.pop();
           candidatePath = '/' + parts.join('/');
         } else if (targetPath.startsWith('../')) {
           // Relative path going up
-          const parts = newShellCwd.split('/').filter(Boolean);
+          const parts = currentCwd.split('/').filter(Boolean);
           const upCount = targetPath.split('/').filter((p) => p === '..').length;
           for (let i = 0; i < upCount; i++) parts.pop();
           const remainingPath = targetPath
@@ -382,18 +416,23 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
           candidatePath = '/' + [...parts, ...remainingPath.split('/').filter(Boolean)].join('/');
         } else {
           // Relative path going down
-          candidatePath = newShellCwd + (newShellCwd.endsWith('/') ? '' : '/') + targetPath;
+          candidatePath = currentCwd + (currentCwd.endsWith('/') ? '' : '/') + targetPath;
         }
 
-        // Verify the directory exists before updating shellCwd
+        // Verify the directory exists before updating CWD
         // Pass SSH remote ID for remote sessions
         try {
           await window.maestro.fs.readDir(candidatePath, activeSession.sshRemoteId);
-          // Directory exists, update shellCwd
-          cwdChanged = true;
-          newShellCwd = candidatePath;
+          // Directory exists, update the appropriate CWD
+          if (isRemoteSession) {
+            remoteCwdChanged = true;
+            newRemoteCwd = candidatePath;
+          } else {
+            cwdChanged = true;
+            newShellCwd = candidatePath;
+          }
         } catch {
-          // Directory doesn't exist, keep the current shellCwd
+          // Directory doesn't exist, keep the current CWD
           // The shell will show its own error message
         }
       }
@@ -423,6 +462,8 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
             state: 'busy',
             busySource: currentMode,
             shellCwd: newShellCwd,
+            // Update remoteCwd for SSH sessions when cd command changes directory
+            ...(remoteCwdChanged && newRemoteCwd && { remoteCwd: newRemoteCwd }),
             [historyKey]: newHistory,
           };
         }
@@ -471,9 +512,11 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
     );
 
     // If directory changed, check if new directory is a Git repository
-    if (cwdChanged) {
+    // For remote sessions, check remoteCwd; for local sessions, check shellCwd
+    if (cwdChanged || remoteCwdChanged) {
       (async () => {
-        const isGitRepo = await gitService.isRepo(newShellCwd);
+        const cwdToCheck = remoteCwdChanged && newRemoteCwd ? newRemoteCwd : newShellCwd;
+        const isGitRepo = await gitService.isRepo(cwdToCheck, activeSession.sshRemoteId);
         setSessions((prev) =>
           prev.map((s) => (s.id === activeSessionId ? { ...s, isGitRepo } : s))
         );
@@ -709,11 +752,15 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
       // Terminal mode: Use runCommand for clean stdout/stderr capture (no PTY noise)
       // This spawns a fresh shell with -l -c to run the command, ensuring aliases work
       // When SSH is enabled for the session, the command runs on the remote host
+      // For SSH sessions, use remoteCwd (updated by cd commands); for local, use shellCwd
+      const commandCwd = activeSession.sshRemoteId
+        ? (activeSession.remoteCwd || activeSession.sessionSshRemoteConfig?.workingDirOverride || activeSession.cwd)
+        : (activeSession.shellCwd || activeSession.cwd);
       window.maestro.process
         .runCommand({
           sessionId: activeSession.id, // Plain session ID (not suffixed)
           command: capturedInputValue,
-          cwd: activeSession.shellCwd || activeSession.cwd,
+          cwd: commandCwd,
           // Pass SSH config if the session has SSH enabled
           sessionSshRemoteConfig: activeSession.sessionSshRemoteConfig,
         })

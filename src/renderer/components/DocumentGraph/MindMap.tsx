@@ -96,31 +96,35 @@ export interface MindMapProps {
 // ============================================================================
 
 /** Horizontal spacing between depth levels */
-const HORIZONTAL_SPACING = 300;
+const HORIZONTAL_SPACING = 340;
 /** Minimum vertical spacing between nodes */
-const VERTICAL_SPACING = 90;
+const VERTICAL_SPACING = 120;
 /** Document node width */
-const NODE_WIDTH = 240;
+const NODE_WIDTH = 260;
+/** Header height for node title bar */
+const NODE_HEADER_HEIGHT = 32;
 /** Minimum node height (title only) */
-const NODE_HEIGHT_BASE = 52;
+const NODE_HEIGHT_BASE = 56;
 /** Node height with description */
-const NODE_HEIGHT_WITH_DESC = 88;
+const NODE_HEIGHT_WITH_DESC = 90;
+/** Maximum characters per line in description */
+const DESC_MAX_CHARS_PER_LINE = 32;
 /** Scale factor for center node */
 const CENTER_NODE_SCALE = 1.15;
 /** External node width (smaller) */
-const EXTERNAL_NODE_WIDTH = 140;
+const EXTERNAL_NODE_WIDTH = 150;
 /** External node height */
-const EXTERNAL_NODE_HEIGHT = 36;
+const EXTERNAL_NODE_HEIGHT = 38;
 /** Offset for external link cluster from bottom */
-const EXTERNAL_CLUSTER_OFFSET = 100;
+const EXTERNAL_CLUSTER_OFFSET = 120;
 /** Padding around canvas content */
-const CANVAS_PADDING = 60;
+const CANVAS_PADDING = 80;
 /** Node corner radius */
-const NODE_BORDER_RADIUS = 10;
+const NODE_BORDER_RADIUS = 12;
 /** Open icon size */
-const OPEN_ICON_SIZE = 16;
+const OPEN_ICON_SIZE = 14;
 /** Open icon padding from node edge */
-const OPEN_ICON_PADDING = 10;
+const OPEN_ICON_PADDING = 8;
 
 // ============================================================================
 // Utility Functions
@@ -263,39 +267,80 @@ function calculateMindMapLayout(
   canvasHeight: number,
   showExternalLinks: boolean
 ): LayoutResult {
-  // Find center node - try exact match first, then normalized paths
-  const centerNodeId = `doc-${centerFilePath}`;
-  let centerNode = allNodes.find(n => n.id === centerNodeId);
+  // Find center node - try multiple path variations
+  // The centerFilePath might be relative to the root, but node filePaths might be
+  // relative to a subdirectory (e.g., "docs/index.md" vs "index.md")
 
-  // If exact match fails, try normalizing paths (handle leading slashes, etc.)
+  let centerNode: MindMapNode | undefined;
+  let actualCenterNodeId: string = '';
+
+  // Try exact match first
+  const centerNodeId = `doc-${centerFilePath}`;
+  centerNode = allNodes.find(n => n.id === centerNodeId);
+  if (centerNode) {
+    actualCenterNodeId = centerNodeId;
+  }
+
+  // Try without leading slashes
   if (!centerNode) {
     const normalizedPath = centerFilePath.replace(/^\/+/, '');
     const normalizedNodeId = `doc-${normalizedPath}`;
     centerNode = allNodes.find(n => n.id === normalizedNodeId);
+    if (centerNode) {
+      actualCenterNodeId = normalizedNodeId;
+    }
   }
 
-  // Also try matching by filePath property directly
+  // Try just the filename (last path segment)
   if (!centerNode) {
-    centerNode = allNodes.find(n =>
-      n.nodeType === 'document' &&
-      (n.filePath === centerFilePath ||
-       n.filePath === centerFilePath.replace(/^\/+/, '') ||
-       n.filePath?.replace(/^\/+/, '') === centerFilePath.replace(/^\/+/, ''))
-    );
+    const filename = centerFilePath.split('/').pop() || centerFilePath;
+    const filenameNodeId = `doc-${filename}`;
+    centerNode = allNodes.find(n => n.id === filenameNodeId);
+    if (centerNode) {
+      actualCenterNodeId = filenameNodeId;
+    }
+  }
+
+  // Try matching by filePath property with various normalizations
+  if (!centerNode) {
+    const pathVariations = [
+      centerFilePath,
+      centerFilePath.replace(/^\/+/, ''),
+      centerFilePath.split('/').pop() || centerFilePath,
+    ];
+
+    for (const variation of pathVariations) {
+      centerNode = allNodes.find(n =>
+        n.nodeType === 'document' &&
+        (n.filePath === variation ||
+         n.filePath?.replace(/^\/+/, '') === variation ||
+         n.filePath?.split('/').pop() === variation.split('/').pop())
+      );
+      if (centerNode) {
+        actualCenterNodeId = centerNode.id;
+        break;
+      }
+    }
+  }
+
+  // Fallback: if still not found and we have document nodes, use the first one
+  if (!centerNode) {
+    const documentNodes = allNodes.filter(n => n.nodeType === 'document');
+    if (documentNodes.length > 0) {
+      console.warn(
+        `[MindMap] Center node not found for path: "${centerFilePath}", falling back to first document`,
+        '\nAvailable document nodes:',
+        documentNodes.map(n => n.filePath).slice(0, 10),
+        documentNodes.length > 10 ? `... and ${documentNodes.length - 10} more` : ''
+      );
+      centerNode = documentNodes[0];
+      actualCenterNodeId = centerNode.id;
+    }
   }
 
   if (!centerNode) {
-    // Log available nodes to help debug path mismatches
-    console.warn(
-      `[MindMap] Center node not found for path: "${centerFilePath}"`,
-      '\nAvailable document nodes:',
-      allNodes
-        .filter(n => n.nodeType === 'document')
-        .map(n => n.filePath)
-        .slice(0, 10),
-      allNodes.length > 10 ? `... and ${allNodes.length - 10} more` : ''
-    );
-    // No center node found, return empty layout
+    // No document nodes at all
+    console.warn(`[MindMap] No document nodes available for center`);
     return {
       nodes: [],
       links: [],
@@ -314,8 +359,8 @@ function calculateMindMapLayout(
 
   // BFS to find nodes within maxDepth
   const visited = new Map<string, number>(); // nodeId -> depth
-  const queue: Array<{ id: string; depth: number }> = [{ id: centerNodeId, depth: 0 }];
-  visited.set(centerNodeId, 0);
+  const queue: Array<{ id: string; depth: number }> = [{ id: actualCenterNodeId, depth: 0 }];
+  visited.set(actualCenterNodeId, 0);
 
   while (queue.length > 0) {
     const { id, depth } = queue.shift()!;
@@ -365,7 +410,7 @@ function calculateMindMapLayout(
   // Group nodes by depth
   const nodesByDepth = new Map<number, MindMapNode[]>();
   documentNodes.forEach(node => {
-    if (node.id === centerNodeId) return;
+    if (node.id === actualCenterNodeId) return;
     const depth = visited.get(node.id) || 1;
     if (!nodesByDepth.has(depth)) nodesByDepth.set(depth, []);
     nodesByDepth.get(depth)!.push(node);
@@ -446,10 +491,32 @@ function calculateMindMapLayout(
     });
   }
 
-  // Filter links to only include those between positioned nodes
+  // Filter links to only include "inside-out" connections (adjacent depth levels)
+  // This prevents crossing lines by only connecting:
+  // - Center (depth 0) to depth 1
+  // - Depth N to depth N+1
+  // - Documents to their external links
   const positionedNodeIds = new Set(positionedNodes.map(n => n.id));
+  const nodeDepthMap = new Map(positionedNodes.map(n => [n.id, n.depth]));
+  const nodeTypeMap = new Map(positionedNodes.map(n => [n.id, n.nodeType]));
+
   allLinks.forEach(link => {
-    if (positionedNodeIds.has(link.source) && positionedNodeIds.has(link.target)) {
+    if (!positionedNodeIds.has(link.source) || !positionedNodeIds.has(link.target)) {
+      return; // Skip if either node isn't positioned
+    }
+
+    const sourceDepth = nodeDepthMap.get(link.source) ?? 0;
+    const targetDepth = nodeDepthMap.get(link.target) ?? 0;
+    const sourceType = nodeTypeMap.get(link.source);
+    const targetType = nodeTypeMap.get(link.target);
+
+    // Allow connections if:
+    // 1. Adjacent depth levels (difference of 1)
+    // 2. External link connections (document to external domain)
+    const depthDiff = Math.abs(sourceDepth - targetDepth);
+    const isExternalLink = sourceType === 'external' || targetType === 'external';
+
+    if (depthDiff <= 1 || isExternalLink) {
       usedLinks.push(link);
     }
   });
@@ -472,7 +539,46 @@ function calculateMindMapLayout(
 // ============================================================================
 
 /**
- * Render a document node on the canvas
+ * Wrap text to fit within a maximum width, returning lines
+ */
+function wrapText(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number,
+  maxLines: number = 2
+): string[] {
+  const words = text.split(' ');
+  const lines: string[] = [];
+  let currentLine = '';
+
+  for (const word of words) {
+    const testLine = currentLine ? `${currentLine} ${word}` : word;
+    const metrics = ctx.measureText(testLine);
+
+    if (metrics.width > maxWidth && currentLine) {
+      lines.push(currentLine);
+      currentLine = word;
+      if (lines.length >= maxLines) break;
+    } else {
+      currentLine = testLine;
+    }
+  }
+
+  if (currentLine && lines.length < maxLines) {
+    lines.push(currentLine);
+  }
+
+  // If we hit maxLines and there's more text, add ellipsis to last line
+  if (lines.length === maxLines && currentLine && !lines.includes(currentLine)) {
+    const lastLine = lines[maxLines - 1];
+    lines[maxLines - 1] = truncateText(lastLine, lastLine.length - 3) + '...';
+  }
+
+  return lines;
+}
+
+/**
+ * Render a document node on the canvas with themed header
  */
 function renderDocumentNode(
   ctx: CanvasRenderingContext2D,
@@ -486,56 +592,79 @@ function renderDocumentNode(
 
   // Calculate opacity based on search state
   const alpha = searchActive && !matchesSearch ? 0.3 : 1;
-
-  // Background
-  const bgColor = isSelected || isFocused
-    ? `${theme.colors.accent}30`
-    : theme.colors.bgActivity;
-
   ctx.globalAlpha = alpha;
-  ctx.fillStyle = bgColor;
-  roundRect(ctx, x - width / 2, y - height / 2, width, height, NODE_BORDER_RADIUS);
+
+  const nodeLeft = x - width / 2;
+  const nodeTop = y - height / 2;
+
+  // Draw body background first
+  const bodyColor = theme.colors.bgActivity;
+  ctx.fillStyle = bodyColor;
+  roundRect(ctx, nodeLeft, nodeTop, width, height, NODE_BORDER_RADIUS);
   ctx.fill();
 
-  // Border
-  ctx.strokeStyle = isFocused
+  // Draw header background (accent colored)
+  const headerColor = isFocused || isSelected
     ? theme.colors.accent
-    : isSelected
-      ? theme.colors.accent
-      : isHovered
-        ? `${theme.colors.accent}80`
-        : theme.colors.border;
+    : isHovered
+      ? `${theme.colors.accent}CC`
+      : `${theme.colors.accent}99`;
+  ctx.fillStyle = headerColor;
+
+  // Draw header with rounded top corners only
+  ctx.beginPath();
+  ctx.moveTo(nodeLeft + NODE_BORDER_RADIUS, nodeTop);
+  ctx.lineTo(nodeLeft + width - NODE_BORDER_RADIUS, nodeTop);
+  ctx.quadraticCurveTo(nodeLeft + width, nodeTop, nodeLeft + width, nodeTop + NODE_BORDER_RADIUS);
+  ctx.lineTo(nodeLeft + width, nodeTop + NODE_HEADER_HEIGHT);
+  ctx.lineTo(nodeLeft, nodeTop + NODE_HEADER_HEIGHT);
+  ctx.lineTo(nodeLeft, nodeTop + NODE_BORDER_RADIUS);
+  ctx.quadraticCurveTo(nodeLeft, nodeTop, nodeLeft + NODE_BORDER_RADIUS, nodeTop);
+  ctx.closePath();
+  ctx.fill();
+
+  // Draw border around entire node
+  ctx.strokeStyle = isFocused || isSelected
+    ? theme.colors.accent
+    : isHovered
+      ? `${theme.colors.accent}80`
+      : theme.colors.border;
   ctx.lineWidth = isFocused || isSelected ? 2 : 1;
-  roundRect(ctx, x - width / 2, y - height / 2, width, height, NODE_BORDER_RADIUS);
+  roundRect(ctx, nodeLeft, nodeTop, width, height, NODE_BORDER_RADIUS);
   ctx.stroke();
 
-  // Title
-  ctx.fillStyle = theme.colors.textMain;
-  ctx.font = `bold 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+  // Title text (in header, white or light colored for contrast)
+  ctx.fillStyle = '#FFFFFF';
+  ctx.font = `600 12px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
   ctx.textAlign = 'left';
-  ctx.textBaseline = 'top';
-  const titleText = truncateText(label, 28);
-  ctx.fillText(titleText, x - width / 2 + 14, y - height / 2 + 14);
+  ctx.textBaseline = 'middle';
+  const maxTitleWidth = width - OPEN_ICON_SIZE - OPEN_ICON_PADDING * 3 - 12;
+  const titleText = truncateText(label, Math.floor(maxTitleWidth / 7)); // Approximate char width
+  ctx.fillText(titleText, nodeLeft + 12, nodeTop + NODE_HEADER_HEIGHT / 2);
 
-  // Description (if present)
+  // Open file icon (in header, right side)
+  const iconX = nodeLeft + width - OPEN_ICON_SIZE - OPEN_ICON_PADDING;
+  const iconY = nodeTop + (NODE_HEADER_HEIGHT - OPEN_ICON_SIZE) / 2;
+  drawOpenIcon(ctx, iconX, iconY, OPEN_ICON_SIZE, isHovered ? '#FFFFFF' : 'rgba(255,255,255,0.7)');
+
+  // Description (in body, if present)
   if (description) {
     ctx.fillStyle = theme.colors.textDim;
     ctx.font = '11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-    const descText = truncateText(description, 60);
-    ctx.fillText(descText, x - width / 2 + 14, y - height / 2 + 36);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
 
-    // "more" indicator if truncated
-    if (description.length > 60) {
-      ctx.fillStyle = theme.colors.accent;
-      ctx.font = '10px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-      ctx.fillText('more...', x + width / 2 - 50, y - height / 2 + 36);
-    }
+    const bodyPadding = 10;
+    const maxDescWidth = width - bodyPadding * 2;
+    const descLines = wrapText(ctx, description, maxDescWidth, 2);
+
+    const lineHeight = 14;
+    const descStartY = nodeTop + NODE_HEADER_HEIGHT + bodyPadding;
+
+    descLines.forEach((line, i) => {
+      ctx.fillText(line, nodeLeft + bodyPadding, descStartY + i * lineHeight);
+    });
   }
-
-  // Open file icon (top right)
-  const iconX = x + width / 2 - OPEN_ICON_SIZE - OPEN_ICON_PADDING;
-  const iconY = y - height / 2 + OPEN_ICON_PADDING;
-  drawOpenIcon(ctx, iconX, iconY, OPEN_ICON_SIZE, isHovered ? theme.colors.accent : theme.colors.textDim);
 
   ctx.globalAlpha = 1;
 }
@@ -1091,6 +1220,7 @@ export function MindMap({
 
 /**
  * Convert graph builder data to mind map format
+ * Ensures no duplicate nodes by using a Map for deduplication
  */
 export function convertToMindMapData(
   graphNodes: Array<{ id: string; data: GraphNodeData }>,
@@ -1110,13 +1240,24 @@ export function convertToMindMapData(
     neighborMap.get(edge.target)!.add(edge.source);
   });
 
-  const nodes: MindMapNode[] = graphNodes.map(node => {
+  // Use Map for deduplication - prevents duplicate nodes with same ID
+  const nodeMap = new Map<string, MindMapNode>();
+
+  graphNodes.forEach(node => {
+    // Skip if we've already processed this node ID
+    if (nodeMap.has(node.id)) {
+      console.warn(`[MindMap] Skipping duplicate node: ${node.id}`);
+      return;
+    }
+
     const neighbors = neighborMap.get(node.id) || new Set();
     const connectionCount = neighbors.size;
 
+    let mindMapNode: MindMapNode;
+
     if (node.data.nodeType === 'document') {
       const docData = node.data as DocumentNodeData;
-      return {
+      mindMapNode = {
         id: node.id,
         x: 0,
         y: 0,
@@ -1138,7 +1279,7 @@ export function convertToMindMapData(
       };
     } else {
       const extData = node.data as ExternalLinkNodeData;
-      return {
+      mindMapNode = {
         id: node.id,
         x: 0,
         y: 0,
@@ -1154,13 +1295,29 @@ export function convertToMindMapData(
         connectionCount,
       };
     }
+
+    nodeMap.set(node.id, mindMapNode);
   });
 
-  const links: MindMapLink[] = graphEdges.map(edge => ({
-    source: edge.source,
-    target: edge.target,
-    type: edge.type === 'external' ? 'external' : 'internal',
-  }));
+  const nodes = Array.from(nodeMap.values());
+
+  // Deduplicate links as well
+  const linkSet = new Set<string>();
+  const links: MindMapLink[] = [];
+
+  graphEdges.forEach(edge => {
+    // Create a canonical key for the edge (sorted to avoid A->B and B->A duplicates)
+    const sortedKey = [edge.source, edge.target].sort().join('|');
+
+    if (!linkSet.has(sortedKey)) {
+      linkSet.add(sortedKey);
+      links.push({
+        source: edge.source,
+        target: edge.target,
+        type: edge.type === 'external' ? 'external' : 'internal',
+      });
+    }
+  });
 
   return { nodes, links };
 }

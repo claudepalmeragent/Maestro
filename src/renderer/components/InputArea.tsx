@@ -718,7 +718,11 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
             <div className="flex gap-1 items-center">
               {session.inputMode === 'terminal' && (
                 <div className="text-xs font-mono opacity-60 px-2" style={{ color: theme.colors.textDim }}>
-                  {(session.shellCwd || session.cwd)?.replace(/^\/Users\/[^\/]+/, '~') || '~'}
+                  {/* For SSH sessions, show remoteCwd; for local sessions, show shellCwd */}
+                  {(session.sshRemoteId
+                    ? (session.remoteCwd || session.sessionSshRemoteConfig?.workingDirOverride || session.cwd)
+                    : (session.shellCwd || session.cwd)
+                  )?.replace(/^\/Users\/[^\/]+/, '~').replace(/^\/home\/[^\/]+/, '~') || '~'}
                 </div>
               )}
               {session.inputMode === 'ai' && onOpenPromptComposer && (

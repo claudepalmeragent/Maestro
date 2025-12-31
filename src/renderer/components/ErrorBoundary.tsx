@@ -1,5 +1,6 @@
 import React, { Component, ReactNode } from 'react';
 import { AlertTriangle, RefreshCw, Home } from 'lucide-react';
+import * as Sentry from '@sentry/electron/renderer';
 import { logger } from '../utils/logger';
 
 interface Props {
@@ -55,6 +56,13 @@ export class ErrorBoundary extends Component<Props, State> {
         componentStack: errorInfo.componentStack,
       }
     );
+
+    // Report to Sentry with component stack context
+    Sentry.captureException(error, {
+      extra: {
+        componentStack: errorInfo.componentStack,
+      },
+    });
 
     // Also log to console for debugging
     console.error('ErrorBoundary caught an error:', error, errorInfo);

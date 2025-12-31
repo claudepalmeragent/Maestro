@@ -1424,6 +1424,12 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
                 <label className="block text-xs font-bold opacity-70 uppercase mb-2 flex items-center gap-2">
                   <Database className="w-3 h-3" />
                   Usage & Stats
+                  <span
+                    className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase"
+                    style={{ backgroundColor: theme.colors.warning + '30', color: theme.colors.warning }}
+                  >
+                    Beta
+                  </span>
                 </label>
                 <div
                   className="p-3 rounded border space-y-3"
@@ -1587,6 +1593,12 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
                 <label className="block text-xs font-bold opacity-70 uppercase mb-2 flex items-center gap-2">
                   <Sparkles className="w-3 h-3" />
                   Document Graph
+                  <span
+                    className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase"
+                    style={{ backgroundColor: theme.colors.warning + '30', color: theme.colors.warning }}
+                  >
+                    Beta
+                  </span>
                 </label>
                 <div
                   className="p-3 rounded border space-y-3"

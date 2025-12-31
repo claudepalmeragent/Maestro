@@ -6158,11 +6158,15 @@ function MaestroConsoleInner() {
         // Use runCommand for clean stdout/stderr capture (same as desktop)
         // This spawns a fresh shell with -l -c to run the command
         // When SSH is enabled for the session, the command runs on the remote host
+        // For SSH sessions, use remoteCwd; for local, use shellCwd
+        const commandCwd = session.sshRemoteId
+          ? (session.remoteCwd || session.sessionSshRemoteConfig?.workingDirOverride || session.cwd)
+          : (session.shellCwd || session.cwd);
         try {
           await window.maestro.process.runCommand({
             sessionId: sessionId,  // Plain session ID (not suffixed)
             command: command,
-            cwd: session.shellCwd || session.cwd,
+            cwd: commandCwd,
             // Pass SSH config if the session has SSH enabled
             sessionSshRemoteConfig: session.sessionSshRemoteConfig,
           });

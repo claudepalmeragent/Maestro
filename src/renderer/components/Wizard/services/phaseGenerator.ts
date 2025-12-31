@@ -167,6 +167,143 @@ export function sanitizeFilename(filename: string): string {
 const GENERATION_TIMEOUT = 300000;
 
 /**
+ * Debug log entry for wizard troubleshooting
+ */
+export interface WizardDebugLogEntry {
+  timestamp: number;
+  type: 'info' | 'warn' | 'error' | 'data' | 'file' | 'timeout' | 'spawn' | 'exit';
+  message: string;
+  data?: Record<string, unknown>;
+}
+
+/**
+ * Debug log collector for wizard generation
+ * Collects detailed logs that can be downloaded for troubleshooting
+ */
+class WizardDebugLogger {
+  private logs: WizardDebugLogEntry[] = [];
+  private maxLogs = 10000; // Prevent memory issues
+  private startTime: number = 0;
+  private configSnapshot: Record<string, unknown> = {};
+
+  /**
+   * Start a new generation session
+   */
+  startSession(config: GenerationConfig): void {
+    this.logs = [];
+    this.startTime = Date.now();
+    this.configSnapshot = {
+      agentType: config.agentType,
+      directoryPath: config.directoryPath,
+      projectName: config.projectName,
+      conversationHistoryLength: config.conversationHistory.length,
+      conversationHistoryPreview: config.conversationHistory.slice(0, 3).map(m => ({
+        role: m.role,
+        contentLength: m.content.length,
+        preview: m.content.slice(0, 100),
+      })),
+    };
+    this.log('info', 'Generation session started', this.configSnapshot);
+  }
+
+  /**
+   * Add a log entry
+   */
+  log(
+    type: WizardDebugLogEntry['type'],
+    message: string,
+    data?: Record<string, unknown>
+  ): void {
+    if (this.logs.length >= this.maxLogs) {
+      // Remove oldest entries to make room
+      this.logs = this.logs.slice(-Math.floor(this.maxLogs * 0.9));
+    }
+
+    this.logs.push({
+      timestamp: Date.now(),
+      type,
+      message,
+      data,
+    });
+  }
+
+  /**
+   * Get elapsed time since session start
+   */
+  getElapsedMs(): number {
+    return Date.now() - this.startTime;
+  }
+
+  /**
+   * Export logs as a downloadable JSON blob
+   */
+  exportLogs(): {
+    sessionInfo: Record<string, unknown>;
+    logs: WizardDebugLogEntry[];
+    summary: Record<string, unknown>;
+  } {
+    const summary = {
+      totalLogs: this.logs.length,
+      elapsedMs: this.getElapsedMs(),
+      logsByType: this.logs.reduce((acc, log) => {
+        acc[log.type] = (acc[log.type] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>),
+      dataChunksReceived: this.logs.filter(l => l.type === 'data').length,
+      filesDetected: this.logs.filter(l => l.type === 'file').length,
+      errors: this.logs.filter(l => l.type === 'error').map(l => l.message),
+    };
+
+    return {
+      sessionInfo: {
+        ...this.configSnapshot,
+        startTime: this.startTime,
+        exportTime: Date.now(),
+        userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown',
+        platform: typeof navigator !== 'undefined' ? navigator.platform : 'unknown',
+      },
+      logs: this.logs,
+      summary,
+    };
+  }
+
+  /**
+   * Download logs as a JSON file
+   */
+  downloadLogs(): void {
+    const data = this.exportLogs();
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `wizard-debug-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  /**
+   * Get the current logs (for display or analysis)
+   */
+  getLogs(): WizardDebugLogEntry[] {
+    return [...this.logs];
+  }
+
+  /**
+   * Clear all logs
+   */
+  clear(): void {
+    this.logs = [];
+    this.startTime = 0;
+    this.configSnapshot = {};
+  }
+}
+
+// Singleton debug logger instance
+export const wizardDebugLogger = new WizardDebugLogger();
+
+/**
  * Generate the system prompt for document generation
  *
  * This prompt instructs the agent to:
@@ -399,6 +536,7 @@ class PhaseGenerator {
     callbacks?: GenerationCallbacks
   ): Promise<GenerationResult> {
     if (this.isGenerating) {
+      wizardDebugLogger.log('warn', 'Generation already in progress, rejecting new request');
       return {
         success: false,
         error: 'Generation already in progress',
@@ -408,40 +546,76 @@ class PhaseGenerator {
     this.isGenerating = true;
     this.outputBuffer = '';
 
+    // Start debug logging session
+    wizardDebugLogger.startSession(config);
+
     callbacks?.onStart?.();
     callbacks?.onProgress?.('Preparing to generate your action plan...');
 
     try {
       // Get the agent configuration
+      wizardDebugLogger.log('info', 'Fetching agent configuration', { agentType: config.agentType });
       const agent = await window.maestro.agents.get(config.agentType);
       if (!agent || !agent.available) {
+        wizardDebugLogger.log('error', 'Agent not available', { agentType: config.agentType, agent });
         throw new Error(`Agent ${config.agentType} is not available`);
       }
+      wizardDebugLogger.log('info', 'Agent configuration retrieved', {
+        command: agent.command,
+        argsCount: agent.args?.length || 0,
+      });
 
       // Generate the prompt
       const prompt = generateDocumentGenerationPrompt(config);
+      wizardDebugLogger.log('info', 'Document generation prompt created', {
+        promptLength: prompt.length,
+        promptPreview: prompt.slice(0, 200),
+      });
 
       callbacks?.onProgress?.('Generating Auto Run Documents...');
 
       // Spawn the agent and wait for completion
+      wizardDebugLogger.log('info', 'Starting agent run');
       const result = await this.runAgent(agent, config, prompt, callbacks);
 
       if (!result.success) {
+        wizardDebugLogger.log('error', 'Agent run failed', {
+          error: result.error,
+          rawOutputLength: result.rawOutput?.length || 0,
+        });
         callbacks?.onError?.(result.error || 'Generation failed');
         return result;
       }
+
+      wizardDebugLogger.log('info', 'Agent run completed successfully', {
+        rawOutputLength: result.rawOutput?.length || 0,
+      });
 
       // Parse the output
       callbacks?.onProgress?.('Parsing generated documents...');
 
       const rawOutput = result.rawOutput || '';
+      wizardDebugLogger.log('info', 'Parsing raw output', {
+        rawOutputLength: rawOutput.length,
+        rawOutputPreview: rawOutput.slice(0, 500),
+      });
       let documents = parseGeneratedDocuments(rawOutput);
       let documentsFromDisk = false;
+
+      wizardDebugLogger.log('info', 'Initial document parsing result', {
+        documentsFound: documents.length,
+        documentNames: documents.map(d => d.filename),
+      });
 
       // If no documents parsed with markers, try splitting intelligently
       if (documents.length === 0 && rawOutput.trim()) {
         callbacks?.onProgress?.('Processing document structure...');
+        wizardDebugLogger.log('info', 'No documents parsed with markers, trying splitIntoPhases');
         documents = splitIntoPhases(rawOutput);
+        wizardDebugLogger.log('info', 'splitIntoPhases result', {
+          documentsFound: documents.length,
+          documentNames: documents.map(d => d.filename),
+        });
       }
 
       // Validate that parsed documents contain actual tasks
@@ -452,32 +626,54 @@ class PhaseGenerator {
       const totalTasksFromParsed = documents.reduce((sum, doc) => sum + countTasks(doc.content), 0);
       const hasValidParsedDocs = documents.length > 0 && totalTasksFromParsed > 0;
 
+      wizardDebugLogger.log('info', 'Task count from parsed documents', {
+        totalTasksFromParsed,
+        hasValidParsedDocs,
+      });
+
       // Check for files on disk if:
       // 1. No documents were parsed at all, OR
       // 2. Parsed documents don't contain valid tasks (likely just status output)
       if (!hasValidParsedDocs) {
         callbacks?.onProgress?.('Checking for documents on disk...');
+        wizardDebugLogger.log('info', 'Checking for documents on disk (parsed docs invalid)');
         const diskDocs = await this.readDocumentsFromDisk(config.directoryPath);
         if (diskDocs.length > 0) {
           console.log('[PhaseGenerator] Found documents on disk:', diskDocs.length);
+          wizardDebugLogger.log('info', 'Found documents on disk', {
+            count: diskDocs.length,
+            documentNames: diskDocs.map(d => d.filename),
+          });
           // Prefer disk documents if they have more content/tasks
           const totalTasksFromDisk = diskDocs.reduce((sum, doc) => sum + countTasks(doc.content), 0);
+          wizardDebugLogger.log('info', 'Task count from disk documents', { totalTasksFromDisk });
           if (totalTasksFromDisk >= totalTasksFromParsed) {
             documents = diskDocs;
             documentsFromDisk = true;
+            wizardDebugLogger.log('info', 'Using documents from disk');
           }
+        } else {
+          wizardDebugLogger.log('warn', 'No documents found on disk');
         }
       }
 
       // Validate documents
       const validation = validateDocuments(documents);
+      wizardDebugLogger.log('info', 'Document validation result', {
+        valid: validation.valid,
+        errors: validation.errors,
+      });
       if (!validation.valid) {
         // Try to salvage what we can if there's at least some content
         if (documents.length > 0) {
           callbacks?.onProgress?.(
             `Note: ${validation.errors.length} validation warning(s), proceeding anyway`
           );
+          wizardDebugLogger.log('warn', 'Proceeding despite validation warnings');
         } else {
+          wizardDebugLogger.log('error', 'Document validation failed completely', {
+            errors: validation.errors,
+          });
           throw new Error(
             `Document validation failed: ${validation.errors.join('; ')}`
           );
@@ -496,6 +692,12 @@ class PhaseGenerator {
 
       callbacks?.onProgress?.(`Generated ${generatedDocs.length} Auto Run document(s)`);
 
+      wizardDebugLogger.log('info', 'Generation completed successfully', {
+        documentCount: generatedDocs.length,
+        totalTasks: generatedDocs.reduce((sum, d) => sum + (d.taskCount || 0), 0),
+        documentsFromDisk,
+      });
+
       const finalResult: GenerationResult = {
         success: true,
         documents: generatedDocs,
@@ -508,6 +710,11 @@ class PhaseGenerator {
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error occurred';
+      wizardDebugLogger.log('error', 'Generation failed with exception', {
+        errorMessage,
+        errorStack: error instanceof Error ? error.stack : undefined,
+        outputBufferLength: this.outputBuffer.length,
+      });
       callbacks?.onError?.(errorMessage);
       return {
         success: false,
@@ -540,6 +747,16 @@ class PhaseGenerator {
       timeoutMs: GENERATION_TIMEOUT,
     });
 
+    wizardDebugLogger.log('spawn', 'Starting agent run', {
+      sessionId,
+      agentType: config.agentType,
+      cwd: config.directoryPath,
+      promptLength: prompt.length,
+      timeoutMs: GENERATION_TIMEOUT,
+      command: agent.command,
+      args: agent.args,
+    });
+
     return new Promise<GenerationResult>((resolve) => {
       let timeoutId: ReturnType<typeof setTimeout>;
       let lastDataTime = Date.now();
@@ -563,6 +780,14 @@ class PhaseGenerator {
           console.error('[PhaseGenerator] Buffer size:', this.outputBuffer.length);
           console.error('[PhaseGenerator] Buffer preview:', this.outputBuffer.slice(-500));
 
+          wizardDebugLogger.log('timeout', 'Generation timed out after 5 minutes of inactivity', {
+            elapsedMs: elapsed,
+            timeSinceLastActivityMs: timeSinceLastActivity,
+            totalChunks: dataChunks,
+            bufferSize: this.outputBuffer.length,
+            bufferPreview: this.outputBuffer.slice(-1000),
+          });
+
           this.cleanup();
           if (fileWatcherCleanup) {
             fileWatcherCleanup();
@@ -583,6 +808,14 @@ class PhaseGenerator {
             this.outputBuffer += data;
             dataChunks++;
             callbacks?.onChunk?.(data);
+
+            // Log every data chunk to debug logger (with truncated preview)
+            wizardDebugLogger.log('data', `Received data chunk #${dataChunks}`, {
+              chunkSize: data.length,
+              totalBufferSize: this.outputBuffer.length,
+              elapsedMs: Date.now() - startTime,
+              preview: data.slice(0, 200),
+            });
 
             // Reset timeout on activity - any data chunk means the agent is working
             resetTimeout();
@@ -620,12 +853,24 @@ class PhaseGenerator {
               bufferSize: this.outputBuffer.length,
             });
 
+            wizardDebugLogger.log('exit', `Agent exited with code ${code}`, {
+              exitCode: code,
+              elapsedMs: elapsed,
+              totalChunks: dataChunks,
+              bufferSize: this.outputBuffer.length,
+            });
+
             if (code === 0) {
               // Try to extract result from stream-json format
               const extracted = extractResultFromStreamJson(this.outputBuffer);
               const output = extracted || this.outputBuffer;
 
               console.log('[PhaseGenerator] Extraction result:', {
+                hadExtraction: !!extracted,
+                outputLength: output.length,
+              });
+
+              wizardDebugLogger.log('info', 'Agent completed successfully', {
                 hadExtraction: !!extracted,
                 outputLength: output.length,
               });
@@ -637,6 +882,12 @@ class PhaseGenerator {
             } else {
               console.error('[PhaseGenerator] Agent failed with code:', code);
               console.error('[PhaseGenerator] Output buffer preview:', this.outputBuffer.slice(0, 500));
+
+              wizardDebugLogger.log('error', `Agent failed with exit code ${code}`, {
+                exitCode: code,
+                bufferPreview: this.outputBuffer.slice(0, 1000),
+              });
+
               resolve({
                 success: false,
                 error: `Agent exited with code ${code}`,
@@ -650,17 +901,24 @@ class PhaseGenerator {
       // Set up file system watcher for Auto Run Docs folder
       // This detects when the agent creates files and resets the timeout
       const autoRunPath = `${config.directoryPath}/${AUTO_RUN_FOLDER_NAME}`;
+      wizardDebugLogger.log('info', 'Setting up file watcher', { autoRunPath });
 
       // Start watching the folder for file changes
       window.maestro.autorun.watchFolder(autoRunPath).then((result) => {
         if (result.success) {
           console.log('[PhaseGenerator] Started watching folder:', autoRunPath);
+          wizardDebugLogger.log('info', 'File watcher started successfully', { autoRunPath });
           this.currentWatchPath = autoRunPath;
 
           // Set up file change listener
           fileWatcherCleanup = window.maestro.autorun.onFileChanged((data) => {
             if (data.folderPath === autoRunPath) {
               console.log('[PhaseGenerator] File system activity:', data.filename, data.eventType);
+              wizardDebugLogger.log('file', `File activity: ${data.eventType}`, {
+                filename: data.filename,
+                eventType: data.eventType,
+                folderPath: data.folderPath,
+              });
 
               // Reset timeout on file activity
               resetTimeout();
@@ -716,16 +974,27 @@ class PhaseGenerator {
           });
         } else {
           console.warn('[PhaseGenerator] Could not watch folder:', result.error);
+          wizardDebugLogger.log('warn', 'Could not watch folder', { error: result.error });
         }
       }).catch((err) => {
         console.warn('[PhaseGenerator] Error setting up folder watcher:', err);
+        wizardDebugLogger.log('warn', 'Error setting up folder watcher', { error: String(err) });
       });
 
       // Initialize the timeout
       resetTimeout();
+      wizardDebugLogger.log('info', 'Timeout initialized', { timeoutMs: GENERATION_TIMEOUT });
 
       // Spawn the agent using the secure IPC channel
       console.log('[PhaseGenerator] Spawning agent...');
+      wizardDebugLogger.log('spawn', 'Calling process.spawn', {
+        sessionId,
+        toolType: config.agentType,
+        cwd: config.directoryPath,
+        command: agent.command,
+        argsCount: agent.args?.length || 0,
+        promptLength: prompt.length,
+      });
       window.maestro.process
         .spawn({
           sessionId,
@@ -737,9 +1006,14 @@ class PhaseGenerator {
         })
         .then(() => {
           console.log('[PhaseGenerator] Agent spawned successfully');
+          wizardDebugLogger.log('spawn', 'Agent spawned successfully', { sessionId });
         })
         .catch((error: Error) => {
           console.error('[PhaseGenerator] Spawn failed:', error.message);
+          wizardDebugLogger.log('error', 'Spawn failed', {
+            errorMessage: error.message,
+            errorStack: error.stack,
+          });
           clearTimeout(timeoutId);
           this.cleanup();
           if (fileWatcherCleanup) {
