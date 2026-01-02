@@ -106,12 +106,9 @@ export async function execGit(
   remoteCwd?: string
 ): Promise<ExecResult> {
   if (sshRemote) {
-    // For remote execution, use remoteCwd if explicitly provided, otherwise fall back to localCwd.
-    // This allows callers to pass the intended remote path as localCwd when remoteCwd isn't specified.
-    // The fallback chain is: remoteCwd -> localCwd -> sshRemote.remoteWorkingDir (in execGitRemote)
     return execGitRemote(args, {
       sshRemote,
-      remoteCwd: remoteCwd || localCwd,
+      remoteCwd,
     });
   }
 
