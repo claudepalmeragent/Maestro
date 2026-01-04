@@ -512,6 +512,10 @@ export async function sendWizardMessage(
       const timeoutId = setTimeout(() => {
         console.log('[InlineWizard] TIMEOUT fired! Session:', session.sessionId);
         cleanupListeners();
+        // Kill the orphaned agent process to prevent resource leaks
+        window.maestro.process.kill(session.sessionId).catch((err) => {
+          console.warn('[InlineWizard] Failed to kill timed-out process:', err);
+        });
         resolve({
           success: false,
           error: 'Response timeout - agent did not complete in time',

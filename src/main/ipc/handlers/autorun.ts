@@ -372,8 +372,16 @@ export function registerAutorunHandlers(deps: {
       );
       console.log(`[DEBUG writeDoc] folder=${folderPath}, file=${filename}, content.length=${content.length}`);
 
-      // Reject obvious traversal attempts
-      if (filename.includes('..')) {
+      // Decode any URL-encoded characters to catch encoded traversal attempts
+      let decodedFilename: string;
+      try {
+        decodedFilename = decodeURIComponent(filename);
+      } catch {
+        decodedFilename = filename;
+      }
+
+      // Reject obvious traversal attempts (check both original and decoded)
+      if (filename.includes('..') || decodedFilename.includes('..')) {
         throw new Error('Invalid filename');
       }
 

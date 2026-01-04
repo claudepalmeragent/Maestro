@@ -631,6 +631,13 @@ export function useInlineWizard(): UseInlineWizardReturn {
         setCurrentTabId(tabId);
       }
 
+      // Guard against concurrent calls - prevents race conditions
+      const currentState = tabStatesRef.current.get(tabId);
+      if (currentState?.isWaiting) {
+        console.warn('[useInlineWizard] Already waiting for response, ignoring duplicate send');
+        return;
+      }
+
       // Create user message
       const userMessage: InlineWizardMessage = {
         id: generateMessageId(),
