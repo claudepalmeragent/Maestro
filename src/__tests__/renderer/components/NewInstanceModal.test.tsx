@@ -344,7 +344,7 @@ describe('NewInstanceModal', () => {
       expect(option).toHaveAttribute('aria-selected', 'true');
     });
 
-    it('should not allow selecting unavailable claude-code', async () => {
+    it('should allow selecting unavailable claude-code to configure custom path', async () => {
       vi.mocked(window.maestro.agents.detect).mockResolvedValue([
         createAgentConfig({ id: 'claude-code', name: 'Claude Code', available: false }),
       ]);
@@ -365,8 +365,8 @@ describe('NewInstanceModal', () => {
 
       const option = screen.getByRole('option', { name: /Claude Code/i });
       fireEvent.click(option);
-      // Should not be selected because it's not available
-      expect(option).toHaveAttribute('aria-selected', 'false');
+      // Should be selected so user can configure a custom path
+      expect(option).toHaveAttribute('aria-selected', 'true');
     });
 
     it('should not allow selecting non-claude-code agents', async () => {
@@ -1287,6 +1287,151 @@ describe('NewInstanceModal', () => {
         'My Session',
         undefined,
         '/custom/path/to/claude',
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { enabled: false, remoteId: null }
+      );
+    });
+
+    it('should enable Create button when custom path is specified for unavailable agent', async () => {
+      vi.mocked(window.maestro.agents.detect).mockResolvedValue([
+        createAgentConfig({ id: 'claude-code', name: 'Claude Code', available: false }),
+      ]);
+
+      render(
+        <NewInstanceModal
+          isOpen={true}
+          onClose={onClose}
+          onCreate={onCreate}
+          theme={theme}
+          existingSessions={[]}
+        />
+      );
+
+      // Wait for agents to load
+      await waitFor(() => {
+        expect(screen.getByText('Claude Code')).toBeInTheDocument();
+        expect(screen.getByText('Not Found')).toBeInTheDocument();
+      });
+
+      // Click to expand the unavailable agent
+      fireEvent.click(screen.getByText('Claude Code'));
+
+      await waitFor(() => {
+        expect(screen.getByPlaceholderText('/path/to/claude')).toBeInTheDocument();
+      });
+
+      // Fill in required fields
+      const nameInput = screen.getByLabelText('Agent Name');
+      fireEvent.change(nameInput, { target: { value: 'My Session' } });
+
+      const dirInput = screen.getByPlaceholderText('Select directory...');
+      fireEvent.change(dirInput, { target: { value: '/my/project' } });
+
+      // Button should still be disabled because agent is not available
+      const createButton = screen.getByText('Create Agent');
+      expect(createButton).toBeDisabled();
+
+      // Set custom path
+      const customPathInput = screen.getByPlaceholderText('/path/to/claude');
+      fireEvent.change(customPathInput, { target: { value: '/custom/path/to/claude' } });
+
+      // Now button should be enabled because custom path is specified
+      await waitFor(() => {
+        expect(createButton).not.toBeDisabled();
+      });
+    });
+
+    it('should select unavailable agent immediately when clicked (to configure custom path)', async () => {
+      vi.mocked(window.maestro.agents.detect).mockResolvedValue([
+        createAgentConfig({ id: 'claude-code', name: 'Claude Code', available: false }),
+      ]);
+
+      render(
+        <NewInstanceModal
+          isOpen={true}
+          onClose={onClose}
+          onCreate={onCreate}
+          theme={theme}
+          existingSessions={[]}
+        />
+      );
+
+      // Wait for agents to load
+      await waitFor(() => {
+        expect(screen.getByText('Claude Code')).toBeInTheDocument();
+      });
+
+      // Click to expand the unavailable agent
+      const option = screen.getByRole('option', { name: /Claude Code/i });
+      fireEvent.click(option);
+
+      // Agent should be selected immediately (even though unavailable)
+      // This allows user to configure a custom path
+      await waitFor(() => {
+        expect(option).toHaveAttribute('aria-selected', 'true');
+      });
+
+      // Expanded panel should be visible
+      await waitFor(() => {
+        expect(screen.getByPlaceholderText('/path/to/claude')).toBeInTheDocument();
+      });
+    });
+
+    it('should call onCreate with custom path for previously unavailable agent', async () => {
+      vi.mocked(window.maestro.agents.detect).mockResolvedValue([
+        createAgentConfig({ id: 'claude-code', name: 'Claude Code', available: false }),
+      ]);
+
+      render(
+        <NewInstanceModal
+          isOpen={true}
+          onClose={onClose}
+          onCreate={onCreate}
+          theme={theme}
+          existingSessions={[]}
+        />
+      );
+
+      // Wait for agents to load
+      await waitFor(() => {
+        expect(screen.getByText('Claude Code')).toBeInTheDocument();
+      });
+
+      // Click to expand and select (clicking selects even unavailable agents now)
+      fireEvent.click(screen.getByText('Claude Code'));
+
+      await waitFor(() => {
+        expect(screen.getByPlaceholderText('/path/to/claude')).toBeInTheDocument();
+      });
+
+      // Set custom path - this makes the Create button enabled
+      const customPathInput = screen.getByPlaceholderText('/path/to/claude');
+      fireEvent.change(customPathInput, { target: { value: '/usr/local/bin/claude' } });
+
+      // Fill in required fields
+      const nameInput = screen.getByLabelText('Agent Name');
+      fireEvent.change(nameInput, { target: { value: 'Custom Path Agent' } });
+
+      const dirInput = screen.getByPlaceholderText('Select directory...');
+      fireEvent.change(dirInput, { target: { value: '/my/project' } });
+
+      // Create agent
+      const createButton = screen.getByText('Create Agent');
+      await act(async () => {
+        fireEvent.click(createButton);
+      });
+
+      // Should pass custom path to onCreate
+      expect(onCreate).toHaveBeenCalledWith(
+        'claude-code',
+        '/my/project',
+        'Custom Path Agent',
+        undefined,
+        '/usr/local/bin/claude',
         undefined,
         undefined,
         undefined,

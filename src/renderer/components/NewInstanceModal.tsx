@@ -354,13 +354,19 @@ export function NewInstanceModal({ isOpen, onClose, onCreate, theme, existingSes
   // Check if form is valid for submission
   const isFormValid = useMemo(() => {
     const hasWarningThatNeedsAck = validation.warning && !directoryWarningAcknowledged;
+    const agent = agents.find(a => a.id === selectedAgent);
+    // Agent is considered available if:
+    // 1. It was auto-detected (agent.available), OR
+    // 2. User specified a custom path for it
+    const hasCustomPath = customAgentPaths[selectedAgent]?.trim();
+    const isAgentUsable = agent?.available || !!hasCustomPath;
     return selectedAgent &&
-           agents.find(a => a.id === selectedAgent)?.available &&
+           isAgentUsable &&
            workingDir.trim() &&
            instanceName.trim() &&
            validation.valid &&
            !hasWarningThatNeedsAck;
-  }, [selectedAgent, agents, workingDir, instanceName, validation.valid, validation.warning, directoryWarningAcknowledged]);
+  }, [selectedAgent, agents, workingDir, instanceName, validation.valid, validation.warning, directoryWarningAcknowledged, customAgentPaths]);
 
   // Handle keyboard shortcuts
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -475,7 +481,6 @@ export function NewInstanceModal({ isOpen, onClose, onCreate, theme, existingSes
                   const isSupported = SUPPORTED_AGENTS.includes(agent.id);
                   const isExpanded = expandedAgent === agent.id;
                   const isSelected = selectedAgent === agent.id;
-                  const canSelect = isSupported && agent.available;
 
                   return (
                     <div
@@ -496,21 +501,20 @@ export function NewInstanceModal({ isOpen, onClose, onCreate, theme, existingSes
                             // Toggle expansion
                             const nowExpanded = !isExpanded;
                             setExpandedAgent(nowExpanded ? agent.id : null);
-                            // Auto-select if available
-                            if (canSelect) {
-                              setSelectedAgent(agent.id);
-                              // Transfer pending SSH config to the newly selected agent if it doesn't have one
-                              setAgentSshRemoteConfigs(prev => {
-                                const pendingConfig = prev['_pending_'];
-                                if (pendingConfig && !prev[agent.id]) {
-                                  return {
-                                    ...prev,
-                                    [agent.id]: pendingConfig,
-                                  };
-                                }
-                                return prev;
-                              });
-                            }
+                            // Always select when clicking a supported agent (even if not available)
+                            // User can configure a custom path to make it usable
+                            setSelectedAgent(agent.id);
+                            // Transfer pending SSH config to the newly selected agent if it doesn't have one
+                            setAgentSshRemoteConfigs(prev => {
+                              const pendingConfig = prev['_pending_'];
+                              if (pendingConfig && !prev[agent.id]) {
+                                return {
+                                  ...prev,
+                                  [agent.id]: pendingConfig,
+                                };
+                              }
+                              return prev;
+                            });
                             // Load models when expanding an agent that supports model selection
                             if (nowExpanded && agent.capabilities?.supportsModelSelection) {
                               loadModelsForAgent(agent.id);
