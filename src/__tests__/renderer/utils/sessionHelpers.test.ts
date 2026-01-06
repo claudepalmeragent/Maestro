@@ -14,6 +14,9 @@ import {
   createSessionForAgent,
   agentSupportsContextTransfer,
   getAgentInfo,
+  getSessionSshRemoteId,
+  isSessionRemote,
+  type SessionSshInfo,
 } from '../../../renderer/utils/sessionHelpers';
 import type { AgentConfig, AgentCapabilities } from '../../../renderer/types';
 
@@ -501,6 +504,184 @@ describe('sessionHelpers', () => {
       expect(result).not.toBeNull();
       expect(result!.session.toolType).toBe('codex');
       expect(result!.spawnConfig.command).toBe('/usr/local/bin/codex');
+    });
+  });
+
+  describe('getSessionSshRemoteId', () => {
+    it('returns undefined for null session', () => {
+      expect(getSessionSshRemoteId(null)).toBeUndefined();
+    });
+
+    it('returns undefined for undefined session', () => {
+      expect(getSessionSshRemoteId(undefined)).toBeUndefined();
+    });
+
+    it('returns undefined for local session (no SSH config)', () => {
+      const session: SessionSshInfo = {};
+      expect(getSessionSshRemoteId(session)).toBeUndefined();
+    });
+
+    it('returns sshRemoteId when set (AI agent has spawned)', () => {
+      const session: SessionSshInfo = {
+        sshRemoteId: 'my-remote-server',
+      };
+      expect(getSessionSshRemoteId(session)).toBe('my-remote-server');
+    });
+
+    it('returns sessionSshRemoteConfig.remoteId when sshRemoteId is not set (terminal-only SSH)', () => {
+      // This is the critical case that was previously broken!
+      // sshRemoteId is only set AFTER the AI agent spawns.
+      // For terminal-only SSH sessions, we must fall back to sessionSshRemoteConfig.remoteId
+      const session: SessionSshInfo = {
+        sshRemoteId: undefined, // Not set because AI agent hasn't spawned
+        sessionSshRemoteConfig: {
+          enabled: true,
+          remoteId: 'my-ssh-config-id',
+        },
+      };
+      expect(getSessionSshRemoteId(session)).toBe('my-ssh-config-id');
+    });
+
+    it('prefers sshRemoteId over sessionSshRemoteConfig.remoteId when both are set', () => {
+      // Once AI agent spawns, sshRemoteId should take precedence
+      const session: SessionSshInfo = {
+        sshRemoteId: 'spawned-remote-id',
+        sessionSshRemoteConfig: {
+          enabled: true,
+          remoteId: 'config-remote-id',
+        },
+      };
+      expect(getSessionSshRemoteId(session)).toBe('spawned-remote-id');
+    });
+
+    it('returns undefined when sessionSshRemoteConfig.remoteId is null', () => {
+      const session: SessionSshInfo = {
+        sessionSshRemoteConfig: {
+          enabled: false,
+          remoteId: null,
+        },
+      };
+      expect(getSessionSshRemoteId(session)).toBeUndefined();
+    });
+
+    it('handles empty string sshRemoteId by falling back to config', () => {
+      // Empty string is falsy, should fall back
+      const session: SessionSshInfo = {
+        sshRemoteId: '',
+        sessionSshRemoteConfig: {
+          enabled: true,
+          remoteId: 'fallback-id',
+        },
+      };
+      expect(getSessionSshRemoteId(session)).toBe('fallback-id');
+    });
+  });
+
+  describe('isSessionRemote', () => {
+    it('returns false for null session', () => {
+      expect(isSessionRemote(null)).toBe(false);
+    });
+
+    it('returns false for undefined session', () => {
+      expect(isSessionRemote(undefined)).toBe(false);
+    });
+
+    it('returns false for local session (no SSH config)', () => {
+      const session: SessionSshInfo = {};
+      expect(isSessionRemote(session)).toBe(false);
+    });
+
+    it('returns true when sshRemoteId is set', () => {
+      const session: SessionSshInfo = {
+        sshRemoteId: 'my-remote',
+      };
+      expect(isSessionRemote(session)).toBe(true);
+    });
+
+    it('returns true when sessionSshRemoteConfig.enabled is true (terminal-only SSH)', () => {
+      // This is the critical case - sessionSshRemoteConfig.enabled indicates
+      // user intent even before AI agent spawns
+      const session: SessionSshInfo = {
+        sshRemoteId: undefined,
+        sessionSshRemoteConfig: {
+          enabled: true,
+          remoteId: 'my-remote',
+        },
+      };
+      expect(isSessionRemote(session)).toBe(true);
+    });
+
+    it('returns false when sessionSshRemoteConfig.enabled is false', () => {
+      const session: SessionSshInfo = {
+        sessionSshRemoteConfig: {
+          enabled: false,
+          remoteId: null,
+        },
+      };
+      expect(isSessionRemote(session)).toBe(false);
+    });
+
+    it('returns true when both sshRemoteId and sessionSshRemoteConfig are set', () => {
+      const session: SessionSshInfo = {
+        sshRemoteId: 'active-remote',
+        sessionSshRemoteConfig: {
+          enabled: true,
+          remoteId: 'config-remote',
+        },
+      };
+      expect(isSessionRemote(session)).toBe(true);
+    });
+  });
+
+  describe('SSH Remote ID fallback regression prevention', () => {
+    /**
+     * This test documents the exact bug pattern that must be avoided.
+     *
+     * WRONG pattern (causes SSH graph/file operations to fail):
+     *   const sshId = session.sshRemoteId;
+     *
+     * CORRECT pattern:
+     *   const sshId = getSessionSshRemoteId(session);
+     *
+     * The bug occurs because sshRemoteId is only populated AFTER the AI agent
+     * spawns via the onSshRemote callback. For terminal-only SSH sessions or
+     * before AI spawn, sshRemoteId is undefined even though the session is remote.
+     */
+    it('demonstrates why direct sshRemoteId access fails for pre-spawn SSH sessions', () => {
+      // Simulate a session that has SSH configured but AI hasn't spawned yet
+      const preSpawnSession: SessionSshInfo = {
+        sshRemoteId: undefined, // NOT YET SET - AI hasn't spawned
+        sessionSshRemoteConfig: {
+          enabled: true,
+          remoteId: 'rssidian-server', // User configured this in SSH settings
+        },
+      };
+
+      // WRONG: Direct access returns undefined, causing local file operations to be attempted
+      const wrongSshId = preSpawnSession.sshRemoteId;
+      expect(wrongSshId).toBeUndefined(); // This would cause SSH operations to fail!
+
+      // CORRECT: Use the helper function which handles the fallback
+      const correctSshId = getSessionSshRemoteId(preSpawnSession);
+      expect(correctSshId).toBe('rssidian-server'); // This works correctly!
+    });
+
+    it('demonstrates the bug with isRemote check', () => {
+      const preSpawnSession: SessionSshInfo = {
+        sshRemoteId: undefined,
+        sessionSshRemoteConfig: {
+          enabled: true,
+          remoteId: 'remote-host',
+        },
+      };
+
+      // WRONG: Direct check returns false
+      const wrongIsRemote = !!preSpawnSession.sshRemoteId;
+      expect(wrongIsRemote).toBe(false); // Wrong! This IS a remote session
+
+      // CORRECT: Use the helper function
+      const correctIsRemote = isSessionRemote(preSpawnSession);
+      expect(correctIsRemote).toBe(true); // Correct!
     });
   });
 });

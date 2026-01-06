@@ -9703,7 +9703,10 @@ You are taking over this conversation. Based on the context above, provide a bri
             // Open the document in file preview
             const treeRoot = activeSession?.projectRoot || activeSession?.cwd || '';
             const fullPath = `${treeRoot}/${filePath}`;
-            window.maestro.fs.readFile(fullPath, activeSession?.sshRemoteId).then((content) => {
+            // Note: sshRemoteId is only set after AI agent spawns. For terminal-only SSH sessions,
+            // use sessionSshRemoteConfig.remoteId as fallback (see CLAUDE.md SSH Remote Sessions)
+            const sshId = activeSession?.sshRemoteId || activeSession?.sessionSshRemoteConfig?.remoteId || undefined;
+            window.maestro.fs.readFile(fullPath, sshId).then((content) => {
               if (content !== null) {
                 setPreviewFile({ name: filePath.split('/').pop() || filePath, content, path: fullPath });
               }
@@ -9720,7 +9723,9 @@ You are taking over this conversation. Based on the context above, provide a bri
           defaultMaxNodes={documentGraphMaxNodes}
           defaultPreviewCharLimit={documentGraphPreviewCharLimit}
           onPreviewCharLimitChange={settings.setDocumentGraphPreviewCharLimit}
-          sshRemoteId={activeSession?.sshRemoteId}
+          // Note: sshRemoteId is only set after AI agent spawns. For terminal-only SSH sessions,
+          // use sessionSshRemoteConfig.remoteId as fallback (see CLAUDE.md SSH Remote Sessions)
+          sshRemoteId={activeSession?.sshRemoteId || activeSession?.sessionSshRemoteConfig?.remoteId || undefined}
         />
       )}
 

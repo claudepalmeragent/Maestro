@@ -35,7 +35,7 @@ import { useLayerStack } from '../../contexts/LayerStackContext';
 import { MODAL_PRIORITIES } from '../../constants/modalPriorities';
 import { Modal, ModalFooter } from '../ui/Modal';
 import { useDebouncedCallback } from '../../hooks/utils';
-import { buildGraphData, ProgressData, GraphNodeData, CachedExternalData, invalidateCacheForFiles, BacklinkUpdateData, GraphData, expandNode } from './graphDataBuilder';
+import { buildGraphData, ProgressData, GraphNodeData, CachedExternalData, invalidateCacheForFiles, BacklinkUpdateData, GraphData } from './graphDataBuilder';
 import { MindMap, MindMapNode, MindMapLink, convertToMindMapData, NodePositionOverride } from './MindMap';
 import { NodeContextMenu } from './NodeContextMenu';
 import { GraphLegend } from './GraphLegend';
@@ -225,10 +225,6 @@ export function DocumentGraphView({
   const abortBacklinkScanRef = useRef<(() => void) | null>(null);
   const currentGraphDataRef = useRef<GraphData | null>(null);
 
-  // Track loaded file paths for incremental node expansion
-  const [loadedPaths, setLoadedPaths] = useState<Set<string>>(new Set());
-  // Track if a node expansion is in progress
-  const [expandingNode, setExpandingNode] = useState<string | null>(null);
 
   /**
    * Handle escape - show confirmation modal
@@ -363,17 +359,6 @@ export function DocumentGraphView({
       setAllLinksWithExternal(prev => [...prev, ...newMindMapLinks]);
       setLoadedDocuments(prev => prev + updateData.newNodes.length);
 
-      // Track newly loaded paths
-      setLoadedPaths(prev => {
-        const next = new Set(prev);
-        for (const node of newMindMapNodes) {
-          if (node.filePath) {
-            next.add(node.filePath);
-          }
-        }
-        return next;
-      });
-
       console.log('[DocumentGraph] Added backlinks:', {
         newNodes: updateData.newNodes.length,
         newEdges: updateData.newEdges.length,
@@ -484,15 +469,6 @@ export function DocumentGraphView({
 
       setNodes(mindMapNodes);
       setLinks(mindMapLinks);
-
-      // Track loaded paths for incremental expansion
-      const newLoadedPaths = new Set<string>();
-      for (const node of docMindMapNodes) {
-        if (node.filePath) {
-          newLoadedPaths.add(node.filePath);
-        }
-      }
-      setLoadedPaths(newLoadedPaths);
 
       // Set active focus file from the required focusFilePath prop
       setActiveFocusFile(focusFilePath);
@@ -659,85 +635,19 @@ export function DocumentGraphView({
   }, [selectedNode, rootPath, sshRemoteId]);
 
   /**
-   * Handle node double-click - expand to show outgoing links (fan out)
-   * If the node has already been fully expanded, this is a no-op (the links are already visible)
+   * Handle node double-click - re-layout the graph with this node as the new center.
+   * The existing nodes are preserved, but the layout fans out from the new center.
    */
-  const handleNodeDoubleClick = useCallback(async (node: MindMapNode) => {
+  const handleNodeDoubleClick = useCallback((node: MindMapNode) => {
     if (node.nodeType !== 'document' || !node.filePath) {
       return;
     }
 
-    // Don't allow concurrent expansions
-    if (expandingNode) {
-      return;
-    }
+    // Set this node as the new center - triggers re-layout in MindMap
+    setActiveFocusFile(node.filePath);
 
-    const filePath = node.filePath;
-
-    // Check if this node is in our loaded paths (it should be)
-    if (!loadedPaths.has(filePath)) {
-      console.warn('[DocumentGraph] Double-clicked node not in loaded paths:', filePath);
-      return;
-    }
-
-    setExpandingNode(filePath);
-
-    try {
-      // Expand the node to get its outgoing links
-      const result = await expandNode({
-        rootPath,
-        filePath,
-        loadedPaths,
-        maxDepth: neighborDepth > 0 ? neighborDepth : 2, // Use current depth setting
-        sshRemoteId,
-      });
-
-      if (result.hasNewContent) {
-        // Convert new nodes/edges to MindMap format
-        const { nodes: newMindMapNodes, links: newMindMapLinks } = convertToMindMapData(
-          result.newNodes.map(n => ({ id: n.id, data: n.data })),
-          result.newEdges.map(e => ({ source: e.source, target: e.target, type: e.type })),
-          previewCharLimit
-        );
-
-        // Convert external nodes/edges if we're showing external links
-        let newExternalMindMapNodes: MindMapNode[] = [];
-        let newExternalMindMapLinks: MindMapLink[] = [];
-        if (includeExternalLinks && (result.newExternalNodes.length > 0 || result.newExternalEdges.length > 0)) {
-          const externalConverted = convertToMindMapData(
-            result.newExternalNodes.map(n => ({ id: n.id, data: n.data })),
-            result.newExternalEdges.map(e => ({ source: e.source, target: e.target, type: e.type })),
-            previewCharLimit
-          );
-          newExternalMindMapNodes = externalConverted.nodes;
-          newExternalMindMapLinks = externalConverted.links;
-        }
-
-        // Update all states with new content
-        setNodes(prev => [...prev, ...newMindMapNodes, ...newExternalMindMapNodes]);
-        setLinks(prev => [...prev, ...newMindMapLinks, ...newExternalMindMapLinks]);
-        setDocumentOnlyNodes(prev => [...prev, ...newMindMapNodes]);
-        setDocumentOnlyLinks(prev => [...prev, ...newMindMapLinks]);
-        setAllNodesWithExternal(prev => [...prev, ...newMindMapNodes, ...newExternalMindMapNodes]);
-        setAllLinksWithExternal(prev => [...prev, ...newMindMapLinks, ...newExternalMindMapLinks]);
-        setLoadedDocuments(prev => prev + result.newNodes.length);
-        setLoadedPaths(result.updatedLoadedPaths);
-
-        console.log('[DocumentGraph] Node expanded:', {
-          filePath,
-          newNodes: result.newNodes.length,
-          newEdges: result.newEdges.length,
-          newExternalNodes: result.newExternalNodes.length,
-        });
-      } else {
-        console.log('[DocumentGraph] No new content from expansion (node fully expanded):', filePath);
-      }
-    } catch (err) {
-      console.error('[DocumentGraph] Failed to expand node:', err);
-    } finally {
-      setExpandingNode(null);
-    }
-  }, [expandingNode, loadedPaths, rootPath, neighborDepth, sshRemoteId, previewCharLimit, includeExternalLinks]);
+    console.log('[DocumentGraph] Re-centering graph on:', node.filePath);
+  }, []);
 
   /**
    * Handle node context menu
@@ -1528,20 +1438,6 @@ export function DocumentGraphView({
                 </span>
               </span>
             )}
-            {/* Node expansion indicator */}
-            {expandingNode && (
-              <span
-                className="flex items-center gap-1.5 px-2 py-1 rounded text-xs"
-                style={{
-                  backgroundColor: `${theme.colors.success}15`,
-                  color: theme.colors.success,
-                }}
-                title="Expanding node to show outgoing links"
-              >
-                <Loader2 className="w-3 h-3 animate-spin" />
-                <span>Expanding...</span>
-              </span>
-            )}
           </div>
 
           {/* Center: Selected node stats */}
@@ -1577,7 +1473,7 @@ export function DocumentGraphView({
           )}
 
           <span style={{ opacity: 0.7 }}>
-            Click to select • Double-click to expand • O to open • Arrow keys to navigate • Esc to close
+            Click to select • Double-click or Enter to focus • O to open • Arrow keys to navigate • Esc to close
           </span>
         </div>
       </div>

@@ -222,6 +222,7 @@ describe('agents IPC handlers', () => {
           modelArgs: (modelId: string) => ['--model', modelId],
           workingDirArgs: (dir: string) => ['-C', dir],
           imageArgs: (path: string) => ['-i', path],
+          promptArgs: (prompt: string) => ['-p', prompt],
           configOptions: [
             {
               key: 'test',
@@ -245,6 +246,7 @@ describe('agents IPC handlers', () => {
       expect(result[0].modelArgs).toBeUndefined();
       expect(result[0].workingDirArgs).toBeUndefined();
       expect(result[0].imageArgs).toBeUndefined();
+      expect(result[0].promptArgs).toBeUndefined();
       // configOptions should still exist but without argBuilder
       expect(result[0].configOptions[0].argBuilder).toBeUndefined();
       expect(result[0].configOptions[0].key).toBe('test');

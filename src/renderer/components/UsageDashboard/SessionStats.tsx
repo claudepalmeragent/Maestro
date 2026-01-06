@@ -131,9 +131,11 @@ export function SessionStats({ sessions, theme, colorBlindMode = false }: Sessio
         plainFolders++;
       }
 
-      // Remote vs local (check if cwd starts with ssh:// or has sshRemoteId-like pattern)
-      // Sessions with SSH remotes typically have a different path structure or SSH indicator
-      const isRemote = session.cwd?.includes('://') || (session as any).sshRemoteId;
+      // Remote vs local - check both sshRemoteId (set after AI spawn) and sessionSshRemoteConfig.enabled
+      // (set before spawn). See CLAUDE.md "SSH Remote Sessions" for why both are needed.
+      const isRemote = session.cwd?.includes('://') ||
+        !!(session as any).sshRemoteId ||
+        !!(session as any).sessionSshRemoteConfig?.enabled;
       if (isRemote) {
         remoteSessions++;
       } else {

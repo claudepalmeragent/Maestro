@@ -1243,7 +1243,7 @@ export function MindMap({
       const lastClick = lastClickRef.current;
 
       if (lastClick && lastClick.nodeId === node.id && now - lastClick.time < DOUBLE_CLICK_THRESHOLD) {
-        // Double-click
+        // Double-click - trigger re-layout with this node as center
         onNodeDoubleClick(node);
         lastClickRef.current = null;
       } else {
@@ -1453,7 +1453,7 @@ export function MindMap({
         break;
 
       case 'Enter':
-        // Recenter on focused document node
+        // Re-layout with focused document node as center
         if (focusedNode.nodeType === 'document') {
           onNodeDoubleClick(focusedNode);
         } else if (focusedNode.nodeType === 'external' && focusedNode.urls?.[0]) {

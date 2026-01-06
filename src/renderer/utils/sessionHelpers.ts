@@ -286,3 +286,68 @@ export async function getAgentInfo(agentType: ToolType): Promise<{
     capabilities: agentConfig.capabilities,
   };
 }
+
+/**
+ * Minimal session shape for SSH remote ID extraction.
+ * Used to avoid importing full Session type in places where only SSH info is needed.
+ */
+export interface SessionSshInfo {
+  /** SSH remote ID set after AI agent spawns */
+  sshRemoteId?: string;
+  /** SSH remote config set before spawn (user configuration) */
+  sessionSshRemoteConfig?: {
+    enabled: boolean;
+    remoteId: string | null;
+    workingDirOverride?: string;
+  };
+}
+
+/**
+ * Get the effective SSH remote ID from a session.
+ *
+ * IMPORTANT: This function handles a common pitfall in the codebase.
+ * `sshRemoteId` is only populated AFTER the AI agent spawns (via onSshRemote callback).
+ * For terminal-only SSH sessions (no AI agent), it remains undefined.
+ *
+ * Always use this function instead of accessing `session.sshRemoteId` directly
+ * to ensure SSH operations work correctly for all session types.
+ *
+ * @param session - Session object or partial with SSH fields
+ * @returns The effective SSH remote ID, or undefined for local sessions
+ *
+ * @example
+ * // WRONG - fails for terminal-only SSH sessions
+ * const sshId = session.sshRemoteId;
+ *
+ * // CORRECT - works for all SSH sessions
+ * const sshId = getSessionSshRemoteId(session);
+ *
+ * // Use for SSH operations
+ * await window.maestro.fs.readFile(path, getSessionSshRemoteId(session));
+ * await gitService.isRepo(path, getSessionSshRemoteId(session));
+ */
+export function getSessionSshRemoteId(session: SessionSshInfo | null | undefined): string | undefined {
+  if (!session) return undefined;
+  return session.sshRemoteId || session.sessionSshRemoteConfig?.remoteId || undefined;
+}
+
+/**
+ * Check if a session is connected to an SSH remote.
+ *
+ * This handles the same pitfall as getSessionSshRemoteId - `sshRemoteId` is only
+ * set after AI agent spawns, so we also check `sessionSshRemoteConfig.enabled`.
+ *
+ * @param session - Session object or partial with SSH fields
+ * @returns True if the session is an SSH remote session
+ *
+ * @example
+ * // WRONG - fails for terminal-only SSH sessions
+ * const isRemote = !!session.sshRemoteId;
+ *
+ * // CORRECT - works for all SSH sessions
+ * const isRemote = isSessionRemote(session);
+ */
+export function isSessionRemote(session: SessionSshInfo | null | undefined): boolean {
+  if (!session) return false;
+  return !!session.sshRemoteId || !!session.sessionSshRemoteConfig?.enabled;
+}
