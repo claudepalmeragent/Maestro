@@ -72,6 +72,18 @@ Toggle states are saved per-tab. See [Input Toggles](./general-usage#input-toggl
 | Tab Switcher | `Opt+Cmd+T` | `Alt+Ctrl+T` |
 | Rename Tab | `Cmd+Shift+R` | `Ctrl+Shift+R` |
 
+### Tab Switcher
+
+The Tab Switcher provides fuzzy search across all open tabs with quick navigation:
+
+![Tab Switcher](./screenshots/tab-search.png)
+
+- **Search** — Type to filter tabs by name or session ID
+- **Quick select** — Press `1-9` to jump directly to a numbered tab
+- **Navigate** — Use `Up/Down Arrow` to move through results
+- **Select** — Press `Enter` to switch to the highlighted tab
+- **Context info** — Each tab shows token count, cost, and context usage
+
 The bulk close operations (Close All, Close Others, Close Left, Close Right) are also available via the [Tab Menu](./context-management#tab-close-operations) hover overlay and Quick Actions (`Cmd+K`).
 
 ## Input & Output
@@ -166,6 +178,8 @@ Most shortcuts can be remapped to fit your workflow:
 4. Press your desired key combination
 5. The new binding is saved immediately
 
+![Shortcuts Settings](./screenshots/shortcuts-settings.png)
+
 **Tips:**
 - Press `Esc` while recording to cancel without changing the shortcut
 - Modifier keys alone (Cmd, Ctrl, Alt, Shift) won't register — you need a final key
@@ -191,6 +205,10 @@ Maestro tracks your keyboard shortcut usage and rewards you for becoming a power
 - Hover over the keyboard icon to see which shortcuts you've used and which remain to be discovered
 - Open the **Shortcuts Help** modal (`Cmd+/` / `Ctrl+/`) to see your mastery percentage and get hints
 - When you reach a new level, you'll see a celebration with confetti
+
+![Keyboard Shortcuts Modal](./screenshots/shortcuts-modal.png)
+
+The modal shows all available shortcuts with checkmarks indicating which you've mastered. Use the search bar to find specific shortcuts quickly.
 
 **Why keyboard shortcuts matter:** Using shortcuts keeps you in flow state, reduces context switching, and dramatically speeds up your workflow. Maestro is designed for keyboard-first operation — the less you reach for the mouse, the faster you'll work.
 

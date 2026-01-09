@@ -258,6 +258,13 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
       }
       else if (ctx.isShortcut(e, 'goToAutoRun')) { e.preventDefault(); ctx.setRightPanelOpen(true); ctx.handleSetActiveRightTab('autorun'); ctx.setActiveFocus('right'); trackShortcut('goToAutoRun'); }
       else if (ctx.isShortcut(e, 'fuzzyFileSearch')) { e.preventDefault(); if (ctx.activeSession) { ctx.setFuzzyFileSearchOpen(true); trackShortcut('fuzzyFileSearch'); } }
+      else if (ctx.isShortcut(e, 'toggleBookmark')) {
+        e.preventDefault();
+        if (ctx.activeSession) {
+          ctx.toggleBookmark(ctx.activeSession.id);
+          trackShortcut('toggleBookmark');
+        }
+      }
       else if (ctx.isShortcut(e, 'openImageCarousel')) {
         e.preventDefault();
         // Use group chat staged images when group chat is active

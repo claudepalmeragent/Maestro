@@ -74,3 +74,20 @@ Separate from Conductor ranks, Maestro tracks your **keyboard mastery** based on
 | 4 | Master | 80-100% |
 
 Your current keyboard mastery level is shown in the status bar. Hover over the keyboard icon to see which shortcuts you've used and which remain to be discovered. See [Keyboard Shortcuts](./keyboard-shortcuts) for the full shortcut reference.
+
+## Leaderboard
+
+Compare your progress with the global Maestro community on the **Leaderboard**. Access it via:
+- **Quick Actions**: `Cmd+K` → search "Leaderboard"
+- **Hamburger Menu**: Click → "Leaderboard"
+
+![Leaderboard](./screenshots/leaderboard.png)
+
+The leaderboard tracks two competitive categories:
+
+| Category | Description |
+|----------|-------------|
+| **Cumulative Auto Run Time** | Total time spent in Auto Run across all sessions |
+| **Longest Single Auto Run** | Personal record for longest continuous Auto Run |
+
+Each entry shows the user's conductor badge level, social links, and ranking. Your stats sync across devices when you're signed in, so your achievements follow you wherever you use Maestro.
