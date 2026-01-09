@@ -1751,9 +1751,49 @@ function setupIpcHandlers() {
   const activeTtsProcesses = new Map<number, { process: ReturnType<typeof import('child_process').spawn>; command: string }>();
   let ttsProcessIdCounter = 0;
 
-  // Audio feedback using system TTS command - pipes text via stdin
-  ipcMain.handle('notification:speak', async (_event, text: string, command?: string) => {
-    console.log('[TTS Main] notification:speak called, text length:', text?.length, 'command:', command);
+  // TTS queue to prevent audio overlap - enforces minimum delay between TTS calls
+  const TTS_MIN_DELAY_MS = 15000; // 15 seconds between TTS calls
+  let lastTtsEndTime = 0;
+  const ttsQueue: Array<{
+    text: string;
+    command?: string;
+    resolve: (result: { success: boolean; ttsId?: number; error?: string }) => void;
+  }> = [];
+  let isTtsProcessing = false;
+
+  // Process the next item in the TTS queue
+  const processNextTts = async () => {
+    if (isTtsProcessing || ttsQueue.length === 0) return;
+
+    isTtsProcessing = true;
+    const item = ttsQueue.shift()!;
+
+    // Calculate delay needed to maintain minimum gap
+    const now = Date.now();
+    const timeSinceLastTts = now - lastTtsEndTime;
+    const delayNeeded = Math.max(0, TTS_MIN_DELAY_MS - timeSinceLastTts);
+
+    if (delayNeeded > 0) {
+      logger.debug(`TTS queue waiting ${delayNeeded}ms before next speech`, 'TTS');
+      await new Promise(resolve => setTimeout(resolve, delayNeeded));
+    }
+
+    // Execute the TTS
+    const result = await executeTts(item.text, item.command);
+    item.resolve(result);
+
+    // Record when this TTS ended
+    lastTtsEndTime = Date.now();
+    isTtsProcessing = false;
+
+    // Process next item in queue
+    processNextTts();
+  };
+
+  // Execute TTS - the actual implementation
+  // Returns a Promise that resolves when the TTS process completes (not just when it starts)
+  const executeTts = async (text: string, command?: string): Promise<{ success: boolean; ttsId?: number; error?: string }> => {
+    console.log('[TTS Main] executeTts called, text length:', text?.length, 'command:', command);
 
     // Log the incoming request with full details for debugging
     logger.info('TTS speak request received', 'TTS', {
@@ -1766,8 +1806,6 @@ function setupIpcHandlers() {
       const { spawn } = await import('child_process');
       const fullCommand = command || 'say'; // Default to macOS 'say' command
       console.log('[TTS Main] Using fullCommand:', fullCommand);
-
-      console.log('[TTS Main] Spawning with shell:', fullCommand);
 
       // Log the full command being executed
       logger.info('TTS executing command', 'TTS', {
@@ -1785,80 +1823,94 @@ function setupIpcHandlers() {
       const ttsId = ++ttsProcessIdCounter;
       activeTtsProcesses.set(ttsId, { process: child, command: fullCommand });
 
-      // Write the text to stdin and close it
-      if (child.stdin) {
-        // Handle stdin errors (EPIPE if process terminates before write completes)
-        child.stdin.on('error', (err) => {
-          const errorCode = (err as NodeJS.ErrnoException).code;
-          if (errorCode === 'EPIPE') {
-            logger.debug('TTS stdin EPIPE - process closed before write completed', 'TTS');
-          } else {
-            logger.error('TTS stdin error', 'TTS', { error: String(err), code: errorCode });
-          }
-        });
-        console.log('[TTS Main] Writing to stdin:', text);
-        child.stdin.write(text, 'utf8', (err) => {
-          if (err) {
-            console.error('[TTS Main] stdin write error:', err);
-          } else {
-            console.log('[TTS Main] stdin write completed, ending stream');
-          }
-          child.stdin!.end();
-        });
-      } else {
-        console.error('[TTS Main] No stdin available on child process');
-      }
+      // Return a Promise that resolves when the TTS process completes
+      return new Promise((resolve) => {
+        let resolved = false;
+        let stderrOutput = '';
 
-      child.on('error', (err) => {
-        console.error('[TTS Main] Spawn error:', err);
-        logger.error('TTS spawn error', 'TTS', {
-          error: String(err),
-          command: fullCommand,
-          textPreview: text ? (text.length > 100 ? text.substring(0, 100) + '...' : text) : '(no text)',
-        });
-        activeTtsProcesses.delete(ttsId);
-      });
+        // Write the text to stdin and close it
+        if (child.stdin) {
+          // Handle stdin errors (EPIPE if process terminates before write completes)
+          child.stdin.on('error', (err) => {
+            const errorCode = (err as NodeJS.ErrnoException).code;
+            if (errorCode === 'EPIPE') {
+              logger.debug('TTS stdin EPIPE - process closed before write completed', 'TTS');
+            } else {
+              logger.error('TTS stdin error', 'TTS', { error: String(err), code: errorCode });
+            }
+          });
+          console.log('[TTS Main] Writing to stdin:', text);
+          child.stdin.write(text, 'utf8', (err) => {
+            if (err) {
+              console.error('[TTS Main] stdin write error:', err);
+            } else {
+              console.log('[TTS Main] stdin write completed, ending stream');
+            }
+            child.stdin!.end();
+          });
+        } else {
+          console.error('[TTS Main] No stdin available on child process');
+        }
 
-      // Capture stderr for debugging
-      let stderrOutput = '';
-      if (child.stderr) {
-        child.stderr.on('data', (data) => {
-          stderrOutput += data.toString();
-        });
-      }
-
-      child.on('close', (code, signal) => {
-        console.log('[TTS Main] Process exited with code:', code, 'signal:', signal);
-        // Always log close event for debugging production issues
-        logger.info('TTS process closed', 'TTS', {
-          ttsId,
-          exitCode: code,
-          signal,
-          stderr: stderrOutput || '(none)',
-          command: fullCommand,
-        });
-        if (code !== 0 && stderrOutput) {
-          console.error('[TTS Main] stderr:', stderrOutput);
-          logger.error('TTS process error output', 'TTS', {
-            exitCode: code,
-            stderr: stderrOutput,
+        child.on('error', (err) => {
+          console.error('[TTS Main] Spawn error:', err);
+          logger.error('TTS spawn error', 'TTS', {
+            error: String(err),
             command: fullCommand,
+            textPreview: text ? (text.length > 100 ? text.substring(0, 100) + '...' : text) : '(no text)',
+          });
+          activeTtsProcesses.delete(ttsId);
+          if (!resolved) {
+            resolved = true;
+            resolve({ success: false, ttsId, error: String(err) });
+          }
+        });
+
+        // Capture stderr for debugging
+        if (child.stderr) {
+          child.stderr.on('data', (data) => {
+            stderrOutput += data.toString();
           });
         }
-        activeTtsProcesses.delete(ttsId);
-        // Notify renderer that TTS has completed
-        BrowserWindow.getAllWindows().forEach((win) => {
-          win.webContents.send('tts:completed', ttsId);
+
+        child.on('close', (code, signal) => {
+          console.log('[TTS Main] Process exited with code:', code, 'signal:', signal);
+          // Always log close event for debugging production issues
+          logger.info('TTS process closed', 'TTS', {
+            ttsId,
+            exitCode: code,
+            signal,
+            stderr: stderrOutput || '(none)',
+            command: fullCommand,
+          });
+          if (code !== 0 && stderrOutput) {
+            console.error('[TTS Main] stderr:', stderrOutput);
+            logger.error('TTS process error output', 'TTS', {
+              exitCode: code,
+              stderr: stderrOutput,
+              command: fullCommand,
+            });
+          }
+          activeTtsProcesses.delete(ttsId);
+          // Notify renderer that TTS has completed
+          BrowserWindow.getAllWindows().forEach((win) => {
+            win.webContents.send('tts:completed', ttsId);
+          });
+
+          // Resolve the promise now that TTS has completed
+          if (!resolved) {
+            resolved = true;
+            resolve({ success: code === 0, ttsId });
+          }
+        });
+
+        console.log('[TTS Main] Process spawned successfully with ID:', ttsId);
+        logger.info('TTS process spawned successfully', 'TTS', {
+          ttsId,
+          command: fullCommand,
+          textLength: text?.length || 0,
         });
       });
-
-      console.log('[TTS Main] Process spawned successfully with ID:', ttsId);
-      logger.info('TTS process spawned successfully', 'TTS', {
-        ttsId,
-        command: fullCommand,
-        textLength: text?.length || 0,
-      });
-      return { success: true, ttsId };
     } catch (error) {
       console.error('[TTS Main] Error starting audio feedback:', error);
       logger.error('TTS error starting audio feedback', 'TTS', {
@@ -1868,6 +1920,16 @@ function setupIpcHandlers() {
       });
       return { success: false, error: String(error) };
     }
+  };
+
+  // Audio feedback using system TTS command - queued to prevent overlap
+  ipcMain.handle('notification:speak', async (_event, text: string, command?: string) => {
+    // Add to queue and return a promise that resolves when this TTS completes
+    return new Promise<{ success: boolean; ttsId?: number; error?: string }>((resolve) => {
+      ttsQueue.push({ text, command, resolve });
+      logger.debug(`TTS queued, queue length: ${ttsQueue.length}`, 'TTS');
+      processNextTts();
+    });
   });
 
   // Stop a running TTS process
