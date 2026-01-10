@@ -1012,11 +1012,17 @@ class PhaseGenerator {
         }
       }
 
+      // Use the agent's resolved path if available, falling back to command name
+      // This is critical for packaged Electron apps where PATH may not include agent locations
+      const commandToUse = agent.path || agent.command;
+
       wizardDebugLogger.log('spawn', 'Calling process.spawn', {
         sessionId,
         toolType: config.agentType,
         cwd: config.directoryPath,
-        command: agent.command,
+        command: commandToUse,
+        agentPath: agent.path,
+        agentCommand: agent.command,
         argsCount: argsForSpawn.length,
         promptLength: prompt.length,
       });
@@ -1025,7 +1031,7 @@ class PhaseGenerator {
           sessionId,
           toolType: config.agentType,
           cwd: config.directoryPath,
-          command: agent.command,
+          command: commandToUse,
           args: argsForSpawn,
           prompt,
         })

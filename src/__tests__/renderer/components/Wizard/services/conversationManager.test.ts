@@ -36,6 +36,78 @@ describe('conversationManager (Onboarding Wizard)', () => {
   });
 
   describe('sendMessage', () => {
+    it('should use agent.path when available instead of agent.command for spawn', async () => {
+      // This test verifies the fix for issue #171
+      // The wizard was using agent.command ("claude") instead of agent.path ("/opt/homebrew/bin/claude")
+      // which caused ENOENT errors in packaged Electron apps where PATH may not include agent locations
+      const mockAgent = {
+        id: 'claude-code',
+        available: true,
+        command: 'claude',  // Generic command name
+        path: '/opt/homebrew/bin/claude',  // Fully resolved path from agent detection
+        args: ['--print', '--verbose', '--dangerously-skip-permissions'],
+      };
+      mockMaestro.agents.get.mockResolvedValue(mockAgent);
+      mockMaestro.process.spawn.mockResolvedValue(undefined);
+
+      const sessionId = await conversationManager.startConversation({
+        agentType: 'claude-code',
+        directoryPath: '/test/project',
+        projectName: 'Test Project',
+      });
+
+      const messagePromise = conversationManager.sendMessage('Hello', [], {});
+
+      await new Promise(resolve => setTimeout(resolve, 10));
+
+      // Verify spawn was called with the full path, not the generic command
+      expect(mockMaestro.process.spawn).toHaveBeenCalled();
+      const spawnCall = mockMaestro.process.spawn.mock.calls[0][0];
+      expect(spawnCall.command).toBe('/opt/homebrew/bin/claude');
+
+      // Clean up
+      const exitCallback = mockMaestro.process.onExit.mock.calls[0][0];
+      exitCallback(sessionId, 0);
+
+      await messagePromise;
+      await conversationManager.endConversation();
+    });
+
+    it('should fall back to agent.command when agent.path is not available', async () => {
+      // When path detection fails but agent is still available (e.g., through PATH)
+      const mockAgent = {
+        id: 'claude-code',
+        available: true,
+        command: 'claude',
+        path: undefined,  // No resolved path
+        args: ['--print', '--verbose', '--dangerously-skip-permissions'],
+      };
+      mockMaestro.agents.get.mockResolvedValue(mockAgent);
+      mockMaestro.process.spawn.mockResolvedValue(undefined);
+
+      const sessionId = await conversationManager.startConversation({
+        agentType: 'claude-code',
+        directoryPath: '/test/project',
+        projectName: 'Test Project',
+      });
+
+      const messagePromise = conversationManager.sendMessage('Hello', [], {});
+
+      await new Promise(resolve => setTimeout(resolve, 10));
+
+      // Verify spawn was called with the command name as fallback
+      expect(mockMaestro.process.spawn).toHaveBeenCalled();
+      const spawnCall = mockMaestro.process.spawn.mock.calls[0][0];
+      expect(spawnCall.command).toBe('claude');
+
+      // Clean up
+      const exitCallback = mockMaestro.process.onExit.mock.calls[0][0];
+      exitCallback(sessionId, 0);
+
+      await messagePromise;
+      await conversationManager.endConversation();
+    });
+
     it('should include --output-format stream-json for Claude Code to enable thinking-chunk events', async () => {
       // Setup mock agent
       const mockAgent = {

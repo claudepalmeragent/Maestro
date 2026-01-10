@@ -23,6 +23,7 @@ import {
   createGenericErrorMessage,
   type WizardError,
 } from './wizardErrorDetection';
+import { wizardDebugLogger } from './phaseGenerator';
 
 /**
  * Configuration for starting a conversation
@@ -163,6 +164,16 @@ class ConversationManager {
       outputBuffer: '',
     };
 
+    // Log conversation start
+    wizardDebugLogger.log('info', 'Conversation started', {
+      sessionId,
+      agentType: config.agentType,
+      directoryPath: config.directoryPath,
+      projectName: config.projectName,
+      hasExistingDocs: !!config.existingDocs,
+      existingDocsCount: config.existingDocs?.length || 0,
+    });
+
     return sessionId;
   }
 
@@ -196,6 +207,13 @@ class ConversationManager {
     this.session.callbacks = callbacks;
     this.session.outputBuffer = '';
 
+    // Log message send
+    wizardDebugLogger.log('info', 'Sending message to agent', {
+      sessionId: this.session.sessionId,
+      messageLength: userMessage.length,
+      historyLength: conversationHistory.length,
+    });
+
     // Notify sending
     callbacks?.onSending?.();
 
@@ -203,9 +221,14 @@ class ConversationManager {
       // Get the agent configuration
       const agent = await window.maestro.agents.get(this.session.agentType);
       if (!agent || !agent.available) {
+        const error = `Agent ${this.session.agentType} is not available`;
+        wizardDebugLogger.log('error', 'Agent not available', {
+          agentType: this.session.agentType,
+          agent: agent ? { available: agent.available } : null,
+        });
         return {
           success: false,
-          error: `Agent ${this.session.agentType} is not available`,
+          error,
         };
       }
 
@@ -220,9 +243,24 @@ class ConversationManager {
       const result = await this.spawnAgentForMessage(agent, fullPrompt);
 
       if (!result.success) {
+        wizardDebugLogger.log('error', 'Message send failed', {
+          sessionId: this.session.sessionId,
+          error: result.error,
+          hasDetectedError: !!result.detectedError,
+          detectedErrorType: result.detectedError?.type,
+          rawOutputLength: result.rawOutput?.length || 0,
+        });
         callbacks?.onError?.(result.error || 'Failed to get response from agent');
         return result;
       }
+
+      // Log success
+      wizardDebugLogger.log('info', 'Message response received', {
+        sessionId: this.session.sessionId,
+        parseSuccess: result.response?.parseSuccess,
+        confidence: result.response?.structured?.confidence,
+        ready: result.response?.structured?.ready,
+      });
 
       // Notify complete with the result
       callbacks?.onComplete?.(result);
@@ -231,6 +269,10 @@ class ConversationManager {
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error occurred';
+      wizardDebugLogger.log('error', 'Message send exception', {
+        sessionId: this.session?.sessionId,
+        error: errorMessage,
+      });
       callbacks?.onError?.(errorMessage);
       return {
         success: false,
@@ -286,9 +328,22 @@ class ConversationManager {
     return new Promise<SendMessageResult>((resolve) => {
       console.log('[Wizard] Setting up listeners for session:', this.session!.sessionId);
 
+      wizardDebugLogger.log('spawn', 'Setting up agent spawn', {
+        sessionId: this.session!.sessionId,
+        agentId: agent.id,
+        agentCommand: agent.command,
+        directoryPath: this.session!.directoryPath,
+        promptLength: prompt.length,
+      });
+
       // Set up timeout (20 minutes for wizard's complex prompts - large codebases need time)
       const timeoutId = setTimeout(() => {
         console.log('[Wizard] TIMEOUT fired! Session:', this.session?.sessionId, 'Buffer length:', this.session?.outputBuffer?.length);
+        wizardDebugLogger.log('timeout', 'Response timeout after 20 minutes', {
+          sessionId: this.session?.sessionId,
+          outputBufferLength: this.session?.outputBuffer?.length || 0,
+          outputPreview: this.session?.outputBuffer?.slice(-500),
+        });
         this.cleanupListeners();
         resolve({
           success: false,
@@ -354,6 +409,11 @@ class ConversationManager {
             if (code === 0) {
               const parsedResponse = this.parseAgentOutput();
               console.log('[Wizard] Parsed response:', parsedResponse);
+              wizardDebugLogger.log('exit', `Agent exited successfully (code 0)`, {
+                sessionId,
+                outputBufferLength: this.session?.outputBuffer?.length || 0,
+                parseSuccess: parsedResponse.parseSuccess,
+              });
               resolve({
                 success: true,
                 response: parsedResponse,
@@ -366,6 +426,15 @@ class ConversationManager {
 
               if (detectedError) {
                 console.log('[Wizard] Detected provider error:', detectedError);
+                wizardDebugLogger.log('exit', `Agent exited with provider error (code ${code})`, {
+                  sessionId,
+                  exitCode: code,
+                  errorType: detectedError.type,
+                  errorTitle: detectedError.title,
+                  errorMessage: detectedError.message,
+                  rawOutputLength: rawOutput.length,
+                  rawOutputPreview: rawOutput.slice(-500),
+                });
                 resolve({
                   success: false,
                   error: `${detectedError.title}: ${detectedError.message}`,
@@ -375,6 +444,13 @@ class ConversationManager {
               } else {
                 // No specific error detected, create generic message
                 const errorMessage = createGenericErrorMessage(rawOutput, code);
+                wizardDebugLogger.log('exit', `Agent exited with error (code ${code})`, {
+                  sessionId,
+                  exitCode: code,
+                  errorMessage,
+                  rawOutputLength: rawOutput.length,
+                  rawOutputPreview: rawOutput.slice(-500),
+                });
                 resolve({
                   success: false,
                   error: errorMessage,
@@ -395,20 +471,40 @@ class ConversationManager {
       // Each agent has different CLI structure for batch mode
       const argsForSpawn = this.buildArgsForAgent(agent);
 
+      // Use the agent's resolved path if available, falling back to command name
+      // This is critical for packaged Electron apps where PATH may not include agent locations
+      const commandToUse = agent.path || agent.command;
+
+      wizardDebugLogger.log('spawn', 'Calling process.spawn', {
+        sessionId: this.session!.sessionId,
+        command: commandToUse,
+        agentPath: agent.path,
+        agentCommand: agent.command,
+        args: argsForSpawn,
+        cwd: this.session!.directoryPath,
+      });
+
       window.maestro.process
         .spawn({
           sessionId: this.session!.sessionId,
           toolType: this.session!.agentType,
           cwd: this.session!.directoryPath,
-          command: agent.command,
+          command: commandToUse,
           args: argsForSpawn,
           prompt: prompt,
         })
         .then(() => {
+          wizardDebugLogger.log('spawn', 'Agent process spawned successfully', {
+            sessionId: this.session?.sessionId,
+          });
           // Notify that we're receiving
           this.session?.callbacks?.onReceiving?.();
         })
         .catch((error: Error) => {
+          wizardDebugLogger.log('error', 'Failed to spawn agent process', {
+            sessionId: this.session?.sessionId,
+            error: error.message,
+          });
           this.cleanupListeners();
           resolve({
             success: false,
