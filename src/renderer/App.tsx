@@ -1185,7 +1185,8 @@ function MaestroConsoleInner() {
               stagedImages: [],
               createdAt: Date.now(),
               state: 'idle',
-              saveToHistory: true
+              saveToHistory: defaultSaveToHistory,
+              showThinking: defaultShowThinking
             };
 
             // Fetch git info (via SSH for remote sessions)
@@ -5281,7 +5282,8 @@ You are taking over this conversation. Based on the context above, provide a bri
         stagedImages: [],
         createdAt: Date.now(),
         state: 'idle',
-        saveToHistory: defaultSaveToHistory
+        saveToHistory: defaultSaveToHistory,
+        showThinking: defaultShowThinking
       };
 
       // Get SSH remote ID for remote git operations
@@ -5453,7 +5455,8 @@ You are taking over this conversation. Based on the context above, provide a bri
                 stagedImages: [],
                 createdAt: Date.now(),
                 state: 'idle',
-                saveToHistory: defaultSaveToHistory
+                saveToHistory: defaultSaveToHistory,
+                showThinking: defaultShowThinking
               };
 
               // Fetch git info (with SSH support)
@@ -6557,7 +6560,8 @@ You are taking over this conversation. Based on the context above, provide a bri
         stagedImages: [],
         createdAt: Date.now(),
         state: 'idle',
-        saveToHistory: defaultSaveToHistory
+        saveToHistory: defaultSaveToHistory,
+        showThinking: defaultShowThinking
       };
 
       const newSession: Session = {
@@ -6697,7 +6701,8 @@ You are taking over this conversation. Based on the context above, provide a bri
       stagedImages: [],
       createdAt: Date.now(),
       state: 'idle',
-      saveToHistory: defaultSaveToHistory
+      saveToHistory: defaultSaveToHistory,
+      showThinking: defaultShowThinking
     };
 
     // Build Auto Run folder path
@@ -8472,7 +8477,8 @@ You are taking over this conversation. Based on the context above, provide a bri
             stagedImages: [],
             createdAt: Date.now(),
             state: 'idle',
-            saveToHistory: true
+            saveToHistory: defaultSaveToHistory,
+            showThinking: defaultShowThinking
           };
 
           // Fetch git info for this subdirectory (with SSH support)
@@ -8615,7 +8621,8 @@ You are taking over this conversation. Based on the context above, provide a bri
         stagedImages: [],
         createdAt: Date.now(),
         state: 'idle',
-        saveToHistory: defaultSaveToHistory
+        saveToHistory: defaultSaveToHistory,
+        showThinking: defaultShowThinking
       };
 
       // Fetch git info for the worktree (pass SSH remote ID for remote sessions)
@@ -8749,7 +8756,8 @@ You are taking over this conversation. Based on the context above, provide a bri
       stagedImages: [],
       createdAt: Date.now(),
       state: 'idle',
-      saveToHistory: defaultSaveToHistory
+      saveToHistory: defaultSaveToHistory,
+      showThinking: defaultShowThinking
     };
 
     // Fetch git info for the worktree (pass SSH remote ID for remote sessions)

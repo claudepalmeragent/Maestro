@@ -184,6 +184,22 @@ describe('tabHelpers', () => {
       expect(result.tab.saveToHistory).toBe(true);
     });
 
+    it('creates a tab with showThinking option', () => {
+      const session = createMockSession({ aiTabs: [] });
+
+      // Default should be false
+      const defaultResult = createTab(session);
+      expect(defaultResult.tab.showThinking).toBe(false);
+
+      // Explicit true
+      const trueResult = createTab(session, { showThinking: true });
+      expect(trueResult.tab.showThinking).toBe(true);
+
+      // Explicit false
+      const falseResult = createTab(session, { showThinking: false });
+      expect(falseResult.tab.showThinking).toBe(false);
+    });
+
     it('appends tab to existing tabs', () => {
       const existingTab = createMockTab({ id: 'existing-tab' });
       const session = createMockSession({
@@ -1186,6 +1202,38 @@ describe('tabHelpers', () => {
       });
 
       expect(sessionWithoutHistory.aiTabs[0].saveToHistory).toBe(false);
+    });
+
+    it('creates a session with showThinking option', () => {
+      const { session: sessionWithThinking } = createMergedSession({
+        name: 'With Thinking',
+        projectRoot: '/project',
+        toolType: 'claude-code',
+        mergedLogs: [],
+        showThinking: true,
+      });
+
+      expect(sessionWithThinking.aiTabs[0].showThinking).toBe(true);
+
+      const { session: sessionWithoutThinking } = createMergedSession({
+        name: 'Without Thinking',
+        projectRoot: '/project',
+        toolType: 'claude-code',
+        mergedLogs: [],
+        showThinking: false,
+      });
+
+      expect(sessionWithoutThinking.aiTabs[0].showThinking).toBe(false);
+
+      // Default should be false
+      const { session: sessionDefault } = createMergedSession({
+        name: 'Default Thinking',
+        projectRoot: '/project',
+        toolType: 'claude-code',
+        mergedLogs: [],
+      });
+
+      expect(sessionDefault.aiTabs[0].showThinking).toBe(false);
     });
 
     it('creates a session with terminal toolType sets correct inputMode', () => {

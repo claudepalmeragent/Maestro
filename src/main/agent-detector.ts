@@ -50,7 +50,7 @@ export interface AgentConfig {
   defaultEnvVars?: Record<string, string>; // Default environment variables for this agent (merged with user customEnvVars)
 }
 
-const AGENT_DEFINITIONS: Omit<AgentConfig, 'available' | 'path' | 'capabilities'>[] = [
+export const AGENT_DEFINITIONS: Omit<AgentConfig, 'available' | 'path' | 'capabilities'>[] = [
   {
     id: 'terminal',
     name: 'Terminal',

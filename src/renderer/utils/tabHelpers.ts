@@ -758,6 +758,8 @@ export interface CreateMergedSessionOptions {
   groupId?: string;
   /** Whether to save completions to history (default: true) */
   saveToHistory?: boolean;
+  /** Whether to show thinking/streaming content (default: false) */
+  showThinking?: boolean;
 }
 
 /**
@@ -801,7 +803,8 @@ export function createMergedSession(options: CreateMergedSessionOptions): Create
     mergedLogs,
     usageStats,
     groupId,
-    saveToHistory = true
+    saveToHistory = true,
+    showThinking = false
   } = options;
 
   const sessionId = generateId();
@@ -819,7 +822,8 @@ export function createMergedSession(options: CreateMergedSessionOptions): Create
     usageStats,
     createdAt: Date.now(),
     state: 'idle',
-    saveToHistory
+    saveToHistory,
+    showThinking
   };
 
   // Create the merged session with standard structure

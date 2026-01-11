@@ -95,6 +95,8 @@ export function NewInstanceModal({ isOpen, onClose, onCreate, theme, existingSes
     isDirectory: boolean;
     error?: string;
   }>({ checking: false, valid: false, isDirectory: false });
+  // SSH connection error state - shown when we can't connect to the selected remote
+  const [sshConnectionError, setSshConnectionError] = useState<string | null>(null);
 
   const nameInputRef = useRef<HTMLInputElement>(null);
 
@@ -205,10 +207,32 @@ export function NewInstanceModal({ isOpen, onClose, onCreate, theme, existingSes
   }, [workingDir, isSshEnabled, selectedAgent, agentSshRemoteConfigs]);
 
   // Define handlers first before they're used in effects
-  const loadAgents = async (source?: Session) => {
+  const loadAgents = async (source?: Session, sshRemoteId?: string) => {
     setLoading(true);
+    setSshConnectionError(null);
     try {
-      const detectedAgents = await window.maestro.agents.detect();
+      const detectedAgents = await window.maestro.agents.detect(sshRemoteId);
+
+      // Check if all agents have connection errors (indicates SSH connection failure)
+      if (sshRemoteId) {
+        const connectionErrors = detectedAgents
+          .filter((a: AgentConfig) => !a.hidden)
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          .filter((a: any) => a.error)
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          .map((a: any) => a.error);
+        const allHaveErrors = connectionErrors.length > 0 &&
+          detectedAgents.filter((a: AgentConfig) => !a.hidden)
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            .every((a: any) => a.error || !a.available);
+
+        if (allHaveErrors && connectionErrors.length > 0) {
+          setSshConnectionError(connectionErrors[0]);
+          setLoading(false);
+          return;
+        }
+      }
+
       setAgents(detectedAgents);
 
       // Per-agent config (path, args, env vars) starts empty - each agent gets its own config
@@ -505,6 +529,46 @@ export function NewInstanceModal({ isOpen, onClose, onCreate, theme, existingSes
     }
   }, [isOpen]);
 
+  // Track the current SSH remote ID for re-detection
+  // Uses _pending_ key when no agent is selected, which is the shared SSH config
+  const currentSshRemoteId = useMemo(() => {
+    const config = agentSshRemoteConfigs['_pending_'] || agentSshRemoteConfigs[selectedAgent];
+    return config?.enabled ? config.remoteId : null;
+  }, [agentSshRemoteConfigs, selectedAgent]);
+
+  // Track initial load to avoid re-running on first mount
+  const initialLoadDoneRef = useRef(false);
+  const lastSshRemoteIdRef = useRef<string | null | undefined>(undefined);
+
+  // Re-detect agents when SSH remote selection changes
+  // This allows users to see which agents are available on remote vs local
+  useEffect(() => {
+    // Skip if modal not open
+    if (!isOpen) {
+      initialLoadDoneRef.current = false;
+      lastSshRemoteIdRef.current = undefined;
+      return;
+    }
+
+    // Skip the initial load (handled by the isOpen effect above)
+    if (!initialLoadDoneRef.current) {
+      initialLoadDoneRef.current = true;
+      lastSshRemoteIdRef.current = currentSshRemoteId;
+      return;
+    }
+
+    // Only re-detect if the SSH remote ID actually changed
+    if (lastSshRemoteIdRef.current === currentSshRemoteId) {
+      return;
+    }
+
+    lastSshRemoteIdRef.current = currentSshRemoteId;
+
+    // Re-run agent detection with the new SSH remote ID
+    loadAgents(undefined, currentSshRemoteId ?? undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, currentSshRemoteId]);
+
   if (!isOpen) return null;
 
   return (
@@ -547,6 +611,38 @@ export function NewInstanceModal({ isOpen, onClose, onCreate, theme, existingSes
             </label>
             {loading ? (
               <div className="text-sm opacity-50">Loading agents...</div>
+            ) : sshConnectionError ? (
+              /* SSH Connection Error State */
+              <div
+                className="flex flex-col items-center justify-center p-6 rounded-lg border-2 text-center"
+                style={{
+                  backgroundColor: `${theme.colors.error}10`,
+                  borderColor: theme.colors.error,
+                }}
+              >
+                <AlertTriangle
+                  className="w-10 h-10 mb-3"
+                  style={{ color: theme.colors.error }}
+                />
+                <h4
+                  className="text-base font-semibold mb-2"
+                  style={{ color: theme.colors.textMain }}
+                >
+                  Unable to Connect
+                </h4>
+                <p
+                  className="text-sm mb-3"
+                  style={{ color: theme.colors.textDim }}
+                >
+                  {sshConnectionError}
+                </p>
+                <p
+                  className="text-xs"
+                  style={{ color: theme.colors.textDim }}
+                >
+                  Select a different remote host or switch to Local Execution.
+                </p>
+              </div>
             ) : (
               <div className="space-y-1">
                 {sortedAgents.map((agent) => {

@@ -555,8 +555,8 @@ contextBridge.exposeInMainWorld('maestro', {
 
   // Agent API
   agents: {
-    detect: () => ipcRenderer.invoke('agents:detect'),
-    refresh: (agentId?: string) => ipcRenderer.invoke('agents:refresh', agentId),
+    detect: (sshRemoteId?: string) => ipcRenderer.invoke('agents:detect', sshRemoteId),
+    refresh: (agentId?: string, sshRemoteId?: string) => ipcRenderer.invoke('agents:refresh', agentId, sshRemoteId),
     get: (agentId: string) => ipcRenderer.invoke('agents:get', agentId),
     getCapabilities: (agentId: string) => ipcRenderer.invoke('agents:getCapabilities', agentId),
     getConfig: (agentId: string) => ipcRenderer.invoke('agents:getConfig', agentId),
@@ -1968,7 +1968,8 @@ export interface MaestroAPI {
     stopServer: () => Promise<{ success: boolean }>;
   };
   agents: {
-    detect: () => Promise<AgentConfig[]>;
+    detect: (sshRemoteId?: string) => Promise<AgentConfig[]>;
+    refresh: (agentId?: string, sshRemoteId?: string) => Promise<{ agents: AgentConfig[]; debugInfo: any }>;
     get: (agentId: string) => Promise<AgentConfig | null>;
     getCapabilities: (agentId: string) => Promise<AgentCapabilities>;
     getConfig: (agentId: string) => Promise<Record<string, any>>;

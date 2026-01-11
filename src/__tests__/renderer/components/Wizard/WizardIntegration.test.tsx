@@ -269,11 +269,15 @@ const mockMaestro = {
   },
   fs: {
     readFile: vi.fn(),
+    readDir: vi.fn().mockResolvedValue([]),
   },
   process: {
     spawn: vi.fn(),
     write: vi.fn(),
     kill: vi.fn(),
+  },
+  sshRemote: {
+    getConfigs: vi.fn().mockResolvedValue({ success: true, configs: [] }),
   },
 };
 
@@ -1429,6 +1433,666 @@ describe('Wizard Integration Tests', () => {
       await waitFor(() => {
         expect(screen.getByText('Create a Maestro Agent')).toBeInTheDocument();
       });
+    });
+  });
+
+  describe('SSH Remote Session Support', () => {
+    it('should pass sshRemoteId to git.isRepo when validating remote directory', async () => {
+      function TestWrapper() {
+        const { openWizard, state, setSelectedAgent, setSessionSshRemoteConfig, goToStep } = useWizard();
+
+        React.useEffect(() => {
+          if (!state.isOpen) {
+            setSelectedAgent('claude-code');
+            setSessionSshRemoteConfig({
+              enabled: true,
+              remoteId: 'my-ssh-remote',
+              workingDirOverride: '/home/user/project'
+            });
+            goToStep('directory-selection');
+            openWizard();
+          }
+        }, [openWizard, state.isOpen, setSelectedAgent, setSessionSshRemoteConfig, goToStep]);
+
+        return state.isOpen ? <MaestroWizard theme={mockTheme} /> : null;
+      }
+
+      renderWithProviders(<TestWrapper />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Choose Project Directory')).toBeInTheDocument();
+      });
+
+      // Type into the directory input to trigger validation
+      const input = screen.getByRole('textbox');
+      fireEvent.change(input, { target: { value: '/home/user/project' } });
+
+      // Allow debounced validation to run
+      await act(async () => {
+        vi.advanceTimersByTime(600);
+      });
+
+      // Verify git.isRepo was called with sshRemoteId
+      await waitFor(() => {
+        expect(mockMaestro.git.isRepo).toHaveBeenCalledWith(
+          '/home/user/project',
+          'my-ssh-remote'
+        );
+      });
+    });
+
+    it('should show SSH remote hint and hide browse button for remote sessions', async () => {
+      // Mock SSH remote config lookup
+      mockMaestro.sshRemote.getConfigs.mockResolvedValue({
+        success: true,
+        configs: [
+          { id: 'my-ssh-remote', name: 'Test Server', host: 'test.example.com' },
+        ],
+      });
+
+      function TestWrapper() {
+        const { openWizard, state, setSelectedAgent, setSessionSshRemoteConfig, goToStep } = useWizard();
+
+        React.useEffect(() => {
+          if (!state.isOpen) {
+            setSelectedAgent('claude-code');
+            setSessionSshRemoteConfig({
+              enabled: true,
+              remoteId: 'my-ssh-remote',
+            });
+            goToStep('directory-selection');
+            openWizard();
+          }
+        }, [openWizard, state.isOpen, setSelectedAgent, setSessionSshRemoteConfig, goToStep]);
+
+        return state.isOpen ? <MaestroWizard theme={mockTheme} /> : null;
+      }
+
+      renderWithProviders(<TestWrapper />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Choose Project Directory')).toBeInTheDocument();
+      });
+
+      // Browse button should be hidden (not just disabled)
+      expect(screen.queryByRole('button', { name: /browse/i })).not.toBeInTheDocument();
+
+      // SSH hint should be visible with server name
+      await waitFor(() => {
+        expect(screen.getByText(/Test Server/)).toBeInTheDocument();
+      });
+      expect(screen.getByText(/path will be validated as you type/)).toBeInTheDocument();
+
+      // Placeholder should mention the remote host
+      const input = screen.getByLabelText(/project directory/i);
+      expect(input).toHaveAttribute('placeholder', expect.stringContaining('Test Server'));
+    });
+
+    it('should show directory not found error when remote path does not exist', async () => {
+      // Mock SSH remote config lookup
+      mockMaestro.sshRemote.getConfigs.mockResolvedValue({
+        success: true,
+        configs: [
+          { id: 'my-ssh-remote', name: 'Test Server', host: 'test.example.com' },
+        ],
+      });
+
+      // Mock fs.readDir to throw an error (directory doesn't exist)
+      mockMaestro.fs.readDir.mockRejectedValue(new Error('No such file or directory'));
+
+      function TestWrapper() {
+        const { openWizard, state, setSelectedAgent, setSessionSshRemoteConfig, goToStep } = useWizard();
+
+        React.useEffect(() => {
+          if (!state.isOpen) {
+            setSelectedAgent('claude-code');
+            setSessionSshRemoteConfig({
+              enabled: true,
+              remoteId: 'my-ssh-remote',
+            });
+            goToStep('directory-selection');
+            openWizard();
+          }
+        }, [openWizard, state.isOpen, setSelectedAgent, setSessionSshRemoteConfig, goToStep]);
+
+        return state.isOpen ? <MaestroWizard theme={mockTheme} /> : null;
+      }
+
+      renderWithProviders(<TestWrapper />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Choose Project Directory')).toBeInTheDocument();
+      });
+
+      // Type a path that doesn't exist
+      const input = screen.getByRole('textbox');
+      fireEvent.change(input, { target: { value: '/nonexistent/path' } });
+
+      // Allow debounced validation to run
+      await act(async () => {
+        vi.advanceTimersByTime(600);
+      });
+
+      // Should show directory not found error
+      await waitFor(() => {
+        expect(screen.getByText('Directory not found. Please check the path exists.')).toBeInTheDocument();
+      });
+
+      // Should NOT show "Regular Directory" status
+      expect(screen.queryByText('Regular Directory')).not.toBeInTheDocument();
+
+      // Reset mock for subsequent tests
+      mockMaestro.fs.readDir.mockResolvedValue([]);
+    });
+
+    it('should pass sshRemoteId to autorun.listDocs when checking for existing docs', async () => {
+      function TestWrapper() {
+        const { openWizard, state, setSelectedAgent, setSessionSshRemoteConfig, goToStep } = useWizard();
+
+        React.useEffect(() => {
+          if (!state.isOpen) {
+            setSelectedAgent('claude-code');
+            setSessionSshRemoteConfig({
+              enabled: true,
+              remoteId: 'my-ssh-remote',
+            });
+            goToStep('directory-selection');
+            openWizard();
+          }
+        }, [openWizard, state.isOpen, setSelectedAgent, setSessionSshRemoteConfig, goToStep]);
+
+        return state.isOpen ? <MaestroWizard theme={mockTheme} /> : null;
+      }
+
+      renderWithProviders(<TestWrapper />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Choose Project Directory')).toBeInTheDocument();
+      });
+
+      // Type into the directory input to trigger validation
+      const input = screen.getByRole('textbox');
+      fireEvent.change(input, { target: { value: '/home/user/project' } });
+
+      // Allow debounced validation to run
+      await act(async () => {
+        vi.advanceTimersByTime(600);
+      });
+
+      // Verify autorun.listDocs was called with sshRemoteId
+      await waitFor(() => {
+        expect(mockMaestro.autorun.listDocs).toHaveBeenCalledWith(
+          '/home/user/project/Auto Run Docs',
+          'my-ssh-remote'
+        );
+      });
+    });
+
+    it('should pass sshRemoteId to agents.detect when SSH remote is configured', async () => {
+      // Reset the mock to track calls
+      mockMaestro.agents.detect.mockClear();
+      mockMaestro.agents.detect.mockResolvedValue(mockAgents);
+
+      function TestWrapper() {
+        const { openWizard, state, setSessionSshRemoteConfig } = useWizard();
+
+        React.useEffect(() => {
+          if (!state.isOpen) {
+            // Set SSH remote config before opening wizard at agent selection screen
+            setSessionSshRemoteConfig({
+              enabled: true,
+              remoteId: 'my-ssh-remote',
+            });
+            openWizard();
+          }
+        }, [openWizard, state.isOpen, setSessionSshRemoteConfig]);
+
+        return state.isOpen ? <MaestroWizard theme={mockTheme} /> : null;
+      }
+
+      renderWithProviders(<TestWrapper />);
+
+      // Wait for wizard to be open at agent selection screen
+      await waitFor(() => {
+        expect(screen.getByText('Create a Maestro Agent')).toBeInTheDocument();
+      });
+
+      // Wait for agent detection to complete
+      await waitFor(() => {
+        // Agent detection should be called with the SSH remote ID
+        expect(mockMaestro.agents.detect).toHaveBeenCalledWith('my-ssh-remote');
+      });
+    });
+
+    it('should re-detect agents when SSH remote is selected from dropdown', async () => {
+      // Reset the mock to track calls
+      mockMaestro.agents.detect.mockClear();
+      mockMaestro.agents.detect.mockResolvedValue(mockAgents);
+
+      // Mock SSH remotes available for selection
+      mockMaestro.sshRemote.getConfigs.mockResolvedValue({
+        success: true,
+        configs: [
+          { id: 'remote-1', name: 'Remote Server 1', host: 'server1.example.com' },
+          { id: 'remote-2', name: 'Remote Server 2', host: 'server2.example.com' },
+        ],
+      });
+
+      function TestWrapper() {
+        const { openWizard, state } = useWizard();
+
+        React.useEffect(() => {
+          if (!state.isOpen) {
+            openWizard();
+          }
+        }, [openWizard, state.isOpen]);
+
+        return state.isOpen ? <MaestroWizard theme={mockTheme} /> : null;
+      }
+
+      renderWithProviders(<TestWrapper />);
+
+      // Wait for wizard to be open at agent selection screen
+      await waitFor(() => {
+        expect(screen.getByText('Create a Maestro Agent')).toBeInTheDocument();
+      });
+
+      // Initial detection should be called without SSH remote ID
+      await waitFor(() => {
+        expect(mockMaestro.agents.detect).toHaveBeenCalledWith(undefined);
+      });
+
+      // Wait for SSH remotes dropdown to appear
+      await waitFor(() => {
+        expect(screen.getByLabelText('Agent location')).toBeInTheDocument();
+      });
+
+      // Select a remote from the dropdown
+      const dropdown = screen.getByLabelText('Agent location');
+      fireEvent.change(dropdown, { target: { value: 'remote-1' } });
+
+      // Detection should be called again with the SSH remote ID
+      await waitFor(() => {
+        expect(mockMaestro.agents.detect).toHaveBeenCalledWith('remote-1');
+      });
+    });
+
+    it('should detect agents without sshRemoteId when SSH remote is not configured', async () => {
+      // Reset the mock to track calls
+      mockMaestro.agents.detect.mockClear();
+      mockMaestro.agents.detect.mockResolvedValue(mockAgents);
+
+      function TestWrapper() {
+        const { openWizard, state } = useWizard();
+
+        React.useEffect(() => {
+          if (!state.isOpen) {
+            // Open wizard without SSH remote config
+            openWizard();
+          }
+        }, [openWizard, state.isOpen]);
+
+        return state.isOpen ? <MaestroWizard theme={mockTheme} /> : null;
+      }
+
+      renderWithProviders(<TestWrapper />);
+
+      // Wait for wizard to be open at agent selection screen
+      await waitFor(() => {
+        expect(screen.getByText('Create a Maestro Agent')).toBeInTheDocument();
+      });
+
+      // Wait for agent detection to complete
+      await waitFor(() => {
+        // Agent detection should be called without SSH remote ID (undefined)
+        expect(mockMaestro.agents.detect).toHaveBeenCalledWith(undefined);
+      });
+    });
+
+    it('should show connection error message when SSH remote is unreachable', async () => {
+      // Reset the mock to track calls
+      mockMaestro.agents.detect.mockClear();
+
+      // Mock SSH remotes available for selection
+      mockMaestro.sshRemote.getConfigs.mockResolvedValue({
+        success: true,
+        configs: [
+          { id: 'unreachable-remote', name: 'Unreachable Server', host: 'unreachable.example.com' },
+        ],
+      });
+
+      // Mock agents.detect to return agents with connection errors
+      mockMaestro.agents.detect.mockImplementation((sshRemoteId?: string) => {
+        if (sshRemoteId === 'unreachable-remote') {
+          // Return all agents as unavailable with error
+          return Promise.resolve([
+            {
+              id: 'claude-code',
+              name: 'Claude Code',
+              available: false,
+              hidden: false,
+              error: 'Connection timed out',
+            },
+            {
+              id: 'codex',
+              name: 'Codex',
+              available: false,
+              hidden: false,
+              error: 'Connection timed out',
+            },
+          ]);
+        }
+        return Promise.resolve(mockAgents);
+      });
+
+      function TestWrapper() {
+        const { openWizard, state } = useWizard();
+
+        React.useEffect(() => {
+          if (!state.isOpen) {
+            openWizard();
+          }
+        }, [openWizard, state.isOpen]);
+
+        return state.isOpen ? <MaestroWizard theme={mockTheme} /> : null;
+      }
+
+      renderWithProviders(<TestWrapper />);
+
+      // Wait for wizard to be open at agent selection screen
+      await waitFor(() => {
+        expect(screen.getByText('Create a Maestro Agent')).toBeInTheDocument();
+      });
+
+      // Wait for SSH remotes dropdown to appear
+      await waitFor(() => {
+        expect(screen.getByLabelText('Agent location')).toBeInTheDocument();
+      });
+
+      // Select the unreachable remote from the dropdown
+      const dropdown = screen.getByLabelText('Agent location');
+      fireEvent.change(dropdown, { target: { value: 'unreachable-remote' } });
+
+      // Wait for connection error message to appear
+      await waitFor(() => {
+        expect(screen.getByText('Unable to Connect')).toBeInTheDocument();
+      });
+
+      // Error message should be displayed
+      expect(screen.getByText('Connection timed out')).toBeInTheDocument();
+      expect(screen.getByText(/Please select a different remote host/)).toBeInTheDocument();
+    });
+
+    it('should recover from connection error when switching back to local', async () => {
+      // Reset the mock to track calls
+      mockMaestro.agents.detect.mockClear();
+
+      // Mock SSH remotes available for selection
+      mockMaestro.sshRemote.getConfigs.mockResolvedValue({
+        success: true,
+        configs: [
+          { id: 'unreachable-remote', name: 'Unreachable Server', host: 'unreachable.example.com' },
+        ],
+      });
+
+      // Mock agents.detect to return errors for remote, success for local
+      mockMaestro.agents.detect.mockImplementation((sshRemoteId?: string) => {
+        if (sshRemoteId === 'unreachable-remote') {
+          return Promise.resolve([
+            {
+              id: 'claude-code',
+              name: 'Claude Code',
+              available: false,
+              hidden: false,
+              error: 'Connection refused',
+            },
+          ]);
+        }
+        return Promise.resolve(mockAgents);
+      });
+
+      function TestWrapper() {
+        const { openWizard, state } = useWizard();
+
+        React.useEffect(() => {
+          if (!state.isOpen) {
+            openWizard();
+          }
+        }, [openWizard, state.isOpen]);
+
+        return state.isOpen ? <MaestroWizard theme={mockTheme} /> : null;
+      }
+
+      renderWithProviders(<TestWrapper />);
+
+      // Wait for wizard to be open at agent selection screen
+      await waitFor(() => {
+        expect(screen.getByText('Create a Maestro Agent')).toBeInTheDocument();
+      });
+
+      // Wait for SSH remotes dropdown to appear
+      await waitFor(() => {
+        expect(screen.getByLabelText('Agent location')).toBeInTheDocument();
+      });
+
+      // Select the unreachable remote
+      const dropdown = screen.getByLabelText('Agent location');
+      fireEvent.change(dropdown, { target: { value: 'unreachable-remote' } });
+
+      // Wait for connection error
+      await waitFor(() => {
+        expect(screen.getByText('Unable to Connect')).toBeInTheDocument();
+      });
+
+      // Switch back to Local Machine
+      fireEvent.change(dropdown, { target: { value: '' } });
+
+      // Wait for error to clear and agents to appear
+      await waitFor(() => {
+        expect(screen.queryByText('Unable to Connect')).not.toBeInTheDocument();
+      });
+
+      // Agent tiles should be visible again
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /claude code/i })).toBeInTheDocument();
+      });
+    });
+
+    it('should persist SSH remote selection when navigating between wizard steps', async () => {
+      // Reset the mock to track calls
+      mockMaestro.agents.detect.mockClear();
+      mockMaestro.agents.detect.mockResolvedValue(mockAgents);
+
+      // Mock SSH remotes available for selection
+      mockMaestro.sshRemote.getConfigs.mockResolvedValue({
+        success: true,
+        configs: [
+          { id: 'test-remote', name: 'Test Server', host: 'test.example.com' },
+        ],
+      });
+
+      function TestWrapper() {
+        const { openWizard, state, setSelectedAgent, setAgentName, nextStep, previousStep } = useWizard();
+
+        React.useEffect(() => {
+          if (!state.isOpen) {
+            openWizard();
+          }
+        }, [openWizard, state.isOpen]);
+
+        return (
+          <>
+            <div data-testid="current-step">{state.currentStep}</div>
+            <div data-testid="ssh-enabled">
+              {state.sessionSshRemoteConfig?.enabled ? 'yes' : 'no'}
+            </div>
+            <div data-testid="ssh-remote-id">
+              {state.sessionSshRemoteConfig?.remoteId || 'none'}
+            </div>
+            <button
+              onClick={() => {
+                setSelectedAgent('claude-code');
+                setAgentName('Test Project');
+                nextStep();
+              }}
+              data-testid="next-step"
+            >
+              Next Step
+            </button>
+            <button onClick={() => previousStep()} data-testid="prev-step">
+              Previous Step
+            </button>
+            {state.isOpen && <MaestroWizard theme={mockTheme} />}
+          </>
+        );
+      }
+
+      renderWithProviders(<TestWrapper />);
+
+      // Wait for wizard to be open at agent selection screen
+      await waitFor(() => {
+        expect(screen.getByText('Create a Maestro Agent')).toBeInTheDocument();
+      });
+
+      // Wait for SSH remotes dropdown to appear
+      await waitFor(() => {
+        expect(screen.getByLabelText('Agent location')).toBeInTheDocument();
+      });
+
+      // Select a remote from the dropdown
+      const dropdown = screen.getByLabelText('Agent location');
+      fireEvent.change(dropdown, { target: { value: 'test-remote' } });
+
+      // Wait for SSH config to be persisted to wizard context
+      await waitFor(() => {
+        expect(screen.getByTestId('ssh-enabled')).toHaveTextContent('yes');
+        expect(screen.getByTestId('ssh-remote-id')).toHaveTextContent('test-remote');
+      });
+
+      // Wait for agent tiles to load (re-detection for SSH remote)
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /claude code/i })).toBeInTheDocument();
+      });
+
+      // Navigate to the next step (directory selection)
+      fireEvent.click(screen.getByTestId('next-step'));
+
+      // Verify we're on step 2
+      await waitFor(() => {
+        expect(screen.getByTestId('current-step')).toHaveTextContent('directory-selection');
+      });
+
+      // SSH config should still be persisted
+      expect(screen.getByTestId('ssh-enabled')).toHaveTextContent('yes');
+      expect(screen.getByTestId('ssh-remote-id')).toHaveTextContent('test-remote');
+
+      // Navigate back to step 1
+      fireEvent.click(screen.getByTestId('prev-step'));
+
+      // Verify we're back on step 1
+      await waitFor(() => {
+        expect(screen.getByTestId('current-step')).toHaveTextContent('agent-selection');
+      });
+
+      // SSH config should STILL be persisted
+      expect(screen.getByTestId('ssh-enabled')).toHaveTextContent('yes');
+      expect(screen.getByTestId('ssh-remote-id')).toHaveTextContent('test-remote');
+
+      // The dropdown should still show the selected remote
+      await waitFor(() => {
+        const locationDropdown = screen.getByLabelText('Agent location');
+        expect(locationDropdown).toHaveValue('test-remote');
+      });
+    });
+
+    it('should NOT re-detect agents when selecting different provider tiles', async () => {
+      // Reset the mock to track calls
+      mockMaestro.agents.detect.mockClear();
+
+      // Mock multiple available agents
+      const multipleAgents = [
+        {
+          id: 'claude-code',
+          name: 'Claude Code',
+          available: true,
+          hidden: false,
+          capabilities: {},
+        },
+        {
+          id: 'codex',
+          name: 'Codex',
+          available: true,
+          hidden: false,
+          capabilities: {},
+        },
+        {
+          id: 'opencode',
+          name: 'OpenCode',
+          available: true,
+          hidden: false,
+          capabilities: {},
+        },
+      ];
+      mockMaestro.agents.detect.mockResolvedValue(multipleAgents);
+
+      // No SSH remotes for this test
+      mockMaestro.sshRemote.getConfigs.mockResolvedValue({
+        success: true,
+        configs: [],
+      });
+
+      function TestWrapper() {
+        const { openWizard, state } = useWizard();
+
+        React.useEffect(() => {
+          if (!state.isOpen) {
+            openWizard();
+          }
+        }, [openWizard, state.isOpen]);
+
+        return state.isOpen ? <MaestroWizard theme={mockTheme} /> : null;
+      }
+
+      renderWithProviders(<TestWrapper />);
+
+      // Wait for wizard to be open at agent selection screen
+      await waitFor(() => {
+        expect(screen.getByText('Create a Maestro Agent')).toBeInTheDocument();
+      });
+
+      // Wait for initial agent detection to complete
+      await waitFor(() => {
+        expect(mockMaestro.agents.detect).toHaveBeenCalledTimes(1);
+      });
+
+      // Wait for agent tiles to be visible
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /claude code/i })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /codex/i })).toBeInTheDocument();
+      });
+
+      // Record the call count after initial detection
+      const initialCallCount = mockMaestro.agents.detect.mock.calls.length;
+
+      // Click on a different agent tile (Codex)
+      const codexTile = screen.getByRole('button', { name: /codex/i });
+      fireEvent.click(codexTile);
+
+      // Click on another agent tile (OpenCode)
+      const opencodeTile = screen.getByRole('button', { name: /opencode/i });
+      fireEvent.click(opencodeTile);
+
+      // Click back to Claude Code
+      const claudeTile = screen.getByRole('button', { name: /claude code/i });
+      fireEvent.click(claudeTile);
+
+      // Wait a bit to ensure no async detection was triggered
+      await act(async () => {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      });
+
+      // Detection should NOT have been called again
+      expect(mockMaestro.agents.detect.mock.calls.length).toBe(initialCallCount);
     });
   });
 });

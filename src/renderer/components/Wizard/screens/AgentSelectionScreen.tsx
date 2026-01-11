@@ -13,13 +13,12 @@
  */
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { Check, X, Settings, ArrowLeft } from 'lucide-react';
+import { Check, X, Settings, ArrowLeft, AlertTriangle } from 'lucide-react';
 import type { Theme, AgentConfig } from '../../../types';
 import type { SshRemoteConfig, AgentSshRemoteConfig } from '../../../../shared/types';
 import { useWizard } from '../WizardContext';
 import { ScreenReaderAnnouncement } from '../ScreenReaderAnnouncement';
 import { AgentConfigPanel } from '../../shared/AgentConfigPanel';
-import { SshRemoteSelector } from '../../shared/SshRemoteSelector';
 
 interface AgentSelectionScreenProps {
   theme: Theme;
@@ -322,24 +321,73 @@ export function AgentSelectionScreen({ theme }: AgentSelectionScreenProps): JSX.
   const [refreshingAgent, setRefreshingAgent] = useState(false);
 
   // SSH Remote configuration state
+  // Initialize from wizard context if already set (e.g., when SSH was configured before opening wizard)
   const [sshRemotes, setSshRemotes] = useState<SshRemoteConfig[]>([]);
-  const [sshRemoteConfig, setSshRemoteConfig] = useState<AgentSshRemoteConfig | undefined>(undefined);
+  const [sshRemoteConfig, setSshRemoteConfig] = useState<AgentSshRemoteConfig | undefined>(
+    state.sessionSshRemoteConfig?.enabled
+      ? { enabled: true, remoteId: state.sessionSshRemoteConfig.remoteId ?? null, workingDirOverride: state.sessionSshRemoteConfig.workingDirOverride }
+      : undefined
+  );
+
+  // Sync local sshRemoteConfig state with wizard context when navigating back to this screen
+  // This ensures the dropdown reflects the saved SSH config when returning from later steps
+  useEffect(() => {
+    if (state.sessionSshRemoteConfig?.enabled && state.sessionSshRemoteConfig?.remoteId) {
+      setSshRemoteConfig({
+        enabled: true,
+        remoteId: state.sessionSshRemoteConfig.remoteId,
+        workingDirOverride: state.sessionSshRemoteConfig.workingDirOverride,
+      });
+    } else if (state.sessionSshRemoteConfig?.enabled === false) {
+      setSshRemoteConfig(undefined);
+    }
+  }, [state.sessionSshRemoteConfig?.enabled, state.sessionSshRemoteConfig?.remoteId, state.sessionSshRemoteConfig?.workingDirOverride]);
+
+  // SSH connection error state - shown when we can't connect to the selected remote
+  const [sshConnectionError, setSshConnectionError] = useState<string | null>(null);
 
   // Refs
   const containerRef = useRef<HTMLDivElement>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
   const tileRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
-  // Detect available agents on mount
+  // Detect available agents on mount and when SSH remote config changes
+  // Note: We use a ref to track selectedAgent to avoid re-running detection when user clicks tiles
+  const selectedAgentRef = useRef(state.selectedAgent);
+  selectedAgentRef.current = state.selectedAgent;
+
   useEffect(() => {
     let mounted = true;
 
     async function detectAgents() {
+      // Set detecting state when re-detecting due to SSH remote change
+      setIsDetecting(true);
+      // Clear any previous connection error
+      setSshConnectionError(null);
+
       try {
-        const agents = await window.maestro.agents.detect();
+        // Pass SSH remote ID if configured for remote agent detection
+        const sshRemoteId = sshRemoteConfig?.enabled ? sshRemoteConfig.remoteId : undefined;
+        const agents = await window.maestro.agents.detect(sshRemoteId ?? undefined);
         if (mounted) {
           // Filter out hidden agents (like terminal)
           const visibleAgents = agents.filter((a: AgentConfig) => !a.hidden);
+
+          // Check if all agents have connection errors (indicates SSH connection failure)
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const connectionErrors = visibleAgents.filter((a: any) => a.error).map((a: any) => a.error);
+          const allHaveErrors = sshRemoteConfig?.enabled && connectionErrors.length > 0 && visibleAgents.every((a: any) => a.error || !a.available);
+
+          if (allHaveErrors && connectionErrors.length > 0) {
+            // Extract the first meaningful error message
+            const errorMsg = connectionErrors[0];
+            setSshConnectionError(errorMsg);
+            setAnnouncement(`Unable to connect to remote host: ${errorMsg}`);
+            setAnnouncementKey((prev) => prev + 1);
+            setIsDetecting(false);
+            return;
+          }
+
           setDetectedAgents(visibleAgents);
           setAvailableAgents(visibleAgents);
 
@@ -347,25 +395,29 @@ export function AgentSelectionScreen({ theme }: AgentSelectionScreenProps): JSX.
           const availableCount = visibleAgents.filter((a: AgentConfig) => a.available).length;
           const totalCount = visibleAgents.length;
 
+          // Build announcement with SSH remote context
+          const remoteContext = sshRemoteConfig?.enabled ? ' on remote host' : '';
+
           // Auto-select Claude Code if it's available and nothing is selected
-          if (!state.selectedAgent) {
+          // Use ref to get current value without adding to dependencies
+          if (!selectedAgentRef.current) {
             const claudeCode = visibleAgents.find((a: AgentConfig) => a.id === 'claude-code' && a.available);
             if (claudeCode) {
               setSelectedAgent('claude-code');
               // Announce detection complete with auto-selection
               setAnnouncement(
-                `Agent detection complete. ${availableCount} of ${totalCount} agents available. Claude Code automatically selected.`
+                `Agent detection complete${remoteContext}. ${availableCount} of ${totalCount} agents available. Claude Code automatically selected.`
               );
             } else {
               // Announce detection complete without auto-selection
               setAnnouncement(
-                `Agent detection complete. ${availableCount} of ${totalCount} agents available.`
+                `Agent detection complete${remoteContext}. ${availableCount} of ${totalCount} agents available.`
               );
             }
           } else {
             // Announce detection complete (agent already selected from restore)
             setAnnouncement(
-              `Agent detection complete. ${availableCount} of ${totalCount} agents available.`
+              `Agent detection complete${remoteContext}. ${availableCount} of ${totalCount} agents available.`
             );
           }
           setAnnouncementKey((prev) => prev + 1);
@@ -375,6 +427,9 @@ export function AgentSelectionScreen({ theme }: AgentSelectionScreenProps): JSX.
       } catch (error) {
         console.error('Failed to detect agents:', error);
         if (mounted) {
+          if (sshRemoteConfig?.enabled) {
+            setSshConnectionError(error instanceof Error ? error.message : 'Unknown connection error');
+          }
           setAnnouncement('Failed to detect available agents. Please try again.');
           setAnnouncementKey((prev) => prev + 1);
           setIsDetecting(false);
@@ -384,7 +439,15 @@ export function AgentSelectionScreen({ theme }: AgentSelectionScreenProps): JSX.
 
     detectAgents();
 
-    // Load SSH remote configurations
+    return () => { mounted = false; };
+    // Only re-run detection when SSH remote config changes, not when selected agent changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [setAvailableAgents, setSelectedAgent, sshRemoteConfig?.enabled, sshRemoteConfig?.remoteId]);
+
+  // Load SSH remote configurations on mount
+  useEffect(() => {
+    let mounted = true;
+
     async function loadSshRemotes() {
       try {
         const configsResult = await window.maestro.sshRemote.getConfigs();
@@ -398,7 +461,7 @@ export function AgentSelectionScreen({ theme }: AgentSelectionScreenProps): JSX.
     loadSshRemotes();
 
     return () => { mounted = false; };
-  }, [setAvailableAgents, setSelectedAgent, state.selectedAgent]);
+  }, []);
 
   // Focus on mount - currently focus name field since only Claude is supported
   // TODO: When multiple agents are supported, focus the tiles instead
@@ -817,18 +880,6 @@ export function AgentSelectionScreen({ theme }: AgentSelectionScreenProps): JSX.
               showBuiltInEnvVars
             />
 
-            {/* SSH Remote Execution - at config view level */}
-            {sshRemotes.length > 0 && (
-              <div className="mt-3">
-                <SshRemoteSelector
-                  theme={theme}
-                  sshRemotes={sshRemotes}
-                  sshRemoteConfig={sshRemoteConfig}
-                  onSshRemoteConfigChange={setSshRemoteConfig}
-                  compact
-                />
-              </div>
-            )}
           </div>
         </div>
 
@@ -868,64 +919,173 @@ export function AgentSelectionScreen({ theme }: AgentSelectionScreenProps): JSX.
         politeness="polite"
       />
 
-      {/* Section 1: Header */}
-      <div className="text-center">
+      {/* Section 1: Header + Name/Location Row */}
+      <div className="flex flex-col items-center gap-4">
         <h3
-          className="text-2xl font-semibold mb-2"
+          className="text-2xl font-semibold"
           style={{ color: theme.colors.textMain }}
         >
-          Choose Your Provider
+          Create a Maestro Agent
         </h3>
+
+        {/* Name + Location Row */}
+        <div className="flex items-center gap-3">
+          <input
+            ref={nameInputRef}
+            id="project-name"
+            type="text"
+            value={state.agentName}
+            onChange={(e) => setAgentName(e.target.value)}
+            onFocus={() => setIsNameFieldFocused(true)}
+            onBlur={() => setIsNameFieldFocused(false)}
+            placeholder="Name your agent..."
+            className="w-64 px-4 py-2 rounded-lg border outline-none transition-all"
+            style={{
+              backgroundColor: theme.colors.bgMain,
+              borderColor: isNameFieldFocused ? theme.colors.accent : theme.colors.border,
+              color: theme.colors.textMain,
+              boxShadow: isNameFieldFocused ? `0 0 0 2px ${theme.colors.accent}40` : 'none',
+            }}
+            aria-label="Agent name"
+          />
+
+          {/* SSH Remote Location Dropdown - only shown if remotes are configured */}
+          {sshRemotes.length > 0 && (
+            <div className="flex items-center gap-2">
+              <span
+                className="text-sm"
+                style={{ color: theme.colors.textDim }}
+              >
+                on
+              </span>
+              <select
+                value={sshRemoteConfig?.enabled ? sshRemoteConfig.remoteId || '' : ''}
+                onChange={(e) => {
+                  const remoteId = e.target.value;
+                  if (remoteId === '') {
+                    // Local machine selected
+                    setSshRemoteConfig(undefined);
+                    // Also update wizard context immediately
+                    setWizardSessionSshRemoteConfig({ enabled: false, remoteId: null });
+                  } else {
+                    // Remote selected
+                    setSshRemoteConfig({
+                      enabled: true,
+                      remoteId,
+                    });
+                    // Also update wizard context immediately
+                    setWizardSessionSshRemoteConfig({
+                      enabled: true,
+                      remoteId,
+                    });
+                  }
+                }}
+                className="px-3 py-2 rounded-lg border outline-none transition-all cursor-pointer"
+                style={{
+                  backgroundColor: theme.colors.bgMain,
+                  borderColor: theme.colors.border,
+                  color: theme.colors.textMain,
+                  minWidth: '160px',
+                }}
+                aria-label="Agent location"
+              >
+                <option value="">Local Machine</option>
+                {sshRemotes.map((remote) => (
+                  <option key={remote.id} value={remote.id}>
+                    {remote.name || remote.host}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+
         <p
           className="text-sm"
           style={{ color: theme.colors.textDim }}
         >
-          Select the provider that will power your agent. Use arrow keys to navigate, Enter to select.
+          Select the provider that will power your agent.
         </p>
       </div>
 
-      {/* Section 2: Agent Grid */}
-      <div className="flex justify-center">
-        <div className="grid grid-cols-3 gap-4 max-w-3xl">
-          {AGENT_TILES.map((tile, index) => {
-            const isDetected = isAgentAvailable(tile.id);
-            const isSupported = tile.supported;
-            const canSelect = isSupported && isDetected;
-            const isSelected = state.selectedAgent === tile.id;
-            const isFocused = focusedTileIndex === index && !isNameFieldFocused;
+      {/* Section 2: Agent Grid or Connection Error */}
+      {sshConnectionError ? (
+        /* SSH Connection Error State */
+        <div className="flex justify-center">
+          <div
+            className="flex flex-col items-center justify-center p-8 rounded-xl border-2 max-w-lg text-center"
+            style={{
+              backgroundColor: `${theme.colors.error}10`,
+              borderColor: theme.colors.error,
+            }}
+          >
+            <AlertTriangle
+              className="w-12 h-12 mb-4"
+              style={{ color: theme.colors.error }}
+            />
+            <h4
+              className="text-lg font-semibold mb-2"
+              style={{ color: theme.colors.textMain }}
+            >
+              Unable to Connect
+            </h4>
+            <p
+              className="text-sm mb-4"
+              style={{ color: theme.colors.textDim }}
+            >
+              {sshConnectionError}
+            </p>
+            <p
+              className="text-sm"
+              style={{ color: theme.colors.textDim }}
+            >
+              Please select a different remote host or switch to Local Machine.
+            </p>
+          </div>
+        </div>
+      ) : (
+        /* Agent Grid */
+        <div className="flex justify-center">
+          <div className="grid grid-cols-3 gap-4 max-w-3xl">
+            {AGENT_TILES.map((tile, index) => {
+              const isDetected = isAgentAvailable(tile.id);
+              const isSupported = tile.supported;
+              const canSelect = isSupported && isDetected;
+              const isSelected = state.selectedAgent === tile.id;
+              const isFocused = focusedTileIndex === index && !isNameFieldFocused;
 
-            return (
-              <button
-                key={tile.id}
-                ref={(el) => { tileRefs.current[index] = el; }}
-                onClick={() => handleTileClick(tile, index)}
-                onFocus={() => {
-                  setFocusedTileIndex(index);
-                  setIsNameFieldFocused(false);
-                }}
-                disabled={!canSelect}
-                className={`
-                  relative flex flex-col items-center justify-center pt-6 px-6 pb-10 rounded-xl
-                  border-2 transition-all duration-200 outline-none min-w-[160px]
-                  ${canSelect ? 'cursor-pointer' : 'cursor-not-allowed'}
-                `}
-                style={{
-                  backgroundColor: isSelected
-                    ? `${tile.brandColor || theme.colors.accent}15`
-                    : theme.colors.bgSidebar,
-                  borderColor: isSelected
-                    ? tile.brandColor || theme.colors.accent
-                    : isFocused && canSelect
-                    ? theme.colors.accent
-                    : theme.colors.border,
-                  opacity: isSupported ? 1 : 0.5,
-                  boxShadow: isSelected
-                    ? `0 0 0 3px ${tile.brandColor || theme.colors.accent}30`
-                    : isFocused && canSelect
-                    ? `0 0 0 2px ${theme.colors.accent}40`
-                    : 'none',
-                }}
-                aria-label={`${tile.name}${canSelect ? '' : isSupported ? ' (not installed)' : ' (coming soon)'}`}
+              return (
+                <button
+                  key={tile.id}
+                  ref={(el) => { tileRefs.current[index] = el; }}
+                  onClick={() => handleTileClick(tile, index)}
+                  onFocus={() => {
+                    setFocusedTileIndex(index);
+                    setIsNameFieldFocused(false);
+                  }}
+                  disabled={!canSelect}
+                  className={`
+                    relative flex flex-col items-center justify-center pt-6 px-6 pb-10 rounded-xl
+                    border-2 transition-all duration-200 outline-none min-w-[160px]
+                    ${canSelect ? 'cursor-pointer' : 'cursor-not-allowed'}
+                  `}
+                  style={{
+                    backgroundColor: isSelected
+                      ? `${tile.brandColor || theme.colors.accent}15`
+                      : theme.colors.bgSidebar,
+                    borderColor: isSelected
+                      ? tile.brandColor || theme.colors.accent
+                      : isFocused && canSelect
+                      ? theme.colors.accent
+                      : theme.colors.border,
+                    opacity: isSupported ? 1 : 0.5,
+                    boxShadow: isSelected
+                      ? `0 0 0 3px ${tile.brandColor || theme.colors.accent}30`
+                      : isFocused && canSelect
+                      ? `0 0 0 2px ${theme.colors.accent}40`
+                      : 'none',
+                  }}
+                  aria-label={`${tile.name}${canSelect ? '' : isSupported ? ' (not installed)' : ' (coming soon)'}`}
                 aria-pressed={isSelected}
               >
                 {/* Selection indicator */}
@@ -1034,95 +1194,70 @@ export function AgentSelectionScreen({ theme }: AgentSelectionScreenProps): JSX.
                     Customize
                   </div>
                 )}
-              </button>
-            );
-          })}
+                </button>
+              );
+            })}
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* Section 3: Name Your Agent - Prominent */}
-      <div className="flex flex-col items-center">
-        <label
-          htmlFor="project-name"
-          className="text-2xl font-semibold mb-4"
-          style={{ color: theme.colors.textMain }}
+      {/* Section 3: Continue Button + Keyboard hints */}
+      <div className="flex flex-col items-center gap-4">
+        <button
+          onClick={handleContinue}
+          disabled={!canProceedToNext()}
+          className="px-8 py-2.5 rounded-lg font-medium transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 whitespace-nowrap"
+          style={{
+            backgroundColor: canProceedToNext() ? theme.colors.accent : theme.colors.border,
+            color: canProceedToNext() ? theme.colors.accentForeground : theme.colors.textDim,
+            cursor: canProceedToNext() ? 'pointer' : 'not-allowed',
+            opacity: canProceedToNext() ? 1 : 0.6,
+            ['--tw-ring-color' as any]: theme.colors.accent,
+            ['--tw-ring-offset-color' as any]: theme.colors.bgMain,
+          }}
         >
-          Name Your Agent
-        </label>
-        <div className="flex items-center gap-4">
-          <input
-            ref={nameInputRef}
-            id="project-name"
-            type="text"
-            value={state.agentName}
-            onChange={(e) => setAgentName(e.target.value)}
-            onFocus={() => setIsNameFieldFocused(true)}
-            onBlur={() => setIsNameFieldFocused(false)}
-            placeholder=""
-            className="w-72 px-4 py-2.5 rounded-lg border outline-none transition-all text-center"
-            style={{
-              backgroundColor: theme.colors.bgMain,
-              borderColor: isNameFieldFocused ? theme.colors.accent : theme.colors.border,
-              color: theme.colors.textMain,
-              boxShadow: isNameFieldFocused ? `0 0 0 2px ${theme.colors.accent}40` : 'none',
-            }}
-          />
-          <button
-            onClick={handleContinue}
-            disabled={!canProceedToNext()}
-            className="px-8 py-2.5 rounded-lg font-medium transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 whitespace-nowrap"
-            style={{
-              backgroundColor: canProceedToNext() ? theme.colors.accent : theme.colors.border,
-              color: canProceedToNext() ? theme.colors.accentForeground : theme.colors.textDim,
-              cursor: canProceedToNext() ? 'pointer' : 'not-allowed',
-              opacity: canProceedToNext() ? 1 : 0.6,
-              ['--tw-ring-color' as any]: theme.colors.accent,
-              ['--tw-ring-offset-color' as any]: theme.colors.bgMain,
-            }}
-          >
-            Continue
-          </button>
-        </div>
-      </div>
-
-      {/* Section 4: Keyboard hints (footer) */}
-      <div className="flex justify-center gap-6">
-        <span
-          className="text-xs flex items-center gap-1"
-          style={{ color: theme.colors.textDim }}
-        >
-          <kbd
-            className="px-1.5 py-0.5 rounded text-xs"
-            style={{ backgroundColor: theme.colors.border }}
-          >
-            ← → ↑ ↓
-          </kbd>
-          Navigate
-        </span>
-        <span
-          className="text-xs flex items-center gap-1"
-          style={{ color: theme.colors.textDim }}
-        >
-          <kbd
-            className="px-1.5 py-0.5 rounded text-xs"
-            style={{ backgroundColor: theme.colors.border }}
-          >
-            Tab
-          </kbd>
-          Name field
-        </span>
-        <span
-          className="text-xs flex items-center gap-1"
-          style={{ color: theme.colors.textDim }}
-        >
-          <kbd
-            className="px-1.5 py-0.5 rounded text-xs"
-            style={{ backgroundColor: theme.colors.border }}
-          >
-            Enter
-          </kbd>
           Continue
-        </span>
+        </button>
+
+        {/* Keyboard hints */}
+        <div className="flex justify-center gap-6">
+          <span
+            className="text-xs flex items-center gap-1"
+            style={{ color: theme.colors.textDim }}
+          >
+            <kbd
+              className="px-1.5 py-0.5 rounded text-xs"
+              style={{ backgroundColor: theme.colors.border }}
+            >
+              ← → ↑ ↓
+            </kbd>
+            Navigate
+          </span>
+          <span
+            className="text-xs flex items-center gap-1"
+            style={{ color: theme.colors.textDim }}
+          >
+            <kbd
+              className="px-1.5 py-0.5 rounded text-xs"
+              style={{ backgroundColor: theme.colors.border }}
+            >
+              Tab
+            </kbd>
+            Fields
+          </span>
+          <span
+            className="text-xs flex items-center gap-1"
+            style={{ color: theme.colors.textDim }}
+          >
+            <kbd
+              className="px-1.5 py-0.5 rounded text-xs"
+              style={{ backgroundColor: theme.colors.border }}
+            >
+              Enter
+            </kbd>
+            Continue
+          </span>
+        </div>
       </div>
     </div>
   );

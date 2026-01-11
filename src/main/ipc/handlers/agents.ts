@@ -1,10 +1,13 @@
 import { ipcMain } from 'electron';
 import Store from 'electron-store';
-import { AgentDetector } from '../../agent-detector';
+import { AgentDetector, AGENT_DEFINITIONS } from '../../agent-detector';
 import { getAgentCapabilities } from '../../agent-capabilities';
 import { execFileNoThrow } from '../../utils/execFile';
 import { logger } from '../../utils/logger';
 import { withIpcErrorLogging, requireDependency, CreateHandlerOptions } from '../../utils/ipcHandler';
+import { buildSshCommand, RemoteCommandOptions } from '../../utils/ssh-command-builder';
+import { SshRemoteConfig } from '../../../shared/types';
+import { MaestroSettings } from './persistence';
 
 const LOG_CONTEXT = '[AgentDetector]';
 const CONFIG_LOG_CONTEXT = '[AgentConfig]';
@@ -28,6 +31,33 @@ interface AgentConfigsData {
 export interface AgentsHandlerDependencies {
   getAgentDetector: () => AgentDetector | null;
   agentConfigsStore: Store<AgentConfigsData>;
+  /** The settings store (MaestroSettings) - required for SSH remote lookup */
+  settingsStore?: Store<MaestroSettings>;
+}
+
+/**
+ * Get SSH remote configuration by ID from the settings store.
+ * Returns undefined if not found or store not provided.
+ * Note: Does not check the 'enabled' flag - if user explicitly selects a remote, we should try to use it.
+ */
+function getSshRemoteById(
+  store: Store<MaestroSettings> | undefined,
+  sshRemoteId: string
+): SshRemoteConfig | undefined {
+  if (!store) {
+    logger.warn(`${LOG_CONTEXT} Settings store not available for SSH remote lookup`, LOG_CONTEXT);
+    return undefined;
+  }
+
+  const sshRemotes = store.get('sshRemotes', []) as SshRemoteConfig[];
+  const config = sshRemotes.find((r) => r.id === sshRemoteId);
+
+  if (!config) {
+    logger.warn(`${LOG_CONTEXT} SSH remote not found: ${sshRemoteId}`, LOG_CONTEXT);
+    return undefined;
+  }
+
+  return config;
 }
 
 /**
@@ -59,6 +89,89 @@ function stripAgentFunctions(agent: any) {
 }
 
 /**
+ * Detect agents on a remote SSH host.
+ * Uses 'which' command over SSH to check for agent binaries.
+ * Includes a timeout to handle unreachable hosts gracefully.
+ */
+async function detectAgentsRemote(sshRemote: SshRemoteConfig): Promise<any[]> {
+  const agents = [];
+  const SSH_TIMEOUT_MS = 10000; // 10 second timeout per agent check
+
+  // Track if we've had any successful connection to detect unreachable hosts
+  let connectionSucceeded = false;
+  let connectionError: string | undefined;
+
+  for (const agentDef of AGENT_DEFINITIONS) {
+    // Build SSH command to check for the binary using 'which'
+    const remoteOptions: RemoteCommandOptions = {
+      command: 'which',
+      args: [agentDef.binaryName],
+    };
+
+    try {
+      const sshCommand = await buildSshCommand(sshRemote, remoteOptions);
+
+      // Execute with timeout
+      const resultPromise = execFileNoThrow(sshCommand.command, sshCommand.args);
+      const timeoutPromise = new Promise<{ exitCode: number; stdout: string; stderr: string }>((_, reject) => {
+        setTimeout(() => reject(new Error(`SSH connection timed out after ${SSH_TIMEOUT_MS / 1000}s`)), SSH_TIMEOUT_MS);
+      });
+
+      const result = await Promise.race([resultPromise, timeoutPromise]);
+
+      // Check for SSH connection errors in stderr
+      if (result.stderr && (
+        result.stderr.includes('Connection refused') ||
+        result.stderr.includes('Connection timed out') ||
+        result.stderr.includes('No route to host') ||
+        result.stderr.includes('Could not resolve hostname') ||
+        result.stderr.includes('Permission denied')
+      )) {
+        connectionError = result.stderr.trim().split('\n')[0];
+        logger.warn(`SSH connection error for ${sshRemote.host}: ${connectionError}`, LOG_CONTEXT);
+      } else if (result.exitCode === 0 || result.exitCode === 1) {
+        // Exit code 0 = found, 1 = not found (both indicate successful connection)
+        connectionSucceeded = true;
+      }
+
+      const available = result.exitCode === 0 && result.stdout.trim().length > 0;
+      const path = available ? result.stdout.trim().split('\n')[0] : undefined;
+
+      if (available) {
+        logger.info(`Agent "${agentDef.name}" found on remote at: ${path}`, LOG_CONTEXT);
+      } else {
+        logger.debug(`Agent "${agentDef.name}" not found on remote`, LOG_CONTEXT);
+      }
+
+      agents.push({
+        ...agentDef,
+        available,
+        path,
+        capabilities: getAgentCapabilities(agentDef.id),
+        error: connectionError,
+      });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      connectionError = errorMessage;
+      logger.warn(`Failed to check agent "${agentDef.name}" on remote: ${errorMessage}`, LOG_CONTEXT);
+      agents.push({
+        ...agentDef,
+        available: false,
+        capabilities: getAgentCapabilities(agentDef.id),
+        error: `Failed to connect: ${errorMessage}`,
+      });
+    }
+  }
+
+  // If no connection succeeded and we have an error, log a summary
+  if (!connectionSucceeded && connectionError) {
+    logger.error(`Failed to connect to SSH remote ${sshRemote.host}: ${connectionError}`, LOG_CONTEXT);
+  }
+
+  return agents;
+}
+
+/**
  * Register all Agent-related IPC handlers.
  *
  * These handlers provide agent detection and configuration management:
@@ -67,12 +180,35 @@ function stripAgentFunctions(agent: any) {
  * - Custom paths: setCustomPath, getCustomPath, getAllCustomPaths
  */
 export function registerAgentsHandlers(deps: AgentsHandlerDependencies): void {
-  const { getAgentDetector, agentConfigsStore } = deps;
+  const { getAgentDetector, agentConfigsStore, settingsStore } = deps;
 
-  // Detect all available agents
+  // Detect all available agents (supports SSH remote detection via optional sshRemoteId)
   ipcMain.handle(
     'agents:detect',
-    withIpcErrorLogging(handlerOpts('detect'), async () => {
+    withIpcErrorLogging(handlerOpts('detect'), async (sshRemoteId?: string) => {
+      // If SSH remote ID provided, detect agents on remote host
+      if (sshRemoteId) {
+        const sshConfig = getSshRemoteById(settingsStore, sshRemoteId);
+        if (!sshConfig) {
+          // Return all agents as unavailable with error info instead of throwing
+          logger.warn(`SSH remote not found or disabled: ${sshRemoteId}, returning unavailable agents`, LOG_CONTEXT);
+          return AGENT_DEFINITIONS.map((agentDef) => stripAgentFunctions({
+            ...agentDef,
+            available: false,
+            path: undefined,
+            capabilities: getAgentCapabilities(agentDef.id),
+            error: `SSH remote configuration not found: ${sshRemoteId}`,
+          }));
+        }
+        logger.info(`Detecting agents on remote host: ${sshConfig.host}`, LOG_CONTEXT);
+        const agents = await detectAgentsRemote(sshConfig);
+        logger.info(`Detected ${agents.filter((a: any) => a.available).length} agents on remote`, LOG_CONTEXT, {
+          agents: agents.map((a: any) => a.id),
+        });
+        return agents.map(stripAgentFunctions);
+      }
+
+      // Local detection
       const agentDetector = requireDependency(getAgentDetector, 'Agent detector');
       logger.info('Detecting available agents', LOG_CONTEXT);
       const agents = await agentDetector.detectAgents();

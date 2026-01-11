@@ -2437,5 +2437,135 @@ describe('NewInstanceModal', () => {
       expect(sourceSession.sessionSshRemoteConfig?.remoteId).toBe('remote-1');
       expect(sourceSession.sessionSshRemoteConfig?.workingDirOverride).toBe('/custom/path');
     });
+
+    it('should re-detect agents when SSH remote selection changes', async () => {
+      const detectMock = vi.mocked(window.maestro.agents.detect);
+
+      // Initial detection returns local agents
+      detectMock.mockResolvedValue([
+        createAgentConfig({ id: 'claude-code', name: 'Claude Code', available: true }),
+        createAgentConfig({ id: 'opencode', name: 'OpenCode', available: true }),
+      ]);
+
+      vi.mocked(window.maestro.sshRemote.getConfigs).mockResolvedValue({
+        success: true,
+        configs: [{
+          id: 'remote-1',
+          name: 'Test Server',
+          host: 'test.example.com',
+          port: 22,
+          username: 'testuser',
+          privateKeyPath: '/path/to/key',
+          enabled: true,
+        }],
+      });
+
+      render(
+        <NewInstanceModal
+          isOpen={true}
+          onClose={onClose}
+          onCreate={onCreate}
+          theme={theme}
+          existingSessions={[]}
+        />
+      );
+
+      // Wait for initial detection
+      await waitFor(() => {
+        expect(detectMock).toHaveBeenCalledWith(undefined);
+      });
+
+      // Record the call count after initial detection
+      const initialCallCount = detectMock.mock.calls.length;
+
+      // Mock remote detection (claude available, opencode not)
+      detectMock.mockResolvedValue([
+        createAgentConfig({ id: 'claude-code', name: 'Claude Code', available: true }),
+        createAgentConfig({ id: 'opencode', name: 'OpenCode', available: false }),
+      ]);
+
+      // Wait for SSH selector to be available
+      await waitFor(() => {
+        expect(screen.getByText('SSH Remote Execution')).toBeInTheDocument();
+      });
+
+      // Select the SSH remote
+      const localButton = screen.getByRole('button', { name: /local execution/i });
+      const dropdown = localButton.closest('div')?.querySelector('select');
+      if (dropdown) {
+        fireEvent.change(dropdown, { target: { value: 'remote-1' } });
+      }
+
+      // Detection should be called again with the SSH remote ID
+      await waitFor(() => {
+        expect(detectMock.mock.calls.length).toBeGreaterThan(initialCallCount);
+        expect(detectMock).toHaveBeenCalledWith('remote-1');
+      });
+    });
+
+    it('should show connection error when SSH remote is unreachable', async () => {
+      // Mock detection to return agents with errors when SSH remote is used
+      vi.mocked(window.maestro.agents.detect).mockImplementation(async (sshRemoteId?: string) => {
+        if (sshRemoteId === 'unreachable-remote') {
+          return [
+            { ...createAgentConfig({ id: 'claude-code', name: 'Claude Code', available: false }), error: 'Connection refused' },
+            { ...createAgentConfig({ id: 'opencode', name: 'OpenCode', available: false }), error: 'Connection refused' },
+          ];
+        }
+        return [
+          createAgentConfig({ id: 'claude-code', name: 'Claude Code', available: true }),
+          createAgentConfig({ id: 'opencode', name: 'OpenCode', available: true }),
+        ];
+      });
+
+      vi.mocked(window.maestro.sshRemote.getConfigs).mockResolvedValue({
+        success: true,
+        configs: [{
+          id: 'unreachable-remote',
+          name: 'Unreachable Server',
+          host: 'unreachable.example.com',
+          port: 22,
+          username: 'testuser',
+          privateKeyPath: '/path/to/key',
+          enabled: true,
+        }],
+      });
+
+      render(
+        <NewInstanceModal
+          isOpen={true}
+          onClose={onClose}
+          onCreate={onCreate}
+          theme={theme}
+          existingSessions={[]}
+        />
+      );
+
+      // Wait for initial load
+      await waitFor(() => {
+        expect(screen.getByText('Available')).toBeInTheDocument();
+      });
+
+      // Wait for SSH selector
+      await waitFor(() => {
+        expect(screen.getByText('SSH Remote Execution')).toBeInTheDocument();
+      });
+
+      // Select the unreachable SSH remote
+      const localButton = screen.getByRole('button', { name: /local execution/i });
+      const dropdown = localButton.closest('div')?.querySelector('select');
+      if (dropdown) {
+        fireEvent.change(dropdown, { target: { value: 'unreachable-remote' } });
+      }
+
+      // Wait for connection error to appear
+      await waitFor(() => {
+        expect(screen.getByText('Unable to Connect')).toBeInTheDocument();
+        expect(screen.getByText('Connection refused')).toBeInTheDocument();
+      });
+
+      // Agent list should not be visible
+      expect(screen.queryByText('Claude Code')).not.toBeInTheDocument();
+    });
   });
 });

@@ -1082,6 +1082,7 @@ function setupIpcHandlers() {
   registerAgentsHandlers({
     getAgentDetector: () => agentDetector,
     agentConfigsStore,
+    settingsStore: store,
   });
 
   // Process management operations - extracted to src/main/ipc/handlers/process.ts

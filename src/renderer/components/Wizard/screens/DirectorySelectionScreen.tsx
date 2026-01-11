@@ -14,6 +14,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import type { Theme, AgentConfig } from '../../../types';
+import type { SshRemoteConfig } from '../../../../shared/types';
 import { useWizard } from '../WizardContext';
 import { ScreenReaderAnnouncement } from '../ScreenReaderAnnouncement';
 import { ExistingDocsModal } from '../ExistingDocsModal';
@@ -45,6 +46,7 @@ export function DirectorySelectionScreen({ theme }: DirectorySelectionScreenProp
   const [isDetecting, setIsDetecting] = useState(true);
   const [agentConfig, setAgentConfig] = useState<AgentConfig | null>(null);
   const [showExistingDocsModal, setShowExistingDocsModal] = useState(false);
+  const [sshRemoteHost, setSshRemoteHost] = useState<string | null>(null);
 
   // Screen reader announcement state
   const [announcement, setAnnouncement] = useState('');
@@ -122,12 +124,51 @@ export function DirectorySelectionScreen({ theme }: DirectorySelectionScreenProp
   }, []);
 
   /**
+   * Load SSH remote host name when remote is configured
+   */
+  useEffect(() => {
+    if (!state.sessionSshRemoteConfig?.enabled || !state.sessionSshRemoteConfig?.remoteId) {
+      setSshRemoteHost(null);
+      return;
+    }
+
+    async function loadSshRemoteHost() {
+      try {
+        const configsResult = await window.maestro.sshRemote.getConfigs();
+        if (configsResult.success && configsResult.configs) {
+          const remote = configsResult.configs.find(
+            (r: SshRemoteConfig) => r.id === state.sessionSshRemoteConfig?.remoteId
+          );
+          if (remote) {
+            setSshRemoteHost(remote.name || remote.host);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load SSH remote config:', error);
+      }
+    }
+
+    loadSshRemoteHost();
+  }, [state.sessionSshRemoteConfig?.enabled, state.sessionSshRemoteConfig?.remoteId]);
+
+  /**
+   * Get the SSH remote ID from wizard state (if configured)
+   */
+  const getSshRemoteId = useCallback((): string | undefined => {
+    if (state.sessionSshRemoteConfig?.enabled && state.sessionSshRemoteConfig?.remoteId) {
+      return state.sessionSshRemoteConfig.remoteId;
+    }
+    return undefined;
+  }, [state.sessionSshRemoteConfig]);
+
+  /**
    * Check if Auto Run Docs folder exists in the given path
    */
   const checkForExistingDocs = useCallback(async (dirPath: string): Promise<{ exists: boolean; count: number }> => {
     try {
       const autoRunPath = `${dirPath}/${AUTO_RUN_FOLDER_NAME}`;
-      const result = await window.maestro.autorun.listDocs(autoRunPath);
+      const sshRemoteId = getSshRemoteId();
+      const result = await window.maestro.autorun.listDocs(autoRunPath, sshRemoteId);
       if (result.success && result.files && result.files.length > 0) {
         return { exists: true, count: result.files.length };
       }
@@ -136,7 +177,7 @@ export function DirectorySelectionScreen({ theme }: DirectorySelectionScreenProp
       // Folder doesn't exist or error reading it
       return { exists: false, count: 0 };
     }
-  }, []);
+  }, [getSshRemoteId]);
 
   /**
    * Validate directory and check Git repo status
@@ -153,9 +194,29 @@ export function DirectorySelectionScreen({ theme }: DirectorySelectionScreenProp
     setDirectoryError(null);
 
     try {
-      // Check if path exists by attempting to read it
-      // The git.isRepo check will fail if the directory doesn't exist
-      const isRepo = await window.maestro.git.isRepo(path);
+      // First, verify the directory exists by attempting to read it
+      // This will throw if the directory doesn't exist or is inaccessible
+      const sshRemoteId = getSshRemoteId();
+      try {
+        await window.maestro.fs.readDir(path, sshRemoteId);
+      } catch (dirError) {
+        // Directory doesn't exist or can't be accessed
+        console.error('Directory does not exist:', dirError);
+        setDirectoryError('Directory not found. Please check the path exists.');
+        setIsGitRepo(false);
+        setHasExistingAutoRunDocs(false, 0);
+
+        // Announce error
+        if (shouldAnnounce) {
+          setAnnouncement('Error: Directory not found. Please check the path exists.');
+          setAnnouncementKey((prev) => prev + 1);
+        }
+        setIsValidating(false);
+        return;
+      }
+
+      // Directory exists, now check if it's a git repo
+      const isRepo = await window.maestro.git.isRepo(path, sshRemoteId);
       setIsGitRepo(isRepo);
       setDirectoryError(null);
 
@@ -189,7 +250,7 @@ export function DirectorySelectionScreen({ theme }: DirectorySelectionScreenProp
     }
 
     setIsValidating(false);
-  }, [setIsGitRepo, setDirectoryError, setHasExistingAutoRunDocs, checkForExistingDocs, state.existingDocsChoice]);
+  }, [setIsGitRepo, setDirectoryError, setHasExistingAutoRunDocs, checkForExistingDocs, state.existingDocsChoice, getSshRemoteId]);
 
   /**
    * Focus input on mount (after detection completes)
@@ -260,7 +321,8 @@ export function DirectorySelectionScreen({ theme }: DirectorySelectionScreenProp
     // Check if Auto Run Docs folder exists and has files
     try {
       const autoRunPath = `${state.directoryPath}/${AUTO_RUN_FOLDER_NAME}`;
-      const result = await window.maestro.autorun.listDocs(autoRunPath);
+      const sshRemoteId = getSshRemoteId();
+      const result = await window.maestro.autorun.listDocs(autoRunPath, sshRemoteId);
       const docs = result.success ? result.files : [];
 
       if (docs && docs.length > 0) {
@@ -274,7 +336,7 @@ export function DirectorySelectionScreen({ theme }: DirectorySelectionScreenProp
     }
 
     nextStep();
-  }, [canProceedToNext, nextStep, state.directoryPath, state.existingDocsChoice, setHasExistingAutoRunDocs]);
+  }, [canProceedToNext, nextStep, state.directoryPath, state.existingDocsChoice, setHasExistingAutoRunDocs, getSshRemoteId]);
 
   /**
    * Handle "Start Fresh" choice - docs already deleted by modal
@@ -369,6 +431,7 @@ export function DirectorySelectionScreen({ theme }: DirectorySelectionScreenProp
 
   const isValid = canProceedToNext();
   const showContinue = state.directoryPath.trim() !== '';
+  const isRemoteSession = !!state.sessionSshRemoteConfig?.enabled;
 
   return (
     <div
@@ -460,7 +523,10 @@ export function DirectorySelectionScreen({ theme }: DirectorySelectionScreenProp
                 type="text"
                 value={state.directoryPath}
                 onChange={handlePathChange}
-                placeholder="/path/to/your/project"
+                placeholder={isRemoteSession
+                  ? `Enter path on ${sshRemoteHost || 'remote host'} (e.g., /home/user/project)`
+                  : '/path/to/your/project'
+                }
                 className="flex-1 px-4 py-3 rounded-lg border text-base outline-none transition-all font-mono"
                 style={{
                   backgroundColor: theme.colors.bgMain,
@@ -477,47 +543,73 @@ export function DirectorySelectionScreen({ theme }: DirectorySelectionScreenProp
                 aria-invalid={!!state.directoryError}
                 aria-describedby={state.directoryError ? 'directory-error' : undefined}
               />
-              <button
-                ref={browseButtonRef}
-                onClick={handleBrowse}
-                disabled={isBrowsing}
-                className="px-6 py-3 rounded-lg font-medium transition-all flex items-center gap-2 focus:outline-none focus:ring-2 focus:ring-offset-2"
-                style={{
-                  backgroundColor: theme.colors.accent,
-                  color: theme.colors.accentForeground,
-                  opacity: isBrowsing ? 0.7 : 1,
-                  ['--tw-ring-color' as any]: theme.colors.accent,
-                  ['--tw-ring-offset-color' as any]: theme.colors.bgMain,
-                }}
-              >
-                {isBrowsing ? (
-                  <>
-                    <div
-                      className="w-4 h-4 border-2 border-t-transparent rounded-full animate-spin"
-                      style={{ borderColor: theme.colors.accentForeground, borderTopColor: 'transparent' }}
-                    />
-                    <span>Opening...</span>
-                  </>
-                ) : (
-                  <>
-                    <svg
-                      className="w-5 h-5"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
+              {/* Browse button - hidden for remote sessions */}
+              {!isRemoteSession && (
+                <button
+                  ref={browseButtonRef}
+                  onClick={handleBrowse}
+                  disabled={isBrowsing}
+                  className="px-6 py-3 rounded-lg font-medium transition-all flex items-center gap-2 focus:outline-none focus:ring-2 focus:ring-offset-2"
+                  style={{
+                    backgroundColor: theme.colors.accent,
+                    color: theme.colors.accentForeground,
+                    opacity: isBrowsing ? 0.7 : 1,
+                    ['--tw-ring-color' as any]: theme.colors.accent,
+                    ['--tw-ring-offset-color' as any]: theme.colors.bgMain,
+                  }}
+                >
+                  {isBrowsing ? (
+                    <>
+                      <div
+                        className="w-4 h-4 border-2 border-t-transparent rounded-full animate-spin"
+                        style={{ borderColor: theme.colors.accentForeground, borderTopColor: 'transparent' }}
                       />
-                    </svg>
-                    <span>Browse</span>
-                  </>
-                )}
-              </button>
+                      <span>Opening...</span>
+                    </>
+                  ) : (
+                    <>
+                      <svg
+                        className="w-5 h-5"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
+                        />
+                      </svg>
+                      <span>Browse</span>
+                    </>
+                  )}
+                </button>
+              )}
             </div>
+
+            {/* Remote session hint */}
+            {isRemoteSession && (
+              <p
+                className="mt-2 text-xs flex items-center gap-1.5"
+                style={{ color: theme.colors.textDim }}
+              >
+                <svg
+                  className="w-4 h-4 flex-shrink-0"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"
+                  />
+                </svg>
+                Enter the full path on <strong>{sshRemoteHost || 'the remote host'}</strong> — path will be validated as you type
+              </p>
+            )}
 
             {/* Error message */}
             {state.directoryError && (

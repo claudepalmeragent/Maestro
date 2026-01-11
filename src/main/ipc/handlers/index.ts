@@ -129,6 +129,7 @@ export function registerAllHandlers(deps: HandlerDependencies): void {
   registerAgentsHandlers({
     getAgentDetector: deps.getAgentDetector,
     agentConfigsStore: deps.agentConfigsStore,
+    settingsStore: deps.settingsStore,
   });
   registerProcessHandlers({
     getProcessManager: deps.getProcessManager,
