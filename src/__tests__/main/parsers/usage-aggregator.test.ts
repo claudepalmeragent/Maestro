@@ -166,24 +166,38 @@ describe('calculateContextTokens', () => {
 		...overrides,
 	});
 
-	it('should exclude output tokens for Claude agents', () => {
+	it('should exclude output tokens and cacheReadInputTokens for Claude agents', () => {
 		const stats = createStats();
 		const result = calculateContextTokens(stats, 'claude-code');
-		// 10000 + 1000 + 2000 = 13000 (no output tokens)
-		expect(result).toBe(13000);
+		// 10000 + 1000 = 11000 (no output tokens, no cacheRead - cumulative)
+		expect(result).toBe(11000);
 	});
 
-	it('should include output tokens for Codex agents', () => {
+	it('should include output tokens but exclude cacheReadInputTokens for Codex agents', () => {
 		const stats = createStats();
 		const result = calculateContextTokens(stats, 'codex');
-		// 10000 + 5000 + 1000 + 2000 = 18000 (includes output)
-		expect(result).toBe(18000);
+		// 10000 + 5000 + 1000 = 16000 (includes output, excludes cacheRead)
+		expect(result).toBe(16000);
 	});
 
 	it('should default to Claude behavior when agent is undefined', () => {
 		const stats = createStats();
 		const result = calculateContextTokens(stats);
-		expect(result).toBe(13000);
+		// 10000 + 1000 = 11000 (excludes cacheRead)
+		expect(result).toBe(11000);
+	});
+
+	it('should exclude cacheReadInputTokens because they are cumulative session totals', () => {
+		// cacheReadInputTokens accumulate across all turns in a session and can
+		// exceed the context window. Including them would cause context % > 100%.
+		const stats = createStats({
+			inputTokens: 5000,
+			cacheCreationInputTokens: 1000,
+			cacheReadInputTokens: 500000, // Very high cumulative value
+		});
+		const result = calculateContextTokens(stats, 'claude-code');
+		// Should only be 5000 + 1000 = 6000, NOT 506000
+		expect(result).toBe(6000);
 	});
 });
 

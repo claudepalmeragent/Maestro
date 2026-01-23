@@ -34,6 +34,7 @@ import { AgentSessionsBrowser } from './AgentSessionsBrowser';
 import { TabBar } from './TabBar';
 import { WizardConversationView, DocumentGenerationView } from './InlineWizard';
 import { gitService } from '../services/git';
+import { remoteUrlToBrowserUrl } from '../../shared/gitUtils';
 import { useGitBranch, useGitDetail, useGitFileStatus } from '../contexts/GitStatusContext';
 import { formatShortcutKeys } from '../utils/shortcutFormatter';
 import { calculateContextTokens } from '../utils/contextUsage';
@@ -939,10 +940,8 @@ export const MainPanel = React.memo(
 																		<button
 																			onClick={(e) => {
 																				e.stopPropagation();
-																				const url = gitInfo.remote.startsWith('http')
-																					? gitInfo.remote
-																					: `https://${gitInfo.remote}`;
-																				window.open(url.replace(/\.git$/, ''), '_blank');
+																				const url = remoteUrlToBrowserUrl(gitInfo.remote);
+																				if (url) window.open(url, '_blank');
 																			}}
 																			className="text-xs font-mono truncate hover:underline text-left"
 																			style={{ color: theme.colors.textMain }}

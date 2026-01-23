@@ -1017,11 +1017,13 @@ function MaestroConsoleInner() {
 			}
 
 			// Sessions must have aiTabs - if missing, this is a data corruption issue
+			// Create a default tab to prevent crashes when code calls .find() on aiTabs
 			if (!session.aiTabs || session.aiTabs.length === 0) {
 				console.error(
-					'[restoreSession] Session has no aiTabs - data corruption, skipping:',
+					'[restoreSession] Session has no aiTabs - data corruption, creating default tab:',
 					session.id
 				);
+				const defaultTabId = generateId();
 				return {
 					...session,
 					aiPid: -1,
@@ -1029,6 +1031,27 @@ function MaestroConsoleInner() {
 					state: 'error' as SessionState,
 					isLive: false,
 					liveUrl: undefined,
+					aiTabs: [
+						{
+							id: defaultTabId,
+							agentSessionId: null,
+							name: null,
+							state: 'idle' as const,
+							logs: [
+								{
+									id: generateId(),
+									timestamp: Date.now(),
+									source: 'system' as const,
+									text: '⚠️ Session data was corrupted and has been recovered with a new tab.',
+								},
+							],
+							starred: false,
+							inputValue: '',
+							stagedImages: [],
+							createdAt: Date.now(),
+						},
+					],
+					activeTabId: defaultTabId,
 				};
 			}
 
@@ -1983,11 +2006,19 @@ function MaestroConsoleInner() {
 						}
 
 						// Create a short summary from the last AI response
+						// Skip conversational fillers like "Excellent!", "Perfect!", etc.
 						let summary = '';
 						if (lastAiLog?.text) {
 							const text = lastAiLog.text.trim();
 							if (text.length > 10) {
-								const firstSentence = text.match(/^[^.!?\n]*[.!?]/)?.[0] || text.substring(0, 120);
+								// Match sentences (text ending with . ! or ?)
+								const sentences = text.match(/[^.!?\n]+[.!?]+/g) || [];
+								// Pattern to detect conversational filler sentences
+								const fillerPattern =
+									/^(excellent|perfect|great|awesome|wonderful|fantastic|good|nice|cool|done|ok|okay|alright|sure|yes|yeah|absolutely|certainly|definitely|looks?\s+good|all\s+(set|done|ready)|got\s+it|understood|will\s+do|on\s+it|no\s+problem|no\s+worries|happy\s+to\s+help)[!.\s]*$/i;
+								// Find the first non-filler sentence
+								const meaningfulSentence = sentences.find((s) => !fillerPattern.test(s.trim()));
+								const firstSentence = meaningfulSentence?.trim() || text.substring(0, 120);
 								summary =
 									firstSentence.length < text.length
 										? firstSentence
@@ -2314,11 +2345,17 @@ function MaestroConsoleInner() {
 				// Fire side effects AFTER state update (outside the updater function)
 				// Record stats for any completed query (even if we have queued items to process next)
 				if (toastData?.startTime && toastData?.agentType) {
+					// Determine if this query was part of an Auto Run session
+					const sessionIdForStats = toastData.sessionId || actualSessionId;
+					const isAutoRunQuery = getBatchStateRef.current
+						? getBatchStateRef.current(sessionIdForStats).isRunning
+						: false;
+
 					window.maestro.stats
 						.recordQuery({
-							sessionId: toastData.sessionId || actualSessionId,
+							sessionId: sessionIdForStats,
 							agentType: toastData.agentType,
-							source: 'user', // Interactive queries are always user-initiated
+							source: isAutoRunQuery ? 'auto' : 'user',
 							startTime: toastData.startTime,
 							duration: toastData.duration,
 							projectPath: toastData.projectPath,

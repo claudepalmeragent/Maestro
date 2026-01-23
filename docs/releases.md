@@ -15,11 +15,20 @@ Maestro can update itself automatically! This feature was introduced in **v0.8.7
 
 ## v0.14.x - Doc Graphs, SSH Agents, Inline Wizard
 
-**Latest: v0.14.5** | Released January 1, 1
+**Latest: v0.14.5** | Released January 23, 2026
 
 Changes in this point release include:
 
--
+- Desktop app performance improvements (more to come on this, we want Maestro blazing fast) 🐌
+- Added local manifest feature for custom playbooks 📖
+- Agents are now inherently aware of your activity history as seen in the history panel 📜 (this is built-in cross context memory!)
+- Added markdown rendering support for AI responses in mobile view 📱
+- Bugfix in tracking costs from JSONL files that were aged out 🏦
+- Added BlueSky social media handle for leaderboard 🦋
+- Added options to disable GPU rendering and confetti 🎊
+- Better handling of large files in preview 🗄️
+- Bug fix in Claude context calculation 🧮
+- Addressed bug in OpenSpec version reporting 🐛
 
 The major contributions to 0.14.x remain:
 
@@ -43,7 +52,7 @@ The major contributions to 0.14.x remain:
 - Added "Toggle Bookmark" shortcut (CTRL/CMD+SHIFT+B) ⌨️
 - Gist publishing now shows previous URLs with copy button 📋
 
-Thanks for the contributions: @t1mmen @aejfager @Crumbgrabber @whglaser @b3nw @deandebeer @shadown @breki @charles-dyfis-net
+Thanks for the contributions: @t1mmen @aejfager @Crumbgrabber @whglaser @b3nw @deandebeer @shadown @breki @charles-dyfis-net @ronaldeddings @jlengrand @ksylvan
 
 ### Previous Releases in this Series
 

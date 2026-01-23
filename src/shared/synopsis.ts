@@ -39,6 +39,23 @@ function isTemplatePlaceholder(text: string): boolean {
 }
 
 /**
+ * Check if text is a conversational filler that should be stripped.
+ * These are words/phrases that add no information value to a scientific log.
+ */
+function isConversationalFiller(text: string): boolean {
+	const fillerPatterns = [
+		/^(excellent|perfect|great|awesome|wonderful|fantastic|good|nice|cool|done|ok|okay|alright|sure|yes|yeah|yep|absolutely|certainly|definitely|indeed|affirmative)[\s!.]*$/i,
+		/^(that's|that is|this is|it's|it is)\s+(great|good|perfect|excellent|done|complete|finished)[\s!.]*$/i,
+		/^(all\s+)?(set|done|ready|complete|finished|good\s+to\s+go)[\s!.]*$/i,
+		/^(looks?\s+)?(good|great|perfect)[\s!.]*$/i,
+		/^(here\s+you\s+go|there\s+you\s+go|there\s+we\s+go|here\s+it\s+is)[\s!.]*$/i,
+		/^(got\s+it|understood|will\s+do|on\s+it|right\s+away)[\s!.]*$/i,
+		/^(no\s+problem|no\s+worries|happy\s+to\s+help)[\s!.]*$/i,
+	];
+	return fillerPatterns.some((pattern) => pattern.test(text.trim()));
+}
+
+/**
  * Check if a response indicates nothing meaningful to report.
  * Looks for the NOTHING_TO_REPORT sentinel token anywhere in the response.
  *
@@ -94,15 +111,20 @@ export function parseSynopsis(response: string): ParsedSynopsis {
 	let shortSummary = summaryMatch?.[1]?.trim() || '';
 	let details = detailsMatch?.[1]?.trim() || '';
 
-	// Check if summary is a template placeholder (model output format instructions literally)
-	if (!shortSummary || isTemplatePlaceholder(shortSummary)) {
-		// Try to find actual content by looking for non-placeholder lines
+	// Check if summary is a template placeholder or conversational filler
+	if (
+		!shortSummary ||
+		isTemplatePlaceholder(shortSummary) ||
+		isConversationalFiller(shortSummary)
+	) {
+		// Try to find actual content by looking for non-placeholder, non-filler lines
 		const lines = clean.split('\n').filter((line) => {
 			const trimmed = line.trim();
 			return (
 				trimmed &&
 				!trimmed.startsWith('**') &&
 				!isTemplatePlaceholder(trimmed) &&
+				!isConversationalFiller(trimmed) &&
 				!trimmed.match(/^Rules:/i) &&
 				!trimmed.match(/^-\s+Be specific/i) &&
 				!trimmed.match(/^-\s+Focus only/i) &&

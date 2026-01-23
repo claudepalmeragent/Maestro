@@ -128,6 +128,68 @@ describe('synopsis', () => {
 			});
 		});
 
+		describe('conversational filler filtering', () => {
+			it('should skip "Excellent!" and use next meaningful line', () => {
+				const response = 'Excellent!\n\nThe markdown generation is working perfectly.';
+				const result = parseSynopsis(response);
+
+				expect(result.shortSummary).toBe('The markdown generation is working perfectly.');
+			});
+
+			it('should skip "Perfect!" and use next meaningful line', () => {
+				const response = 'Perfect!\n\nAll tests are passing now.';
+				const result = parseSynopsis(response);
+
+				expect(result.shortSummary).toBe('All tests are passing now.');
+			});
+
+			it('should skip multiple filler words at start', () => {
+				const response = 'Great!\n\nExcellent!\n\nFixed the authentication bug in login handler.';
+				const result = parseSynopsis(response);
+
+				expect(result.shortSummary).toBe('Fixed the authentication bug in login handler.');
+			});
+
+			it('should skip filler with exclamation marks and variations', () => {
+				const fillers = [
+					'Excellent!',
+					'Perfect!',
+					'Great!',
+					'Awesome!',
+					'Done!',
+					'Wonderful!',
+					'Fantastic!',
+				];
+
+				for (const filler of fillers) {
+					const response = `${filler}\n\nActual content here.`;
+					const result = parseSynopsis(response);
+					expect(result.shortSummary).toBe('Actual content here.');
+				}
+			});
+
+			it('should skip phrase fillers like "Looks good!"', () => {
+				const response = 'Looks good!\n\nUpdated the config file with new settings.';
+				const result = parseSynopsis(response);
+
+				expect(result.shortSummary).toBe('Updated the config file with new settings.');
+			});
+
+			it('should skip "All done!" style fillers', () => {
+				const response = 'All done!\n\nRefactored the component to use hooks.';
+				const result = parseSynopsis(response);
+
+				expect(result.shortSummary).toBe('Refactored the component to use hooks.');
+			});
+
+			it('should fall back to "Task completed" if only filler exists', () => {
+				const response = 'Excellent!';
+				const result = parseSynopsis(response);
+
+				expect(result.shortSummary).toBe('Task completed');
+			});
+		});
+
 		describe('fallback behavior', () => {
 			it('should use first line as summary when no format detected', () => {
 				const response = 'Just a plain text response\nWith multiple lines.\nAnd more content.';
