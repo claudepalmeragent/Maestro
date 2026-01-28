@@ -16,117 +16,22 @@
 import { FastifyInstance } from 'fastify';
 import { HistoryEntry } from '../../../shared/types';
 import { logger } from '../../utils/logger';
+import type { Theme, SessionData, SessionDetail, LiveSessionInfo, RateLimitConfig } from '../types';
+
+// Re-export types for backwards compatibility
+export type {
+	Theme,
+	SessionUsageStats,
+	LastResponsePreview,
+	AITabData,
+	SessionData,
+	SessionDetail,
+	LiveSessionInfo,
+	RateLimitConfig,
+} from '../types';
 
 // Logger context for all API route logs
 const LOG_CONTEXT = 'WebServer:API';
-
-/**
- * Usage stats type for session cost/token tracking
- */
-export interface SessionUsageStats {
-	inputTokens?: number;
-	outputTokens?: number;
-	cacheReadInputTokens?: number;
-	cacheCreationInputTokens?: number;
-	totalCostUsd?: number;
-	contextWindow?: number;
-}
-
-/**
- * Last response type for mobile preview (truncated to save bandwidth)
- */
-export interface LastResponsePreview {
-	text: string; // First 3 lines or ~500 chars of the last AI response
-	timestamp: number;
-	source: 'stdout' | 'stderr' | 'system';
-	fullLength: number; // Total length of the original response
-}
-
-/**
- * AI Tab type for multi-tab support within a Maestro session
- */
-export interface AITabData {
-	id: string;
-	agentSessionId: string | null;
-	name: string | null;
-	starred: boolean;
-	inputValue: string;
-	usageStats?: SessionUsageStats | null;
-	createdAt: number;
-	state: 'idle' | 'busy';
-	thinkingStartTime?: number | null;
-}
-
-/**
- * Session data returned by getSessions callback
- */
-export interface SessionData {
-	id: string;
-	name: string;
-	toolType: string;
-	state: string;
-	inputMode: string;
-	cwd: string;
-	groupId: string | null;
-	groupName: string | null;
-	groupEmoji: string | null;
-	usageStats?: SessionUsageStats | null;
-	lastResponse?: LastResponsePreview | null;
-	agentSessionId?: string | null;
-	thinkingStartTime?: number | null;
-	aiTabs?: AITabData[];
-	activeTabId?: string;
-	bookmarked?: boolean;
-}
-
-/**
- * Session detail type for single session endpoint
- */
-export interface SessionDetail {
-	id: string;
-	name: string;
-	toolType: string;
-	state: string;
-	inputMode: string;
-	cwd: string;
-	aiLogs?: Array<{ timestamp: number; content: string; type?: string }>;
-	shellLogs?: Array<{ timestamp: number; content: string; type?: string }>;
-	usageStats?: {
-		inputTokens?: number;
-		outputTokens?: number;
-		totalCost?: number;
-	};
-	agentSessionId?: string;
-	isGitRepo?: boolean;
-	activeTabId?: string;
-}
-
-// HistoryEntry is imported from shared/types.ts as the canonical type
-
-/**
- * Live session info for enriching sessions
- */
-export interface LiveSessionInfo {
-	sessionId: string;
-	agentSessionId?: string;
-	enabledAt: number;
-}
-
-/**
- * Rate limit configuration
- */
-export interface RateLimitConfig {
-	max: number;
-	timeWindow: number;
-	maxPost: number;
-	enabled: boolean;
-}
-
-/**
- * Theme type (imported from shared, re-exported for convenience)
- */
-export type { Theme } from '../../../shared/theme-types';
-import type { Theme } from '../../../shared/theme-types';
 
 /**
  * Callbacks required by API routes

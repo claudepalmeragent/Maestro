@@ -17,51 +17,33 @@
 
 import { FastifyInstance } from 'fastify';
 import { logger } from '../../utils/logger';
-import { WebClient, WebClientMessage } from '../handlers';
-import { AutoRunState } from '../services/broadcastService';
-import type { Theme } from '../../../shared/theme-types';
+import type {
+	Theme,
+	WebClient,
+	WebClientMessage,
+	LiveSessionInfo,
+	CustomAICommand,
+	AutoRunState,
+	SessionData,
+} from '../types';
+
+// Re-export types for backwards compatibility
+export type { LiveSessionInfo, CustomAICommand } from '../types';
 
 // Logger context for all WebSocket route logs
 const LOG_CONTEXT = 'WebServer:WS';
 
 /**
- * Live session info for enriching sessions
+ * Session data for WebSocket initial sync.
+ * Uses SessionData as the base type.
  */
-export interface LiveSessionInfo {
-	sessionId: string;
-	agentSessionId?: string;
-	enabledAt: number;
-}
-
-/**
- * Custom AI command definition
- */
-export interface CustomAICommand {
-	id: string;
-	command: string;
-	description: string;
-	prompt: string;
-}
-
-/**
- * Session data for WebSocket initial sync
- */
-export interface WsSessionData {
-	id: string;
-	name: string;
-	toolType: string;
-	state: string;
-	inputMode: string;
-	cwd: string;
-	agentSessionId?: string | null;
-	[key: string]: unknown;
-}
+export type WsSessionData = SessionData;
 
 /**
  * Callbacks required by WebSocket route
  */
 export interface WsRouteCallbacks {
-	getSessions: () => WsSessionData[];
+	getSessions: () => SessionData[];
 	getTheme: () => Theme | null;
 	getCustomCommands: () => CustomAICommand[];
 	getAutoRunStates: () => Map<string, AutoRunState>;

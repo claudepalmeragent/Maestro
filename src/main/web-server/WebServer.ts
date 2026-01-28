@@ -1,49 +1,3 @@
-import Fastify from 'fastify';
-import cors from '@fastify/cors';
-import websocket from '@fastify/websocket';
-import rateLimit from '@fastify/rate-limit';
-import fastifyStatic from '@fastify/static';
-import { FastifyInstance, FastifyRequest } from 'fastify';
-import { randomUUID } from 'crypto';
-import path from 'path';
-import { existsSync } from 'fs';
-import type { Theme } from '../shared/theme-types';
-import { HistoryEntry } from '../shared/types';
-import { getLocalIpAddressSync } from './utils/networkUtils';
-import { logger } from './utils/logger';
-import { WebSocketMessageHandler, WebClient, WebClientMessage } from './web-server/handlers';
-import {
-	BroadcastService,
-	AITabData as BroadcastAITabData,
-	CustomAICommand as BroadcastCustomAICommand,
-	AutoRunState,
-	CliActivity,
-	SessionBroadcastData,
-} from './web-server/services';
-import { ApiRoutes, StaticRoutes, WsRoute } from './web-server/routes';
-
-// Logger context for all web server logs
-const LOG_CONTEXT = 'WebServer';
-
-// Live session info
-interface LiveSessionInfo {
-	sessionId: string;
-	agentSessionId?: string;
-	enabledAt: number;
-}
-
-// Rate limiting configuration
-export interface RateLimitConfig {
-	// Maximum requests per time window
-	max: number;
-	// Time window in milliseconds
-	timeWindow: number;
-	// Maximum requests for POST endpoints (typically lower)
-	maxPost: number;
-	// Enable/disable rate limiting
-	enabled: boolean;
-}
-
 /**
  * WebServer - HTTP and WebSocket server for remote access
  *
@@ -62,141 +16,55 @@ export interface RateLimitConfig {
  *
  * Security:
  * - Token regenerated on each app restart
- * - Invalid/missing token redirects to GitHub
+ * - Invalid/missing token redirects to website
  * - No access without knowing the token
  */
-// Usage stats type for session cost/token tracking
-export interface SessionUsageStats {
-	inputTokens?: number;
-	outputTokens?: number;
-	cacheReadInputTokens?: number;
-	cacheCreationInputTokens?: number;
-	totalCostUsd?: number;
-	contextWindow?: number;
-}
 
-// Last response type for mobile preview (truncated to save bandwidth)
-export interface LastResponsePreview {
-	text: string; // First 3 lines or ~500 chars of the last AI response
-	timestamp: number;
-	source: 'stdout' | 'stderr' | 'system';
-	fullLength: number; // Total length of the original response
-}
+import Fastify from 'fastify';
+import cors from '@fastify/cors';
+import websocket from '@fastify/websocket';
+import rateLimit from '@fastify/rate-limit';
+import fastifyStatic from '@fastify/static';
+import { FastifyInstance, FastifyRequest } from 'fastify';
+import { randomUUID } from 'crypto';
+import path from 'path';
+import { existsSync } from 'fs';
+import { getLocalIpAddressSync } from '../utils/networkUtils';
+import { logger } from '../utils/logger';
+import { WebSocketMessageHandler } from './handlers';
+import { BroadcastService } from './services';
+import { ApiRoutes, StaticRoutes, WsRoute } from './routes';
 
-// AI Tab type for multi-tab support within a Maestro session
-export interface AITabData {
-	id: string;
-	agentSessionId: string | null;
-	name: string | null;
-	starred: boolean;
-	inputValue: string;
-	usageStats?: SessionUsageStats | null;
-	createdAt: number;
-	state: 'idle' | 'busy';
-	thinkingStartTime?: number | null;
-}
+// Import shared types from canonical location
+import type {
+	Theme,
+	LiveSessionInfo,
+	RateLimitConfig,
+	AITabData,
+	CustomAICommand,
+	AutoRunState,
+	CliActivity,
+	SessionBroadcastData,
+	WebClient,
+	WebClientMessage,
+	GetSessionsCallback,
+	GetSessionDetailCallback,
+	WriteToSessionCallback,
+	ExecuteCommandCallback,
+	InterruptSessionCallback,
+	SwitchModeCallback,
+	SelectSessionCallback,
+	SelectTabCallback,
+	NewTabCallback,
+	CloseTabCallback,
+	RenameTabCallback,
+	GetThemeCallback,
+	GetCustomCommandsCallback,
+	GetHistoryCallback,
+} from './types';
 
-// Callback type for fetching sessions data
-export type GetSessionsCallback = () => Array<{
-	id: string;
-	name: string;
-	toolType: string;
-	state: string;
-	inputMode: string;
-	cwd: string;
-	groupId: string | null;
-	groupName: string | null;
-	groupEmoji: string | null;
-	usageStats?: SessionUsageStats | null;
-	lastResponse?: LastResponsePreview | null;
-	agentSessionId?: string | null;
-	thinkingStartTime?: number | null; // Timestamp when AI started thinking (for elapsed time display)
-	aiTabs?: AITabData[];
-	activeTabId?: string;
-	bookmarked?: boolean; // Whether session is bookmarked (shows in Bookmarks group)
-}>;
-
-// Session detail type for single session endpoint
-export interface SessionDetail {
-	id: string;
-	name: string;
-	toolType: string;
-	state: string;
-	inputMode: string;
-	cwd: string;
-	aiLogs?: Array<{ timestamp: number; content: string; type?: string }>;
-	shellLogs?: Array<{ timestamp: number; content: string; type?: string }>;
-	usageStats?: {
-		inputTokens?: number;
-		outputTokens?: number;
-		totalCost?: number;
-	};
-	agentSessionId?: string;
-	isGitRepo?: boolean;
-	activeTabId?: string;
-}
-
-// Callback type for fetching single session details
-// Optional tabId allows fetching logs for a specific tab (avoids race conditions)
-export type GetSessionDetailCallback = (sessionId: string, tabId?: string) => SessionDetail | null;
-
-// Callback type for sending commands to a session
-// Returns true if successful, false if session not found or write failed
-export type WriteToSessionCallback = (sessionId: string, data: string) => boolean;
-
-// Callback type for executing a command through the desktop's existing logic
-// This forwards the command to the renderer which handles spawn, state, and broadcasts
-// Returns true if command was accepted (session not busy)
-// inputMode is optional - if provided, the renderer will use it instead of querying session state
-export type ExecuteCommandCallback = (
-	sessionId: string,
-	command: string,
-	inputMode?: 'ai' | 'terminal'
-) => Promise<boolean>;
-
-// Callback type for interrupting a session through the desktop's existing logic
-// This forwards to the renderer which handles state updates and broadcasts
-export type InterruptSessionCallback = (sessionId: string) => Promise<boolean>;
-
-// Callback type for switching session input mode through the desktop's existing logic
-// This forwards to the renderer which handles state updates and broadcasts
-export type SwitchModeCallback = (sessionId: string, mode: 'ai' | 'terminal') => Promise<boolean>;
-
-// Callback type for selecting/switching to a session in the desktop app
-// This forwards to the renderer which handles state updates and broadcasts
-// Optional tabId to also switch to a specific tab within the session
-export type SelectSessionCallback = (sessionId: string, tabId?: string) => Promise<boolean>;
-
-// Tab operation callbacks for multi-tab support
-export type SelectTabCallback = (sessionId: string, tabId: string) => Promise<boolean>;
-export type NewTabCallback = (sessionId: string) => Promise<{ tabId: string } | null>;
-export type CloseTabCallback = (sessionId: string, tabId: string) => Promise<boolean>;
-export type RenameTabCallback = (
-	sessionId: string,
-	tabId: string,
-	newName: string
-) => Promise<boolean>;
-
-// Re-export Theme type from shared for backwards compatibility
-export type { Theme } from '../shared/theme-types';
-
-// Callback type for fetching current theme
-export type GetThemeCallback = () => Theme | null;
-
-// Custom AI command definition (matches renderer's CustomAICommand)
-export interface CustomAICommand {
-	id: string;
-	command: string;
-	description: string;
-	prompt: string;
-}
-
-// Callback type for fetching custom AI commands
-export type GetCustomCommandsCallback = () => CustomAICommand[];
-
-// Callback type for fetching history entries
-// Uses HistoryEntry from shared/types.ts as the canonical type
-export type GetHistoryCallback = (projectPath?: string, sessionId?: string) => HistoryEntry[];
+// Logger context for all web server logs
+const LOG_CONTEXT = 'WebServer';
 
 // Default rate limit configuration
 const DEFAULT_RATE_LIMIT_CONFIG: RateLimitConfig = {
@@ -291,11 +159,11 @@ export class WebServer {
 		// Try multiple locations for the web assets
 		const possiblePaths = [
 			// Production: relative to the compiled main process
-			path.join(__dirname, '..', 'web'),
+			path.join(__dirname, '..', '..', 'web'),
 			// Development: from project root
 			path.join(process.cwd(), 'dist', 'web'),
 			// Alternative: relative to __dirname going up to dist
-			path.join(__dirname, 'web'),
+			path.join(__dirname, '..', 'web'),
 		];
 
 		for (const p of possiblePaths) {
@@ -342,6 +210,12 @@ export class WebServer {
 				`Session ${sessionId} marked as offline (remaining: ${this.liveSessions.size})`,
 				LOG_CONTEXT
 			);
+
+			// Clean up any associated AutoRun state to prevent memory leaks
+			if (this.autoRunStates.has(sessionId)) {
+				this.autoRunStates.delete(sessionId);
+				logger.debug(`Cleaned up AutoRun state for offline session ${sessionId}`, LOG_CONTEXT);
+			}
 
 			// Broadcast to all connected clients
 			this.broadcastService.broadcastSessionOffline(sessionId);
@@ -705,7 +579,7 @@ export class WebServer {
 	 * Broadcast tab change to all connected web clients
 	 * Called when the tabs array or active tab changes in a session
 	 */
-	broadcastTabsChange(sessionId: string, aiTabs: BroadcastAITabData[], activeTabId: string): void {
+	broadcastTabsChange(sessionId: string, aiTabs: AITabData[], activeTabId: string): void {
 		this.broadcastService.broadcastTabsChange(sessionId, aiTabs, activeTabId);
 	}
 
@@ -721,7 +595,7 @@ export class WebServer {
 	 * Broadcast custom commands update to all connected web clients
 	 * Called when the user modifies custom AI commands in the desktop app
 	 */
-	broadcastCustomCommands(commands: BroadcastCustomAICommand[]): void {
+	broadcastCustomCommands(commands: CustomAICommand[]): void {
 		this.broadcastService.broadcastCustomCommands(commands);
 	}
 
@@ -862,9 +736,18 @@ export class WebServer {
 			return;
 		}
 
-		// Mark all live sessions as offline
+		// Mark all live sessions as offline (this also cleans up autoRunStates)
 		for (const sessionId of this.liveSessions.keys()) {
 			this.setSessionOffline(sessionId);
+		}
+
+		// Clear any remaining autoRunStates as a safety measure
+		if (this.autoRunStates.size > 0) {
+			logger.debug(
+				`Clearing ${this.autoRunStates.size} remaining AutoRun states on server stop`,
+				LOG_CONTEXT
+			);
+			this.autoRunStates.clear();
 		}
 
 		try {
