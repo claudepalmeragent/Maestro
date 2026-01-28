@@ -4,7 +4,7 @@
  */
 
 import { BrowserWindow, ipcMain } from 'electron';
-import { WebServer } from '../web-server';
+import { WebServer } from './WebServer';
 import { getThemeById } from '../themes';
 import { getHistoryManager } from '../history-manager';
 import { logger } from '../utils/logger';
@@ -348,12 +348,26 @@ export function createWebServerFactory(deps: WebServerFactoryDependencies) {
 			// Use invoke for synchronous response with tab ID
 			return new Promise((resolve) => {
 				const responseChannel = `remote:newTab:response:${Date.now()}`;
-				ipcMain.once(responseChannel, (_event, result) => {
+				let resolved = false;
+
+				const handleResponse = (_event: Electron.IpcMainEvent, result: any) => {
+					if (resolved) return;
+					resolved = true;
+					clearTimeout(timeoutId);
 					resolve(result);
-				});
+				};
+
+				ipcMain.once(responseChannel, handleResponse);
 				mainWindow.webContents.send('remote:newTab', sessionId, responseChannel);
-				// Timeout after 5 seconds
-				setTimeout(() => resolve(null), 5000);
+
+				// Timeout after 5 seconds - clean up the listener to prevent memory leak
+				const timeoutId = setTimeout(() => {
+					if (resolved) return;
+					resolved = true;
+					ipcMain.removeListener(responseChannel, handleResponse);
+					logger.warn(`newTab callback timed out for session ${sessionId}`, 'WebServer');
+					resolve(null);
+				}, 5000);
 			});
 		});
 

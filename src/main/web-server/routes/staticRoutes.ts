@@ -48,6 +48,22 @@ export class StaticRoutes {
 	}
 
 	/**
+	 * Sanitize a string for safe injection into HTML/JavaScript
+	 * Only allows alphanumeric characters, hyphens, and underscores (valid for UUIDs and IDs)
+	 * Returns null if the input contains invalid characters
+	 */
+	private sanitizeId(input: string | undefined | null): string | null {
+		if (!input) return null;
+		// Only allow characters that are safe for UUID-style IDs
+		// This prevents XSS attacks via malicious sessionId/tabId parameters
+		if (!/^[a-zA-Z0-9_-]+$/.test(input)) {
+			logger.warn(`Rejected potentially unsafe ID: ${input.substring(0, 50)}`, LOG_CONTEXT);
+			return null;
+		}
+		return input;
+	}
+
+	/**
 	 * Serve the index.html file for SPA routes
 	 * Rewrites asset paths to include the security token
 	 */
@@ -79,12 +95,17 @@ export class StaticRoutes {
 			html = html.replace(/\.\/icons\//g, `/${this.securityToken}/icons/`);
 			html = html.replace(/\.\/sw\.js/g, `/${this.securityToken}/sw.js`);
 
+			// Sanitize sessionId and tabId to prevent XSS attacks
+			// Only allow safe characters (alphanumeric, hyphens, underscores)
+			const safeSessionId = this.sanitizeId(sessionId);
+			const safeTabId = this.sanitizeId(tabId);
+
 			// Inject config for the React app to know the token and session context
 			const configScript = `<script>
         window.__MAESTRO_CONFIG__ = {
           securityToken: "${this.securityToken}",
-          sessionId: ${sessionId ? `"${sessionId}"` : 'null'},
-          tabId: ${tabId ? `"${tabId}"` : 'null'},
+          sessionId: ${safeSessionId ? `"${safeSessionId}"` : 'null'},
+          tabId: ${safeTabId ? `"${safeTabId}"` : 'null'},
           apiBase: "/${this.securityToken}/api",
           wsUrl: "/${this.securityToken}/ws"
         };

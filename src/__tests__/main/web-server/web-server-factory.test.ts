@@ -14,7 +14,8 @@ vi.mock('electron', () => ({
 }));
 
 // Mock WebServer - use class syntax to make it a proper constructor
-vi.mock('../../../main/web-server', () => {
+// Note: Mock the specific file path that web-server-factory.ts imports from
+vi.mock('../../../main/web-server/WebServer', () => {
 	return {
 		WebServer: class MockWebServer {
 			port: number;
@@ -68,7 +69,7 @@ import {
 	createWebServerFactory,
 	type WebServerFactoryDependencies,
 } from '../../../main/web-server/web-server-factory';
-import { WebServer } from '../../../main/web-server';
+import { WebServer } from '../../../main/web-server/WebServer';
 import { getThemeById } from '../../../main/themes';
 import { getHistoryManager } from '../../../main/history-manager';
 import { logger } from '../../../main/utils/logger';

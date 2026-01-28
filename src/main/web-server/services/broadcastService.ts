@@ -20,96 +20,33 @@
  */
 
 import { WebSocket } from 'ws';
-import type { Theme } from '../../../shared/theme-types';
 import { logger } from '../../utils/logger';
+import type {
+	Theme,
+	WebClient,
+	CustomAICommand,
+	AITabData,
+	SessionBroadcastData,
+	AutoRunState,
+	CliActivity,
+} from '../types';
+
+// Re-export types for backwards compatibility
+export type {
+	CustomAICommand,
+	AITabData,
+	SessionBroadcastData,
+	AutoRunState,
+	CliActivity,
+} from '../types';
 
 // Logger context for broadcast service logs
 const LOG_CONTEXT = 'BroadcastService';
 
 /**
- * Web client connection info (shared with messageHandlers)
+ * Web client connection info (alias for backwards compatibility)
  */
-export interface WebClientInfo {
-	socket: WebSocket;
-	id: string;
-	connectedAt: number;
-	subscribedSessionId?: string;
-}
-
-/**
- * Custom AI command definition (matches renderer's CustomAICommand)
- */
-export interface CustomAICommand {
-	id: string;
-	command: string;
-	description: string;
-	prompt: string;
-}
-
-/**
- * AI Tab data for multi-tab support within a Maestro session
- */
-export interface AITabData {
-	id: string;
-	agentSessionId: string | null;
-	name: string | null;
-	starred: boolean;
-	inputValue: string;
-	usageStats?: {
-		inputTokens?: number;
-		outputTokens?: number;
-		cacheReadInputTokens?: number;
-		cacheCreationInputTokens?: number;
-		totalCostUsd?: number;
-		contextWindow?: number;
-	} | null;
-	createdAt: number;
-	state: 'idle' | 'busy';
-	thinkingStartTime?: number | null;
-}
-
-/**
- * Session data for broadcast messages
- */
-export interface SessionBroadcastData {
-	id: string;
-	name: string;
-	toolType: string;
-	state: string;
-	inputMode: string;
-	cwd: string;
-	groupId?: string | null;
-	groupName?: string | null;
-	groupEmoji?: string | null;
-	// Worktree subagent support
-	parentSessionId?: string | null;
-	worktreeBranch?: string | null;
-}
-
-/**
- * Auto Run state for broadcast messages
- */
-export interface AutoRunState {
-	isRunning: boolean;
-	totalTasks: number;
-	completedTasks: number;
-	currentTaskIndex: number;
-	isStopping?: boolean;
-	// Multi-document progress fields
-	totalDocuments?: number; // Total number of documents in the run
-	currentDocumentIndex?: number; // Current document being processed (0-based)
-	totalTasksAcrossAllDocs?: number; // Total tasks across all documents
-	completedTasksAcrossAllDocs?: number; // Completed tasks across all documents
-}
-
-/**
- * CLI activity data for session state broadcasts
- */
-export interface CliActivity {
-	playbookId: string;
-	playbookName: string;
-	startedAt: number;
-}
+export type WebClientInfo = WebClient;
 
 /**
  * Callback to get all connected web clients

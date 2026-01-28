@@ -90,7 +90,6 @@ export interface MessageHandlerCallbacks {
 		inputMode: string;
 		cwd: string;
 		agentSessionId?: string | null;
-		[key: string]: unknown;
 	}>;
 	getLiveSessionInfo: (sessionId: string) => LiveSessionInfo | undefined;
 	isSessionLive: (sessionId: string) => boolean;
@@ -110,6 +109,20 @@ export class WebSocketMessageHandler {
 	 */
 	setCallbacks(callbacks: Partial<MessageHandlerCallbacks>): void {
 		this.callbacks = { ...this.callbacks, ...callbacks };
+	}
+
+	/**
+	 * Helper to send a JSON message to a client with timestamp
+	 */
+	private send(client: WebClient, data: Record<string, unknown>): void {
+		client.socket.send(JSON.stringify({ ...data, timestamp: Date.now() }));
+	}
+
+	/**
+	 * Helper to send an error message to a client
+	 */
+	private sendError(client: WebClient, message: string, extra?: Record<string, unknown>): void {
+		this.send(client, { type: 'error', message, ...extra });
 	}
 
 	/**
@@ -175,12 +188,7 @@ export class WebSocketMessageHandler {
 	 * Handle ping message - respond with pong
 	 */
 	private handlePing(client: WebClient): void {
-		client.socket.send(
-			JSON.stringify({
-				type: 'pong',
-				timestamp: Date.now(),
-			})
-		);
+		this.send(client, { type: 'pong' });
 	}
 
 	/**
@@ -190,13 +198,7 @@ export class WebSocketMessageHandler {
 		if (message.sessionId) {
 			client.subscribedSessionId = message.sessionId as string;
 		}
-		client.socket.send(
-			JSON.stringify({
-				type: 'subscribed',
-				sessionId: message.sessionId,
-				timestamp: Date.now(),
-			})
-		);
+		this.send(client, { type: 'subscribed', sessionId: message.sessionId });
 	}
 
 	/**
@@ -218,38 +220,25 @@ export class WebSocketMessageHandler {
 				`[Web Command] Missing sessionId or command: sessionId=${sessionId}, commandLen=${command?.length}`,
 				LOG_CONTEXT
 			);
-			client.socket.send(
-				JSON.stringify({
-					type: 'error',
-					message: 'Missing sessionId or command',
-					timestamp: Date.now(),
-				})
-			);
+			this.sendError(client, 'Missing sessionId or command');
 			return;
 		}
 
 		// Get session details to check state and determine how to handle
 		const sessionDetail = this.callbacks.getSessionDetail?.(sessionId);
 		if (!sessionDetail) {
-			client.socket.send(
-				JSON.stringify({
-					type: 'error',
-					message: 'Session not found',
-					timestamp: Date.now(),
-				})
-			);
+			this.sendError(client, 'Session not found');
 			return;
 		}
 
 		// Check if session is busy - prevent race conditions between desktop and web
 		if (sessionDetail.state === 'busy') {
-			client.socket.send(
-				JSON.stringify({
-					type: 'error',
-					message: 'Session is busy - please wait for the current operation to complete',
+			this.sendError(
+				client,
+				'Session is busy - please wait for the current operation to complete',
+				{
 					sessionId,
-					timestamp: Date.now(),
-				})
+				}
 			);
 			logger.debug(`Command rejected - session ${sessionId} is busy`, LOG_CONTEXT);
 			return;
@@ -274,14 +263,7 @@ export class WebSocketMessageHandler {
 			this.callbacks
 				.executeCommand(sessionId, command, clientInputMode)
 				.then((success) => {
-					client.socket.send(
-						JSON.stringify({
-							type: 'command_result',
-							success,
-							sessionId,
-							timestamp: Date.now(),
-						})
-					);
+					this.send(client, { type: 'command_result', success, sessionId });
 					if (!success) {
 						logger.warn(
 							`[Web Command] ${mode} command rejected for session ${sessionId}`,
@@ -294,22 +276,10 @@ export class WebSocketMessageHandler {
 						`[Web Command] ${mode} command failed for session ${sessionId}: ${error.message}`,
 						LOG_CONTEXT
 					);
-					client.socket.send(
-						JSON.stringify({
-							type: 'error',
-							message: `Failed to execute command: ${error.message}`,
-							timestamp: Date.now(),
-						})
-					);
+					this.sendError(client, `Failed to execute command: ${error.message}`);
 				});
 		} else {
-			client.socket.send(
-				JSON.stringify({
-					type: 'error',
-					message: 'Command execution not configured',
-					timestamp: Date.now(),
-				})
-			);
+			this.sendError(client, 'Command execution not configured');
 		}
 	}
 
@@ -325,25 +295,13 @@ export class WebSocketMessageHandler {
 		);
 
 		if (!sessionId || !mode) {
-			client.socket.send(
-				JSON.stringify({
-					type: 'error',
-					message: 'Missing sessionId or mode',
-					timestamp: Date.now(),
-				})
-			);
+			this.sendError(client, 'Missing sessionId or mode');
 			return;
 		}
 
 		if (!this.callbacks.switchMode) {
 			logger.warn(`[Web] switchModeCallback is not set!`, LOG_CONTEXT);
-			client.socket.send(
-				JSON.stringify({
-					type: 'error',
-					message: 'Mode switching not configured',
-					timestamp: Date.now(),
-				})
-			);
+			this.sendError(client, 'Mode switching not configured');
 			return;
 		}
 
@@ -353,28 +311,14 @@ export class WebSocketMessageHandler {
 		this.callbacks
 			.switchMode(sessionId, mode)
 			.then((success) => {
-				client.socket.send(
-					JSON.stringify({
-						type: 'mode_switch_result',
-						success,
-						sessionId,
-						mode,
-						timestamp: Date.now(),
-					})
-				);
+				this.send(client, { type: 'mode_switch_result', success, sessionId, mode });
 				logger.debug(
 					`Mode switch for session ${sessionId} to ${mode}: ${success ? 'success' : 'failed'}`,
 					LOG_CONTEXT
 				);
 			})
 			.catch((error) => {
-				client.socket.send(
-					JSON.stringify({
-						type: 'error',
-						message: `Failed to switch mode: ${error.message}`,
-						timestamp: Date.now(),
-					})
-				);
+				this.sendError(client, `Failed to switch mode: ${error.message}`);
 			});
 	}
 
@@ -390,25 +334,13 @@ export class WebSocketMessageHandler {
 		);
 
 		if (!sessionId) {
-			client.socket.send(
-				JSON.stringify({
-					type: 'error',
-					message: 'Missing sessionId',
-					timestamp: Date.now(),
-				})
-			);
+			this.sendError(client, 'Missing sessionId');
 			return;
 		}
 
 		if (!this.callbacks.selectSession) {
 			logger.warn(`[Web] selectSessionCallback is not set!`, LOG_CONTEXT);
-			client.socket.send(
-				JSON.stringify({
-					type: 'error',
-					message: 'Session selection not configured',
-					timestamp: Date.now(),
-				})
-			);
+			this.sendError(client, 'Session selection not configured');
 			return;
 		}
 
@@ -420,14 +352,7 @@ export class WebSocketMessageHandler {
 		this.callbacks
 			.selectSession(sessionId, tabId)
 			.then((success) => {
-				client.socket.send(
-					JSON.stringify({
-						type: 'select_session_result',
-						success,
-						sessionId,
-						timestamp: Date.now(),
-					})
-				);
+				this.send(client, { type: 'select_session_result', success, sessionId });
 				if (success) {
 					logger.debug(`Session ${sessionId} selected in desktop`, LOG_CONTEXT);
 				} else {
@@ -435,13 +360,7 @@ export class WebSocketMessageHandler {
 				}
 			})
 			.catch((error) => {
-				client.socket.send(
-					JSON.stringify({
-						type: 'error',
-						message: `Failed to select session: ${error.message}`,
-						timestamp: Date.now(),
-					})
-				);
+				this.sendError(client, `Failed to select session: ${error.message}`);
 			});
 	}
 
@@ -465,13 +384,7 @@ export class WebSocketMessageHandler {
 					isLive: this.callbacks.isSessionLive!(s.id),
 				};
 			});
-			client.socket.send(
-				JSON.stringify({
-					type: 'sessions_list',
-					sessions: sessionsWithLiveInfo,
-					timestamp: Date.now(),
-				})
-			);
+			this.send(client, { type: 'sessions_list', sessions: sessionsWithLiveInfo });
 		}
 	}
 
@@ -487,48 +400,22 @@ export class WebSocketMessageHandler {
 		);
 
 		if (!sessionId || !tabId) {
-			client.socket.send(
-				JSON.stringify({
-					type: 'error',
-					message: 'Missing sessionId or tabId',
-					timestamp: Date.now(),
-				})
-			);
+			this.sendError(client, 'Missing sessionId or tabId');
 			return;
 		}
 
 		if (!this.callbacks.selectTab) {
-			client.socket.send(
-				JSON.stringify({
-					type: 'error',
-					message: 'Tab selection not configured',
-					timestamp: Date.now(),
-				})
-			);
+			this.sendError(client, 'Tab selection not configured');
 			return;
 		}
 
 		this.callbacks
 			.selectTab(sessionId, tabId)
 			.then((success) => {
-				client.socket.send(
-					JSON.stringify({
-						type: 'select_tab_result',
-						success,
-						sessionId,
-						tabId,
-						timestamp: Date.now(),
-					})
-				);
+				this.send(client, { type: 'select_tab_result', success, sessionId, tabId });
 			})
 			.catch((error) => {
-				client.socket.send(
-					JSON.stringify({
-						type: 'error',
-						message: `Failed to select tab: ${error.message}`,
-						timestamp: Date.now(),
-					})
-				);
+				this.sendError(client, `Failed to select tab: ${error.message}`);
 			});
 	}
 
@@ -540,48 +427,27 @@ export class WebSocketMessageHandler {
 		logger.info(`[Web] Received new_tab message: session=${sessionId}`, LOG_CONTEXT);
 
 		if (!sessionId) {
-			client.socket.send(
-				JSON.stringify({
-					type: 'error',
-					message: 'Missing sessionId',
-					timestamp: Date.now(),
-				})
-			);
+			this.sendError(client, 'Missing sessionId');
 			return;
 		}
 
 		if (!this.callbacks.newTab) {
-			client.socket.send(
-				JSON.stringify({
-					type: 'error',
-					message: 'Tab creation not configured',
-					timestamp: Date.now(),
-				})
-			);
+			this.sendError(client, 'Tab creation not configured');
 			return;
 		}
 
 		this.callbacks
 			.newTab(sessionId)
 			.then((result) => {
-				client.socket.send(
-					JSON.stringify({
-						type: 'new_tab_result',
-						success: !!result,
-						sessionId,
-						tabId: result?.tabId,
-						timestamp: Date.now(),
-					})
-				);
+				this.send(client, {
+					type: 'new_tab_result',
+					success: !!result,
+					sessionId,
+					tabId: result?.tabId,
+				});
 			})
 			.catch((error) => {
-				client.socket.send(
-					JSON.stringify({
-						type: 'error',
-						message: `Failed to create tab: ${error.message}`,
-						timestamp: Date.now(),
-					})
-				);
+				this.sendError(client, `Failed to create tab: ${error.message}`);
 			});
 	}
 
@@ -597,48 +463,22 @@ export class WebSocketMessageHandler {
 		);
 
 		if (!sessionId || !tabId) {
-			client.socket.send(
-				JSON.stringify({
-					type: 'error',
-					message: 'Missing sessionId or tabId',
-					timestamp: Date.now(),
-				})
-			);
+			this.sendError(client, 'Missing sessionId or tabId');
 			return;
 		}
 
 		if (!this.callbacks.closeTab) {
-			client.socket.send(
-				JSON.stringify({
-					type: 'error',
-					message: 'Tab closing not configured',
-					timestamp: Date.now(),
-				})
-			);
+			this.sendError(client, 'Tab closing not configured');
 			return;
 		}
 
 		this.callbacks
 			.closeTab(sessionId, tabId)
 			.then((success) => {
-				client.socket.send(
-					JSON.stringify({
-						type: 'close_tab_result',
-						success,
-						sessionId,
-						tabId,
-						timestamp: Date.now(),
-					})
-				);
+				this.send(client, { type: 'close_tab_result', success, sessionId, tabId });
 			})
 			.catch((error) => {
-				client.socket.send(
-					JSON.stringify({
-						type: 'error',
-						message: `Failed to close tab: ${error.message}`,
-						timestamp: Date.now(),
-					})
-				);
+				this.sendError(client, `Failed to close tab: ${error.message}`);
 			});
 	}
 
@@ -655,24 +495,12 @@ export class WebSocketMessageHandler {
 		);
 
 		if (!sessionId || !tabId) {
-			client.socket.send(
-				JSON.stringify({
-					type: 'error',
-					message: 'Missing sessionId or tabId',
-					timestamp: Date.now(),
-				})
-			);
+			this.sendError(client, 'Missing sessionId or tabId');
 			return;
 		}
 
 		if (!this.callbacks.renameTab) {
-			client.socket.send(
-				JSON.stringify({
-					type: 'error',
-					message: 'Tab renaming not configured',
-					timestamp: Date.now(),
-				})
-			);
+			this.sendError(client, 'Tab renaming not configured');
 			return;
 		}
 
@@ -680,25 +508,16 @@ export class WebSocketMessageHandler {
 		this.callbacks
 			.renameTab(sessionId, tabId, newName || '')
 			.then((success) => {
-				client.socket.send(
-					JSON.stringify({
-						type: 'rename_tab_result',
-						success,
-						sessionId,
-						tabId,
-						newName: newName || '',
-						timestamp: Date.now(),
-					})
-				);
+				this.send(client, {
+					type: 'rename_tab_result',
+					success,
+					sessionId,
+					tabId,
+					newName: newName || '',
+				});
 			})
 			.catch((error) => {
-				client.socket.send(
-					JSON.stringify({
-						type: 'error',
-						message: `Failed to rename tab: ${error.message}`,
-						timestamp: Date.now(),
-					})
-				);
+				this.sendError(client, `Failed to rename tab: ${error.message}`);
 			});
 	}
 
@@ -707,12 +526,6 @@ export class WebSocketMessageHandler {
 	 */
 	private handleUnknown(client: WebClient, message: WebClientMessage): void {
 		logger.debug(`Unknown message type: ${message.type}`, LOG_CONTEXT);
-		client.socket.send(
-			JSON.stringify({
-				type: 'echo',
-				originalType: message.type,
-				data: message,
-			})
-		);
+		this.send(client, { type: 'echo', originalType: message.type, data: message });
 	}
 }
