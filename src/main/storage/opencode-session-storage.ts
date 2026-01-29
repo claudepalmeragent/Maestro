@@ -33,7 +33,7 @@ import type {
 	SessionListOptions,
 	SessionReadOptions,
 	SessionMessage,
-} from '../agent-session-storage';
+} from '../agents';
 import type { ToolType } from '../../shared/types';
 
 const LOG_CONTEXT = '[OpenCodeSessionStorage]';

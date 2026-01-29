@@ -49,7 +49,7 @@ import { registerWebHandlers, WebHandlerDependencies } from './web';
 import { registerLeaderboardHandlers, LeaderboardHandlerDependencies } from './leaderboard';
 import { registerNotificationsHandlers } from './notifications';
 import { registerAgentErrorHandlers } from './agent-error';
-import { AgentDetector } from '../../agent-detector';
+import { AgentDetector } from '../../agents';
 import { ProcessManager } from '../../process-manager';
 import { WebServer } from '../../web-server';
 import { tunnelManager as tunnelManagerInstance } from '../../tunnel-manager';

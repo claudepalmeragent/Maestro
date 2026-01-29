@@ -4,9 +4,9 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { setupUsageListener } from '../usage-listener';
-import type { ProcessManager } from '../../process-manager';
-import type { UsageStats } from '../types';
+import { setupUsageListener } from '../../../main/process-listeners/usage-listener';
+import type { ProcessManager } from '../../../main/process-manager';
+import type { UsageStats } from '../../../main/process-listeners/types';
 
 describe('Usage Listener', () => {
 	let mockProcessManager: ProcessManager;

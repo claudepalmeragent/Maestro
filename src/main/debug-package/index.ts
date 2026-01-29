@@ -29,7 +29,7 @@ import {
 } from './collectors/windows-diagnostics';
 import { createZipPackage, PackageContents } from './packager';
 import { logger } from '../utils/logger';
-import { AgentDetector } from '../agent-detector';
+import { AgentDetector } from '../agents';
 import { ProcessManager } from '../process-manager';
 import { WebServer } from '../web-server';
 import Store from 'electron-store';

@@ -2,7 +2,7 @@ import { ipcMain, BrowserWindow } from 'electron';
 import Store from 'electron-store';
 import * as os from 'os';
 import { ProcessManager } from '../../process-manager';
-import { AgentDetector } from '../../agent-detector';
+import { AgentDetector } from '../../agents';
 import { logger } from '../../utils/logger';
 import {
 	buildAgentArgs,

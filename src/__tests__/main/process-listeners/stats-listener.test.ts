@@ -4,12 +4,12 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { setupStatsListener } from '../stats-listener';
-import type { ProcessManager } from '../../process-manager';
-import type { SafeSendFn } from '../../utils/safe-send';
-import type { QueryCompleteData } from '../../process-manager/types';
-import type { StatsDB } from '../../stats-db';
-import type { ProcessListenerDependencies } from '../types';
+import { setupStatsListener } from '../../../main/process-listeners/stats-listener';
+import type { ProcessManager } from '../../../main/process-manager';
+import type { SafeSendFn } from '../../../main/utils/safe-send';
+import type { QueryCompleteData } from '../../../main/process-manager/types';
+import type { StatsDB } from '../../../main/stats-db';
+import type { ProcessListenerDependencies } from '../../../main/process-listeners/types';
 
 describe('Stats Listener', () => {
 	let mockProcessManager: ProcessManager;

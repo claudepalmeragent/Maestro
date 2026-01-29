@@ -32,7 +32,7 @@ import type {
 	AgentSessionOrigin,
 	SessionOriginInfo,
 	SessionMessage,
-} from '../agent-session-storage';
+} from '../agents';
 import type { ToolType, SshRemoteConfig } from '../../shared/types';
 
 const LOG_CONTEXT = '[ClaudeSessionStorage]';

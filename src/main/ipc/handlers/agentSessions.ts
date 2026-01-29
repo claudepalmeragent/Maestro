@@ -21,11 +21,7 @@ import os from 'os';
 import fs from 'fs/promises';
 import { logger } from '../../utils/logger';
 import { withIpcErrorLogging } from '../../utils/ipcHandler';
-import {
-	getSessionStorage,
-	hasSessionStorage,
-	getAllSessionStorages,
-} from '../../agent-session-storage';
+import { getSessionStorage, hasSessionStorage, getAllSessionStorages } from '../../agents';
 import { calculateClaudeCost } from '../../utils/pricing';
 import {
 	loadGlobalStatsCache,
@@ -42,7 +38,7 @@ import type {
 	SessionSearchMode,
 	SessionListOptions,
 	SessionReadOptions,
-} from '../../agent-session-storage';
+} from '../../agents';
 import type { GlobalAgentStats, ProviderStats, SshRemoteConfig } from '../../../shared/types';
 import type { MaestroSettings } from './persistence';
 

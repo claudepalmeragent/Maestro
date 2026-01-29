@@ -13,7 +13,7 @@ import {
 	DebugHandlerDependencies,
 } from '../../../../main/ipc/handlers/debug';
 import * as debugPackage from '../../../../main/debug-package';
-import { AgentDetector } from '../../../../main/agent-detector';
+import { AgentDetector } from '../../../../main/agents';
 import { ProcessManager } from '../../../../main/process-manager';
 import { WebServer } from '../../../../main/web-server';
 

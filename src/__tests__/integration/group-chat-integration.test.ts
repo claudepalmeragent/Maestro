@@ -26,7 +26,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { spawn } from 'child_process';
 import { promisify } from 'util';
 import { exec } from 'child_process';
-import { getAgentCapabilities } from '../../main/agent-capabilities';
+import { getAgentCapabilities } from '../../main/agents';
 
 const execAsync = promisify(exec);
 

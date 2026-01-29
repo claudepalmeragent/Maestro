@@ -5,7 +5,7 @@ import crypto from 'crypto';
 // which causes "Cannot read properties of undefined (reading 'getAppPath')" errors
 import { ProcessManager } from './process-manager';
 import { WebServer } from './web-server';
-import { AgentDetector } from './agent-detector';
+import { AgentDetector } from './agents';
 import { logger } from './utils/logger';
 import { tunnelManager } from './tunnel-manager';
 import { powerManager } from './power-manager';

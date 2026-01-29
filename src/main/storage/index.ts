@@ -10,7 +10,7 @@ export { OpenCodeSessionStorage } from './opencode-session-storage';
 export { CodexSessionStorage } from './codex-session-storage';
 
 import Store from 'electron-store';
-import { registerSessionStorage } from '../agent-session-storage';
+import { registerSessionStorage } from '../agents';
 import { ClaudeSessionStorage, ClaudeSessionOriginsData } from './claude-session-storage';
 import { OpenCodeSessionStorage } from './opencode-session-storage';
 import { CodexSessionStorage } from './codex-session-storage';

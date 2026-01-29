@@ -63,7 +63,7 @@ import {
 	GroupChatParticipant,
 } from '../../../main/group-chat/group-chat-storage';
 import { readLog } from '../../../main/group-chat/group-chat-log';
-import { AgentDetector } from '../../../main/agent-detector';
+import { AgentDetector } from '../../../main/agents';
 
 describe('group-chat-router', () => {
 	let mockProcessManager: IProcessManager;
