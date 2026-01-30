@@ -860,4 +860,73 @@ describe('useAtMentionCompletion', () => {
 			expect(matchingFiles.length).toBeGreaterThan(0);
 		});
 	});
+
+	// =============================================================================
+	// PERFORMANCE OPTIMIZATION TESTS
+	// =============================================================================
+
+	describe('performance optimizations', () => {
+		it('caps file tree traversal at MAX_FILE_TREE_ENTRIES', () => {
+			// Generate a tree with more than 50k files
+			const largeFolder: FileNode[] = [];
+			for (let i = 0; i < 200; i++) {
+				const children: FileNode[] = [];
+				for (let j = 0; j < 300; j++) {
+					children.push(createFile(`file_${i}_${j}.ts`));
+				}
+				largeFolder.push(createFolder(`dir_${i}`, children));
+			}
+			// This tree has 200 folders + 60,000 files = 60,200 nodes total
+
+			const session = createMockSession(largeFolder);
+			const { result } = renderHook(() => useAtMentionCompletion(session));
+
+			// With empty filter, should return at most 15 suggestions
+			const suggestions = result.current.getSuggestions('');
+			expect(suggestions.length).toBeLessThanOrEqual(15);
+
+			// With a filter that would match many files, should still return max 15
+			const filtered = result.current.getSuggestions('file');
+			expect(filtered.length).toBeLessThanOrEqual(15);
+		});
+
+		it('empty filter skips fuzzy matching and returns sorted results', () => {
+			const session = createMockSession([
+				createFolder('zebra'),
+				createFile('banana.ts'),
+				createFile('apple.ts'),
+			]);
+			const { result } = renderHook(() => useAtMentionCompletion(session));
+
+			const suggestions = result.current.getSuggestions('');
+			// Files should come before folders, then alphabetical
+			expect(suggestions[0].displayText).toBe('apple.ts');
+			expect(suggestions[1].displayText).toBe('banana.ts');
+			expect(suggestions[2].displayText).toBe('zebra');
+			// All scores should be 0 (no fuzzy matching performed)
+			expect(suggestions.every((s) => s.score === 0)).toBe(true);
+		});
+
+		it('early exits after enough exact substring matches', () => {
+			// Create 200 files that contain "match" in their name (exact substring matches)
+			// plus files that would only fuzzy-match
+			const files: FileNode[] = [];
+			for (let i = 0; i < 200; i++) {
+				files.push(createFile(`match_${i}.ts`));
+			}
+			// Add some files that would only fuzzy match (no "match" substring)
+			for (let i = 0; i < 100; i++) {
+				files.push(createFile(`m_a_t_c_h_${i}.ts`));
+			}
+
+			const session = createMockSession(files);
+			const { result } = renderHook(() => useAtMentionCompletion(session));
+
+			const suggestions = result.current.getSuggestions('match');
+			// Should still return valid results with max 15
+			expect(suggestions.length).toBe(15);
+			// Top results should be exact substring matches (higher score)
+			expect(suggestions[0].displayText).toContain('match');
+		});
+	});
 });

@@ -5,7 +5,7 @@
  */
 
 // Git status polling
-export { useGitStatusPolling } from './useGitStatusPolling';
+export { useGitStatusPolling, getScaledPollInterval } from './useGitStatusPolling';
 export type {
 	UseGitStatusPollingReturn,
 	UseGitStatusPollingOptions,

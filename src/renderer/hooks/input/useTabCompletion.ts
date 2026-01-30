@@ -10,6 +10,13 @@ export interface TabCompletionSuggestion {
 
 export type TabCompletionFilter = 'all' | 'history' | 'branch' | 'tag' | 'file';
 
+/**
+ * PERF: Maximum number of file tree entries to flatten.
+ * Mirrors the cap in useAtMentionCompletion to avoid blocking the main thread
+ * on repos with 100k+ files.
+ */
+const MAX_FILE_TREE_ENTRIES = 50_000;
+
 export interface UseTabCompletionReturn {
 	getSuggestions: (input: string, filter?: TabCompletionFilter) => TabCompletionSuggestion[];
 }
@@ -55,8 +62,11 @@ export function useTabCompletion(session: Session | null): UseTabCompletionRetur
 
 		const names: { name: string; type: 'file' | 'folder'; path: string }[] = [];
 
+		// PERF: Capped at MAX_FILE_TREE_ENTRIES to avoid blocking the main thread on huge repos
 		const traverse = (nodes: FileNode[], currentPath = '') => {
 			for (const node of nodes) {
+				if (names.length >= MAX_FILE_TREE_ENTRIES) return;
+
 				const fullPath = currentPath ? `${currentPath}/${node.name}` : node.name;
 				names.push({
 					name: node.name,
