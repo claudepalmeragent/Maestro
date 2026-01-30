@@ -1,7 +1,7 @@
 /**
  * Type definitions for the stats tracking system
  *
- * These types are shared between main process (stats-db.ts) and renderer (dashboard).
+ * These types are shared between main process (stats/) and renderer (dashboard).
  */
 
 /**

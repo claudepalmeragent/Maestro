@@ -7,7 +7,7 @@ import type { ProcessManager } from '../process-manager';
 import type { WebServer } from '../web-server';
 import type { AgentDetector } from '../agents';
 import type { SafeSendFn } from '../utils/safe-send';
-import type { StatsDB } from '../stats-db';
+import type { StatsDB } from '../stats';
 import type { GroupChat, GroupChatParticipant } from '../group-chat/group-chat-storage';
 import type { GroupChatState } from '../../shared/group-chat-types';
 import type { ParticipantState } from '../ipc/handlers/groupChat';

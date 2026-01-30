@@ -8,8 +8,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ipcMain, BrowserWindow } from 'electron';
 import { registerStatsHandlers } from '../../../../main/ipc/handlers/stats';
-import * as statsDbModule from '../../../../main/stats-db';
-import type { StatsDB } from '../../../../main/stats-db';
+import * as statsDbModule from '../../../../main/stats';
+import type { StatsDB } from '../../../../main/stats';
 
 // Mock electron's ipcMain and BrowserWindow
 vi.mock('electron', () => ({
@@ -21,7 +21,7 @@ vi.mock('electron', () => ({
 }));
 
 // Mock the stats-db module
-vi.mock('../../../../main/stats-db', () => ({
+vi.mock('../../../../main/stats', () => ({
 	getStatsDB: vi.fn(),
 }));
 

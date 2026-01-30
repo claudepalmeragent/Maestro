@@ -51,7 +51,7 @@ import {
 	cleanupAllGroomingSessions,
 	getActiveGroomingSessionCount,
 } from './ipc/handlers';
-import { initializeStatsDB, closeStatsDB, getStatsDB } from './stats-db';
+import { initializeStatsDB, closeStatsDB, getStatsDB } from './stats';
 import { groupChatEmitters } from './ipc/handlers/groupChat';
 import {
 	routeModeratorResponse,
