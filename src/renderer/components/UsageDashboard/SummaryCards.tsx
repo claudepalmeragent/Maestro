@@ -114,7 +114,7 @@ function MetricCard({ icon, label, value, theme, animationIndex = 0 }: MetricCar
 	);
 }
 
-export function SummaryCards({ data, theme, columns = 3 }: SummaryCardsProps) {
+export function SummaryCards({ data, theme, columns = 4 }: SummaryCardsProps) {
 	// Calculate derived metrics
 	const { mostActiveAgent, interactiveRatio, throughputDisplay, totalTokensDisplay } = useMemo(
 		() => {

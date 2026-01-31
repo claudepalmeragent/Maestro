@@ -22,6 +22,7 @@ import { SourceDistributionChart } from './SourceDistributionChart';
 import { LocationDistributionChart } from './LocationDistributionChart';
 import { PeakHoursChart } from './PeakHoursChart';
 import { DurationTrendsChart } from './DurationTrendsChart';
+import { ThroughputTrendsChart } from './ThroughputTrendsChart';
 import { AgentUsageChart } from './AgentUsageChart';
 import { AutoRunStats } from './AutoRunStats';
 import { SessionStats } from './SessionStats';
@@ -43,9 +44,10 @@ const OVERVIEW_SECTIONS = [
 	'peak-hours',
 	'activity-heatmap',
 	'duration-trends',
+	'throughput-trends',
 ] as const;
 const AGENTS_SECTIONS = ['session-stats', 'agent-comparison', 'agent-usage'] as const;
-const ACTIVITY_SECTIONS = ['activity-heatmap', 'duration-trends'] as const;
+const ACTIVITY_SECTIONS = ['activity-heatmap', 'duration-trends', 'throughput-trends'] as const;
 const AUTORUN_SECTIONS = ['autorun-stats'] as const;
 
 type SectionId =
@@ -319,8 +321,8 @@ export function UsageDashboardModal({
 			isWide,
 			// Chart grid: 1 col on narrow, 2 cols on medium/wide
 			chartGridCols: isNarrow ? 1 : 2,
-			// Summary cards: 2 cols on narrow, 3 on medium/wide (2 rows × 3 cols)
-			summaryCardsCols: isNarrow ? 2 : 3,
+			// Summary cards: 2 cols on narrow, 3 on medium, 4 on wide (2 rows × 4 cols)
+			summaryCardsCols: isNarrow ? 2 : isMedium ? 3 : 4,
 			// AutoRun stats: 2 cols on narrow, 3 on medium, 6 on wide
 			autoRunStatsCols: isNarrow ? 2 : isMedium ? 3 : 6,
 		};
@@ -354,6 +356,7 @@ export function UsageDashboardModal({
 			'peak-hours': 'Peak Hours Chart',
 			'activity-heatmap': 'Activity Heatmap',
 			'duration-trends': 'Duration Trends Chart',
+			'throughput-trends': 'Throughput Trends Chart',
 			'autorun-stats': 'Auto Run Statistics',
 		};
 		return labels[sectionId] || sectionId;
@@ -891,6 +894,34 @@ export function UsageDashboardModal({
 											/>
 										</ChartErrorBoundary>
 									</div>
+
+									{/* Throughput Trends Chart - Dual Y-axis for tok/s and total tokens */}
+									<div
+										ref={setSectionRef('throughput-trends')}
+										tabIndex={0}
+										role="region"
+										aria-label={getSectionLabel('throughput-trends')}
+										onKeyDown={(e) => handleSectionKeyDown(e, 'throughput-trends')}
+										className="outline-none rounded-lg transition-shadow dashboard-section-enter"
+										style={{
+											minHeight: '280px',
+											boxShadow:
+												focusedSection === 'throughput-trends'
+													? `0 0 0 2px ${theme.colors.accent}`
+													: 'none',
+											animationDelay: '350ms',
+										}}
+										data-testid="section-throughput-trends"
+									>
+										<ChartErrorBoundary theme={theme} chartName="Throughput Trends">
+											<ThroughputTrendsChart
+												data={data}
+												timeRange={timeRange}
+												theme={theme}
+												colorBlindMode={colorBlindMode}
+											/>
+										</ChartErrorBoundary>
+									</div>
 								</>
 							)}
 
@@ -1028,6 +1059,34 @@ export function UsageDashboardModal({
 									>
 										<ChartErrorBoundary theme={theme} chartName="Duration Trends">
 											<DurationTrendsChart
+												data={data}
+												timeRange={timeRange}
+												theme={theme}
+												colorBlindMode={colorBlindMode}
+											/>
+										</ChartErrorBoundary>
+									</div>
+
+									{/* Throughput Trends Chart */}
+									<div
+										ref={setSectionRef('throughput-trends')}
+										tabIndex={0}
+										role="region"
+										aria-label={getSectionLabel('throughput-trends')}
+										onKeyDown={(e) => handleSectionKeyDown(e, 'throughput-trends')}
+										className="outline-none rounded-lg transition-shadow dashboard-section-enter"
+										style={{
+											minHeight: '280px',
+											boxShadow:
+												focusedSection === 'throughput-trends'
+													? `0 0 0 2px ${theme.colors.accent}`
+													: 'none',
+											animationDelay: '150ms',
+										}}
+										data-testid="section-throughput-trends"
+									>
+										<ChartErrorBoundary theme={theme} chartName="Throughput Trends">
+											<ThroughputTrendsChart
 												data={data}
 												timeRange={timeRange}
 												theme={theme}

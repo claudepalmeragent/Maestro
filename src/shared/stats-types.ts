@@ -86,7 +86,13 @@ export interface StatsAggregation {
 	avgDuration: number;
 	byAgent: Record<string, { count: number; duration: number }>;
 	bySource: { user: number; auto: number };
-	byDay: Array<{ date: string; count: number; duration: number }>;
+	byDay: Array<{
+		date: string;
+		count: number;
+		duration: number;
+		outputTokens?: number;
+		avgTokensPerSecond?: number;
+	}>;
 	/** Breakdown by session location (local vs SSH remote) */
 	byLocation: { local: number; remote: number };
 	/** Breakdown by hour of day (0-23) for peak hours chart */
