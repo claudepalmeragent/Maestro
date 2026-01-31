@@ -10,7 +10,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Check, X, Settings, ArrowLeft } from 'lucide-react';
+import { Check, X, Settings, ArrowLeft, AlertTriangle } from 'lucide-react';
 import type { Theme, AgentConfig, ModeratorConfig, GroupChat } from '../types';
 import type { SshRemoteConfig, AgentSshRemoteConfig } from '../../shared/types';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
@@ -64,6 +64,7 @@ export function EditGroupChatModal({
 	const [sshRemoteConfig, setSshRemoteConfig] = useState<AgentSshRemoteConfig | undefined>(
 		undefined
 	);
+	const [sshConnectionError, setSshConnectionError] = useState<string | null>(null);
 
 	const nameInputRef = useRef<HTMLInputElement>(null);
 	// Ref to track latest agentConfig for async save operations
@@ -105,6 +106,7 @@ export function EditGroupChatModal({
 		setRefreshingAgent(false);
 		setConfigWasModified(false);
 		setSshRemoteConfig(undefined);
+		setSshConnectionError(null);
 	}, []);
 
 	// Detect agents on mount
@@ -116,11 +118,32 @@ export function EditGroupChatModal({
 
 		async function detect() {
 			try {
-				const agents = await window.maestro.agents.detect();
+				// Pass SSH remote ID if configured for remote agent detection
+				const sshRemoteId = sshRemoteConfig?.enabled ? sshRemoteConfig.remoteId : undefined;
+				const agents = await window.maestro.agents.detect(sshRemoteId ?? undefined);
+
+				// Check for SSH connection errors
+				if (sshRemoteConfig?.enabled) {
+					const connectionErrors = agents.filter((a: AgentConfig & { error?: string }) => a.error);
+					if (connectionErrors.length > 0 && agents.every((a: AgentConfig) => !a.available)) {
+						const errorAgent = connectionErrors[0] as AgentConfig & { error?: string };
+						setSshConnectionError(errorAgent.error || 'SSH connection failed');
+						setDetectedAgents([]);
+						setIsDetecting(false);
+						return;
+					}
+				}
+
+				setSshConnectionError(null);
 				const available = agents.filter((a: AgentConfig) => a.available && !a.hidden);
 				setDetectedAgents(available);
 			} catch (error) {
 				console.error('Failed to detect agents:', error);
+				if (sshRemoteConfig?.enabled) {
+					setSshConnectionError(
+						error instanceof Error ? error.message : 'Unknown connection error'
+					);
+				}
 			} finally {
 				setIsDetecting(false);
 			}
@@ -139,7 +162,7 @@ export function EditGroupChatModal({
 
 		detect();
 		loadSshRemotes();
-	}, [isOpen, resetState]);
+	}, [isOpen, resetState, sshRemoteConfig?.enabled, sshRemoteConfig?.remoteId]);
 
 	// Focus name input when agents detected
 	useEffect(() => {
@@ -280,6 +303,16 @@ export function EditGroupChatModal({
 
 	// Check if there's any customization set
 	const hasCustomization = customPath || customArgs || Object.keys(customEnvVars).length > 0;
+
+	// Check if SSH remote is active
+	const isRemoteExecution = sshRemoteConfig?.enabled && sshRemoteConfig.remoteId;
+
+	// Helper to get SSH remote name
+	const getRemoteName = (remoteId: string | null): string => {
+		if (!remoteId) return 'Local';
+		const remote = sshRemotes.find((r) => r.id === remoteId);
+		return remote?.name || remote?.host || 'Remote';
+	};
 
 	// Render configuration view
 	if (viewMode === 'config' && selectedAgentConfig && selectedTile) {
@@ -445,12 +478,32 @@ export function EditGroupChatModal({
 						Moderator Agent
 					</label>
 
+					{/* SSH Connection Error */}
+					{sshConnectionError && (
+						<div
+							className="flex items-center gap-2 p-3 rounded-lg mb-4"
+							style={{
+								backgroundColor: `${theme.colors.error}15`,
+								border: `1px solid ${theme.colors.error}`,
+							}}
+						>
+							<AlertTriangle className="w-4 h-4 shrink-0" style={{ color: theme.colors.error }} />
+							<span className="text-sm" style={{ color: theme.colors.error }}>
+								{sshConnectionError}
+							</span>
+						</div>
+					)}
+
 					{isDetecting ? (
 						<div className="flex items-center justify-center py-8">
 							<div
 								className="w-6 h-6 border-2 border-t-transparent rounded-full animate-spin"
 								style={{ borderColor: theme.colors.accent, borderTopColor: 'transparent' }}
 							/>
+						</div>
+					) : sshConnectionError ? (
+						<div className="text-center py-8 text-sm" style={{ color: theme.colors.textDim }}>
+							Unable to connect to remote host. Please select a different remote or switch to Local Execution.
 						</div>
 					) : availableTiles.length === 0 ? (
 						<div className="text-center py-8 text-sm" style={{ color: theme.colors.textDim }}>
@@ -479,12 +532,25 @@ export function EditGroupChatModal({
 											borderColor: isSelected ? tile.brandColor : theme.colors.border,
 										}}
 									>
+										{/* Selection checkmark */}
 										{isSelected && (
 											<div
 												className="absolute top-2 right-2 w-5 h-5 rounded-full flex items-center justify-center"
 												style={{ backgroundColor: tile.brandColor }}
 											>
 												<Check className="w-3 h-3 text-white" />
+											</div>
+										)}
+										{/* Remote indicator badge */}
+										{isRemoteExecution && (
+											<div
+												className="absolute top-2 left-2 px-1.5 py-0.5 rounded text-[9px] font-medium"
+												style={{
+													backgroundColor: theme.colors.accent,
+													color: theme.colors.bgMain,
+												}}
+											>
+												Remote
 											</div>
 										)}
 										<AgentLogo
@@ -500,6 +566,15 @@ export function EditGroupChatModal({
 										>
 											{tile.name}
 										</span>
+										{/* Remote host info */}
+										{isRemoteExecution && (
+											<span
+												className="text-[10px] mt-0.5"
+												style={{ color: theme.colors.textDim }}
+											>
+												on {getRemoteName(sshRemoteConfig?.remoteId ?? null)}
+											</span>
+										)}
 
 										{/* Customize button */}
 										<button
