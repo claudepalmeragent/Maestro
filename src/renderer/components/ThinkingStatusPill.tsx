@@ -70,6 +70,48 @@ const ElapsedTimeDisplay = memo(
 
 ElapsedTimeDisplay.displayName = 'ElapsedTimeDisplay';
 
+// ThroughputDisplay - shows live tokens/second during streaming
+const ThroughputDisplay = memo(
+	({
+		tokens,
+		startTime,
+		textColor,
+		accentColor,
+	}: {
+		tokens: number;
+		startTime: number;
+		textColor: string;
+		accentColor: string;
+	}) => {
+		const [throughput, setThroughput] = useState<number>(0);
+
+		useEffect(() => {
+			// Update throughput every 500ms for smooth display
+			const updateThroughput = () => {
+				const elapsedMs = Date.now() - startTime;
+				if (elapsedMs > 0 && tokens > 0) {
+					const tokPerSec = tokens / (elapsedMs / 1000);
+					setThroughput(tokPerSec);
+				}
+			};
+
+			updateThroughput();
+			const interval = setInterval(updateThroughput, 500);
+			return () => clearInterval(interval);
+		}, [tokens, startTime]);
+
+		if (throughput === 0) return null;
+
+		return (
+			<span className="font-mono text-xs font-medium" style={{ color: accentColor }}>
+				{throughput.toFixed(1)} tok/s
+			</span>
+		);
+	}
+);
+
+ThroughputDisplay.displayName = 'ThroughputDisplay';
+
 // Helper to get display name for a session (used in thinking dropdown)
 // Priority: 1. namedSessions lookup, 2. tab name, 3. UUID octet
 function getSessionDisplayName(session: Session, namedSessions?: Record<string, string>): string {
@@ -118,6 +160,7 @@ const SessionRow = memo(
 		const maestroName = session.name; // The name from the left sidebar
 		const tokens = session.currentCycleTokens || 0;
 		const busyTab = getWriteModeTab(session);
+		const thinkingStart = busyTab?.thinkingStartTime || session.thinkingStartTime;
 
 		return (
 			<button
@@ -144,12 +187,17 @@ const SessionRow = memo(
 					className="flex items-center gap-2 shrink-0 text-xs"
 					style={{ color: theme.colors.textDim }}
 				>
-					{tokens > 0 && <span>{formatTokensCompact(tokens)}</span>}
-					{session.thinkingStartTime && (
-						<ElapsedTimeDisplay
-							startTime={session.thinkingStartTime}
+					{tokens > 0 && thinkingStart && (
+						<ThroughputDisplay
+							tokens={tokens}
+							startTime={thinkingStart}
 							textColor={theme.colors.textDim}
+							accentColor={theme.colors.accent}
 						/>
+					)}
+					{tokens > 0 && <span>{formatTokensCompact(tokens)}</span>}
+					{thinkingStart && (
+						<ElapsedTimeDisplay startTime={thinkingStart} textColor={theme.colors.textDim} />
 					)}
 				</div>
 			</button>
@@ -384,6 +432,18 @@ function ThinkingStatusPillInner({
 						<span className="font-medium" style={{ color: theme.colors.textMain }}>
 							{formatTokensCompact(primaryTokens)}
 						</span>
+						{/* Real-time throughput display */}
+						{(writeModeTab?.thinkingStartTime || primarySession.thinkingStartTime) && (
+							<>
+								<span style={{ color: theme.colors.border }}>|</span>
+								<ThroughputDisplay
+									tokens={primaryTokens}
+									startTime={writeModeTab?.thinkingStartTime || primarySession.thinkingStartTime!}
+									textColor={theme.colors.textDim}
+									accentColor={theme.colors.accent}
+								/>
+							</>
+						)}
 					</div>
 				)}
 

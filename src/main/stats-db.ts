@@ -308,6 +308,11 @@ export class StatsDB {
 				description: 'Add session_lifecycle table for tracking session creation and closure',
 				up: () => this.migrateV3(),
 			},
+			{
+				version: 4,
+				description: 'Add token metrics columns to query_events for throughput tracking',
+				up: () => this.migrateV4(),
+			},
 		];
 	}
 
@@ -621,6 +626,27 @@ export class StatsDB {
 		}
 
 		logger.debug('Created session_lifecycle table', LOG_CONTEXT);
+	}
+
+	/**
+	 * Migration v4: Add token metrics columns to query_events
+	 *
+	 * Adds columns to track per-request token counts and throughput:
+	 * - input_tokens: Number of tokens sent in the request
+	 * - output_tokens: Number of tokens received in the response
+	 * - tokens_per_second: Calculated throughput (output_tokens / duration_seconds)
+	 *
+	 * These enable throughput metrics in the Usage Dashboard.
+	 */
+	private migrateV4(): void {
+		if (!this.db) throw new Error('Database not initialized');
+
+		// Add token metrics columns (nullable for backward compatibility with existing data)
+		this.db.prepare('ALTER TABLE query_events ADD COLUMN input_tokens INTEGER').run();
+		this.db.prepare('ALTER TABLE query_events ADD COLUMN output_tokens INTEGER').run();
+		this.db.prepare('ALTER TABLE query_events ADD COLUMN tokens_per_second REAL').run();
+
+		logger.debug('Added token metrics columns to query_events table', LOG_CONTEXT);
 	}
 
 	// ============================================================================
@@ -1000,8 +1026,8 @@ export class StatsDB {
 
 		const id = generateId();
 		const stmt = this.db.prepare(`
-      INSERT INTO query_events (id, session_id, agent_type, source, start_time, duration, project_path, tab_id, is_remote)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO query_events (id, session_id, agent_type, source, start_time, duration, project_path, tab_id, is_remote, input_tokens, output_tokens, tokens_per_second)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
 		stmt.run(
@@ -1013,7 +1039,10 @@ export class StatsDB {
 			event.duration,
 			normalizePath(event.projectPath),
 			event.tabId ?? null,
-			event.isRemote !== undefined ? (event.isRemote ? 1 : 0) : null
+			event.isRemote !== undefined ? (event.isRemote ? 1 : 0) : null,
+			event.inputTokens ?? null,
+			event.outputTokens ?? null,
+			event.tokensPerSecond ?? null
 		);
 
 		logger.debug(`Inserted query event ${id}`, LOG_CONTEXT);
@@ -1061,6 +1090,9 @@ export class StatsDB {
 			project_path: string | null;
 			tab_id: string | null;
 			is_remote: number | null;
+			input_tokens: number | null;
+			output_tokens: number | null;
+			tokens_per_second: number | null;
 		}>;
 
 		return rows.map((row) => ({
@@ -1073,6 +1105,9 @@ export class StatsDB {
 			projectPath: row.project_path ?? undefined,
 			tabId: row.tab_id ?? undefined,
 			isRemote: row.is_remote !== null ? row.is_remote === 1 : undefined,
+			inputTokens: row.input_tokens ?? undefined,
+			outputTokens: row.output_tokens ?? undefined,
+			tokensPerSecond: row.tokens_per_second ?? undefined,
 		}));
 	}
 
@@ -1599,6 +1634,27 @@ export class StatsDB {
 		}
 		perfMetrics.end(bySessionByDayStart, 'getAggregatedStats:bySessionByDay', { range });
 
+		// Token metrics (for throughput statistics)
+		const tokenMetricsStart = perfMetrics.start();
+		const tokenMetricsStmt = this.db.prepare(`
+      SELECT
+        COUNT(*) as queries_with_data,
+        COALESCE(SUM(input_tokens), 0) as total_input_tokens,
+        COALESCE(SUM(output_tokens), 0) as total_output_tokens,
+        COALESCE(AVG(tokens_per_second), 0) as avg_tokens_per_second,
+        COALESCE(AVG(output_tokens), 0) as avg_output_tokens
+      FROM query_events
+      WHERE start_time >= ? AND output_tokens IS NOT NULL
+    `);
+		const tokenMetrics = tokenMetricsStmt.get(startTime) as {
+			queries_with_data: number;
+			total_input_tokens: number;
+			total_output_tokens: number;
+			avg_tokens_per_second: number;
+			avg_output_tokens: number;
+		};
+		perfMetrics.end(tokenMetricsStart, 'getAggregatedStats:tokenMetrics', { range });
+
 		const totalDuration = perfMetrics.end(perfStart, 'getAggregatedStats:total', {
 			range,
 			totalQueries: totals.count,
@@ -1628,6 +1684,12 @@ export class StatsDB {
 			avgSessionDuration: Math.round(avgSessionDurationResult.avg_duration),
 			byAgentByDay,
 			bySessionByDay,
+			// Token metrics for throughput statistics
+			totalOutputTokens: tokenMetrics.total_output_tokens,
+			totalInputTokens: tokenMetrics.total_input_tokens,
+			avgTokensPerSecond: Math.round(tokenMetrics.avg_tokens_per_second * 10) / 10, // 1 decimal
+			avgOutputTokensPerQuery: Math.round(tokenMetrics.avg_output_tokens),
+			queriesWithTokenData: tokenMetrics.queries_with_data,
 		};
 	}
 
