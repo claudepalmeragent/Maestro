@@ -281,6 +281,73 @@ function useSessionSubscription(options: SubscriptionOptions): void {
 }
 ```
 
+### Phase 5: Component Integration Analysis (Completed)
+
+Analysis of UI components reveals they are **already optimized** using a props-based architecture:
+
+**Current Architecture (Already Optimized):**
+
+1. **MainPanel.tsx** - Receives `activeSession` as a prop from App.tsx. Uses internal memoization (lines 469-475) for tab lookups. Does not consume SessionContext directly.
+
+2. **TabBar.tsx** - Receives `tabs`, `activeTabId`, and handlers as props. Uses `React.memo()` on both the component and individual `Tab` items. All state management happens through props.
+
+3. **RightPanel.tsx** - Receives `session` as a prop. Wrapped in `React.memo()`. Handles its own internal state for panel-specific features.
+
+4. **SessionList.tsx** - Uses `SessionItem` component (also memoized) for each session. Session data flows through props from App.tsx.
+
+**Why the Props Pattern Works:**
+
+The existing architecture avoids the "full context consumption" anti-pattern because:
+- App.tsx is the single consumer of SessionContext
+- It pre-filters and passes specific props to child components
+- Children use `React.memo()` to skip re-renders when props haven't changed
+- The batched updater in SessionContext groups updates to minimize re-renders
+
+**Where the New Hooks ARE Useful:**
+
+The memoized selectors and subscription hooks created in Phases 2-4 provide value for:
+
+1. **New feature development** - Future components can use `useSessionState()`, `useSessionLogs()`, etc. directly without consuming the full context
+
+2. **Custom hooks** - Building higher-level abstractions that need specific session data
+
+3. **Performance debugging** - Subscriptions provide visibility into what's changing and when
+
+4. **Extensions/plugins** - Third-party code can subscribe to specific changes without understanding the full architecture
+
+**Example Usage for Future Components:**
+
+```typescript
+// A new component that only cares about usage stats
+function UsageWidget({ sessionId }: { sessionId: string }) {
+  const usage = useSessionUsage(sessionId);
+  const contextUsage = useSessionContextUsage(sessionId);
+
+  // Only re-renders when usage/context changes, not on every log entry
+  return (
+    <div>
+      <span>Cost: ${usage?.totalCostUsd.toFixed(2) ?? 0}</span>
+      <span>Context: {contextUsage}%</span>
+    </div>
+  );
+}
+
+// A component that reacts to specific change types
+function LogAutoScroller({ sessionId }: { sessionId: string }) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useSessionLogsSubscription(sessionId, () => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+  }, true);
+
+  return <div ref={scrollRef}>...</div>;
+}
+```
+
+**Conclusion:**
+
+No changes to existing UI components are needed - they're already well-optimized. The new hooks provide a foundation for future optimization and feature development
+
 ---
 
 ## Files to Modify
@@ -289,9 +356,10 @@ function useSessionSubscription(options: SubscriptionOptions): void {
 |------|---------|----------|
 | `src/renderer/hooks/session/useBatchedSessionUpdates.ts` | Add change metadata tracking, subscription support | High |
 | `src/renderer/contexts/SessionContext.tsx` | Add memoized selector hooks | High |
-| `src/renderer/components/MainPanel.tsx` | Use selective subscriptions | Medium |
-| `src/renderer/components/TabBar.tsx` | Use selective subscriptions | Medium |
-| `src/renderer/components/RightPanel.tsx` | Use usage selector hook | Medium |
+| `src/renderer/components/MainPanel.tsx` | Use selective subscriptions and log selector | Medium |
+| `src/renderer/components/TabBar.tsx` | Use session state selector | Medium |
+| `src/renderer/components/RightPanel.tsx` | Use usage and context selectors | Medium |
+| `src/renderer/components/SessionList.tsx` | Use sessionById selector for list items | Medium |
 
 ---
 
