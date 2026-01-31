@@ -1473,12 +1473,14 @@ export class StatsDB {
 		}
 		perfMetrics.end(byLocationStart, 'getAggregatedStats:byLocation', { range });
 
-		// By day (for charts)
+		// By day (for charts) - includes token metrics for throughput trends
 		const byDayStart = perfMetrics.start();
 		const byDayStmt = this.db.prepare(`
       SELECT date(start_time / 1000, 'unixepoch', 'localtime') as date,
              COUNT(*) as count,
-             SUM(duration) as duration
+             SUM(duration) as duration,
+             COALESCE(SUM(output_tokens), 0) as output_tokens,
+             COALESCE(AVG(CASE WHEN output_tokens IS NOT NULL THEN tokens_per_second END), 0) as avg_tokens_per_second
       FROM query_events
       WHERE start_time >= ?
       GROUP BY date(start_time / 1000, 'unixepoch', 'localtime')
@@ -1488,6 +1490,8 @@ export class StatsDB {
 			date: string;
 			count: number;
 			duration: number;
+			output_tokens: number;
+			avg_tokens_per_second: number;
 		}>;
 		perfMetrics.end(byDayStart, 'getAggregatedStats:byDay', { range, dayCount: byDayRows.length });
 
@@ -1675,7 +1679,13 @@ export class StatsDB {
 			avgDuration: totals.count > 0 ? Math.round(totals.total_duration / totals.count) : 0,
 			byAgent,
 			bySource,
-			byDay: byDayRows,
+			byDay: byDayRows.map((row) => ({
+				date: row.date,
+				count: row.count,
+				duration: row.duration,
+				outputTokens: row.output_tokens,
+				avgTokensPerSecond: Math.round(row.avg_tokens_per_second * 10) / 10,
+			})),
 			byLocation,
 			byHour: byHourRows,
 			totalSessions: sessionTotals.count,

@@ -27,7 +27,13 @@ export interface StatsAggregation {
 	byAgent: Record<string, { count: number; duration: number }>;
 	bySource: { user: number; auto: number };
 	byLocation: { local: number; remote: number };
-	byDay: Array<{ date: string; count: number; duration: number }>;
+	byDay: Array<{
+		date: string;
+		count: number;
+		duration: number;
+		outputTokens?: number;
+		avgTokensPerSecond?: number;
+	}>;
 	byHour: Array<{ hour: number; count: number; duration: number }>;
 	// Session lifecycle stats
 	totalSessions: number;
@@ -38,6 +44,12 @@ export interface StatsAggregation {
 	byAgentByDay: Record<string, Array<{ date: string; count: number; duration: number }>>;
 	// Per-session per-day breakdown for agent usage chart
 	bySessionByDay: Record<string, Array<{ date: string; count: number; duration: number }>>;
+	// Token metrics for throughput statistics
+	totalOutputTokens: number;
+	totalInputTokens: number;
+	avgTokensPerSecond: number;
+	avgOutputTokensPerQuery: number;
+	queriesWithTokenData: number;
 }
 
 // Return type for the useStats hook
