@@ -18,6 +18,12 @@ export interface QueryEvent {
 	tabId?: string;
 	/** Whether this query was executed on a remote SSH session */
 	isRemote?: boolean;
+	/** Input tokens sent in this request */
+	inputTokens?: number;
+	/** Output tokens received in response */
+	outputTokens?: number;
+	/** Calculated throughput: outputTokens / (duration/1000) */
+	tokensPerSecond?: number;
 }
 
 /**
@@ -97,6 +103,16 @@ export interface StatsAggregation {
 	byAgentByDay: Record<string, Array<{ date: string; count: number; duration: number }>>;
 	/** Queries and duration by Maestro session per day (for agent usage chart) */
 	bySessionByDay: Record<string, Array<{ date: string; count: number; duration: number }>>;
+	/** Total output tokens generated across all queries */
+	totalOutputTokens: number;
+	/** Total input tokens sent across all queries */
+	totalInputTokens: number;
+	/** Average throughput in tokens per second (for queries with token data) */
+	avgTokensPerSecond: number;
+	/** Average output tokens per query (for queries with token data) */
+	avgOutputTokensPerQuery: number;
+	/** Number of queries that have token data */
+	queriesWithTokenData: number;
 }
 
 /**
@@ -111,5 +127,6 @@ export interface StatsFilters {
 
 /**
  * Database schema version for migrations
+ * Version 4: Added input_tokens, output_tokens, tokens_per_second columns to query_events
  */
-export const STATS_DB_VERSION = 3;
+export const STATS_DB_VERSION = 4;

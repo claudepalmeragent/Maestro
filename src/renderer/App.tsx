@@ -1921,6 +1921,9 @@ function MaestroConsoleInner() {
 					projectPath?: string;
 					startTime?: number;
 					isRemote?: boolean; // Whether this was an SSH remote session
+					// Token metrics for throughput tracking
+					inputTokens?: number;
+					outputTokens?: number;
 				} | null = null;
 				let queuedItemToProcess: {
 					sessionId: string;
@@ -2036,6 +2039,9 @@ function MaestroConsoleInner() {
 							completedTab?.name ||
 							(agentSessionId ? agentSessionId.substring(0, 8).toUpperCase() : undefined);
 
+						// Get tab usage stats for token metrics (prefer tab-level, fallback to session-level)
+						const tabUsageStats = completedTab?.usageStats || currentSession.usageStats;
+
 						toastData = {
 							title,
 							summary,
@@ -2058,6 +2064,9 @@ function MaestroConsoleInner() {
 							isRemote: !!(
 								currentSession.sshRemoteId || currentSession.sessionSshRemoteConfig?.enabled
 							),
+							// Token metrics for throughput tracking
+							inputTokens: tabUsageStats?.inputTokens,
+							outputTokens: tabUsageStats?.outputTokens,
 						};
 
 						// Check if synopsis should be triggered:
@@ -2351,6 +2360,12 @@ function MaestroConsoleInner() {
 						? getBatchStateRef.current(sessionIdForStats).isRunning
 						: false;
 
+					// Calculate tokens per second if we have output tokens and duration
+					const tokensPerSecond =
+						toastData.outputTokens && toastData.duration > 0
+							? toastData.outputTokens / (toastData.duration / 1000)
+							: undefined;
+
 					window.maestro.stats
 						.recordQuery({
 							sessionId: sessionIdForStats,
@@ -2361,6 +2376,10 @@ function MaestroConsoleInner() {
 							projectPath: toastData.projectPath,
 							tabId: toastData.tabId,
 							isRemote: toastData.isRemote,
+							// Token metrics for throughput tracking
+							inputTokens: toastData.inputTokens,
+							outputTokens: toastData.outputTokens,
+							tokensPerSecond,
 						})
 						.catch((err) => {
 							// Don't fail the completion flow if stats recording fails

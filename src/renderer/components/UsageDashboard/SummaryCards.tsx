@@ -18,7 +18,7 @@
  */
 
 import React, { useMemo } from 'react';
-import { MessageSquare, Clock, Timer, Bot, Users, Layers } from 'lucide-react';
+import { MessageSquare, Clock, Timer, Bot, Users, Layers, Zap, FileText } from 'lucide-react';
 import type { Theme } from '../../types';
 import type { StatsAggregation } from '../../hooks/useStats';
 
@@ -27,7 +27,7 @@ interface SummaryCardsProps {
 	data: StatsAggregation;
 	/** Current theme for styling */
 	theme: Theme;
-	/** Number of columns for responsive layout (default: 3 for 2 rows × 3 cols) */
+	/** Number of columns for responsive layout (default: 4 for 2 rows × 4 cols) */
 	columns?: number;
 }
 
@@ -116,21 +116,39 @@ function MetricCard({ icon, label, value, theme, animationIndex = 0 }: MetricCar
 
 export function SummaryCards({ data, theme, columns = 3 }: SummaryCardsProps) {
 	// Calculate derived metrics
-	const { mostActiveAgent, interactiveRatio } = useMemo(() => {
-		// Find most active agent by query count
-		const agents = Object.entries(data.byAgent);
-		const topAgent = agents.length > 0 ? agents.sort((a, b) => b[1].count - a[1].count)[0] : null;
+	const { mostActiveAgent, interactiveRatio, throughputDisplay, totalTokensDisplay } = useMemo(
+		() => {
+			// Find most active agent by query count
+			const agents = Object.entries(data.byAgent);
+			const topAgent =
+				agents.length > 0 ? agents.sort((a, b) => b[1].count - a[1].count)[0] : null;
 
-		// Calculate interactive percentage
-		const totalBySource = data.bySource.user + data.bySource.auto;
-		const ratio =
-			totalBySource > 0 ? `${Math.round((data.bySource.user / totalBySource) * 100)}%` : 'N/A';
+			// Calculate interactive percentage
+			const totalBySource = data.bySource.user + data.bySource.auto;
+			const ratio =
+				totalBySource > 0 ? `${Math.round((data.bySource.user / totalBySource) * 100)}%` : 'N/A';
 
-		return {
-			mostActiveAgent: topAgent ? topAgent[0] : 'N/A',
-			interactiveRatio: ratio,
-		};
-	}, [data.byAgent, data.bySource]);
+			// Format throughput (tokens per second)
+			const throughput =
+				data.avgTokensPerSecond && data.avgTokensPerSecond > 0
+					? `${data.avgTokensPerSecond.toFixed(1)} tok/s`
+					: 'N/A';
+
+			// Format total output tokens
+			const totalTokens =
+				data.totalOutputTokens && data.totalOutputTokens > 0
+					? formatNumber(data.totalOutputTokens)
+					: 'N/A';
+
+			return {
+				mostActiveAgent: topAgent ? topAgent[0] : 'N/A',
+				interactiveRatio: ratio,
+				throughputDisplay: throughput,
+				totalTokensDisplay: totalTokens,
+			};
+		},
+		[data.byAgent, data.bySource, data.avgTokensPerSecond, data.totalOutputTokens]
+	);
 
 	const metrics = [
 		{
@@ -152,6 +170,16 @@ export function SummaryCards({ data, theme, columns = 3 }: SummaryCardsProps) {
 			icon: <Timer className="w-4 h-4" />,
 			label: 'Avg Duration',
 			value: formatDuration(data.avgDuration),
+		},
+		{
+			icon: <Zap className="w-4 h-4" />,
+			label: 'Avg Throughput',
+			value: throughputDisplay,
+		},
+		{
+			icon: <FileText className="w-4 h-4" />,
+			label: 'Total Tokens',
+			value: totalTokensDisplay,
 		},
 		{
 			icon: <Bot className="w-4 h-4" />,
