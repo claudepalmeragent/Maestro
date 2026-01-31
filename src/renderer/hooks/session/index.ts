@@ -31,7 +31,23 @@ export type {
 
 // Batched session updates for performance
 export { useBatchedSessionUpdates, DEFAULT_BATCH_FLUSH_INTERVAL } from './useBatchedSessionUpdates';
-export type { UseBatchedSessionUpdatesReturn, BatchedUpdater } from './useBatchedSessionUpdates';
+export type {
+	UseBatchedSessionUpdatesReturn,
+	BatchedUpdater,
+	ChangeType,
+	FlushResult,
+	FlushCallback,
+	SubscriptionCallback,
+} from './useBatchedSessionUpdates';
+
+// Session change subscriptions
+export {
+	useSessionSubscription,
+	useSessionLogsSubscription,
+	useSessionStatusSubscription,
+	useSessionUsageSubscription,
+} from './useSessionSubscription';
+export type { SessionSubscriptionOptions } from './useSessionSubscription';
 
 // Activity time tracking (per-session)
 export { useActivityTracker } from './useActivityTracker';

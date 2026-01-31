@@ -272,3 +272,150 @@ export function useSession(): SessionContextValue {
 
 	return context;
 }
+
+// ============================================================================
+// MEMOIZED SELECTOR HOOKS
+// ============================================================================
+// These hooks provide optimized access to specific session data without
+// triggering re-renders when unrelated session data changes.
+
+/**
+ * useSessionState - Get the state of a specific session
+ *
+ * This is a memoized selector that only re-renders when the specific
+ * session's state changes, not when other session data changes.
+ *
+ * @param sessionId - The session ID to get state for
+ * @returns The session state or null if session not found
+ *
+ * @example
+ * const state = useSessionState('session-123');
+ * // Returns: 'idle' | 'busy' | 'waiting_input' | 'connecting' | 'error' | null
+ */
+export function useSessionState(sessionId: string): Session['state'] | null {
+	const { sessions } = useSession();
+	return useMemo(
+		() => sessions.find((s) => s.id === sessionId)?.state ?? null,
+		[sessions, sessionId]
+	);
+}
+
+/**
+ * useSessionLogs - Get logs for a specific session/tab
+ *
+ * This is a memoized selector that returns logs for a specific session
+ * and optionally a specific tab.
+ *
+ * @param sessionId - The session ID to get logs for
+ * @param tabId - Optional tab ID. If provided, returns that tab's logs.
+ *                If not provided, returns session's aiLogs (deprecated).
+ * @returns Array of log entries
+ *
+ * @example
+ * // Get logs for active tab
+ * const logs = useSessionLogs('session-123', 'tab-456');
+ *
+ * // Get session-level logs (deprecated aiLogs)
+ * const sessionLogs = useSessionLogs('session-123');
+ */
+export function useSessionLogs(
+	sessionId: string,
+	tabId?: string
+): import('../types').LogEntry[] {
+	const { sessions } = useSession();
+	return useMemo(() => {
+		const session = sessions.find((s) => s.id === sessionId);
+		if (!session) return [];
+		if (tabId) {
+			return session.aiTabs?.find((t) => t.id === tabId)?.logs ?? [];
+		}
+		return session.aiLogs ?? [];
+	}, [sessions, sessionId, tabId]);
+}
+
+/**
+ * useSessionUsage - Get usage statistics for a specific session
+ *
+ * This is a memoized selector that returns usage stats for a session.
+ *
+ * @param sessionId - The session ID to get usage for
+ * @returns UsageStats or undefined if not available
+ *
+ * @example
+ * const usage = useSessionUsage('session-123');
+ * if (usage) {
+ *   console.log(`Cost: $${usage.totalCostUsd.toFixed(4)}`);
+ * }
+ */
+export function useSessionUsage(
+	sessionId: string
+): import('../types').UsageStats | undefined {
+	const { sessions } = useSession();
+	return useMemo(
+		() => sessions.find((s) => s.id === sessionId)?.usageStats,
+		[sessions, sessionId]
+	);
+}
+
+/**
+ * useSessionContextUsage - Get context window usage percentage
+ *
+ * @param sessionId - The session ID
+ * @returns Context usage percentage (0-100) or 0 if not found
+ *
+ * @example
+ * const contextUsage = useSessionContextUsage('session-123');
+ * // Returns: 45 (meaning 45% of context window used)
+ */
+export function useSessionContextUsage(sessionId: string): number {
+	const { sessions } = useSession();
+	return useMemo(
+		() => sessions.find((s) => s.id === sessionId)?.contextUsage ?? 0,
+		[sessions, sessionId]
+	);
+}
+
+/**
+ * useSessionById - Get a specific session by ID
+ *
+ * This is a memoized selector that returns the full session object.
+ * Use more specific selectors (useSessionState, useSessionLogs, etc.)
+ * when you only need specific fields to avoid unnecessary re-renders.
+ *
+ * @param sessionId - The session ID to find
+ * @returns The session or null if not found
+ *
+ * @example
+ * const session = useSessionById('session-123');
+ * if (session) {
+ *   console.log(session.name, session.state);
+ * }
+ */
+export function useSessionById(sessionId: string): Session | null {
+	const { sessions } = useSession();
+	return useMemo(
+		() => sessions.find((s) => s.id === sessionId) ?? null,
+		[sessions, sessionId]
+	);
+}
+
+/**
+ * useActiveTabLogs - Get logs for the active tab of the active session
+ *
+ * Convenience hook that combines active session lookup with tab logs.
+ *
+ * @returns Array of log entries for the active tab, or empty array
+ *
+ * @example
+ * const logs = useActiveTabLogs();
+ */
+export function useActiveTabLogs(): import('../types').LogEntry[] {
+	const { activeSession } = useSession();
+	return useMemo(() => {
+		if (!activeSession) return [];
+		const activeTab = activeSession.aiTabs?.find(
+			(t) => t.id === activeSession.activeTabId
+		);
+		return activeTab?.logs ?? activeSession.aiLogs ?? [];
+	}, [activeSession]);
+}
