@@ -11,10 +11,57 @@
  * - Proper ordering of updates within each flush
  * - Immediate flush capability for critical moments (user input, session switch)
  * - Automatic flush on unmount
+ * - Change metadata tracking (reports what changed per session on each flush)
+ * - Subscription support for selective change notifications
  */
 
 import { useRef, useCallback, useEffect, useMemo } from 'react';
 import type { Session, SessionState, UsageStats, LogEntry } from '../../types';
+
+// ============================================================================
+// CHANGE TRACKING TYPES
+// ============================================================================
+
+/**
+ * Types of changes that can occur during a flush
+ */
+export type ChangeType =
+	| 'logs'
+	| 'status'
+	| 'tabStatus'
+	| 'usage'
+	| 'contextUsage'
+	| 'cycleMetrics'
+	| 'delivered'
+	| 'unread';
+
+/**
+ * Result of a flush operation, describing what changed per session
+ */
+export interface FlushResult {
+	/** Session ID that was updated */
+	sessionId: string;
+	/** Set of change types that occurred */
+	changedFields: Set<ChangeType>;
+	/** Whether new log entries were added */
+	hasNewLogs: boolean;
+	/** Whether session status changed (idle/busy/etc.) */
+	hasStatusChange: boolean;
+	/** Whether usage stats were updated */
+	hasUsageUpdate: boolean;
+	/** Whether context usage percentage changed */
+	hasContextChange: boolean;
+}
+
+/**
+ * Callback type for flush notifications
+ */
+export type FlushCallback = (results: FlushResult[]) => void;
+
+/**
+ * Callback type for subscription (receives map of sessionId -> changed fields)
+ */
+export type SubscriptionCallback = (changes: Map<string, Set<ChangeType>>) => void;
 
 // Default flush interval in milliseconds (imperceptible to users)
 export const DEFAULT_BATCH_FLUSH_INTERVAL = 150;
@@ -72,6 +119,8 @@ interface SessionAccumulator {
 	cycleTokensDelta?: number;
 	// Unread state per tab
 	unreadTabs?: Map<string, boolean>;
+	// Track what fields have been modified (for change metadata)
+	changedFields: Set<ChangeType>;
 }
 
 /**
@@ -106,11 +155,25 @@ export interface BatchedUpdater {
 	markUnread: (sessionId: string, tabId: string, unread: boolean) => void;
 	/** Force immediate flush of all pending updates */
 	flushNow: () => void;
+	/**
+	 * Subscribe to change notifications
+	 * @param callback - Function called after each flush with map of sessionId -> changed fields
+	 * @returns Unsubscribe function
+	 */
+	subscribe: (callback: SubscriptionCallback) => () => void;
+	/**
+	 * Get pending changes for a specific session (before flush)
+	 * @param sessionId - Session to check
+	 * @returns Set of pending change types, or empty set if none
+	 */
+	getPendingChanges: (sessionId: string) => Set<ChangeType>;
 }
 
 export interface UseBatchedSessionUpdatesReturn extends BatchedUpdater {
 	/** Whether there are pending updates waiting to be flushed */
 	hasPending: boolean;
+	/** Results from the last flush (for debugging/monitoring) */
+	lastFlushResults: FlushResult[];
 }
 
 /**
@@ -135,6 +198,10 @@ export function useBatchedSessionUpdates(
 	const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 	// Track if there are pending updates
 	const hasPendingRef = useRef(false);
+	// Subscription callbacks for change notifications
+	const subscribersRef = useRef<Set<SubscriptionCallback>>(new Set());
+	// Last flush results (for debugging/monitoring)
+	const lastFlushResultsRef = useRef<FlushResult[]>([]);
 
 	/**
 	 * Get or create accumulator for a session
@@ -142,7 +209,7 @@ export function useBatchedSessionUpdates(
 	const getAccumulator = useCallback((sessionId: string): SessionAccumulator => {
 		let acc = accumulatorRef.current.get(sessionId);
 		if (!acc) {
-			acc = { logAccumulators: new Map() };
+			acc = { logAccumulators: new Map(), changedFields: new Set() };
 			accumulatorRef.current.set(sessionId, acc);
 		}
 		return acc;
@@ -161,6 +228,26 @@ export function useBatchedSessionUpdates(
 		// Clear the accumulator before applying updates (to avoid race conditions)
 		accumulatorRef.current = new Map();
 		hasPendingRef.current = false;
+
+		// Build flush results for change tracking
+		const flushResults: FlushResult[] = [];
+		const changeMap = new Map<string, Set<ChangeType>>();
+
+		for (const [sessionId, acc] of updates) {
+			const result: FlushResult = {
+				sessionId,
+				changedFields: new Set(acc.changedFields),
+				hasNewLogs: acc.logAccumulators.size > 0,
+				hasStatusChange: acc.status !== undefined,
+				hasUsageUpdate: acc.usageDeltas !== undefined && acc.usageDeltas.size > 0,
+				hasContextChange: acc.contextUsage !== undefined,
+			};
+			flushResults.push(result);
+			changeMap.set(sessionId, result.changedFields);
+		}
+
+		// Store results for debugging/monitoring
+		lastFlushResultsRef.current = flushResults;
 
 		setSessions((prev) => {
 			return prev.map((session) => {
@@ -434,6 +521,20 @@ export function useBatchedSessionUpdates(
 				return updatedSession;
 			});
 		});
+
+		// Notify subscribers of changes (after state update is queued)
+		if (changeMap.size > 0 && subscribersRef.current.size > 0) {
+			// Use setTimeout to ensure subscribers are called after React processes the state update
+			setTimeout(() => {
+				for (const callback of subscribersRef.current) {
+					try {
+						callback(changeMap);
+					} catch (err) {
+						console.error('Error in batched update subscriber:', err);
+					}
+				}
+			}, 0);
+		}
 	}, [setSessions]);
 
 	/**
@@ -487,6 +588,7 @@ export function useBatchedSessionUpdates(
 
 			logAcc.chunks.push(data);
 			logAcc.timestamp = Date.now();
+			acc.changedFields.add('logs');
 			hasPendingRef.current = true;
 		},
 		[getAccumulator]
@@ -496,6 +598,7 @@ export function useBatchedSessionUpdates(
 		(sessionId: string, status: SessionState) => {
 			const acc = getAccumulator(sessionId);
 			acc.status = status;
+			acc.changedFields.add('status');
 			hasPendingRef.current = true;
 		},
 		[getAccumulator]
@@ -508,6 +611,7 @@ export function useBatchedSessionUpdates(
 				acc.tabStatuses = new Map();
 			}
 			acc.tabStatuses.set(tabId, status);
+			acc.changedFields.add('tabStatus');
 			hasPendingRef.current = true;
 		},
 		[getAccumulator]
@@ -549,6 +653,7 @@ export function useBatchedSessionUpdates(
 			} else {
 				acc.usageDeltas.set(tabId, { ...usage });
 			}
+			acc.changedFields.add('usage');
 			hasPendingRef.current = true;
 		},
 		[getAccumulator]
@@ -558,6 +663,7 @@ export function useBatchedSessionUpdates(
 		(sessionId: string, percentage: number) => {
 			const acc = getAccumulator(sessionId);
 			acc.contextUsage = percentage;
+			acc.changedFields.add('contextUsage');
 			hasPendingRef.current = true;
 		},
 		[getAccumulator]
@@ -568,6 +674,7 @@ export function useBatchedSessionUpdates(
 		(sessionId: string, percentage: number) => {
 			const acc = getAccumulator(sessionId);
 			acc.contextUsage = percentage;
+			acc.changedFields.add('contextUsage');
 			hasPendingRef.current = true;
 		},
 		[getAccumulator]
@@ -580,6 +687,7 @@ export function useBatchedSessionUpdates(
 				acc.deliveredTabs = new Set();
 			}
 			acc.deliveredTabs.add(tabId);
+			acc.changedFields.add('delivered');
 			hasPendingRef.current = true;
 		},
 		[getAccumulator]
@@ -589,6 +697,7 @@ export function useBatchedSessionUpdates(
 		(sessionId: string, bytes: number) => {
 			const acc = getAccumulator(sessionId);
 			acc.cycleBytesDelta = (acc.cycleBytesDelta || 0) + bytes;
+			acc.changedFields.add('cycleMetrics');
 			hasPendingRef.current = true;
 		},
 		[getAccumulator]
@@ -598,6 +707,7 @@ export function useBatchedSessionUpdates(
 		(sessionId: string, tokens: number) => {
 			const acc = getAccumulator(sessionId);
 			acc.cycleTokensDelta = (acc.cycleTokensDelta || 0) + tokens;
+			acc.changedFields.add('cycleMetrics');
 			hasPendingRef.current = true;
 		},
 		[getAccumulator]
@@ -610,6 +720,7 @@ export function useBatchedSessionUpdates(
 				acc.unreadTabs = new Map();
 			}
 			acc.unreadTabs.set(tabId, unread);
+			acc.changedFields.add('unread');
 			hasPendingRef.current = true;
 		},
 		[getAccumulator]
@@ -618,6 +729,28 @@ export function useBatchedSessionUpdates(
 	const flushNow = useCallback(() => {
 		flush();
 	}, [flush]);
+
+	/**
+	 * Subscribe to change notifications
+	 * @param callback - Function called after each flush with map of sessionId -> changed fields
+	 * @returns Unsubscribe function
+	 */
+	const subscribe = useCallback((callback: SubscriptionCallback): (() => void) => {
+		subscribersRef.current.add(callback);
+		return () => {
+			subscribersRef.current.delete(callback);
+		};
+	}, []);
+
+	/**
+	 * Get pending changes for a specific session (before flush)
+	 * @param sessionId - Session to check
+	 * @returns Set of pending change types, or empty set if none
+	 */
+	const getPendingChanges = useCallback((sessionId: string): Set<ChangeType> => {
+		const acc = accumulatorRef.current.get(sessionId);
+		return acc?.changedFields ?? new Set();
+	}, []);
 
 	// Return memoized object to prevent unnecessary re-renders in consumers
 	return useMemo(
@@ -633,8 +766,13 @@ export function useBatchedSessionUpdates(
 			updateCycleTokens,
 			markUnread,
 			flushNow,
+			subscribe,
+			getPendingChanges,
 			get hasPending() {
 				return hasPendingRef.current;
+			},
+			get lastFlushResults() {
+				return lastFlushResultsRef.current;
 			},
 		}),
 		[
@@ -649,6 +787,8 @@ export function useBatchedSessionUpdates(
 			updateCycleTokens,
 			markUnread,
 			flushNow,
+			subscribe,
+			getPendingChanges,
 		]
 	);
 }
