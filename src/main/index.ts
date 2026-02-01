@@ -536,13 +536,30 @@ function setupIpcHandlers() {
 		const sessions = sessionsStore.get('sessions', []);
 		return sessions.map((s: any) => {
 			// Resolve SSH remote name and ID if session has SSH config
+			// Check multiple possible locations since sshRemoteId is only set after AI agent spawns
+			// but sessionSshRemoteConfig is set at session creation time
 			let sshRemoteName: string | undefined;
 			let sshRemoteId: string | undefined;
+
+			// Try sessionSshRemoteConfig first (set at session creation)
 			if (s.sessionSshRemoteConfig?.enabled && s.sessionSshRemoteConfig.remoteId) {
 				sshRemoteId = s.sessionSshRemoteConfig.remoteId as string;
+			}
+			// Fall back to sshRemoteId (set after AI agent spawns)
+			else if (s.sshRemoteId) {
+				sshRemoteId = s.sshRemoteId;
+			}
+			// Fall back to sshRemote.id (alternative storage location)
+			else if (s.sshRemote?.id) {
+				sshRemoteId = s.sshRemote.id;
+			}
+
+			// Resolve the display name from the SSH remote config
+			if (sshRemoteId) {
 				const sshConfig = getSshRemoteById(sshRemoteId);
 				sshRemoteName = sshConfig?.name;
 			}
+
 			return {
 				id: s.id,
 				name: s.name,
