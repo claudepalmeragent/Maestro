@@ -9,6 +9,59 @@ export interface Group {
 	name: string;
 	emoji: string;
 	collapsed: boolean;
+	/** Project Folder this group belongs to (1:1 relationship) */
+	projectFolderId?: string;
+}
+
+// ============================================================================
+// Project Folder Types
+// ============================================================================
+
+/**
+ * Predefined color palette for project folders.
+ * These colors are designed to work well in both light and dark themes.
+ */
+export const PROJECT_FOLDER_COLORS = [
+	{ id: 'blue', hex: '#3B82F6', name: 'Blue' },
+	{ id: 'green', hex: '#22C55E', name: 'Green' },
+	{ id: 'yellow', hex: '#EAB308', name: 'Yellow' },
+	{ id: 'orange', hex: '#F97316', name: 'Orange' },
+	{ id: 'red', hex: '#EF4444', name: 'Red' },
+	{ id: 'purple', hex: '#A855F7', name: 'Purple' },
+	{ id: 'pink', hex: '#EC4899', name: 'Pink' },
+	{ id: 'teal', hex: '#14B8A6', name: 'Teal' },
+] as const;
+
+export type ProjectFolderColorId = (typeof PROJECT_FOLDER_COLORS)[number]['id'];
+
+/**
+ * Project Folder - Top-level organizational container for the sidebar.
+ * Contains Agent Groups, Group Chats, and references to Sessions.
+ */
+export interface ProjectFolder {
+	/** Unique identifier */
+	id: string;
+
+	/** User-defined name */
+	name: string;
+
+	/** Optional emoji prefix */
+	emoji?: string;
+
+	/** UI collapsed state */
+	collapsed: boolean;
+
+	/** Optional highlight color (hex string, e.g., "#3B82F6") */
+	highlightColor?: string;
+
+	/** Order index for drag-and-drop reordering */
+	order: number;
+
+	/** Creation timestamp */
+	createdAt: number;
+
+	/** Last modified timestamp */
+	updatedAt: number;
 }
 
 // Simplified session interface for CLI (subset of full Session)

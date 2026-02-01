@@ -5,7 +5,7 @@
  * These types are used across the main process for type-safe store access.
  */
 
-import type { SshRemoteConfig, Group } from '../../shared/types';
+import type { SshRemoteConfig, Group, ProjectFolder } from '../../shared/types';
 
 // ============================================================================
 // Stored Session Type (minimal interface for main process storage)
@@ -81,6 +81,14 @@ export interface SessionsData {
 
 export interface GroupsData {
 	groups: Group[];
+}
+
+// ============================================================================
+// Project Folders Store
+// ============================================================================
+
+export interface ProjectFoldersData {
+	folders: ProjectFolder[];
 }
 
 // ============================================================================

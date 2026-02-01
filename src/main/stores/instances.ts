@@ -18,6 +18,7 @@ import type {
 	MaestroSettings,
 	SessionsData,
 	GroupsData,
+	ProjectFoldersData,
 	AgentConfigsData,
 	WindowState,
 	ClaudeSessionOriginsData,
@@ -28,6 +29,7 @@ import {
 	SETTINGS_DEFAULTS,
 	SESSIONS_DEFAULTS,
 	GROUPS_DEFAULTS,
+	PROJECT_FOLDERS_DEFAULTS,
 	AGENT_CONFIGS_DEFAULTS,
 	WINDOW_STATE_DEFAULTS,
 	CLAUDE_SESSION_ORIGINS_DEFAULTS,
@@ -44,6 +46,7 @@ let _bootstrapStore: Store<BootstrapSettings> | null = null;
 let _settingsStore: Store<MaestroSettings> | null = null;
 let _sessionsStore: Store<SessionsData> | null = null;
 let _groupsStore: Store<GroupsData> | null = null;
+let _projectFoldersStore: Store<ProjectFoldersData> | null = null;
 let _agentConfigsStore: Store<AgentConfigsData> | null = null;
 let _windowStateStore: Store<WindowState> | null = null;
 let _claudeSessionOriginsStore: Store<ClaudeSessionOriginsData> | null = null;
@@ -109,6 +112,12 @@ export function initializeStores(options: StoreInitOptions): {
 		defaults: GROUPS_DEFAULTS,
 	});
 
+	_projectFoldersStore = new Store<ProjectFoldersData>({
+		name: 'maestro-project-folders',
+		cwd: _syncPath,
+		defaults: PROJECT_FOLDERS_DEFAULTS,
+	});
+
 	// Agent configs are ALWAYS stored in the production path, even in dev mode
 	// This ensures agent paths, custom args, and env vars are shared between dev and prod
 	_agentConfigsStore = new Store<AgentConfigsData>({
@@ -159,6 +168,7 @@ export function getStoreInstances() {
 		settingsStore: _settingsStore,
 		sessionsStore: _sessionsStore,
 		groupsStore: _groupsStore,
+		projectFoldersStore: _projectFoldersStore,
 		agentConfigsStore: _agentConfigsStore,
 		windowStateStore: _windowStateStore,
 		claudeSessionOriginsStore: _claudeSessionOriginsStore,

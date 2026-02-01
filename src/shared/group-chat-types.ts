@@ -135,6 +135,11 @@ export interface GroupChat {
 	logPath: string;
 	imagesDir: string;
 	draftMessage?: string;
+	/**
+	 * Project Folder this group chat belongs to (1:1 relationship).
+	 * undefined = appears in "Unassigned" section.
+	 */
+	projectFolderId?: string;
 }
 
 /**

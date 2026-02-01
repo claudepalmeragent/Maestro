@@ -79,6 +79,19 @@ export { useStats, useComputedStats } from './useStats';
 export type { StatsTimeRange, StatsAggregation, UseStatsReturn, ComputedStats } from './useStats';
 
 // ============================================================================
+// Project Folders Module - Project folder management
+// ============================================================================
+export {
+	useProjectFolders,
+	useProjectFolder,
+	useProjectFoldersLoaded,
+	useProjectFolderOperations,
+	useSessionFolders,
+	useToggleSessionFolder,
+	useSessionFolderColors,
+} from './useProjectFolders';
+
+// ============================================================================
 // Re-export TransferError types from component for convenience
 // ============================================================================
 export type {
