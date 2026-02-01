@@ -459,7 +459,9 @@ ${message}`;
 					getCustomEnvVarsCallback?.(chat.moderatorAgentId);
 
 				// Only attempt SSH wrapping if stores are initialized (may not be in tests)
-				const sshWrapResult = areStoresInitialized()
+				const storesInitialized = areStoresInitialized();
+				console.log(`[GroupChat:Debug] Stores initialized: ${storesInitialized}`);
+				const sshWrapResult = storesInitialized
 					? await wrapSpawnWithSsh(
 							{
 								command,
@@ -483,11 +485,22 @@ ${message}`;
 						};
 
 				console.log(`[GroupChat:Debug] SSH wrap result: usedSsh=${sshWrapResult.usedSsh}`);
+				console.log(`[GroupChat:Debug] SSH wrap command: ${sshWrapResult.command}`);
+				console.log(`[GroupChat:Debug] SSH wrap args count: ${sshWrapResult.args.length}`);
+				console.log(`[GroupChat:Debug] SSH wrap cwd: ${sshWrapResult.cwd}`);
 				if (sshWrapResult.sshConfig) {
 					console.log(
 						`[GroupChat:Debug] SSH remote: ${sshWrapResult.sshConfig.name} (${sshWrapResult.sshConfig.host})`
 					);
 				}
+
+				// Log the actual spawn configuration
+				const spawnPrompt = sshWrapResult.usedSsh ? undefined : fullPrompt;
+				const spawnEnvVars = sshWrapResult.usedSsh ? undefined : effectiveCustomEnvVars;
+				const spawnPromptArgs = sshWrapResult.usedSsh ? undefined : agent.promptArgs;
+				console.log(
+					`[GroupChat:Debug] Spawn config: prompt=${spawnPrompt ? 'present' : 'undefined'} (len=${spawnPrompt?.length || 0}), envVars=${spawnEnvVars ? 'present' : 'undefined'}, promptArgs=${spawnPromptArgs ? 'defined' : 'undefined'}`
+				);
 
 				const spawnResult = processManager.spawn({
 					sessionId,
@@ -1112,7 +1125,9 @@ Review the agent responses above. Either:
 			configResolution.effectiveCustomEnvVars ?? getCustomEnvVarsCallback?.(chat.moderatorAgentId);
 
 		// Only attempt SSH wrapping if stores are initialized (may not be in tests)
-		const sshWrapResult = areStoresInitialized()
+		const storesInitialized = areStoresInitialized();
+		console.log(`[GroupChat:Debug] Stores initialized: ${storesInitialized}`);
+		const sshWrapResult = storesInitialized
 			? await wrapSpawnWithSsh(
 					{
 						command,
@@ -1136,11 +1151,22 @@ Review the agent responses above. Either:
 				};
 
 		console.log(`[GroupChat:Debug] SSH wrap result: usedSsh=${sshWrapResult.usedSsh}`);
+		console.log(`[GroupChat:Debug] SSH wrap command: ${sshWrapResult.command}`);
+		console.log(`[GroupChat:Debug] SSH wrap args count: ${sshWrapResult.args.length}`);
+		console.log(`[GroupChat:Debug] SSH wrap cwd: ${sshWrapResult.cwd}`);
 		if (sshWrapResult.sshConfig) {
 			console.log(
 				`[GroupChat:Debug] SSH remote: ${sshWrapResult.sshConfig.name} (${sshWrapResult.sshConfig.host})`
 			);
 		}
+
+		// Log the actual spawn configuration
+		const spawnPrompt = sshWrapResult.usedSsh ? undefined : synthesisPrompt;
+		const spawnEnvVars = sshWrapResult.usedSsh ? undefined : effectiveCustomEnvVars;
+		const spawnPromptArgs = sshWrapResult.usedSsh ? undefined : agent.promptArgs;
+		console.log(
+			`[GroupChat:Debug] Spawn config: prompt=${spawnPrompt ? 'present' : 'undefined'} (len=${spawnPrompt?.length || 0}), envVars=${spawnEnvVars ? 'present' : 'undefined'}, promptArgs=${spawnPromptArgs ? 'defined' : 'undefined'}`
+		);
 
 		const spawnResult = processManager.spawn({
 			sessionId,
