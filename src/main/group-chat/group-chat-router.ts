@@ -54,6 +54,8 @@ export interface SessionInfo {
 	customModel?: string;
 	/** SSH remote name for display in participant card */
 	sshRemoteName?: string;
+	/** SSH remote ID for spawning participant on the same remote */
+	sshRemoteId?: string;
 }
 
 /**
@@ -295,12 +297,13 @@ export async function routeUserMessage(
 						agentDetector,
 						agentConfigValues,
 						customEnvVars,
-						// Pass session-specific overrides (customModel, customArgs, customEnvVars, sshRemoteName from session)
+						// Pass session-specific overrides (customModel, customArgs, customEnvVars, sshRemoteName, sshRemoteId from session)
 						{
 							customModel: matchingSession.customModel,
 							customArgs: matchingSession.customArgs,
 							customEnvVars: matchingSession.customEnvVars,
 							sshRemoteName: matchingSession.sshRemoteName,
+							sshRemoteId: matchingSession.sshRemoteId,
 						}
 					);
 					existingParticipantNames.add(participantName);
@@ -686,12 +689,13 @@ export async function routeModeratorResponse(
 						agentDetector,
 						agentConfigValues,
 						customEnvVars,
-						// Pass session-specific overrides (customModel, customArgs, customEnvVars, sshRemoteName from session)
+						// Pass session-specific overrides (customModel, customArgs, customEnvVars, sshRemoteName, sshRemoteId from session)
 						{
 							customModel: matchingSession.customModel,
 							customArgs: matchingSession.customArgs,
 							customEnvVars: matchingSession.customEnvVars,
 							sshRemoteName: matchingSession.sshRemoteName,
+							sshRemoteId: matchingSession.sshRemoteId,
 						}
 					);
 					existingParticipantNames.add(participantName);

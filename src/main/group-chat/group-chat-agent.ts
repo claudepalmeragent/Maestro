@@ -24,6 +24,9 @@ import {
 	applyAgentConfigOverrides,
 	getContextWindowValue,
 } from '../utils/agent-args';
+import { wrapSpawnWithSsh } from '../utils/ssh-spawn-helper';
+import { getSettingsStore } from '../stores/getters';
+import { isInitialized as areStoresInitialized } from '../stores/instances';
 import { groupChatParticipantPrompt } from '../../prompts';
 
 /**
@@ -63,6 +66,8 @@ export interface SessionOverrides {
 	customEnvVars?: Record<string, string>;
 	/** SSH remote name for display in participant card */
 	sshRemoteName?: string;
+	/** SSH remote ID for spawning participant on the remote host */
+	sshRemoteId?: string;
 }
 
 /**
@@ -120,6 +125,15 @@ export async function addParticipant(
 		throw new Error(`Participant with name '${name}' already exists in group chat`);
 	}
 
+	// Check if SSH remote is configured for this participant
+	// When sshRemoteName is set, the session is running on a remote host,
+	// so we don't need to check local agent availability
+	const usingSshRemote = !!sessionOverrides?.sshRemoteName;
+	console.log(`[GroupChat:Debug] Using SSH remote: ${usingSshRemote}`);
+	if (usingSshRemote) {
+		console.log(`[GroupChat:Debug] SSH remote name: ${sessionOverrides?.sshRemoteName}`);
+	}
+
 	// Resolve the agent configuration to get the executable command
 	let command = agentId;
 	let args: string[] = [];
@@ -130,12 +144,16 @@ export async function addParticipant(
 		console.log(
 			`[GroupChat:Debug] Agent resolved: ${agentConfig?.command || 'null'}, available: ${agentConfig?.available ?? false}`
 		);
-		if (!agentConfig || !agentConfig.available) {
-			console.log(`[GroupChat:Debug] ERROR: Agent not available!`);
+		// When using SSH remote, skip local availability check since the agent
+		// will run on the remote host via the existing SSH session
+		if (!usingSshRemote && (!agentConfig || !agentConfig.available)) {
+			console.log(`[GroupChat:Debug] ERROR: Agent not available locally!`);
 			throw new Error(`Agent '${agentId}' is not available`);
 		}
-		command = agentConfig.path || agentConfig.command;
-		args = [...agentConfig.args];
+		if (agentConfig) {
+			command = agentConfig.path || agentConfig.command;
+			args = [...agentConfig.args];
+		}
 	}
 
 	const prompt = getParticipantSystemPrompt(name, chat.name, chat.logPath);
@@ -165,18 +183,86 @@ export async function addParticipant(
 
 	// Spawn the participant agent
 	console.log(`[GroupChat:Debug] Spawning participant agent...`);
+
+	// Determine command/args/cwd to spawn - wrap with SSH if participant is on SSH remote
+	let commandToSpawn = command;
+	let argsToSpawn = configResolution.args;
+	let cwdToSpawn = cwd;
+	let sshRemoteId: string | undefined;
+	let sshRemoteHost: string | undefined;
+
+	// If participant has SSH remote configuration, wrap the spawn with SSH
+	if (usingSshRemote && sessionOverrides?.sshRemoteId) {
+		console.log(`[GroupChat:Debug] SSH remote ID: ${sessionOverrides.sshRemoteId}`);
+
+		// Construct AgentSshRemoteConfig for wrapSpawnWithSsh
+		const sshRemoteConfig = {
+			enabled: true,
+			remoteId: sessionOverrides.sshRemoteId,
+			// No workingDirOverride - let the remote use its default
+		};
+
+		// Only attempt SSH wrapping if stores are initialized
+		const storesInitialized = areStoresInitialized();
+		console.log(`[GroupChat:Debug] Stores initialized: ${storesInitialized}`);
+
+		if (storesInitialized) {
+			const sshWrapResult = await wrapSpawnWithSsh(
+				{
+					command,
+					args: configResolution.args,
+					cwd,
+					prompt,
+					customEnvVars: configResolution.effectiveCustomEnvVars ?? effectiveEnvVars,
+					sshRemoteConfig,
+					binaryName: agentConfig?.binaryName,
+					promptArgs: agentConfig?.promptArgs,
+					noPromptSeparator: agentConfig?.noPromptSeparator,
+				},
+				getSettingsStore()
+			);
+
+			console.log(`[GroupChat:Debug] SSH wrap result: usedSsh=${sshWrapResult.usedSsh}`);
+			console.log(`[GroupChat:Debug] SSH wrap command: ${sshWrapResult.command}`);
+			console.log(`[GroupChat:Debug] SSH wrap args count: ${sshWrapResult.args.length}`);
+			console.log(`[GroupChat:Debug] SSH wrap cwd: ${sshWrapResult.cwd}`);
+
+			if (sshWrapResult.usedSsh) {
+				commandToSpawn = sshWrapResult.command;
+				argsToSpawn = sshWrapResult.args;
+				cwdToSpawn = sshWrapResult.cwd;
+				sshRemoteId = sshWrapResult.sshConfig?.id;
+				sshRemoteHost = sshWrapResult.sshConfig?.host;
+
+				if (sshWrapResult.sshConfig) {
+					console.log(
+						`[GroupChat:Debug] SSH remote: ${sshWrapResult.sshConfig.name} (${sshWrapResult.sshConfig.host})`
+					);
+				}
+			}
+		}
+	}
+
 	const result = processManager.spawn({
 		sessionId,
 		toolType: agentId,
-		cwd,
-		command,
-		args: configResolution.args,
+		cwd: cwdToSpawn,
+		command: commandToSpawn,
+		args: argsToSpawn,
 		readOnlyMode: false, // Participants can make changes
-		prompt,
+		// Don't pass prompt when using SSH - it's embedded in the SSH command
+		prompt: usingSshRemote && sshRemoteId ? undefined : prompt,
 		contextWindow: getContextWindowValue(agentConfig, agentConfigValues || {}),
-		customEnvVars: configResolution.effectiveCustomEnvVars ?? effectiveEnvVars,
-		promptArgs: agentConfig?.promptArgs,
-		noPromptSeparator: agentConfig?.noPromptSeparator,
+		customEnvVars:
+			usingSshRemote && sshRemoteId
+				? undefined
+				: (configResolution.effectiveCustomEnvVars ?? effectiveEnvVars),
+		// Don't pass promptArgs/noPromptSeparator when using SSH - handled in SSH command
+		promptArgs: usingSshRemote && sshRemoteId ? undefined : agentConfig?.promptArgs,
+		noPromptSeparator: usingSshRemote && sshRemoteId ? undefined : agentConfig?.noPromptSeparator,
+		// SSH remote context for tracking/error messages
+		sshRemoteId,
+		sshRemoteHost,
 	});
 
 	console.log(`[GroupChat:Debug] Spawn result: ${JSON.stringify(result)}`);
