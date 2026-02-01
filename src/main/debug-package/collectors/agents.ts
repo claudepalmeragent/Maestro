@@ -6,7 +6,7 @@
  * - Custom args/env vars show only whether they're set, not values
  */
 
-import { AgentDetector, AgentCapabilities } from '../../agent-detector';
+import { AgentDetector, type AgentCapabilities } from '../../agents';
 import { sanitizePath } from './settings';
 
 export interface AgentInfo {

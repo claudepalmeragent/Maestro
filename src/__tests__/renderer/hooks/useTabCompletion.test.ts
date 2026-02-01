@@ -1088,4 +1088,30 @@ describe('useTabCompletion', () => {
 			expect(filters.length).toBe(5);
 		});
 	});
+
+	describe('performance optimizations', () => {
+		it('caps file tree traversal at MAX_FILE_TREE_ENTRIES', () => {
+			// Generate a tree with more than 50k files
+			const largeTree: FileNode[] = [];
+			for (let i = 0; i < 200; i++) {
+				const children: FileNode[] = [];
+				for (let j = 0; j < 300; j++) {
+					children.push({ name: `file_${i}_${j}.ts`, type: 'file' });
+				}
+				largeTree.push({ name: `dir_${i}`, type: 'folder', children });
+			}
+			// 200 folders + 60,000 files = 60,200 nodes total
+
+			const session = createMockSession({
+				fileTree: largeTree,
+				shellCwd: '/project',
+			});
+			const { result } = renderHook(() => useTabCompletion(session));
+
+			// Even with 60k+ files, getSuggestions should work without hanging
+			// and return at most 15 results
+			const suggestions = result.current.getSuggestions('file', 'file');
+			expect(suggestions.length).toBeLessThanOrEqual(15);
+		});
+	});
 });

@@ -18,7 +18,7 @@ import {
 } from './group-chat-storage';
 import { appendToLog } from './group-chat-log';
 import { IProcessManager, isModeratorActive } from './group-chat-moderator';
-import type { AgentDetector } from '../agent-detector';
+import type { AgentDetector } from '../agents';
 import {
 	buildAgentArgs,
 	applyAgentConfigOverrides,

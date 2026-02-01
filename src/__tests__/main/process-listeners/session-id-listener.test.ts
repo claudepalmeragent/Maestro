@@ -4,8 +4,8 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { setupSessionIdListener } from '../session-id-listener';
-import type { ProcessManager } from '../../process-manager';
+import { setupSessionIdListener } from '../../../main/process-listeners/session-id-listener';
+import type { ProcessManager } from '../../../main/process-manager';
 
 describe('Session ID Listener', () => {
 	let mockProcessManager: ProcessManager;

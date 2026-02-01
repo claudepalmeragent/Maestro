@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import type { Session } from '../../types';
 import { gitService } from '../../services/git';
 
@@ -89,6 +89,31 @@ export interface UseGitStatusPollingOptions {
 
 const DEFAULT_POLL_INTERVAL = 30000; // 30 seconds
 const DEFAULT_INACTIVITY_TIMEOUT = 60000; // 60 seconds
+
+/**
+ * PERF: Scale polling interval based on the number of git sessions.
+ * With many sessions, each poll spawns N parallel git processes which creates
+ * sustained CPU/IO load (especially on large repos where `git status` takes seconds).
+ * Only applies when using the default poll interval; custom intervals are respected.
+ */
+const POLL_INTERVAL_SCALE_THRESHOLDS: { maxSessions: number; interval: number }[] = [
+	{ maxSessions: 3, interval: 30000 }, // 1-3 sessions: 30s (unchanged)
+	{ maxSessions: 7, interval: 45000 }, // 4-7 sessions: 45s
+	{ maxSessions: 12, interval: 60000 }, // 8-12 sessions: 60s
+	{ maxSessions: Infinity, interval: 90000 }, // 13+: 90s
+];
+
+export function getScaledPollInterval(basePollInterval: number, gitSessionCount: number): number {
+	// Only scale if using the default interval (user-configured intervals are respected)
+	if (basePollInterval !== DEFAULT_POLL_INTERVAL) return basePollInterval;
+
+	for (const threshold of POLL_INTERVAL_SCALE_THRESHOLDS) {
+		if (gitSessionCount <= threshold.maxSessions) {
+			return threshold.interval;
+		}
+	}
+	return 90000;
+}
 
 /**
  * PERF: Compare two GitStatusData objects for meaningful changes.
@@ -324,9 +349,16 @@ export function useGitStatusPolling(
 		}
 	}, [pauseWhenHidden]);
 
+	// PERF: Track git session count to dynamically scale the polling interval
+	const gitSessionCount = useMemo(() => sessions.filter((s) => s.isGitRepo).length, [sessions]);
+	const gitSessionCountRef = useRef(gitSessionCount);
+	gitSessionCountRef.current = gitSessionCount;
+
 	const startPolling = useCallback(() => {
 		if (!intervalRef.current && (!pauseWhenHidden || !document.hidden)) {
 			pollGitStatus();
+			// Scale interval based on how many git sessions are active
+			const scaledInterval = getScaledPollInterval(pollInterval, gitSessionCountRef.current);
 			intervalRef.current = setInterval(() => {
 				const now = Date.now();
 				const timeSinceLastActivity = now - lastActivityRef.current;
@@ -342,7 +374,7 @@ export function useGitStatusPolling(
 						intervalRef.current = null;
 					}
 				}
-			}, pollInterval);
+			}, scaledInterval);
 		}
 	}, [pollInterval, inactivityTimeout, pollGitStatus]);
 
@@ -430,6 +462,28 @@ export function useGitStatusPolling(
 			stopPolling();
 		};
 	}, [pauseWhenHidden, startPolling, stopPolling]);
+
+	// PERF: Restart polling when git session count crosses a scaling threshold
+	// so the interval adapts to the current load level
+	const prevScaledIntervalRef = useRef(getScaledPollInterval(pollInterval, gitSessionCount));
+	useEffect(() => {
+		// Ensure ref reflects current count before startPolling reads it.
+		// (The render-phase assignment at line 330 already does this, but being
+		// explicit here makes the data-flow self-documenting.)
+		gitSessionCountRef.current = gitSessionCount;
+
+		const newScaledInterval = getScaledPollInterval(pollInterval, gitSessionCount);
+		if (newScaledInterval !== prevScaledIntervalRef.current) {
+			prevScaledIntervalRef.current = newScaledInterval;
+			// Restart with new interval if currently polling
+			if (intervalRef.current) {
+				stopPolling();
+				if (isActiveRef.current && (!pauseWhenHidden || !document.hidden)) {
+					startPolling();
+				}
+			}
+		}
+	}, [gitSessionCount, pollInterval, stopPolling, startPolling, pauseWhenHidden]);
 
 	// Refresh immediately when active session changes to get detailed data
 	useEffect(() => {

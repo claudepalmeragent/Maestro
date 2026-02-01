@@ -18,6 +18,30 @@ export interface UseAtMentionCompletionReturn {
 }
 
 /**
+ * PERF: Maximum number of file tree entries to flatten.
+ * For repos with 100k+ files, unbounded traversal creates a massive array
+ * that blocks the main thread. 50k entries is more than enough for
+ * meaningful @mention suggestions while keeping traversal fast.
+ * Breadth-first-like order naturally prioritizes shallower (more relevant) files.
+ */
+const MAX_FILE_TREE_ENTRIES = 50_000;
+
+/**
+ * PERF: Maximum number of results to return from fuzzy search.
+ */
+const MAX_SUGGESTION_RESULTS = 15;
+
+/**
+ * PERF: Once this many exact substring matches are found (and we have MAX_SUGGESTION_RESULTS),
+ * stop searching. Exact matches score highest in fuzzyMatchWithScore (they receive a +50
+ * bonus in search.ts), so once we have 50 exact substring matches the top-15 results are
+ * virtually guaranteed to be optimal — any remaining files would only contribute weaker
+ * fuzzy-only matches that cannot outscore them. 50 provides a comfortable margin over
+ * MAX_SUGGESTION_RESULTS (15) to account for score ties and type-based sorting.
+ */
+const EARLY_EXIT_EXACT_MATCH_THRESHOLD = 50;
+
+/**
  * Hook for providing @ mention file completion in AI mode.
  * Uses fuzzy matching to find files in the project tree and Auto Run folder.
  */
@@ -93,6 +117,7 @@ export function useAtMentionCompletion(session: Session | null): UseAtMentionCom
 	}, [autoRunFolderPath, sessionCwd]);
 
 	// Build a flat list of all files/folders from the file tree
+	// PERF: Capped at MAX_FILE_TREE_ENTRIES to avoid blocking the main thread on huge repos
 	const projectFiles = useMemo(() => {
 		if (!session?.fileTree) return [];
 
@@ -100,6 +125,8 @@ export function useAtMentionCompletion(session: Session | null): UseAtMentionCom
 
 		const traverse = (nodes: FileNode[], currentPath = '') => {
 			for (const node of nodes) {
+				if (files.length >= MAX_FILE_TREE_ENTRIES) return;
+
 				const fullPath = currentPath ? `${currentPath}/${node.name}` : node.name;
 				files.push({
 					name: node.name,
@@ -140,7 +167,32 @@ export function useAtMentionCompletion(session: Session | null): UseAtMentionCom
 			// Early return if no files available (allFiles is empty when session is null)
 			if (allFiles.length === 0) return [];
 
+			// PERF: When no filter (user just typed @), skip all fuzzy matching
+			// and return the first N files directly. Avoids 200k+ no-op fuzzyMatchWithScore calls.
+			if (!filter) {
+				const results: AtMentionSuggestion[] = [];
+				for (let i = 0; i < Math.min(allFiles.length, MAX_SUGGESTION_RESULTS); i++) {
+					const file = allFiles[i];
+					results.push({
+						value: file.path,
+						type: file.type,
+						displayText: file.name,
+						fullPath: file.path,
+						score: 0,
+						source: file.source,
+					});
+				}
+				// Sort the small result set (sorting 15 items is essentially free)
+				results.sort((a, b) => {
+					if (a.type !== b.type) return a.type === 'file' ? -1 : 1;
+					return a.displayText.localeCompare(b.displayText);
+				});
+				return results;
+			}
+
 			const suggestions: AtMentionSuggestion[] = [];
+			const filterLower = filter.toLowerCase();
+			let exactSubstringMatchCount = 0;
 
 			for (const file of allFiles) {
 				// Match against both file name and full path
@@ -150,7 +202,7 @@ export function useAtMentionCompletion(session: Session | null): UseAtMentionCom
 				// Use the better of the two scores
 				const bestMatch = nameMatch.score > pathMatch.score ? nameMatch : pathMatch;
 
-				if (bestMatch.matches || !filter) {
+				if (bestMatch.matches) {
 					suggestions.push({
 						value: file.path,
 						type: file.type,
@@ -159,6 +211,24 @@ export function useAtMentionCompletion(session: Session | null): UseAtMentionCom
 						score: bestMatch.score,
 						source: file.source,
 					});
+
+					// Track exact substring matches for early exit
+					if (
+						file.name.toLowerCase().includes(filterLower) ||
+						file.path.toLowerCase().includes(filterLower)
+					) {
+						exactSubstringMatchCount++;
+					}
+
+					// PERF: Early exit - once we have enough high-quality exact substring
+					// matches and enough total results, further searching through remaining
+					// files would only yield lower-scoring fuzzy matches.
+					if (
+						exactSubstringMatchCount >= EARLY_EXIT_EXACT_MATCH_THRESHOLD &&
+						suggestions.length >= MAX_SUGGESTION_RESULTS
+					) {
+						break;
+					}
 				}
 			}
 
@@ -175,7 +245,7 @@ export function useAtMentionCompletion(session: Session | null): UseAtMentionCom
 			});
 
 			// Limit to reasonable number
-			return suggestions.slice(0, 15);
+			return suggestions.slice(0, MAX_SUGGESTION_RESULTS);
 		},
 		[allFiles]
 	);

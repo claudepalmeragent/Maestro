@@ -13,7 +13,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as path from 'path';
-import { createZipPackage, PackageContents } from '../packager';
+import { createZipPackage, PackageContents } from '../../../main/debug-package/packager';
 import AdmZip from 'adm-zip';
 
 // Use the native node:fs module to avoid any vitest mocks

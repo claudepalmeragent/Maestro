@@ -250,10 +250,18 @@ export function useBatchedSessionUpdates(
 		lastFlushResultsRef.current = flushResults;
 
 		setSessions((prev) => {
-			return prev.map((session) => {
+			// PERF: Track whether any session was actually modified.
+			// If no session in prev matched an accumulator entry, return prev
+			// unchanged to preserve referential identity and skip a React re-render.
+			// This avoids ~7 unnecessary re-renders/sec when agents stream data for
+			// sessions that were removed between accumulation and flush.
+			let anyChanged = false;
+
+			const next = prev.map((session) => {
 				const acc = updates.get(session.id);
 				if (!acc) return session;
 
+				anyChanged = true;
 				let updatedSession = { ...session };
 
 				// Apply log accumulations
@@ -520,6 +528,8 @@ export function useBatchedSessionUpdates(
 
 				return updatedSession;
 			});
+
+			return anyChanged ? next : prev;
 		});
 
 		// Notify subscribers of changes (after state update is queued)

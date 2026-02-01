@@ -15,7 +15,7 @@
 import { ipcMain, BrowserWindow } from 'electron';
 import { logger } from '../../utils/logger';
 import { withIpcErrorLogging, CreateHandlerOptions } from '../../utils/ipcHandler';
-import { getStatsDB } from '../../stats-db';
+import { getStatsDB } from '../../stats';
 import {
 	QueryEvent,
 	AutoRunSession,

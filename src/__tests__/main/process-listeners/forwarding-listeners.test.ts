@@ -4,9 +4,9 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { setupForwardingListeners } from '../forwarding-listeners';
-import type { ProcessManager } from '../../process-manager';
-import type { SafeSendFn } from '../../utils/safe-send';
+import { setupForwardingListeners } from '../../../main/process-listeners/forwarding-listeners';
+import type { ProcessManager } from '../../../main/process-manager';
+import type { SafeSendFn } from '../../../main/utils/safe-send';
 
 describe('Forwarding Listeners', () => {
 	let mockProcessManager: ProcessManager;

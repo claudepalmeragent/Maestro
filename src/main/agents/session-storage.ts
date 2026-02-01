@@ -14,8 +14,8 @@
  * ```
  */
 
-import type { ToolType, SshRemoteConfig } from '../shared/types';
-import { logger } from './utils/logger';
+import type { ToolType, SshRemoteConfig } from '../../shared/types';
+import { logger } from '../utils/logger';
 
 const LOG_CONTEXT = '[AgentSessionStorage]';
 

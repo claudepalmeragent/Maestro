@@ -1,4 +1,4 @@
-import type { AgentConfig } from '../agent-detector';
+import type { AgentConfig } from '../agents';
 
 type BuildAgentArgsOptions = {
 	baseArgs: string[];
@@ -118,7 +118,10 @@ export function applyAgentConfigOverrides(
 						: option.default;
 			}
 
-			finalArgs = [...finalArgs, ...option.argBuilder(value)];
+			// Type assertion needed because AgentConfigOption is a discriminated union
+			// and we're handling all types generically here
+			const argBuilderFn = option.argBuilder as (value: unknown) => string[];
+			finalArgs = [...finalArgs, ...argBuilderFn(value)];
 		}
 	}
 
@@ -179,9 +182,11 @@ export function getContextWindowValue(
 	}
 	// Fall back to agent-level config
 	const contextWindowOption = agent?.configOptions?.find(
-		(option) => option.key === 'contextWindow'
+		(option) => option.key === 'contextWindow' && option.type === 'number'
 	);
-	const contextWindowDefault = contextWindowOption?.default ?? 0;
+	// Extract default value, ensuring it's a number (contextWindow should always be a number config)
+	const defaultValue = contextWindowOption?.default;
+	const contextWindowDefault = typeof defaultValue === 'number' ? defaultValue : 0;
 	return typeof agentConfigValues.contextWindow === 'number'
 		? agentConfigValues.contextWindow
 		: contextWindowDefault;

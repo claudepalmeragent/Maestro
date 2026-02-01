@@ -4,11 +4,11 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { setupErrorListener } from '../error-listener';
-import type { ProcessManager } from '../../process-manager';
-import type { SafeSendFn } from '../../utils/safe-send';
+import { setupErrorListener } from '../../../main/process-listeners/error-listener';
+import type { ProcessManager } from '../../../main/process-manager';
+import type { SafeSendFn } from '../../../main/utils/safe-send';
 import type { AgentError } from '../../../shared/types';
-import type { ProcessListenerDependencies } from '../types';
+import type { ProcessListenerDependencies } from '../../../main/process-listeners/types';
 
 describe('Error Listener', () => {
 	let mockProcessManager: ProcessManager;

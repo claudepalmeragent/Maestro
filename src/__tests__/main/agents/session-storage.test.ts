@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import type Store from 'electron-store';
+import type { ClaudeSessionOriginsData } from '../../../main/storage/claude-session-storage';
 import {
 	AgentSessionStorage,
 	AgentSessionInfo,
@@ -11,8 +13,8 @@ import {
 	hasSessionStorage,
 	getAllSessionStorages,
 	clearStorageRegistry,
-} from '../../main/agent-session-storage';
-import type { ToolType } from '../../shared/types';
+} from '../../../main/agents';
+import type { ToolType } from '../../../shared/types';
 
 // Mock storage implementation for testing
 class MockSessionStorage implements AgentSessionStorage {
@@ -198,12 +200,12 @@ describe('ClaudeSessionStorage', () => {
 	// For now, we test that the class can be imported
 	it('should be importable', async () => {
 		// Dynamic import to test module loading
-		const { ClaudeSessionStorage } = await import('../../main/storage/claude-session-storage');
+		const { ClaudeSessionStorage } = await import('../../../main/storage/claude-session-storage');
 		expect(ClaudeSessionStorage).toBeDefined();
 	});
 
 	it('should have claude-code as agentId', async () => {
-		const { ClaudeSessionStorage } = await import('../../main/storage/claude-session-storage');
+		const { ClaudeSessionStorage } = await import('../../../main/storage/claude-session-storage');
 
 		// Create instance without store (it will create its own)
 		// Note: In a real test, we'd mock electron-store
@@ -214,18 +216,21 @@ describe('ClaudeSessionStorage', () => {
 
 describe('OpenCodeSessionStorage', () => {
 	it('should be importable', async () => {
-		const { OpenCodeSessionStorage } = await import('../../main/storage/opencode-session-storage');
+		const { OpenCodeSessionStorage } =
+			await import('../../../main/storage/opencode-session-storage');
 		expect(OpenCodeSessionStorage).toBeDefined();
 	});
 
 	it('should have opencode as agentId', async () => {
-		const { OpenCodeSessionStorage } = await import('../../main/storage/opencode-session-storage');
+		const { OpenCodeSessionStorage } =
+			await import('../../../main/storage/opencode-session-storage');
 		const storage = new OpenCodeSessionStorage();
 		expect(storage.agentId).toBe('opencode');
 	});
 
 	it('should return empty results for non-existent projects', async () => {
-		const { OpenCodeSessionStorage } = await import('../../main/storage/opencode-session-storage');
+		const { OpenCodeSessionStorage } =
+			await import('../../../main/storage/opencode-session-storage');
 		const storage = new OpenCodeSessionStorage();
 
 		// Non-existent project should return empty results
@@ -245,7 +250,8 @@ describe('OpenCodeSessionStorage', () => {
 	});
 
 	it('should return message directory path for getSessionPath', async () => {
-		const { OpenCodeSessionStorage } = await import('../../main/storage/opencode-session-storage');
+		const { OpenCodeSessionStorage } =
+			await import('../../../main/storage/opencode-session-storage');
 		const storage = new OpenCodeSessionStorage();
 
 		// getSessionPath returns the message directory for the session
@@ -257,7 +263,8 @@ describe('OpenCodeSessionStorage', () => {
 	});
 
 	it('should fail gracefully when deleting from non-existent session', async () => {
-		const { OpenCodeSessionStorage } = await import('../../main/storage/opencode-session-storage');
+		const { OpenCodeSessionStorage } =
+			await import('../../../main/storage/opencode-session-storage');
 		const storage = new OpenCodeSessionStorage();
 
 		const deleteResult = await storage.deleteMessagePair(
@@ -272,18 +279,18 @@ describe('OpenCodeSessionStorage', () => {
 
 describe('CodexSessionStorage', () => {
 	it('should be importable', async () => {
-		const { CodexSessionStorage } = await import('../../main/storage/codex-session-storage');
+		const { CodexSessionStorage } = await import('../../../main/storage/codex-session-storage');
 		expect(CodexSessionStorage).toBeDefined();
 	});
 
 	it('should have codex as agentId', async () => {
-		const { CodexSessionStorage } = await import('../../main/storage/codex-session-storage');
+		const { CodexSessionStorage } = await import('../../../main/storage/codex-session-storage');
 		const storage = new CodexSessionStorage();
 		expect(storage.agentId).toBe('codex');
 	});
 
 	it('should return empty results for non-existent sessions directory', async () => {
-		const { CodexSessionStorage } = await import('../../main/storage/codex-session-storage');
+		const { CodexSessionStorage } = await import('../../../main/storage/codex-session-storage');
 		const storage = new CodexSessionStorage();
 
 		// Non-existent project should return empty results (since ~/.codex/sessions/ likely doesn't exist in test)
@@ -306,7 +313,7 @@ describe('CodexSessionStorage', () => {
 	});
 
 	it('should return null for getSessionPath (async operation required)', async () => {
-		const { CodexSessionStorage } = await import('../../main/storage/codex-session-storage');
+		const { CodexSessionStorage } = await import('../../../main/storage/codex-session-storage');
 		const storage = new CodexSessionStorage();
 
 		// getSessionPath is synchronous and always returns null for Codex
@@ -316,7 +323,7 @@ describe('CodexSessionStorage', () => {
 	});
 
 	it('should fail gracefully when deleting from non-existent session', async () => {
-		const { CodexSessionStorage } = await import('../../main/storage/codex-session-storage');
+		const { CodexSessionStorage } = await import('../../../main/storage/codex-session-storage');
 		const storage = new CodexSessionStorage();
 
 		const deleteResult = await storage.deleteMessagePair(
@@ -329,7 +336,7 @@ describe('CodexSessionStorage', () => {
 	});
 
 	it('should handle empty search query', async () => {
-		const { CodexSessionStorage } = await import('../../main/storage/codex-session-storage');
+		const { CodexSessionStorage } = await import('../../../main/storage/codex-session-storage');
 		const storage = new CodexSessionStorage();
 
 		const search = await storage.searchSessions('/test/project', '', 'all');
@@ -342,12 +349,12 @@ describe('CodexSessionStorage', () => {
 
 describe('Storage Module Initialization', () => {
 	it('should export initializeSessionStorages function', async () => {
-		const { initializeSessionStorages } = await import('../../main/storage/index');
+		const { initializeSessionStorages } = await import('../../../main/storage/index');
 		expect(typeof initializeSessionStorages).toBe('function');
 	});
 
 	it('should export CodexSessionStorage', async () => {
-		const { CodexSessionStorage } = await import('../../main/storage/index');
+		const { CodexSessionStorage } = await import('../../../main/storage/index');
 		expect(CodexSessionStorage).toBeDefined();
 	});
 
@@ -355,7 +362,7 @@ describe('Storage Module Initialization', () => {
 		// This tests that ClaudeSessionStorage can receive an external store
 		// This prevents the dual-store bug where IPC handlers and storage class
 		// use different electron-store instances
-		const { ClaudeSessionStorage } = await import('../../main/storage/claude-session-storage');
+		const { ClaudeSessionStorage } = await import('../../../main/storage/claude-session-storage');
 
 		// Create a mock store
 		const mockStore = {
@@ -366,14 +373,14 @@ describe('Storage Module Initialization', () => {
 
 		// Should be able to create with external store (no throw)
 		const storage = new ClaudeSessionStorage(
-			mockStore as unknown as import('electron-store').default
+			mockStore as unknown as Store<ClaudeSessionOriginsData>
 		);
 		expect(storage.agentId).toBe('claude-code');
 	});
 
 	it('should export InitializeSessionStoragesOptions interface', async () => {
 		// This tests that the options interface is exported for type-safe initialization
-		const storageModule = await import('../../main/storage/index');
+		const storageModule = await import('../../../main/storage/index');
 		// The function should accept options object
 		expect(typeof storageModule.initializeSessionStorages).toBe('function');
 		// Function should accept undefined options (backward compatible)
@@ -383,9 +390,8 @@ describe('Storage Module Initialization', () => {
 	it('should accept claudeSessionOriginsStore in options', async () => {
 		// This tests the fix for the dual-store bug
 		// When a shared store is passed, it should be used instead of creating a new one
-		const { initializeSessionStorages } = await import('../../main/storage/index');
-		const { getSessionStorage, clearStorageRegistry } =
-			await import('../../main/agent-session-storage');
+		const { initializeSessionStorages } = await import('../../../main/storage/index');
+		const { getSessionStorage, clearStorageRegistry } = await import('../../../main/agents');
 
 		// Clear registry first
 		clearStorageRegistry();
@@ -402,7 +408,7 @@ describe('Storage Module Initialization', () => {
 		// Initialize with the shared store
 		// This mimics what main/index.ts does
 		initializeSessionStorages({
-			claudeSessionOriginsStore: mockStore as unknown as import('electron-store').default,
+			claudeSessionOriginsStore: mockStore as unknown as Store<ClaudeSessionOriginsData>,
 		});
 
 		// Verify ClaudeSessionStorage was registered

@@ -4,9 +4,9 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { setupExitListener } from '../exit-listener';
-import type { ProcessManager } from '../../process-manager';
-import type { ProcessListenerDependencies } from '../types';
+import { setupExitListener } from '../../../main/process-listeners/exit-listener';
+import type { ProcessManager } from '../../../main/process-manager';
+import type { ProcessListenerDependencies } from '../../../main/process-listeners/types';
 
 describe('Exit Listener', () => {
 	let mockProcessManager: ProcessManager;

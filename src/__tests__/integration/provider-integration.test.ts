@@ -29,7 +29,7 @@ import { exec } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { getAgentCapabilities } from '../../main/agent-capabilities';
+import { getAgentCapabilities } from '../../main/agents';
 import { buildSshCommand, buildRemoteCommand } from '../../main/utils/ssh-command-builder';
 import type { SshRemoteConfig } from '../../shared/types';
 

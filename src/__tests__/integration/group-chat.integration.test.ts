@@ -22,7 +22,7 @@ import {
 } from '../../main/group-chat/group-chat-moderator';
 import { addParticipant } from '../../main/group-chat/group-chat-agent';
 import { routeUserMessage } from '../../main/group-chat/group-chat-router';
-import { AgentDetector } from '../../main/agent-detector';
+import { AgentDetector } from '../../main/agents';
 import {
 	selectTestAgents,
 	waitForAgentResponse,

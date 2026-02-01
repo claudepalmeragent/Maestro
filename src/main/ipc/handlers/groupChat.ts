@@ -62,7 +62,7 @@ import {
 import { routeUserMessage } from '../../group-chat/group-chat-router';
 
 // Agent detector import
-import { AgentDetector } from '../../agent-detector';
+import { AgentDetector } from '../../agents';
 import { groomContext } from '../../utils/context-groomer';
 import { v4 as uuidv4 } from 'uuid';
 

@@ -51,7 +51,7 @@ describe('Debug Package Sanitization', () => {
 	describe('sanitizePath', () => {
 		describe('home directory replacement', () => {
 			it('should replace home directory with ~', async () => {
-				const { sanitizePath } = await import('../collectors/settings');
+				const { sanitizePath } = await import('../../../main/debug-package/collectors/settings');
 				const homeDir = os.homedir();
 				const testPath = `${homeDir}/Projects/MyApp`;
 
@@ -62,7 +62,7 @@ describe('Debug Package Sanitization', () => {
 			});
 
 			it('should replace home directory at any position in path', async () => {
-				const { sanitizePath } = await import('../collectors/settings');
+				const { sanitizePath } = await import('../../../main/debug-package/collectors/settings');
 				const homeDir = os.homedir();
 				const testPath = `${homeDir}/deeply/nested/folder/file.txt`;
 
@@ -72,7 +72,7 @@ describe('Debug Package Sanitization', () => {
 			});
 
 			it('should handle home directory with trailing slash', async () => {
-				const { sanitizePath } = await import('../collectors/settings');
+				const { sanitizePath } = await import('../../../main/debug-package/collectors/settings');
 				const homeDir = os.homedir();
 				const testPath = `${homeDir}/`;
 
@@ -82,7 +82,7 @@ describe('Debug Package Sanitization', () => {
 			});
 
 			it('should handle path that is exactly the home directory', async () => {
-				const { sanitizePath } = await import('../collectors/settings');
+				const { sanitizePath } = await import('../../../main/debug-package/collectors/settings');
 				const homeDir = os.homedir();
 
 				const result = sanitizePath(homeDir);
@@ -91,7 +91,7 @@ describe('Debug Package Sanitization', () => {
 			});
 
 			it('should not modify paths that do not contain home directory', async () => {
-				const { sanitizePath } = await import('../collectors/settings');
+				const { sanitizePath } = await import('../../../main/debug-package/collectors/settings');
 				const testPath = '/usr/local/bin/app';
 
 				const result = sanitizePath(testPath);
@@ -100,7 +100,7 @@ describe('Debug Package Sanitization', () => {
 			});
 
 			it('should handle empty string', async () => {
-				const { sanitizePath } = await import('../collectors/settings');
+				const { sanitizePath } = await import('../../../main/debug-package/collectors/settings');
 
 				const result = sanitizePath('');
 
@@ -110,7 +110,7 @@ describe('Debug Package Sanitization', () => {
 
 		describe('Windows path handling', () => {
 			it('should normalize backslashes to forward slashes', async () => {
-				const { sanitizePath } = await import('../collectors/settings');
+				const { sanitizePath } = await import('../../../main/debug-package/collectors/settings');
 				const testPath = 'C:\\Users\\testuser\\Documents\\Project';
 
 				const result = sanitizePath(testPath);
@@ -120,7 +120,8 @@ describe('Debug Package Sanitization', () => {
 			});
 
 			it('should handle Windows-style home directory', async () => {
-				const { sanitizePath: _sanitizePath } = await import('../collectors/settings');
+				const { sanitizePath: _sanitizePath } =
+					await import('../../../main/debug-package/collectors/settings');
 
 				// Mock homedir to return Windows-style path
 				const originalHomedir = os.homedir();
@@ -128,7 +129,8 @@ describe('Debug Package Sanitization', () => {
 
 				// Re-import to get fresh module with mocked homedir
 				vi.resetModules();
-				const { sanitizePath: freshSanitizePath } = await import('../collectors/settings');
+				const { sanitizePath: freshSanitizePath } =
+					await import('../../../main/debug-package/collectors/settings');
 
 				const testPath = 'C:\\Users\\testuser\\Documents\\Project';
 				const result = freshSanitizePath(testPath);
@@ -139,7 +141,7 @@ describe('Debug Package Sanitization', () => {
 			});
 
 			it('should handle mixed slash styles', async () => {
-				const { sanitizePath } = await import('../collectors/settings');
+				const { sanitizePath } = await import('../../../main/debug-package/collectors/settings');
 				const testPath = '/path/to\\mixed\\slashes/file.txt';
 
 				const result = sanitizePath(testPath);
@@ -152,7 +154,7 @@ describe('Debug Package Sanitization', () => {
 
 		describe('edge cases and type handling', () => {
 			it('should return null when given null', async () => {
-				const { sanitizePath } = await import('../collectors/settings');
+				const { sanitizePath } = await import('../../../main/debug-package/collectors/settings');
 
 				// @ts-expect-error - Testing runtime behavior with wrong type
 				const result = sanitizePath(null);
@@ -161,7 +163,7 @@ describe('Debug Package Sanitization', () => {
 			});
 
 			it('should return undefined when given undefined', async () => {
-				const { sanitizePath } = await import('../collectors/settings');
+				const { sanitizePath } = await import('../../../main/debug-package/collectors/settings');
 
 				// @ts-expect-error - Testing runtime behavior with wrong type
 				const result = sanitizePath(undefined);
@@ -170,7 +172,7 @@ describe('Debug Package Sanitization', () => {
 			});
 
 			it('should return numbers unchanged', async () => {
-				const { sanitizePath } = await import('../collectors/settings');
+				const { sanitizePath } = await import('../../../main/debug-package/collectors/settings');
 
 				// @ts-expect-error - Testing runtime behavior with wrong type
 				const result = sanitizePath(12345);
@@ -179,7 +181,7 @@ describe('Debug Package Sanitization', () => {
 			});
 
 			it('should return objects unchanged', async () => {
-				const { sanitizePath } = await import('../collectors/settings');
+				const { sanitizePath } = await import('../../../main/debug-package/collectors/settings');
 				const obj = { path: '/some/path' };
 
 				// @ts-expect-error - Testing runtime behavior with wrong type
@@ -189,7 +191,7 @@ describe('Debug Package Sanitization', () => {
 			});
 
 			it('should handle paths with spaces', async () => {
-				const { sanitizePath } = await import('../collectors/settings');
+				const { sanitizePath } = await import('../../../main/debug-package/collectors/settings');
 				const homeDir = os.homedir();
 				const testPath = `${homeDir}/My Documents/Project Files/app.tsx`;
 
@@ -199,7 +201,7 @@ describe('Debug Package Sanitization', () => {
 			});
 
 			it('should handle paths with special characters', async () => {
-				const { sanitizePath } = await import('../collectors/settings');
+				const { sanitizePath } = await import('../../../main/debug-package/collectors/settings');
 				const homeDir = os.homedir();
 				const testPath = `${homeDir}/Projects/@company/app-v2.0#beta`;
 
@@ -209,7 +211,7 @@ describe('Debug Package Sanitization', () => {
 			});
 
 			it('should handle very long paths', async () => {
-				const { sanitizePath } = await import('../collectors/settings');
+				const { sanitizePath } = await import('../../../main/debug-package/collectors/settings');
 				const homeDir = os.homedir();
 				const longPath = `${homeDir}/` + 'a/'.repeat(100) + 'file.txt';
 
@@ -228,7 +230,7 @@ describe('Debug Package Sanitization', () => {
 	describe('API key redaction', () => {
 		describe('sensitive key detection', () => {
 			it('should redact apiKey', async () => {
-				const { collectSettings } = await import('../collectors/settings');
+				const { collectSettings } = await import('../../../main/debug-package/collectors/settings');
 				const mockStore = {
 					get: vi.fn(),
 					set: vi.fn(),
@@ -242,7 +244,7 @@ describe('Debug Package Sanitization', () => {
 			});
 
 			it('should redact api_key (snake_case)', async () => {
-				const { collectSettings } = await import('../collectors/settings');
+				const { collectSettings } = await import('../../../main/debug-package/collectors/settings');
 				const mockStore = {
 					get: vi.fn(),
 					set: vi.fn(),
@@ -255,7 +257,7 @@ describe('Debug Package Sanitization', () => {
 			});
 
 			it('should redact authToken', async () => {
-				const { collectSettings } = await import('../collectors/settings');
+				const { collectSettings } = await import('../../../main/debug-package/collectors/settings');
 				const mockStore = {
 					get: vi.fn(),
 					set: vi.fn(),
@@ -268,7 +270,7 @@ describe('Debug Package Sanitization', () => {
 			});
 
 			it('should redact auth_token (snake_case)', async () => {
-				const { collectSettings } = await import('../collectors/settings');
+				const { collectSettings } = await import('../../../main/debug-package/collectors/settings');
 				const mockStore = {
 					get: vi.fn(),
 					set: vi.fn(),
@@ -281,7 +283,7 @@ describe('Debug Package Sanitization', () => {
 			});
 
 			it('should redact clientToken', async () => {
-				const { collectSettings } = await import('../collectors/settings');
+				const { collectSettings } = await import('../../../main/debug-package/collectors/settings');
 				const mockStore = {
 					get: vi.fn(),
 					set: vi.fn(),
@@ -294,7 +296,7 @@ describe('Debug Package Sanitization', () => {
 			});
 
 			it('should redact client_token (snake_case)', async () => {
-				const { collectSettings } = await import('../collectors/settings');
+				const { collectSettings } = await import('../../../main/debug-package/collectors/settings');
 				const mockStore = {
 					get: vi.fn(),
 					set: vi.fn(),
@@ -307,7 +309,7 @@ describe('Debug Package Sanitization', () => {
 			});
 
 			it('should redact password', async () => {
-				const { collectSettings } = await import('../collectors/settings');
+				const { collectSettings } = await import('../../../main/debug-package/collectors/settings');
 				const mockStore = {
 					get: vi.fn(),
 					set: vi.fn(),
@@ -320,7 +322,7 @@ describe('Debug Package Sanitization', () => {
 			});
 
 			it('should redact secret', async () => {
-				const { collectSettings } = await import('../collectors/settings');
+				const { collectSettings } = await import('../../../main/debug-package/collectors/settings');
 				const mockStore = {
 					get: vi.fn(),
 					set: vi.fn(),
@@ -333,7 +335,7 @@ describe('Debug Package Sanitization', () => {
 			});
 
 			it('should redact credential', async () => {
-				const { collectSettings } = await import('../collectors/settings');
+				const { collectSettings } = await import('../../../main/debug-package/collectors/settings');
 				const mockStore = {
 					get: vi.fn(),
 					set: vi.fn(),
@@ -346,7 +348,7 @@ describe('Debug Package Sanitization', () => {
 			});
 
 			it('should redact accessToken', async () => {
-				const { collectSettings } = await import('../collectors/settings');
+				const { collectSettings } = await import('../../../main/debug-package/collectors/settings');
 				const mockStore = {
 					get: vi.fn(),
 					set: vi.fn(),
@@ -359,7 +361,7 @@ describe('Debug Package Sanitization', () => {
 			});
 
 			it('should redact access_token (snake_case)', async () => {
-				const { collectSettings } = await import('../collectors/settings');
+				const { collectSettings } = await import('../../../main/debug-package/collectors/settings');
 				const mockStore = {
 					get: vi.fn(),
 					set: vi.fn(),
@@ -372,7 +374,7 @@ describe('Debug Package Sanitization', () => {
 			});
 
 			it('should redact refreshToken', async () => {
-				const { collectSettings } = await import('../collectors/settings');
+				const { collectSettings } = await import('../../../main/debug-package/collectors/settings');
 				const mockStore = {
 					get: vi.fn(),
 					set: vi.fn(),
@@ -385,7 +387,7 @@ describe('Debug Package Sanitization', () => {
 			});
 
 			it('should redact refresh_token (snake_case)', async () => {
-				const { collectSettings } = await import('../collectors/settings');
+				const { collectSettings } = await import('../../../main/debug-package/collectors/settings');
 				const mockStore = {
 					get: vi.fn(),
 					set: vi.fn(),
@@ -398,7 +400,7 @@ describe('Debug Package Sanitization', () => {
 			});
 
 			it('should redact privateKey', async () => {
-				const { collectSettings } = await import('../collectors/settings');
+				const { collectSettings } = await import('../../../main/debug-package/collectors/settings');
 				const mockStore = {
 					get: vi.fn(),
 					set: vi.fn(),
@@ -411,7 +413,7 @@ describe('Debug Package Sanitization', () => {
 			});
 
 			it('should redact private_key (snake_case)', async () => {
-				const { collectSettings } = await import('../collectors/settings');
+				const { collectSettings } = await import('../../../main/debug-package/collectors/settings');
 				const mockStore = {
 					get: vi.fn(),
 					set: vi.fn(),
@@ -426,7 +428,7 @@ describe('Debug Package Sanitization', () => {
 
 		describe('case insensitivity', () => {
 			it('should redact APIKEY (uppercase)', async () => {
-				const { collectSettings } = await import('../collectors/settings');
+				const { collectSettings } = await import('../../../main/debug-package/collectors/settings');
 				const mockStore = {
 					get: vi.fn(),
 					set: vi.fn(),
@@ -439,7 +441,7 @@ describe('Debug Package Sanitization', () => {
 			});
 
 			it('should redact ApiKey (mixed case)', async () => {
-				const { collectSettings } = await import('../collectors/settings');
+				const { collectSettings } = await import('../../../main/debug-package/collectors/settings');
 				const mockStore = {
 					get: vi.fn(),
 					set: vi.fn(),
@@ -452,7 +454,7 @@ describe('Debug Package Sanitization', () => {
 			});
 
 			it('should redact API_KEY (uppercase snake_case)', async () => {
-				const { collectSettings } = await import('../collectors/settings');
+				const { collectSettings } = await import('../../../main/debug-package/collectors/settings');
 				const mockStore = {
 					get: vi.fn(),
 					set: vi.fn(),
@@ -465,7 +467,7 @@ describe('Debug Package Sanitization', () => {
 			});
 
 			it('should redact PASSWORD (uppercase)', async () => {
-				const { collectSettings } = await import('../collectors/settings');
+				const { collectSettings } = await import('../../../main/debug-package/collectors/settings');
 				const mockStore = {
 					get: vi.fn(),
 					set: vi.fn(),
@@ -478,7 +480,7 @@ describe('Debug Package Sanitization', () => {
 			});
 
 			it('should redact Secret (capitalized)', async () => {
-				const { collectSettings } = await import('../collectors/settings');
+				const { collectSettings } = await import('../../../main/debug-package/collectors/settings');
 				const mockStore = {
 					get: vi.fn(),
 					set: vi.fn(),
@@ -493,7 +495,7 @@ describe('Debug Package Sanitization', () => {
 
 		describe('key name patterns containing sensitive words', () => {
 			it('should redact myApiKeyValue (key within name)', async () => {
-				const { collectSettings } = await import('../collectors/settings');
+				const { collectSettings } = await import('../../../main/debug-package/collectors/settings');
 				const mockStore = {
 					get: vi.fn(),
 					set: vi.fn(),
@@ -506,7 +508,7 @@ describe('Debug Package Sanitization', () => {
 			});
 
 			it('should redact userPassword (password in name)', async () => {
-				const { collectSettings } = await import('../collectors/settings');
+				const { collectSettings } = await import('../../../main/debug-package/collectors/settings');
 				const mockStore = {
 					get: vi.fn(),
 					set: vi.fn(),
@@ -519,7 +521,7 @@ describe('Debug Package Sanitization', () => {
 			});
 
 			it('should redact adminSecret (secret in name)', async () => {
-				const { collectSettings } = await import('../collectors/settings');
+				const { collectSettings } = await import('../../../main/debug-package/collectors/settings');
 				const mockStore = {
 					get: vi.fn(),
 					set: vi.fn(),
@@ -532,7 +534,7 @@ describe('Debug Package Sanitization', () => {
 			});
 
 			it('should redact bearerAccessToken (accesstoken in name)', async () => {
-				const { collectSettings } = await import('../collectors/settings');
+				const { collectSettings } = await import('../../../main/debug-package/collectors/settings');
 				const mockStore = {
 					get: vi.fn(),
 					set: vi.fn(),
@@ -545,7 +547,7 @@ describe('Debug Package Sanitization', () => {
 			});
 
 			it('should redact dbCredential (credential in name)', async () => {
-				const { collectSettings } = await import('../collectors/settings');
+				const { collectSettings } = await import('../../../main/debug-package/collectors/settings');
 				const mockStore = {
 					get: vi.fn(),
 					set: vi.fn(),
@@ -560,7 +562,7 @@ describe('Debug Package Sanitization', () => {
 
 		describe('nested object handling', () => {
 			it('should redact sensitive keys in nested objects', async () => {
-				const { collectSettings } = await import('../collectors/settings');
+				const { collectSettings } = await import('../../../main/debug-package/collectors/settings');
 				const mockStore = {
 					get: vi.fn(),
 					set: vi.fn(),
@@ -577,7 +579,7 @@ describe('Debug Package Sanitization', () => {
 			});
 
 			it('should redact deeply nested sensitive keys', async () => {
-				const { collectSettings } = await import('../collectors/settings');
+				const { collectSettings } = await import('../../../main/debug-package/collectors/settings');
 				const mockStore = {
 					get: vi.fn(),
 					set: vi.fn(),
@@ -602,7 +604,7 @@ describe('Debug Package Sanitization', () => {
 			});
 
 			it('should track sanitized fields with full path', async () => {
-				const { collectSettings } = await import('../collectors/settings');
+				const { collectSettings } = await import('../../../main/debug-package/collectors/settings');
 				const mockStore = {
 					get: vi.fn(),
 					set: vi.fn(),
@@ -621,7 +623,7 @@ describe('Debug Package Sanitization', () => {
 			});
 
 			it('should redact multiple sensitive keys at different levels', async () => {
-				const { collectSettings } = await import('../collectors/settings');
+				const { collectSettings } = await import('../../../main/debug-package/collectors/settings');
 				const mockStore = {
 					get: vi.fn(),
 					set: vi.fn(),
@@ -646,7 +648,7 @@ describe('Debug Package Sanitization', () => {
 
 		describe('array handling', () => {
 			it('should process arrays containing objects with sensitive keys', async () => {
-				const { collectSettings } = await import('../collectors/settings');
+				const { collectSettings } = await import('../../../main/debug-package/collectors/settings');
 				const mockStore = {
 					get: vi.fn(),
 					set: vi.fn(),
@@ -667,7 +669,7 @@ describe('Debug Package Sanitization', () => {
 			});
 
 			it('should handle empty arrays', async () => {
-				const { collectSettings } = await import('../collectors/settings');
+				const { collectSettings } = await import('../../../main/debug-package/collectors/settings');
 				const mockStore = {
 					get: vi.fn(),
 					set: vi.fn(),
@@ -680,7 +682,7 @@ describe('Debug Package Sanitization', () => {
 			});
 
 			it('should handle arrays of primitives', async () => {
-				const { collectSettings } = await import('../collectors/settings');
+				const { collectSettings } = await import('../../../main/debug-package/collectors/settings');
 				const mockStore = {
 					get: vi.fn(),
 					set: vi.fn(),
@@ -695,7 +697,7 @@ describe('Debug Package Sanitization', () => {
 
 		describe('preservation of non-sensitive data', () => {
 			it('should preserve boolean values', async () => {
-				const { collectSettings } = await import('../collectors/settings');
+				const { collectSettings } = await import('../../../main/debug-package/collectors/settings');
 				const mockStore = {
 					get: vi.fn(),
 					set: vi.fn(),
@@ -709,7 +711,7 @@ describe('Debug Package Sanitization', () => {
 			});
 
 			it('should preserve number values', async () => {
-				const { collectSettings } = await import('../collectors/settings');
+				const { collectSettings } = await import('../../../main/debug-package/collectors/settings');
 				const mockStore = {
 					get: vi.fn(),
 					set: vi.fn(),
@@ -724,7 +726,7 @@ describe('Debug Package Sanitization', () => {
 			});
 
 			it('should preserve string values without sensitive keywords', async () => {
-				const { collectSettings } = await import('../collectors/settings');
+				const { collectSettings } = await import('../../../main/debug-package/collectors/settings');
 				const mockStore = {
 					get: vi.fn(),
 					set: vi.fn(),
@@ -739,7 +741,7 @@ describe('Debug Package Sanitization', () => {
 			});
 
 			it('should preserve null values', async () => {
-				const { collectSettings } = await import('../collectors/settings');
+				const { collectSettings } = await import('../../../main/debug-package/collectors/settings');
 				const mockStore = {
 					get: vi.fn(),
 					set: vi.fn(),
@@ -760,7 +762,7 @@ describe('Debug Package Sanitization', () => {
 	describe('environment variable filtering', () => {
 		describe('custom env vars masking', () => {
 			it('should not expose custom env var values in agents collector', async () => {
-				const { collectAgents } = await import('../collectors/agents');
+				const { collectAgents } = await import('../../../main/debug-package/collectors/agents');
 
 				const mockAgentDetector = {
 					detectAgents: vi.fn().mockResolvedValue([
@@ -786,7 +788,7 @@ describe('Debug Package Sanitization', () => {
 			});
 
 			it('should indicate env vars are set without showing values', async () => {
-				const { collectAgents } = await import('../collectors/agents');
+				const { collectAgents } = await import('../../../main/debug-package/collectors/agents');
 
 				const mockAgentDetector = {
 					detectAgents: vi.fn().mockResolvedValue([
@@ -812,7 +814,7 @@ describe('Debug Package Sanitization', () => {
 
 		describe('custom args masking', () => {
 			it('should not expose custom args values containing secrets', async () => {
-				const { collectAgents } = await import('../collectors/agents');
+				const { collectAgents } = await import('../../../main/debug-package/collectors/agents');
 
 				const mockAgentDetector = {
 					detectAgents: vi.fn().mockResolvedValue([
@@ -836,7 +838,7 @@ describe('Debug Package Sanitization', () => {
 
 		describe('path-based environment variables', () => {
 			it('should sanitize custom path settings', async () => {
-				const { collectSettings } = await import('../collectors/settings');
+				const { collectSettings } = await import('../../../main/debug-package/collectors/settings');
 				const homeDir = os.homedir();
 
 				const mockStore = {
@@ -855,7 +857,7 @@ describe('Debug Package Sanitization', () => {
 			});
 
 			it('should sanitize folderPath settings', async () => {
-				const { collectSettings } = await import('../collectors/settings');
+				const { collectSettings } = await import('../../../main/debug-package/collectors/settings');
 				const homeDir = os.homedir();
 
 				const mockStore = {
@@ -879,7 +881,7 @@ describe('Debug Package Sanitization', () => {
 
 	describe('comprehensive sanitization', () => {
 		it('should sanitize complex settings object with mixed sensitive data', async () => {
-			const { collectSettings } = await import('../collectors/settings');
+			const { collectSettings } = await import('../../../main/debug-package/collectors/settings');
 			const homeDir = os.homedir();
 
 			const mockStore = {
@@ -931,7 +933,7 @@ describe('Debug Package Sanitization', () => {
 		});
 
 		it('should track all sanitized fields', async () => {
-			const { collectSettings } = await import('../collectors/settings');
+			const { collectSettings } = await import('../../../main/debug-package/collectors/settings');
 			const homeDir = os.homedir();
 
 			const mockStore = {
@@ -952,7 +954,7 @@ describe('Debug Package Sanitization', () => {
 		});
 
 		it('should produce output that contains no home directory paths for recognized path keys', async () => {
-			const { collectSettings } = await import('../collectors/settings');
+			const { collectSettings } = await import('../../../main/debug-package/collectors/settings');
 			const homeDir = os.homedir();
 
 			const mockStore = {
@@ -980,7 +982,7 @@ describe('Debug Package Sanitization', () => {
 		});
 
 		it('should not sanitize paths in array values (by design)', async () => {
-			const { collectSettings } = await import('../collectors/settings');
+			const { collectSettings } = await import('../../../main/debug-package/collectors/settings');
 			const homeDir = os.homedir();
 
 			// Note: Arrays of string paths are NOT sanitized by design
@@ -1002,7 +1004,7 @@ describe('Debug Package Sanitization', () => {
 		});
 
 		it('should produce output that contains no API keys or secrets', async () => {
-			const { collectSettings } = await import('../collectors/settings');
+			const { collectSettings } = await import('../../../main/debug-package/collectors/settings');
 
 			const secrets = [
 				'sk-1234567890abcdef',

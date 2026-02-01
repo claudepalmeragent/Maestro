@@ -8,7 +8,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ipcMain } from 'electron';
 import { registerAgentSessionsHandlers } from '../../../../main/ipc/handlers/agentSessions';
-import * as agentSessionStorage from '../../../../main/agent-session-storage';
+import * as agentSessionStorage from '../../../../main/agents';
 
 // Mock electron's ipcMain
 vi.mock('electron', () => ({
@@ -18,8 +18,8 @@ vi.mock('electron', () => ({
 	},
 }));
 
-// Mock the agent-session-storage module
-vi.mock('../../../../main/agent-session-storage', () => ({
+// Mock the agents module (session storage exports)
+vi.mock('../../../../main/agents', () => ({
 	getSessionStorage: vi.fn(),
 	hasSessionStorage: vi.fn(),
 	getAllSessionStorages: vi.fn(),
