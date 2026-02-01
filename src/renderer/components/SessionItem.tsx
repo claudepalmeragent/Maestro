@@ -1,7 +1,9 @@
 import React, { memo } from 'react';
 import { Activity, GitBranch, Bot, Bookmark, AlertCircle, Server } from 'lucide-react';
 import type { Session, Group, Theme } from '../types';
+import type { ProjectFolder } from '../../shared/types';
 import { getStatusColor } from '../utils/theme';
+import { ProjectColorBars } from './sidebar/ProjectColorBars';
 
 // ============================================================================
 // SessionItem - Unified session item component for all list contexts
@@ -35,6 +37,7 @@ export interface SessionItemProps {
 	gitFileCount?: number;
 	isInBatch?: boolean;
 	jumpNumber?: string | null; // Session jump shortcut number (1-9, 0)
+	projectFolders?: ProjectFolder[]; // Project folders this session belongs to (for color bars)
 
 	// Handlers
 	onSelect: () => void;
@@ -75,6 +78,7 @@ export const SessionItem = memo(function SessionItem({
 	gitFileCount,
 	isInBatch = false,
 	jumpNumber,
+	projectFolders = [],
 	onSelect,
 	onDragStart,
 	onDragOver,
@@ -88,18 +92,23 @@ export const SessionItem = memo(function SessionItem({
 	const showGitLocalBadge =
 		variant !== 'bookmark' && variant !== 'worktree' && session.toolType !== 'terminal';
 
+	// Determine if we have project color bars to show
+	const hasProjectColorBars = projectFolders.some((f) => f.highlightColor);
+
 	// Determine container styling based on variant
 	const getContainerClassName = () => {
 		const base = `cursor-move flex items-center justify-between group border-l-2 transition-all hover:bg-opacity-50 ${isDragging ? 'opacity-50' : ''}`;
+		// Add relative positioning for ProjectColorBars absolute positioning
+		const relative = hasProjectColorBars ? 'relative' : '';
 
 		if (variant === 'flat') {
-			return `mx-3 px-3 py-2 rounded mb-1 ${base}`;
+			return `mx-3 px-3 py-2 rounded mb-1 ${base} ${relative}`;
 		}
 		if (variant === 'worktree') {
 			// Worktree children have extra left padding and smaller text
-			return `pl-8 pr-4 py-1.5 ${base}`;
+			return `pl-8 pr-4 py-1.5 ${base} ${relative}`;
 		}
-		return `px-4 py-2 ${base}`;
+		return `px-4 py-2 ${base} ${relative}`;
 	};
 
 	return (
@@ -121,6 +130,9 @@ export const SessionItem = memo(function SessionItem({
 						: 'transparent',
 			}}
 		>
+			{/* Project folder color bars (shown when session belongs to multiple projects) */}
+			{hasProjectColorBars && <ProjectColorBars projectFolders={projectFolders} />}
+
 			{/* Left side: Session name and metadata */}
 			<div className="min-w-0 flex-1">
 				{isEditing ? (
