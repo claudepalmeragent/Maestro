@@ -20,16 +20,42 @@ export function normalizeMentionName(name: string): string {
 }
 
 /**
+ * Extract the base name from a session name that may have a parenthetical description.
+ * e.g., "agent-dev-1 (local micro-VM)" -> "agent-dev-1"
+ *
+ * @param name - Session name that may include description in parentheses
+ * @returns The base name without the parenthetical description
+ */
+export function extractBaseName(name: string): string {
+	// Match everything before optional whitespace and opening parenthesis
+	const match = name.match(/^([^(]+?)(?:\s*\(.*\))?$/);
+	return match ? match[1].trim() : name;
+}
+
+/**
  * Check if a name matches a mention target (handles normalized names).
  *
+ * Handles these cases:
+ * - Exact match: "agent-dev-1" matches "agent-dev-1"
+ * - Normalized match: "My-Session" matches "My Session"
+ * - Base name match: "agent-dev-1" matches "agent-dev-1 (local micro-VM)"
+ *
  * @param mentionedName - The name from the @mention (may be hyphenated)
- * @param actualName - The actual session/participant name (may have spaces)
+ * @param actualName - The actual session/participant name (may have spaces or parenthetical description)
  * @returns True if they match
  */
 export function mentionMatches(mentionedName: string, actualName: string): boolean {
+	const mentionLower = mentionedName.toLowerCase();
+	const actualLower = actualName.toLowerCase();
+	const normalizedActual = normalizeMentionName(actualName).toLowerCase();
+	const baseName = extractBaseName(actualName).toLowerCase();
+	const normalizedBaseName = normalizeMentionName(extractBaseName(actualName)).toLowerCase();
+
 	return (
-		mentionedName.toLowerCase() === actualName.toLowerCase() ||
-		mentionedName.toLowerCase() === normalizeMentionName(actualName).toLowerCase()
+		mentionLower === actualLower ||
+		mentionLower === normalizedActual ||
+		mentionLower === baseName ||
+		mentionLower === normalizedBaseName
 	);
 }
 
