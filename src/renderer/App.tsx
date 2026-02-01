@@ -97,6 +97,7 @@ import { GroupChatProvider, useGroupChat } from './contexts/GroupChatContext';
 import { AutoRunProvider, useAutoRun } from './contexts/AutoRunContext';
 import { SessionProvider, useSession } from './contexts/SessionContext';
 import { InlineWizardProvider, useInlineWizardContext } from './contexts/InlineWizardContext';
+import { ProjectFoldersProvider } from './contexts/ProjectFoldersContext';
 import { ToastContainer } from './components/Toast';
 
 // Import services
@@ -13178,15 +13179,17 @@ You are taking over this conversation. Based on the context above, provide a bri
 export default function MaestroConsole() {
 	return (
 		<SessionProvider>
-			<AutoRunProvider>
-				<GroupChatProvider>
-					<InlineWizardProvider>
-						<InputProvider>
-							<MaestroConsoleInner />
-						</InputProvider>
-					</InlineWizardProvider>
-				</GroupChatProvider>
-			</AutoRunProvider>
+			<ProjectFoldersProvider>
+				<AutoRunProvider>
+					<GroupChatProvider>
+						<InlineWizardProvider>
+							<InputProvider>
+								<MaestroConsoleInner />
+							</InputProvider>
+						</InlineWizardProvider>
+					</GroupChatProvider>
+				</AutoRunProvider>
+			</ProjectFoldersProvider>
 		</SessionProvider>
 	);
 }
