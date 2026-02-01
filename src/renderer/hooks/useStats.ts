@@ -24,7 +24,7 @@ export interface StatsAggregation {
 	totalQueries: number;
 	totalDuration: number;
 	avgDuration: number;
-	byAgent: Record<string, { count: number; duration: number }>;
+	byAgent: Record<string, { count: number; duration: number; totalOutputTokens: number; avgTokensPerSecond: number }>;
 	bySource: { user: number; auto: number };
 	byLocation: { local: number; remote: number };
 	byDay: Array<{
@@ -40,8 +40,8 @@ export interface StatsAggregation {
 	sessionsByAgent: Record<string, number>;
 	sessionsByDay: Array<{ date: string; count: number }>;
 	avgSessionDuration: number;
-	// Per-provider per-day breakdown for provider comparison
-	byAgentByDay: Record<string, Array<{ date: string; count: number; duration: number }>>;
+	// Per-provider per-day breakdown for provider comparison and throughput trends
+	byAgentByDay: Record<string, Array<{ date: string; count: number; duration: number; outputTokens: number; avgTokensPerSecond: number }>>;
 	// Per-session per-day breakdown for agent usage chart
 	bySessionByDay: Record<string, Array<{ date: string; count: number; duration: number }>>;
 	// Token metrics for throughput statistics

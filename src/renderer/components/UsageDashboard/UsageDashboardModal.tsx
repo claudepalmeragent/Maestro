@@ -24,6 +24,7 @@ import { PeakHoursChart } from './PeakHoursChart';
 import { DurationTrendsChart } from './DurationTrendsChart';
 import { ThroughputTrendsChart } from './ThroughputTrendsChart';
 import { AgentUsageChart } from './AgentUsageChart';
+import { AgentThroughputChart } from './AgentThroughputChart';
 import { AutoRunStats } from './AutoRunStats';
 import { SessionStats } from './SessionStats';
 import { EmptyState } from './EmptyState';
@@ -46,7 +47,7 @@ const OVERVIEW_SECTIONS = [
 	'duration-trends',
 	'throughput-trends',
 ] as const;
-const AGENTS_SECTIONS = ['session-stats', 'agent-comparison', 'agent-usage'] as const;
+const AGENTS_SECTIONS = ['session-stats', 'agent-comparison', 'agent-usage', 'agent-throughput'] as const;
 const ACTIVITY_SECTIONS = ['activity-heatmap', 'duration-trends', 'throughput-trends'] as const;
 const AUTORUN_SECTIONS = ['autorun-stats'] as const;
 
@@ -351,6 +352,7 @@ export function UsageDashboardModal({
 			'session-stats': 'Agent Statistics',
 			'agent-comparison': 'Provider Comparison Chart',
 			'agent-usage': 'Agent Usage Chart',
+			'agent-throughput': 'Agent Throughput Chart',
 			'source-distribution': 'Session Type Chart',
 			'location-distribution': 'Location Distribution Chart',
 			'peak-hours': 'Peak Hours Chart',
@@ -949,6 +951,7 @@ export function UsageDashboardModal({
 												sessions={sessions}
 												theme={theme}
 												colorBlindMode={colorBlindMode}
+												data={data}
 											/>
 										</ChartErrorBoundary>
 									</div>
@@ -1005,6 +1008,34 @@ export function UsageDashboardModal({
 												theme={theme}
 												colorBlindMode={colorBlindMode}
 												sessions={sessions}
+											/>
+										</ChartErrorBoundary>
+									</div>
+
+									{/* Agent Throughput Over Time */}
+									<div
+										ref={setSectionRef('agent-throughput')}
+										tabIndex={0}
+										role="region"
+										aria-label={getSectionLabel('agent-throughput')}
+										onKeyDown={(e) => handleSectionKeyDown(e, 'agent-throughput')}
+										className="outline-none rounded-lg transition-shadow dashboard-section-enter"
+										style={{
+											minHeight: '280px',
+											boxShadow:
+												focusedSection === 'agent-throughput'
+													? `0 0 0 2px ${theme.colors.accent}`
+													: 'none',
+											animationDelay: '300ms',
+										}}
+										data-testid="section-agent-throughput"
+									>
+										<ChartErrorBoundary theme={theme} chartName="Agent Throughput">
+											<AgentThroughputChart
+												data={data}
+												timeRange={timeRange}
+												theme={theme}
+												colorBlindMode={colorBlindMode}
 											/>
 										</ChartErrorBoundary>
 									</div>

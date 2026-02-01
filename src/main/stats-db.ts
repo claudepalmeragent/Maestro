@@ -1410,10 +1410,14 @@ export class StatsDB {
 		const totals = totalsStmt.get(startTime) as { count: number; total_duration: number };
 		perfMetrics.end(totalsStart, 'getAggregatedStats:totals', { range });
 
-		// By agent type
+		// By agent type (includes token metrics for throughput statistics)
 		const byAgentStart = perfMetrics.start();
 		const byAgentStmt = this.db.prepare(`
-      SELECT agent_type, COUNT(*) as count, SUM(duration) as duration
+      SELECT agent_type,
+             COUNT(*) as count,
+             SUM(duration) as duration,
+             COALESCE(SUM(output_tokens), 0) as total_output_tokens,
+             COALESCE(AVG(CASE WHEN output_tokens IS NOT NULL THEN tokens_per_second END), 0) as avg_tokens_per_second
       FROM query_events
       WHERE start_time >= ?
       GROUP BY agent_type
@@ -1422,10 +1426,20 @@ export class StatsDB {
 			agent_type: string;
 			count: number;
 			duration: number;
+			total_output_tokens: number;
+			avg_tokens_per_second: number;
 		}>;
-		const byAgent: Record<string, { count: number; duration: number }> = {};
+		const byAgent: Record<
+			string,
+			{ count: number; duration: number; totalOutputTokens: number; avgTokensPerSecond: number }
+		> = {};
 		for (const row of byAgentRows) {
-			byAgent[row.agent_type] = { count: row.count, duration: row.duration };
+			byAgent[row.agent_type] = {
+				count: row.count,
+				duration: row.duration,
+				totalOutputTokens: row.total_output_tokens,
+				avgTokensPerSecond: Math.round(row.avg_tokens_per_second * 10) / 10,
+			};
 		}
 		perfMetrics.end(byAgentStart, 'getAggregatedStats:byAgent', {
 			range,
@@ -1495,13 +1509,15 @@ export class StatsDB {
 		}>;
 		perfMetrics.end(byDayStart, 'getAggregatedStats:byDay', { range, dayCount: byDayRows.length });
 
-		// By agent by day (for provider usage chart)
+		// By agent by day (for provider usage chart and throughput trends)
 		const byAgentByDayStart = perfMetrics.start();
 		const byAgentByDayStmt = this.db.prepare(`
       SELECT agent_type,
              date(start_time / 1000, 'unixepoch', 'localtime') as date,
              COUNT(*) as count,
-             SUM(duration) as duration
+             SUM(duration) as duration,
+             COALESCE(SUM(output_tokens), 0) as output_tokens,
+             COALESCE(AVG(CASE WHEN output_tokens IS NOT NULL THEN tokens_per_second END), 0) as avg_tokens_per_second
       FROM query_events
       WHERE start_time >= ?
       GROUP BY agent_type, date(start_time / 1000, 'unixepoch', 'localtime')
@@ -1512,11 +1528,13 @@ export class StatsDB {
 			date: string;
 			count: number;
 			duration: number;
+			output_tokens: number;
+			avg_tokens_per_second: number;
 		}>;
 		// Group by agent type
 		const byAgentByDay: Record<
 			string,
-			Array<{ date: string; count: number; duration: number }>
+			Array<{ date: string; count: number; duration: number; outputTokens: number; avgTokensPerSecond: number }>
 		> = {};
 		for (const row of byAgentByDayRows) {
 			if (!byAgentByDay[row.agent_type]) {
@@ -1526,6 +1544,8 @@ export class StatsDB {
 				date: row.date,
 				count: row.count,
 				duration: row.duration,
+				outputTokens: row.output_tokens,
+				avgTokensPerSecond: Math.round(row.avg_tokens_per_second * 10) / 10,
 			});
 		}
 		perfMetrics.end(byAgentByDayStart, 'getAggregatedStats:byAgentByDay', { range });
