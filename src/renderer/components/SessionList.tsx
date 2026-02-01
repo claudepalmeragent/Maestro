@@ -2088,7 +2088,11 @@ function SessionListInner(props: SessionListProps) {
 		folderSessions: Session[]
 	) => {
 		const folderBookmarked = folderSessions.filter((s) => s.bookmarked);
-		const folderUngrouped = folderSessions.filter((s) => !s.groupId);
+		// Include sessions with no groupId OR sessions whose groupId is not in this folder's groups
+		const folderGroupIds = new Set(folderGroups.map((g) => g.id));
+		const folderUngrouped = folderSessions.filter(
+			(s) => !s.groupId || !folderGroupIds.has(s.groupId)
+		);
 		const folderGroupedMap = new Map<string, Session[]>();
 		folderSessions.forEach((s) => {
 			if (s.groupId) {
@@ -2173,7 +2177,7 @@ function SessionListInner(props: SessionListProps) {
 				})}
 
 				{/* Ungrouped sessions in this folder */}
-				{folderUngrouped.length > 0 && folderGroups.length > 0 && (
+				{folderUngrouped.length > 0 && (
 					<div className="mb-1 ml-2">
 						<div
 							className="px-3 py-1 flex items-center gap-2 text-xs font-bold uppercase tracking-wider"
@@ -2192,17 +2196,6 @@ function SessionListInner(props: SessionListProps) {
 								})
 							)}
 						</div>
-					</div>
-				)}
-
-				{/* If no groups, show sessions directly */}
-				{folderSessions.length > 0 && folderGroups.length === 0 && (
-					<div className="flex flex-col ml-2">
-						{sortedFolderUngrouped.map((session) =>
-							renderSessionWithWorktrees(session, 'flat', {
-								keyPrefix: `folder-${folderId}-flat`,
-							})
-						)}
 					</div>
 				)}
 
