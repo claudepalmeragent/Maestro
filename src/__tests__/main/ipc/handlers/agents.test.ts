@@ -10,7 +10,7 @@ import {
 	registerAgentsHandlers,
 	AgentsHandlerDependencies,
 } from '../../../../main/ipc/handlers/agents';
-import * as agentCapabilities from '../../../../main/agent-capabilities';
+import * as agentCapabilities from '../../../../main/agents';
 
 // Mock electron's ipcMain
 vi.mock('electron', () => ({
@@ -20,8 +20,8 @@ vi.mock('electron', () => ({
 	},
 }));
 
-// Mock agent-capabilities module
-vi.mock('../../../../main/agent-capabilities', () => ({
+// Mock agents module (capabilities exports)
+vi.mock('../../../../main/agents', () => ({
 	getAgentCapabilities: vi.fn(),
 	DEFAULT_CAPABILITIES: {
 		supportsResume: false,

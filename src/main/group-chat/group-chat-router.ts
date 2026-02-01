@@ -26,7 +26,7 @@ import {
 	getModeratorSynthesisPrompt,
 } from './group-chat-moderator';
 import { addParticipant } from './group-chat-agent';
-import { AgentDetector } from '../agent-detector';
+import { AgentDetector } from '../agents';
 import { powerManager } from '../power-manager';
 import {
 	buildAgentArgs,

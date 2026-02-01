@@ -15,7 +15,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { logger } from './logger';
 import { buildAgentArgs } from './agent-args';
-import type { AgentDetector } from '../agent-detector';
+import type { AgentDetector } from '../agents';
 
 const LOG_CONTEXT = '[ContextGroomer]';
 

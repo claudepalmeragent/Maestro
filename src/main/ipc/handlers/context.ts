@@ -20,10 +20,10 @@ import {
 	requireDependency,
 	CreateHandlerOptions,
 } from '../../utils/ipcHandler';
-import { getSessionStorage, type SessionMessagesResult } from '../../agent-session-storage';
+import { getSessionStorage, type SessionMessagesResult } from '../../agents';
 import { groomContext, cancelAllGroomingSessions } from '../../utils/context-groomer';
 import type { ProcessManager } from '../../process-manager';
-import type { AgentDetector } from '../../agent-detector';
+import type { AgentDetector } from '../../agents';
 
 const LOG_CONTEXT = '[ContextMerge]';
 

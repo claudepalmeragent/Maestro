@@ -1,7 +1,7 @@
 /**
  * Type definitions for the stats tracking system
  *
- * These types are shared between main process (stats-db.ts) and renderer (dashboard).
+ * These types are shared between main process (stats/) and renderer (dashboard).
  */
 
 /**
@@ -84,7 +84,10 @@ export interface StatsAggregation {
 	totalQueries: number;
 	totalDuration: number;
 	avgDuration: number;
-	byAgent: Record<string, { count: number; duration: number; totalOutputTokens: number; avgTokensPerSecond: number }>;
+	byAgent: Record<
+		string,
+		{ count: number; duration: number; totalOutputTokens: number; avgTokensPerSecond: number }
+	>;
 	bySource: { user: number; auto: number };
 	byDay: Array<{
 		date: string;
@@ -106,9 +109,27 @@ export interface StatsAggregation {
 	/** Average session duration in ms (for closed sessions) */
 	avgSessionDuration: number;
 	/** Queries and duration by provider per day (for provider comparison and throughput trends) */
-	byAgentByDay: Record<string, Array<{ date: string; count: number; duration: number; outputTokens: number; avgTokensPerSecond: number }>>;
+	byAgentByDay: Record<
+		string,
+		Array<{
+			date: string;
+			count: number;
+			duration: number;
+			outputTokens: number;
+			avgTokensPerSecond: number;
+		}>
+	>;
 	/** Queries and duration by Maestro session per day (for agent usage chart and throughput trends) */
-	bySessionByDay: Record<string, Array<{ date: string; count: number; duration: number; outputTokens: number; avgTokensPerSecond: number }>>;
+	bySessionByDay: Record<
+		string,
+		Array<{
+			date: string;
+			count: number;
+			duration: number;
+			outputTokens: number;
+			avgTokensPerSecond: number;
+		}>
+	>;
 	/** Total output tokens generated across all queries */
 	totalOutputTokens: number;
 	/** Total input tokens sent across all queries */

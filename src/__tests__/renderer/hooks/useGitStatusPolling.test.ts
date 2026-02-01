@@ -9,7 +9,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
-import { useGitStatusPolling } from '../../../renderer/hooks';
+import { useGitStatusPolling, getScaledPollInterval } from '../../../renderer/hooks';
 import type { Session } from '../../../renderer/types';
 import { gitService } from '../../../renderer/services/git';
 
@@ -107,6 +107,39 @@ describe('useGitStatusPolling', () => {
 
 		await waitFor(() => {
 			expect(gitService.getStatus).toHaveBeenCalledTimes(1);
+		});
+	});
+
+	describe('getScaledPollInterval', () => {
+		it('returns default 30s for 1-3 git sessions', () => {
+			expect(getScaledPollInterval(30000, 1)).toBe(30000);
+			expect(getScaledPollInterval(30000, 2)).toBe(30000);
+			expect(getScaledPollInterval(30000, 3)).toBe(30000);
+		});
+
+		it('returns 45s for 4-7 git sessions', () => {
+			expect(getScaledPollInterval(30000, 4)).toBe(45000);
+			expect(getScaledPollInterval(30000, 7)).toBe(45000);
+		});
+
+		it('returns 60s for 8-12 git sessions', () => {
+			expect(getScaledPollInterval(30000, 8)).toBe(60000);
+			expect(getScaledPollInterval(30000, 12)).toBe(60000);
+		});
+
+		it('returns 90s for 13+ git sessions', () => {
+			expect(getScaledPollInterval(30000, 13)).toBe(90000);
+			expect(getScaledPollInterval(30000, 50)).toBe(90000);
+		});
+
+		it('does not scale custom (non-default) poll intervals', () => {
+			// A user-configured interval of 10s should not be scaled
+			expect(getScaledPollInterval(10000, 10)).toBe(10000);
+			expect(getScaledPollInterval(60000, 20)).toBe(60000);
+		});
+
+		it('returns 30s for zero git sessions', () => {
+			expect(getScaledPollInterval(30000, 0)).toBe(30000);
 		});
 	});
 });

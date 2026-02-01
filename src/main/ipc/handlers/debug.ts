@@ -16,7 +16,7 @@ import {
 	DebugPackageOptions,
 	DebugPackageDependencies,
 } from '../../debug-package';
-import { AgentDetector } from '../../agent-detector';
+import { AgentDetector } from '../../agents';
 import { ProcessManager } from '../../process-manager';
 import { WebServer } from '../../web-server';
 

@@ -5,7 +5,7 @@ import { EventEmitter } from 'events';
 import * as path from 'path';
 import { logger } from '../../utils/logger';
 import { getOutputParser } from '../../parsers';
-import { getAgentCapabilities } from '../../agent-capabilities';
+import { getAgentCapabilities } from '../../agents';
 import type { ProcessConfig, ManagedProcess, SpawnResult } from '../types';
 import type { DataBufferManager } from '../handlers/DataBufferManager';
 import { StdoutHandler } from '../handlers/StdoutHandler';

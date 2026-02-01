@@ -5,7 +5,7 @@ import {
 	AGENT_CAPABILITIES,
 	getAgentCapabilities,
 	hasCapability,
-} from '../../main/agent-capabilities';
+} from '../../../main/agents';
 
 describe('agent-capabilities', () => {
 	describe('AgentCapabilities interface', () => {

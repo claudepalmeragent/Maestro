@@ -4,10 +4,10 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { setupDataListener } from '../data-listener';
-import type { ProcessManager } from '../../process-manager';
-import type { SafeSendFn } from '../../utils/safe-send';
-import type { ProcessListenerDependencies } from '../types';
+import { setupDataListener } from '../../../main/process-listeners/data-listener';
+import type { ProcessManager } from '../../../main/process-manager';
+import type { SafeSendFn } from '../../../main/utils/safe-send';
+import type { ProcessListenerDependencies } from '../../../main/process-listeners/types';
 
 describe('Data Listener', () => {
 	let mockProcessManager: ProcessManager;
