@@ -13,14 +13,14 @@
  */
 
 import React, { useState, useMemo, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { format, parseISO } from 'date-fns';
 import type { Theme } from '../../types';
 import type { StatsTimeRange, StatsAggregation } from '../../hooks/useStats';
 import { COLORBLIND_LINE_COLORS } from '../../constants/colorblindPalettes';
 
 // Tooltip positioning constants
-const TOOLTIP_FLIP_THRESHOLD = 80; // pixels from top of viewport to trigger flip
-const TOOLTIP_OFFSET = 8; // pixels gap between tooltip and data point
+const TOOLTIP_OFFSET = 12; // pixels gap between tooltip and cursor
 
 // Data point for the chart
 interface DataPoint {
@@ -488,48 +488,45 @@ export function DurationTrendsChart({
 					</svg>
 				)}
 
-				{/* Tooltip */}
-				{hoveredPoint && tooltipPos && (
-					<div
-						className="fixed z-50 px-3 py-2 rounded text-xs whitespace-nowrap pointer-events-none shadow-lg"
-						style={{
-							left: tooltipPos.x,
-							// Flip tooltip below data point if it would overflow viewport top
-							top:
-								tooltipPos.y < TOOLTIP_FLIP_THRESHOLD
-									? tooltipPos.y + TOOLTIP_OFFSET
-									: tooltipPos.y - TOOLTIP_OFFSET,
-							transform:
-								tooltipPos.y < TOOLTIP_FLIP_THRESHOLD
-									? 'translateX(-50%)'
-									: 'translate(-50%, -100%)',
-							backgroundColor: theme.colors.bgActivity,
-							color: theme.colors.textMain,
-							border: `1px solid ${theme.colors.border}`,
-						}}
-					>
-						<div className="font-medium mb-1">{hoveredPoint.formattedDate}</div>
-						<div style={{ color: theme.colors.textDim }}>
-							<div>
-								Avg Duration:{' '}
-								<span style={{ color: theme.colors.textMain }}>
-									{formatDuration(hoveredPoint.displayDuration)}
-								</span>
-							</div>
-							{showSmoothed && hoveredPoint.rawDuration !== hoveredPoint.smoothedDuration && (
+				{/* Tooltip - rendered via portal to avoid stacking context issues */}
+				{hoveredPoint &&
+					tooltipPos &&
+					createPortal(
+						<div
+							className="fixed z-[10000] px-3 py-2 rounded text-xs whitespace-nowrap pointer-events-none shadow-lg"
+							style={{
+								left: tooltipPos.x,
+								top: tooltipPos.y - TOOLTIP_OFFSET,
+								transform: 'translate(-50%, -100%)',
+								backgroundColor: theme.colors.bgActivity,
+								color: theme.colors.textMain,
+								border: `1px solid ${theme.colors.border}`,
+							}}
+						>
+							<div className="font-medium mb-1">{hoveredPoint.formattedDate}</div>
+							<div style={{ color: theme.colors.textDim }}>
 								<div>
-									Raw:{' '}
+									Avg Duration:{' '}
 									<span style={{ color: theme.colors.textMain }}>
-										{formatDuration(hoveredPoint.rawDuration)}
+										{formatDuration(hoveredPoint.displayDuration)}
 									</span>
 								</div>
-							)}
-							<div>
-								Queries: <span style={{ color: theme.colors.textMain }}>{hoveredPoint.count}</span>
+								{showSmoothed && hoveredPoint.rawDuration !== hoveredPoint.smoothedDuration && (
+									<div>
+										Raw:{' '}
+										<span style={{ color: theme.colors.textMain }}>
+											{formatDuration(hoveredPoint.rawDuration)}
+										</span>
+									</div>
+								)}
+								<div>
+									Queries:{' '}
+									<span style={{ color: theme.colors.textMain }}>{hoveredPoint.count}</span>
+								</div>
 							</div>
-						</div>
-					</div>
-				)}
+						</div>,
+						document.body
+					)}
 			</div>
 
 			{/* Legend */}
