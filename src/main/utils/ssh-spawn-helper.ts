@@ -132,11 +132,14 @@ export async function wrapSpawnWithSsh<
 	const remoteCommand = config.customPath || config.binaryName || config.command;
 
 	// Build the SSH command that wraps the agent execution
+	// IMPORTANT: Only use workingDirOverride if explicitly set.
+	// Don't fall back to local cwd - that path likely doesn't exist on the remote.
+	// If no workingDirOverride, let the remote start in its default home directory.
 	const sshCommand = await buildSshCommand(sshResult.config, {
 		command: remoteCommand,
 		args: sshArgs,
-		// Use working directory override from SSH config if set, otherwise use original cwd
-		cwd: config.sshRemoteConfig.workingDirOverride || config.cwd,
+		// Only set cwd if workingDirOverride is explicitly configured
+		cwd: config.sshRemoteConfig.workingDirOverride || undefined,
 		// Pass custom environment variables to the remote command
 		env: config.customEnvVars,
 	});
