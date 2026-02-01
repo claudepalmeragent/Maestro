@@ -1624,13 +1624,15 @@ export class StatsDB {
 			sessionCount: sessionTotals.count,
 		});
 
-		// By session by day (for agent usage chart - shows each Maestro session's usage over time)
+		// By session by day (for agent usage chart and throughput trends - shows each Maestro session's usage over time)
 		const bySessionByDayStart = perfMetrics.start();
 		const bySessionByDayStmt = this.db.prepare(`
       SELECT session_id,
              date(start_time / 1000, 'unixepoch', 'localtime') as date,
              COUNT(*) as count,
-             SUM(duration) as duration
+             SUM(duration) as duration,
+             COALESCE(SUM(output_tokens), 0) as output_tokens,
+             COALESCE(AVG(CASE WHEN output_tokens IS NOT NULL THEN tokens_per_second END), 0) as avg_tokens_per_second
       FROM query_events
       WHERE start_time >= ?
       GROUP BY session_id, date(start_time / 1000, 'unixepoch', 'localtime')
@@ -1641,10 +1643,12 @@ export class StatsDB {
 			date: string;
 			count: number;
 			duration: number;
+			output_tokens: number;
+			avg_tokens_per_second: number;
 		}>;
 		const bySessionByDay: Record<
 			string,
-			Array<{ date: string; count: number; duration: number }>
+			Array<{ date: string; count: number; duration: number; outputTokens: number; avgTokensPerSecond: number }>
 		> = {};
 		for (const row of bySessionByDayRows) {
 			if (!bySessionByDay[row.session_id]) {
@@ -1654,6 +1658,8 @@ export class StatsDB {
 				date: row.date,
 				count: row.count,
 				duration: row.duration,
+				outputTokens: row.output_tokens,
+				avgTokensPerSecond: Math.round(row.avg_tokens_per_second * 10) / 10,
 			});
 		}
 		perfMetrics.end(bySessionByDayStart, 'getAggregatedStats:bySessionByDay', { range });

@@ -1036,6 +1036,7 @@ export function UsageDashboardModal({
 												timeRange={timeRange}
 												theme={theme}
 												colorBlindMode={colorBlindMode}
+												sessions={sessions}
 											/>
 										</ChartErrorBoundary>
 									</div>

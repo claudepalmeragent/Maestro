@@ -1,21 +1,22 @@
 /**
  * AgentThroughputChart
  *
- * Line chart showing average throughput (tok/s) per agent type over time.
- * One line per agent type, showing how throughput varies across days.
+ * Line chart showing average throughput (tok/s) per Maestro session (agent) over time.
+ * One line per session, showing how throughput varies across days.
  *
  * Features:
- * - One line per agent type (e.g., claude-code, cursor, aider)
+ * - One line per Maestro session (named agent from left panel)
  * - Y-axis: Average throughput in tokens per second
  * - X-axis: Date (grouped by day)
+ * - Session ID to name mapping when names are available
  * - Hover tooltips with exact values
  * - Theme-aware styling with colorblind support
- * - Limits display to top 10 agents by average throughput
+ * - Limits display to top 10 sessions by average throughput
  */
 
 import React, { useState, useMemo, useCallback } from 'react';
 import { format, parseISO } from 'date-fns';
-import type { Theme } from '../../types';
+import type { Theme, Session } from '../../types';
 import type { StatsTimeRange, StatsAggregation } from '../../hooks/useStats';
 import { COLORBLIND_AGENT_PALETTE } from '../../constants/colorblindPalettes';
 
@@ -33,8 +34,8 @@ const AGENT_COLORS = [
 	'#f87171', // red
 ];
 
-// Data point for a single agent on a single day
-interface AgentDayData {
+// Data point for a single session on a single day
+interface SessionDayData {
 	date: string;
 	formattedDate: string;
 	avgTokensPerSecond: number;
@@ -51,23 +52,8 @@ interface AgentThroughputChartProps {
 	theme: Theme;
 	/** Enable colorblind-friendly colors */
 	colorBlindMode?: boolean;
-}
-
-/**
- * Format agent type display name
- */
-function formatAgentName(agentType: string): string {
-	const names: Record<string, string> = {
-		'claude-code': 'Claude Code',
-		opencode: 'OpenCode',
-		'openai-codex': 'OpenAI Codex',
-		'gemini-cli': 'Gemini CLI',
-		'qwen3-coder': 'Qwen3 Coder',
-		aider: 'Aider',
-		cursor: 'Cursor',
-		terminal: 'Terminal',
-	};
-	return names[agentType] || agentType;
+	/** Current sessions for mapping IDs to names */
+	sessions?: Session[];
 }
 
 /**
@@ -112,13 +98,41 @@ function getAgentColor(index: number, colorBlindMode: boolean): string {
 	return AGENT_COLORS[index % AGENT_COLORS.length];
 }
 
+/**
+ * Extract a display name from a session ID
+ * Session IDs are in format: "sessionId-ai-tabId" or similar
+ * Returns the session name if found, or first 8 chars of the UUID
+ */
+function getSessionDisplayName(sessionId: string, sessions?: Session[]): string {
+	// Try to find the session by ID to get its name
+	if (sessions) {
+		// Session IDs in stats may include tab suffixes like "-ai-tabId"
+		// Try to match the base session ID
+		const session = sessions.find((s) => sessionId.startsWith(s.id));
+		if (session?.name) {
+			return session.name;
+		}
+	}
+
+	// Fallback: extract the UUID part and show first 8 chars
+	// Format is typically "uuid-ai-tabId" or just "uuid"
+	const parts = sessionId.split('-');
+	if (parts.length >= 5) {
+		// UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+		// Take first segment
+		return parts[0].substring(0, 8).toUpperCase();
+	}
+	return sessionId.substring(0, 8).toUpperCase();
+}
+
 export function AgentThroughputChart({
 	data,
 	timeRange,
 	theme,
 	colorBlindMode = false,
+	sessions,
 }: AgentThroughputChartProps) {
-	const [hoveredDay, setHoveredDay] = useState<{ dayIndex: number; agent?: string } | null>(null);
+	const [hoveredDay, setHoveredDay] = useState<{ dayIndex: number; sessionId?: string } | null>(null);
 	const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(null);
 
 	// Chart dimensions
@@ -128,14 +142,14 @@ export function AgentThroughputChart({
 	const innerWidth = chartWidth - padding.left - padding.right;
 	const innerHeight = chartHeight - padding.top - padding.bottom;
 
-	// Process byAgentByDay data for the chart
-	const { agents, chartData, allDates, agentDisplayNames } = useMemo(() => {
-		const byAgentByDay = data.byAgentByDay || {};
+	// Process bySessionByDay data for the chart
+	const { sessionIds, chartData, allDates, sessionDisplayNames } = useMemo(() => {
+		const bySessionByDay = data.bySessionByDay || {};
 
-		// Calculate average throughput per agent to rank them
-		const agentTotals: Array<{ agentType: string; avgThroughput: number; totalQueries: number }> = [];
-		for (const agentType of Object.keys(byAgentByDay)) {
-			const days = byAgentByDay[agentType];
+		// Calculate average throughput per session to rank them
+		const sessionTotals: Array<{ sessionId: string; avgThroughput: number; totalQueries: number }> = [];
+		for (const sessionId of Object.keys(bySessionByDay)) {
+			const days = bySessionByDay[sessionId];
 			// Calculate weighted average throughput (by query count per day)
 			let totalWeightedThroughput = 0;
 			let totalQueries = 0;
@@ -146,36 +160,36 @@ export function AgentThroughputChart({
 				}
 			}
 			const avgThroughput = totalQueries > 0 ? totalWeightedThroughput / totalQueries : 0;
-			agentTotals.push({ agentType, avgThroughput, totalQueries });
+			sessionTotals.push({ sessionId, avgThroughput, totalQueries });
 		}
 
 		// Sort by average throughput descending and take top 10 with data
-		agentTotals.sort((a, b) => b.avgThroughput - a.avgThroughput);
-		const topAgents = agentTotals
-			.filter((a) => a.avgThroughput > 0)
+		sessionTotals.sort((a, b) => b.avgThroughput - a.avgThroughput);
+		const topSessions = sessionTotals
+			.filter((s) => s.avgThroughput > 0)
 			.slice(0, 10);
-		const agentList = topAgents.map((a) => a.agentType);
+		const sessionIdList = topSessions.map((s) => s.sessionId);
 
 		// Build display name map
 		const displayNames: Record<string, string> = {};
-		for (const agentType of agentList) {
-			displayNames[agentType] = formatAgentName(agentType);
+		for (const sessionId of sessionIdList) {
+			displayNames[sessionId] = getSessionDisplayName(sessionId, sessions);
 		}
 
-		// Collect all unique dates from selected agents
+		// Collect all unique dates from selected sessions
 		const dateSet = new Set<string>();
-		for (const agentType of agentList) {
-			for (const day of byAgentByDay[agentType]) {
+		for (const sessionId of sessionIdList) {
+			for (const day of bySessionByDay[sessionId]) {
 				dateSet.add(day.date);
 			}
 		}
 		const sortedDates = Array.from(dateSet).sort();
 
-		// Build per-agent arrays aligned to all dates
-		const agentData: Record<string, AgentDayData[]> = {};
-		for (const agentType of agentList) {
+		// Build per-session arrays aligned to all dates
+		const sessionData: Record<string, SessionDayData[]> = {};
+		for (const sessionId of sessionIdList) {
 			const dayMap = new Map<string, { avgTokensPerSecond: number; outputTokens: number; count: number }>();
-			for (const day of byAgentByDay[agentType]) {
+			for (const day of bySessionByDay[sessionId]) {
 				dayMap.set(day.date, {
 					avgTokensPerSecond: day.avgTokensPerSecond || 0,
 					outputTokens: day.outputTokens || 0,
@@ -183,7 +197,7 @@ export function AgentThroughputChart({
 				});
 			}
 
-			agentData[agentType] = sortedDates.map((date) => ({
+			sessionData[sessionId] = sortedDates.map((date) => ({
 				date,
 				formattedDate: format(parseISO(date), 'EEEE, MMM d, yyyy'),
 				avgTokensPerSecond: dayMap.get(date)?.avgTokensPerSecond || 0,
@@ -196,14 +210,14 @@ export function AgentThroughputChart({
 		interface CombinedDayData {
 			date: string;
 			formattedDate: string;
-			agents: Record<string, { avgTokensPerSecond: number; outputTokens: number; count: number }>;
+			sessions: Record<string, { avgTokensPerSecond: number; outputTokens: number; count: number }>;
 		}
 		const combinedData: CombinedDayData[] = sortedDates.map((date) => {
-			const agentsOnDay: Record<string, { avgTokensPerSecond: number; outputTokens: number; count: number }> = {};
-			for (const agentType of agentList) {
-				const dayData = agentData[agentType].find((d) => d.date === date);
+			const sessionsOnDay: Record<string, { avgTokensPerSecond: number; outputTokens: number; count: number }> = {};
+			for (const sessionId of sessionIdList) {
+				const dayData = sessionData[sessionId].find((d) => d.date === date);
 				if (dayData && dayData.avgTokensPerSecond > 0) {
-					agentsOnDay[agentType] = {
+					sessionsOnDay[sessionId] = {
 						avgTokensPerSecond: dayData.avgTokensPerSecond,
 						outputTokens: dayData.outputTokens,
 						count: dayData.count,
@@ -213,17 +227,17 @@ export function AgentThroughputChart({
 			return {
 				date,
 				formattedDate: format(parseISO(date), 'EEEE, MMM d, yyyy'),
-				agents: agentsOnDay,
+				sessions: sessionsOnDay,
 			};
 		});
 
 		return {
-			agents: agentList,
-			chartData: agentData,
+			sessionIds: sessionIdList,
+			chartData: sessionData,
 			allDates: combinedData,
-			agentDisplayNames: displayNames,
+			sessionDisplayNames: displayNames,
 		};
-	}, [data.byAgentByDay]);
+	}, [data.bySessionByDay, sessions]);
 
 	// Calculate scales
 	const { xScale, yScale, yTicks } = useMemo(() => {
@@ -235,11 +249,11 @@ export function AgentThroughputChart({
 			};
 		}
 
-		// Find max throughput across all agents
+		// Find max throughput across all sessions
 		let maxValue = 1;
-		for (const agent of agents) {
-			const agentMax = Math.max(...chartData[agent].map((d) => d.avgTokensPerSecond));
-			maxValue = Math.max(maxValue, agentMax);
+		for (const sessionId of sessionIds) {
+			const sessionMax = Math.max(...chartData[sessionId].map((d) => d.avgTokensPerSecond));
+			maxValue = Math.max(maxValue, sessionMax);
 		}
 
 		// Add 10% padding
@@ -259,23 +273,23 @@ export function AgentThroughputChart({
 		);
 
 		return { xScale: xScaleFn, yScale: yScaleFn, yTicks: yTicksArr };
-	}, [allDates, agents, chartData, chartHeight, innerWidth, innerHeight, padding]);
+	}, [allDates, sessionIds, chartData, chartHeight, innerWidth, innerHeight, padding]);
 
-	// Generate line paths for each agent
+	// Generate line paths for each session
 	const linePaths = useMemo(() => {
 		const paths: Record<string, string> = {};
-		for (const agent of agents) {
-			const agentDays = chartData[agent];
-			if (agentDays.length === 0) continue;
+		for (const sessionId of sessionIds) {
+			const sessionDays = chartData[sessionId];
+			if (sessionDays.length === 0) continue;
 
 			// Only draw lines through points with data (skip zeros)
-			const pointsWithData = agentDays
+			const pointsWithData = sessionDays
 				.map((day, idx) => ({ day, idx }))
 				.filter((p) => p.day.avgTokensPerSecond > 0);
 
 			if (pointsWithData.length === 0) continue;
 
-			paths[agent] = pointsWithData
+			paths[sessionId] = pointsWithData
 				.map((p, i) => {
 					const x = xScale(p.idx);
 					const y = yScale(p.day.avgTokensPerSecond);
@@ -284,12 +298,12 @@ export function AgentThroughputChart({
 				.join(' ');
 		}
 		return paths;
-	}, [agents, chartData, xScale, yScale]);
+	}, [sessionIds, chartData, xScale, yScale]);
 
 	// Handle mouse events
 	const handleMouseEnter = useCallback(
-		(dayIndex: number, agent: string, event: React.MouseEvent<SVGCircleElement>) => {
-			setHoveredDay({ dayIndex, agent });
+		(dayIndex: number, sessionId: string, event: React.MouseEvent<SVGCircleElement>) => {
+			setHoveredDay({ dayIndex, sessionId });
 			const rect = event.currentTarget.getBoundingClientRect();
 			setTooltipPos({
 				x: rect.left + rect.width / 2,
@@ -305,14 +319,14 @@ export function AgentThroughputChart({
 	}, []);
 
 	// Check if there's any throughput data
-	const hasThroughputData = agents.length > 0;
+	const hasThroughputData = sessionIds.length > 0;
 
 	return (
 		<div
 			className="p-4 rounded-lg"
 			style={{ backgroundColor: theme.colors.bgMain }}
 			role="figure"
-			aria-label={`Agent throughput chart showing tokens per second over time. ${agents.length} agents displayed.`}
+			aria-label={`Agent throughput chart showing tokens per second over time. ${sessionIds.length} agents displayed.`}
 		>
 			{/* Header */}
 			<div className="flex items-center justify-between mb-4">
@@ -320,7 +334,7 @@ export function AgentThroughputChart({
 					Agent Throughput Over Time
 				</h3>
 				<span className="text-xs" style={{ color: theme.colors.textDim }}>
-					tok/s by agent type
+					tok/s by agent
 				</span>
 			</div>
 
@@ -403,39 +417,39 @@ export function AgentThroughputChart({
 							);
 						})}
 
-						{/* Agent lines */}
-						{agents.map((agent, agentIdx) => (
+						{/* Session lines */}
+						{sessionIds.map((sessionId, sessionIdx) => (
 							<path
-								key={`line-${agent}`}
-								d={linePaths[agent] || ''}
+								key={`line-${sessionId}`}
+								d={linePaths[sessionId] || ''}
 								fill="none"
-								stroke={getAgentColor(agentIdx, colorBlindMode)}
+								stroke={getAgentColor(sessionIdx, colorBlindMode)}
 								strokeWidth={2}
 								strokeLinecap="round"
 								strokeLinejoin="round"
-								opacity={hoveredDay && hoveredDay.agent !== agent ? 0.3 : 1}
+								opacity={hoveredDay && hoveredDay.sessionId !== sessionId ? 0.3 : 1}
 							/>
 						))}
 
 						{/* Data points */}
-						{agents.map((agent, agentIdx) =>
-							chartData[agent].map((day, dayIdx) => {
+						{sessionIds.map((sessionId, sessionIdx) =>
+							chartData[sessionId].map((day, dayIdx) => {
 								if (day.avgTokensPerSecond === 0) return null;
 
 								const isHovered =
-									hoveredDay?.dayIndex === dayIdx && hoveredDay?.agent === agent;
+									hoveredDay?.dayIndex === dayIdx && hoveredDay?.sessionId === sessionId;
 
 								return (
 									<circle
-										key={`point-${agent}-${dayIdx}`}
+										key={`point-${sessionId}-${dayIdx}`}
 										cx={xScale(dayIdx)}
 										cy={yScale(day.avgTokensPerSecond)}
 										r={isHovered ? 6 : 4}
-										fill={getAgentColor(agentIdx, colorBlindMode)}
+										fill={getAgentColor(sessionIdx, colorBlindMode)}
 										stroke={theme.colors.bgMain}
 										strokeWidth={2}
 										style={{ cursor: 'pointer', transition: 'r 0.15s ease' }}
-										onMouseEnter={(e) => handleMouseEnter(dayIdx, agent, e)}
+										onMouseEnter={(e) => handleMouseEnter(dayIdx, sessionId, e)}
 										onMouseLeave={handleMouseLeave}
 									/>
 								);
@@ -458,22 +472,22 @@ export function AgentThroughputChart({
 						}}
 					>
 						<div className="font-medium mb-1">{allDates[hoveredDay.dayIndex].formattedDate}</div>
-						{hoveredDay.agent && chartData[hoveredDay.agent] && (
+						{hoveredDay.sessionId && chartData[hoveredDay.sessionId] && (
 							<div className="flex items-center gap-2">
 								<div
 									className="w-2 h-2 rounded-full"
 									style={{
 										backgroundColor: getAgentColor(
-											agents.indexOf(hoveredDay.agent),
+											sessionIds.indexOf(hoveredDay.sessionId),
 											colorBlindMode
 										),
 									}}
 								/>
 								<span style={{ color: theme.colors.textDim }}>
-									{agentDisplayNames[hoveredDay.agent]}:
+									{sessionDisplayNames[hoveredDay.sessionId]}:
 								</span>
 								<span className="font-medium">
-									{formatThroughput(chartData[hoveredDay.agent][hoveredDay.dayIndex].avgTokensPerSecond)}
+									{formatThroughput(chartData[hoveredDay.sessionId][hoveredDay.dayIndex].avgTokensPerSecond)}
 								</span>
 							</div>
 						)}
@@ -484,14 +498,14 @@ export function AgentThroughputChart({
 			{/* Legend */}
 			{hasThroughputData && (
 				<div className="flex flex-wrap gap-x-4 gap-y-1 mt-4 justify-center">
-					{agents.map((agent, idx) => (
-						<div key={agent} className="flex items-center gap-1.5">
+					{sessionIds.map((sessionId, idx) => (
+						<div key={sessionId} className="flex items-center gap-1.5">
 							<div
 								className="w-3 h-3 rounded-sm"
 								style={{ backgroundColor: getAgentColor(idx, colorBlindMode) }}
 							/>
 							<span className="text-xs" style={{ color: theme.colors.textDim }}>
-								{agentDisplayNames[agent]}
+								{sessionDisplayNames[sessionId]}
 							</span>
 						</div>
 					))}
