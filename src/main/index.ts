@@ -535,10 +535,12 @@ function setupIpcHandlers() {
 	setGetSessionsCallback(() => {
 		const sessions = sessionsStore.get('sessions', []);
 		return sessions.map((s: any) => {
-			// Resolve SSH remote name if session has SSH config
+			// Resolve SSH remote name and ID if session has SSH config
 			let sshRemoteName: string | undefined;
+			let sshRemoteId: string | undefined;
 			if (s.sessionSshRemoteConfig?.enabled && s.sessionSshRemoteConfig.remoteId) {
-				const sshConfig = getSshRemoteById(s.sessionSshRemoteConfig.remoteId);
+				sshRemoteId = s.sessionSshRemoteConfig.remoteId as string;
+				const sshConfig = getSshRemoteById(sshRemoteId);
 				sshRemoteName = sshConfig?.name;
 			}
 			return {
@@ -550,6 +552,7 @@ function setupIpcHandlers() {
 				customEnvVars: s.customEnvVars,
 				customModel: s.customModel,
 				sshRemoteName,
+				sshRemoteId,
 			};
 		});
 	});
