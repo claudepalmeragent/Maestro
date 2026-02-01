@@ -181,6 +181,73 @@ interface MaestroAPI {
 		getAll: () => Promise<any[]>;
 		setAll: (groups: any[]) => Promise<boolean>;
 	};
+	projectFolders: {
+		getAll: () => Promise<
+			Array<{
+				id: string;
+				name: string;
+				emoji?: string;
+				collapsed: boolean;
+				highlightColor?: string;
+				order: number;
+				createdAt: number;
+				updatedAt: number;
+			}>
+		>;
+		saveAll: (
+			folders: Array<{
+				id: string;
+				name: string;
+				emoji?: string;
+				collapsed: boolean;
+				highlightColor?: string;
+				order: number;
+				createdAt: number;
+				updatedAt: number;
+			}>
+		) => Promise<boolean>;
+		create: (folder: {
+			name: string;
+			emoji?: string;
+			collapsed: boolean;
+			highlightColor?: string;
+			order: number;
+		}) => Promise<{
+			id: string;
+			name: string;
+			emoji?: string;
+			collapsed: boolean;
+			highlightColor?: string;
+			order: number;
+			createdAt: number;
+			updatedAt: number;
+		}>;
+		update: (
+			id: string,
+			updates: {
+				name?: string;
+				emoji?: string;
+				collapsed?: boolean;
+				highlightColor?: string;
+				order?: number;
+				updatedAt?: number;
+			}
+		) => Promise<{
+			id: string;
+			name: string;
+			emoji?: string;
+			collapsed: boolean;
+			highlightColor?: string;
+			order: number;
+			createdAt: number;
+			updatedAt: number;
+		} | null>;
+		delete: (id: string) => Promise<boolean>;
+		addSession: (folderId: string, sessionId: string) => Promise<boolean>;
+		removeSession: (folderId: string, sessionId: string) => Promise<boolean>;
+		assignGroup: (folderId: string | null, groupId: string) => Promise<boolean>;
+		reorder: (orderedIds: string[]) => Promise<boolean>;
+	};
 	process: {
 		spawn: (config: ProcessConfig) => Promise<{ pid: number; success: boolean }>;
 		write: (sessionId: string, data: string) => Promise<boolean>;

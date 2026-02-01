@@ -620,6 +620,13 @@ export interface Session {
 	// SSH connection status - runtime only, not persisted
 	// Set when background SSH operations fail (e.g., git info fetch on startup)
 	sshConnectionFailed?: boolean;
+
+	/**
+	 * Project Folders this session belongs to (one-to-many relationship).
+	 * A session can belong to multiple project folders.
+	 * Empty array or undefined = appears in "Unassigned" section.
+	 */
+	projectFolderIds?: string[];
 }
 
 export interface AgentConfigOption {

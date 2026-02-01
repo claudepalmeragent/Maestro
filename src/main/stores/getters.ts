@@ -12,6 +12,7 @@ import type {
 	MaestroSettings,
 	SessionsData,
 	GroupsData,
+	ProjectFoldersData,
 	AgentConfigsData,
 	WindowState,
 	ClaudeSessionOriginsData,
@@ -56,6 +57,11 @@ export function getSessionsStore(): Store<SessionsData> {
 export function getGroupsStore(): Store<GroupsData> {
 	ensureInitialized();
 	return getStoreInstances().groupsStore!;
+}
+
+export function getProjectFoldersStore(): Store<ProjectFoldersData> {
+	ensureInitialized();
+	return getStoreInstances().projectFoldersStore!;
 }
 
 export function getAgentConfigsStore(): Store<AgentConfigsData> {

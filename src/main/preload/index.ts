@@ -46,6 +46,7 @@ import { createProcessApi } from './process';
 import { createGitApi } from './git';
 import { createFsApi } from './fs';
 import { createAgentsApi } from './agents';
+import { createProjectFoldersApi } from './projectFolders';
 
 // Expose protected methods that allow the renderer process to use
 // the ipcRenderer without exposing the entire object
@@ -172,6 +173,9 @@ contextBridge.exposeInMainWorld('maestro', {
 
 	// Leaderboard API
 	leaderboard: createLeaderboardApi(),
+
+	// Project Folders API
+	projectFolders: createProjectFoldersApi(),
 });
 
 // Re-export factory functions for external consumers (e.g., tests)
@@ -237,6 +241,8 @@ export {
 	createFsApi,
 	// Agents
 	createAgentsApi,
+	// Project Folders
+	createProjectFoldersApi,
 };
 
 // Re-export types for TypeScript consumers
@@ -405,3 +411,7 @@ export type {
 	AgentConfig,
 	AgentRefreshResult,
 } from './agents';
+export type {
+	// From projectFolders
+	ProjectFoldersApi,
+} from './projectFolders';
