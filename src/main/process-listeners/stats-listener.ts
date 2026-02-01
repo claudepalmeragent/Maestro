@@ -36,6 +36,9 @@ async function insertQueryEventWithRetry(
 				duration: queryData.duration,
 				projectPath: queryData.projectPath,
 				tabId: queryData.tabId,
+				inputTokens: queryData.inputTokens,
+				outputTokens: queryData.outputTokens,
+				tokensPerSecond: queryData.tokensPerSecond,
 			});
 			return id;
 		} catch (error) {

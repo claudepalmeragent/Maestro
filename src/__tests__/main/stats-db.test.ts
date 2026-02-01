@@ -497,13 +497,13 @@ describe('StatsDB class (mocked)', () => {
 			const db = new StatsDB();
 			db.initialize();
 
-			// Currently we have version 3 migration (v1: initial schema, v2: is_remote column, v3: session_lifecycle table)
-			expect(db.getTargetVersion()).toBe(3);
+			// Currently we have version 4 migration (v1: initial schema, v2: is_remote column, v3: session_lifecycle table, v4: token metrics)
+			expect(db.getTargetVersion()).toBe(4);
 		});
 
 		it('should return false from hasPendingMigrations() when up to date', async () => {
 			mockDb.pragma.mockImplementation((sql: string) => {
-				if (sql === 'user_version') return [{ user_version: 3 }];
+				if (sql === 'user_version') return [{ user_version: 4 }];
 				return undefined;
 			});
 
@@ -518,8 +518,8 @@ describe('StatsDB class (mocked)', () => {
 			// This test verifies the hasPendingMigrations() logic
 			// by checking current version < target version
 
-			// Simulate a database that's already at version 3 (target version)
-			let currentVersion = 3;
+			// Simulate a database that's already at version 4 (target version)
+			let currentVersion = 4;
 			mockDb.pragma.mockImplementation((sql: string) => {
 				if (sql === 'user_version') return [{ user_version: currentVersion }];
 				// Handle version updates from migration
@@ -533,9 +533,9 @@ describe('StatsDB class (mocked)', () => {
 			const db = new StatsDB();
 			db.initialize();
 
-			// At version 3, target is 3, so no pending migrations
-			expect(db.getCurrentVersion()).toBe(3);
-			expect(db.getTargetVersion()).toBe(3);
+			// At version 4, target is 4, so no pending migrations
+			expect(db.getCurrentVersion()).toBe(4);
+			expect(db.getTargetVersion()).toBe(4);
 			expect(db.hasPendingMigrations()).toBe(false);
 		});
 
@@ -3736,9 +3736,9 @@ describe('Aggregation queries return correct calculations', () => {
 			const stats = db.getAggregatedStats('week');
 
 			expect(stats.byDay).toHaveLength(3);
-			expect(stats.byDay[0]).toEqual({ date: '2024-01-01', count: 10, duration: 50000 });
-			expect(stats.byDay[1]).toEqual({ date: '2024-01-02', count: 12, duration: 60000 });
-			expect(stats.byDay[2]).toEqual({ date: '2024-01-03', count: 8, duration: 40000 });
+			expect(stats.byDay[0]).toMatchObject({ date: '2024-01-01', count: 10, duration: 50000 });
+			expect(stats.byDay[1]).toMatchObject({ date: '2024-01-02', count: 12, duration: 60000 });
+			expect(stats.byDay[2]).toMatchObject({ date: '2024-01-03', count: 8, duration: 40000 });
 		});
 
 		it('should return empty array when no daily data exists', async () => {
@@ -5589,7 +5589,7 @@ describe('File path normalization in database (forward slashes consistently)', (
 			});
 
 			// Verify that the statement was called with normalized path
-			// insertQueryEvent now has 9 parameters: id, sessionId, agentType, source, startTime, duration, projectPath, tabId, isRemote
+			// insertQueryEvent now has 12 parameters: id, sessionId, agentType, source, startTime, duration, projectPath, tabId, isRemote, inputTokens, outputTokens, tokensPerSecond
 			expect(mockStatement.run).toHaveBeenCalledWith(
 				expect.any(String), // id
 				'session-1',
@@ -5599,7 +5599,10 @@ describe('File path normalization in database (forward slashes consistently)', (
 				5000,
 				'C:/Users/TestUser/Projects/MyApp', // normalized path
 				'tab-1',
-				null // isRemote (undefined → null)
+				null, // isRemote (undefined → null)
+				null, // inputTokens (undefined → null)
+				null, // outputTokens (undefined → null)
+				null // tokensPerSecond (undefined → null)
 			);
 		});
 
@@ -5618,7 +5621,7 @@ describe('File path normalization in database (forward slashes consistently)', (
 				tabId: 'tab-1',
 			});
 
-			// insertQueryEvent now has 9 parameters including isRemote
+			// insertQueryEvent now has 12 parameters including isRemote and token metrics
 			expect(mockStatement.run).toHaveBeenCalledWith(
 				expect.any(String),
 				'session-1',
@@ -5628,7 +5631,10 @@ describe('File path normalization in database (forward slashes consistently)', (
 				5000,
 				'/Users/testuser/Projects/MyApp', // unchanged
 				'tab-1',
-				null // isRemote (undefined → null)
+				null, // isRemote (undefined → null)
+				null, // inputTokens (undefined → null)
+				null, // outputTokens (undefined → null)
+				null // tokensPerSecond (undefined → null)
 			);
 		});
 
@@ -5646,7 +5652,7 @@ describe('File path normalization in database (forward slashes consistently)', (
 				// projectPath is undefined
 			});
 
-			// insertQueryEvent now has 9 parameters including isRemote
+			// insertQueryEvent now has 12 parameters including isRemote and token metrics
 			expect(mockStatement.run).toHaveBeenCalledWith(
 				expect.any(String),
 				'session-1',
@@ -5656,7 +5662,10 @@ describe('File path normalization in database (forward slashes consistently)', (
 				5000,
 				null, // undefined becomes null
 				null, // tabId undefined → null
-				null // isRemote undefined → null
+				null, // isRemote undefined → null
+				null, // inputTokens undefined → null
+				null, // outputTokens undefined → null
+				null // tokensPerSecond undefined → null
 			);
 		});
 	});
