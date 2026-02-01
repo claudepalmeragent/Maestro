@@ -362,12 +362,29 @@ export async function routeUserMessage(
 			console.log(`[GroupChat:Debug] Agent resolved: ${agent?.command || 'null'}`);
 			console.log(`[GroupChat:Debug] Agent available: ${agent?.available ?? false}`);
 
-			if (!agent || !agent.available) {
-				console.log(`[GroupChat:Debug] ERROR: Agent not available!`);
+			// Check if SSH remote is configured for the moderator
+			const usingSshRemote =
+				chat.moderatorConfig?.sshRemoteConfig?.enabled &&
+				chat.moderatorConfig?.sshRemoteConfig?.remoteId;
+			console.log(`[GroupChat:Debug] Using SSH remote: ${!!usingSshRemote}`);
+
+			// When using SSH remote, we skip local availability check since the agent
+			// will run on the remote host. The SSH connection itself will fail if the
+			// agent isn't available there.
+			if (!usingSshRemote && (!agent || !agent.available)) {
+				console.log(`[GroupChat:Debug] ERROR: Agent not available locally!`);
 				throw new Error(`Agent '${chat.moderatorAgentId}' is not available`);
 			}
 
+			// When using SSH remote, we need the agent definition even if not locally available
+			// to get binaryName, promptArgs, etc.
+			if (!agent) {
+				console.log(`[GroupChat:Debug] ERROR: Agent definition not found!`);
+				throw new Error(`Agent '${chat.moderatorAgentId}' is not defined`);
+			}
+
 			// Use custom path from moderator config if set, otherwise use resolved path
+			// For SSH remote, the binaryName will be used instead (handled by wrapSpawnWithSsh)
 			const command = chat.moderatorConfig?.customPath || agent.path || agent.command;
 			console.log(`[GroupChat:Debug] Command to execute: ${command}`);
 
@@ -1050,15 +1067,31 @@ export async function spawnModeratorSynthesis(
 		`[GroupChat:Debug] Agent resolved: ${agent?.command || 'null'}, available: ${agent?.available ?? false}`
 	);
 
-	if (!agent || !agent.available) {
-		console.error(`[GroupChat:Debug] ERROR: Agent not available for synthesis!`);
+	// Check if SSH remote is configured for the moderator
+	const usingSshRemote =
+		chat.moderatorConfig?.sshRemoteConfig?.enabled &&
+		chat.moderatorConfig?.sshRemoteConfig?.remoteId;
+	console.log(`[GroupChat:Debug] Using SSH remote for synthesis: ${!!usingSshRemote}`);
+
+	// When using SSH remote, we skip local availability check since the agent
+	// will run on the remote host.
+	if (!usingSshRemote && (!agent || !agent.available)) {
+		console.error(`[GroupChat:Debug] ERROR: Agent not available locally for synthesis!`);
 		console.error(
 			`[GroupChatRouter] Agent '${chat.moderatorAgentId}' is not available for synthesis`
 		);
 		return;
 	}
 
+	// When using SSH remote, we still need the agent definition for binaryName, promptArgs, etc.
+	if (!agent) {
+		console.error(`[GroupChat:Debug] ERROR: Agent definition not found for synthesis!`);
+		console.error(`[GroupChatRouter] Agent '${chat.moderatorAgentId}' is not defined`);
+		return;
+	}
+
 	// Use custom path from moderator config if set
+	// For SSH remote, the binaryName will be used instead (handled by wrapSpawnWithSsh)
 	const command = chat.moderatorConfig?.customPath || agent.path || agent.command;
 	console.log(`[GroupChat:Debug] Command: ${command}`);
 
