@@ -425,6 +425,97 @@ function SessionContextMenu({
 }
 
 // ============================================================================
+// ProjectFolderContextMenu - Right-click context menu for project folder items
+// ============================================================================
+
+interface ProjectFolderContextMenuProps {
+	x: number;
+	y: number;
+	theme: Theme;
+	folder: ProjectFolder;
+	onRename: () => void;
+	onDelete: () => void;
+	onDismiss: () => void;
+}
+
+function ProjectFolderContextMenu({
+	x,
+	y,
+	theme,
+	folder,
+	onRename,
+	onDelete,
+	onDismiss,
+}: ProjectFolderContextMenuProps) {
+	const menuRef = useRef<HTMLDivElement>(null);
+
+	// Use ref to avoid re-registering listener when onDismiss changes
+	const onDismissRef = useRef(onDismiss);
+	onDismissRef.current = onDismiss;
+
+	// Close on click outside
+	useClickOutside(menuRef, onDismiss);
+
+	// Close on Escape
+	useEffect(() => {
+		const handleKeyDown = (e: KeyboardEvent) => {
+			if (e.key === 'Escape') {
+				onDismissRef.current();
+			}
+		};
+		document.addEventListener('keydown', handleKeyDown);
+		return () => document.removeEventListener('keydown', handleKeyDown);
+	}, []);
+
+	// Adjust menu position to stay within viewport
+	const adjustedPosition = {
+		left: Math.min(x, window.innerWidth - 200),
+		top: Math.min(y, window.innerHeight - 150),
+	};
+
+	return (
+		<div
+			ref={menuRef}
+			className="fixed z-50 py-1 rounded-md shadow-xl border"
+			style={{
+				left: adjustedPosition.left,
+				top: adjustedPosition.top,
+				backgroundColor: theme.colors.bgSidebar,
+				borderColor: theme.colors.border,
+				minWidth: '160px',
+			}}
+		>
+			{/* Rename */}
+			<button
+				onClick={() => {
+					onRename();
+					onDismiss();
+				}}
+				className="w-full text-left px-3 py-1.5 text-xs hover:bg-white/5 transition-colors flex items-center gap-2"
+				style={{ color: theme.colors.textMain }}
+			>
+				<Edit3 className="w-3.5 h-3.5" />
+				Rename Folder
+			</button>
+
+			{/* Delete */}
+			<div className="my-1 border-t" style={{ borderColor: theme.colors.border }} />
+			<button
+				onClick={() => {
+					onDelete();
+					onDismiss();
+				}}
+				className="w-full text-left px-3 py-1.5 text-xs hover:bg-white/5 transition-colors flex items-center gap-2"
+				style={{ color: theme.colors.error }}
+			>
+				<Trash2 className="w-3.5 h-3.5" />
+				Delete Folder
+			</button>
+		</div>
+	);
+}
+
+// ============================================================================
 // HamburgerMenuContent - Shared menu content for expanded/collapsed sidebar
 // ============================================================================
 
@@ -1157,12 +1248,18 @@ function SessionListInner(props: SessionListProps) {
 		updateFolder,
 		deleteFolder: deleteProjectFolder,
 		reorderFolders,
+		addSessionToFolder,
 	} = useProjectFoldersContext();
 
 	// Project folder editing state
 	const [editingProjectFolderId, setEditingProjectFolderId] = useState<string | null>(null);
 	const [draggingProjectFolderId, setDraggingProjectFolderId] = useState<string | null>(null);
 	const [dragOverProjectFolderId, setDragOverProjectFolderId] = useState<string | null>(null);
+	const [projectFolderContextMenu, setProjectFolderContextMenu] = useState<{
+		x: number;
+		y: number;
+		folderId: string;
+	} | null>(null);
 
 	// Live overlay state (extracted hook)
 	const {
@@ -1787,6 +1884,14 @@ function SessionListInner(props: SessionListProps) {
 			e.preventDefault();
 			setDragOverProjectFolderId(null);
 
+			// Check if we're dropping a session into this folder
+			if (draggingSessionId) {
+				// Add the session to this project folder
+				addSessionToFolder(targetFolderId, draggingSessionId);
+				return;
+			}
+
+			// Otherwise, handle folder-to-folder reordering
 			if (!draggingProjectFolderId || draggingProjectFolderId === targetFolderId) {
 				setDraggingProjectFolderId(null);
 				return;
@@ -1805,7 +1910,13 @@ function SessionListInner(props: SessionListProps) {
 
 			setDraggingProjectFolderId(null);
 		},
-		[draggingProjectFolderId, sortedProjectFolders, reorderFolders]
+		[
+			draggingProjectFolderId,
+			draggingSessionId,
+			sortedProjectFolders,
+			reorderFolders,
+			addSessionToFolder,
+		]
 	);
 
 	const handleProjectFolderDragEnd = useCallback((_e: React.DragEvent) => {
@@ -1952,9 +2063,14 @@ function SessionListInner(props: SessionListProps) {
 	);
 
 	// Helper: Handle project folder context menu
-	const handleProjectFolderContextMenu = useCallback((e: React.MouseEvent, _folderId: string) => {
+	const handleProjectFolderContextMenu = useCallback((e: React.MouseEvent, folderId: string) => {
 		e.preventDefault();
-		// TODO: Implement project folder context menu
+		e.stopPropagation();
+		setProjectFolderContextMenu({
+			x: e.clientX,
+			y: e.clientY,
+			folderId,
+		});
 	}, []);
 
 	// Render sessions that belong to a specific project folder (or unassigned)
@@ -3306,6 +3422,28 @@ function SessionListInner(props: SessionListProps) {
 					}
 				/>
 			)}
+
+			{/* Project Folder Context Menu */}
+			{projectFolderContextMenu &&
+				(() => {
+					const folder = projectFolders.find((f) => f.id === projectFolderContextMenu.folderId);
+					if (!folder) return null;
+					return (
+						<ProjectFolderContextMenu
+							x={projectFolderContextMenu.x}
+							y={projectFolderContextMenu.y}
+							theme={theme}
+							folder={folder}
+							onRename={() => {
+								setEditingProjectFolderId(folder.id);
+							}}
+							onDelete={() => {
+								deleteProjectFolder(folder.id);
+							}}
+							onDismiss={() => setProjectFolderContextMenu(null)}
+						/>
+					);
+				})()}
 		</div>
 	);
 }
