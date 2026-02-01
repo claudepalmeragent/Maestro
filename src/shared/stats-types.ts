@@ -107,8 +107,8 @@ export interface StatsAggregation {
 	avgSessionDuration: number;
 	/** Queries and duration by provider per day (for provider comparison and throughput trends) */
 	byAgentByDay: Record<string, Array<{ date: string; count: number; duration: number; outputTokens: number; avgTokensPerSecond: number }>>;
-	/** Queries and duration by Maestro session per day (for agent usage chart) */
-	bySessionByDay: Record<string, Array<{ date: string; count: number; duration: number }>>;
+	/** Queries and duration by Maestro session per day (for agent usage chart and throughput trends) */
+	bySessionByDay: Record<string, Array<{ date: string; count: number; duration: number; outputTokens: number; avgTokensPerSecond: number }>>;
 	/** Total output tokens generated across all queries */
 	totalOutputTokens: number;
 	/** Total input tokens sent across all queries */

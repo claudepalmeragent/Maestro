@@ -42,8 +42,8 @@ export interface StatsAggregation {
 	avgSessionDuration: number;
 	// Per-provider per-day breakdown for provider comparison and throughput trends
 	byAgentByDay: Record<string, Array<{ date: string; count: number; duration: number; outputTokens: number; avgTokensPerSecond: number }>>;
-	// Per-session per-day breakdown for agent usage chart
-	bySessionByDay: Record<string, Array<{ date: string; count: number; duration: number }>>;
+	// Per-session per-day breakdown for agent usage chart and throughput trends
+	bySessionByDay: Record<string, Array<{ date: string; count: number; duration: number; outputTokens: number; avgTokensPerSecond: number }>>;
 	// Token metrics for throughput statistics
 	totalOutputTokens: number;
 	totalInputTokens: number;
