@@ -13,13 +13,13 @@
  */
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { Play, CheckSquare, ListChecks, Target, Clock, Timer } from 'lucide-react';
 import type { Theme } from '../../types';
 import type { StatsTimeRange } from '../../hooks/useStats';
 
 // Tooltip positioning constants
-const TOOLTIP_FLIP_THRESHOLD = 80; // pixels from top of viewport to trigger flip
-const TOOLTIP_OFFSET = 8; // pixels gap between tooltip and data point
+const TOOLTIP_OFFSET = 12; // pixels gap between tooltip and cursor
 
 /**
  * Auto Run session data shape from the API
@@ -478,37 +478,34 @@ export function AutoRunStats({ timeRange, theme, columns = 6 }: AutoRunStatsProp
 							)}
 						</div>
 
-						{/* Tooltip */}
-						{hoveredBar && tooltipPos && (
-							<div
-								className="fixed z-50 px-3 py-2 rounded text-xs whitespace-nowrap pointer-events-none shadow-lg"
-								style={{
-									left: tooltipPos.x,
-									// Flip tooltip below data point if it would overflow viewport top
-									top:
-										tooltipPos.y < TOOLTIP_FLIP_THRESHOLD
-											? tooltipPos.y + TOOLTIP_OFFSET
-											: tooltipPos.y - TOOLTIP_OFFSET,
-									transform:
-										tooltipPos.y < TOOLTIP_FLIP_THRESHOLD
-											? 'translateX(-50%)'
-											: 'translate(-50%, -100%)',
-									backgroundColor: theme.colors.bgActivity,
-									color: theme.colors.textMain,
-									border: `1px solid ${theme.colors.border}`,
-								}}
-								data-testid="task-bar-tooltip"
-							>
-								<div className="font-medium mb-1">{formatFullDate(hoveredBar.date)}</div>
-								<div style={{ color: theme.colors.textDim }}>
-									<div>{hoveredBar.count} tasks completed</div>
-									<div>
-										{hoveredBar.successCount} successful (
-										{Math.round((hoveredBar.successCount / hoveredBar.count) * 100)}%)
+						{/* Tooltip - rendered via portal to avoid stacking context issues */}
+						{hoveredBar &&
+							tooltipPos &&
+							createPortal(
+								<div
+									className="fixed z-[10000] px-3 py-2 rounded text-xs whitespace-nowrap pointer-events-none shadow-lg"
+									style={{
+										left: tooltipPos.x,
+										top: tooltipPos.y - TOOLTIP_OFFSET,
+										transform: 'translate(-50%, -100%)',
+										backgroundColor: theme.colors.bgActivity,
+										color: theme.colors.textMain,
+										border: `1px solid ${theme.colors.border}`,
+									}}
+									data-testid="task-bar-tooltip"
+								>
+									<div className="font-medium mb-1">{formatFullDate(hoveredBar.date)}</div>
+									<div style={{ color: theme.colors.textDim }}>
+										<div>{hoveredBar.count} tasks completed</div>
+										<div>
+											{hoveredBar.successCount} successful (
+											{Math.round((hoveredBar.successCount / hoveredBar.count) * 100)}
+											%)
+										</div>
 									</div>
-								</div>
-							</div>
-						)}
+								</div>,
+								document.body
+							)}
 					</div>
 				) : (
 					<div

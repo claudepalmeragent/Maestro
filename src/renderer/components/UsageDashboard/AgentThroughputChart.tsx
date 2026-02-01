@@ -15,14 +15,14 @@
  */
 
 import React, { useState, useMemo, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { format, parseISO } from 'date-fns';
 import type { Theme, Session } from '../../types';
 import type { StatsTimeRange, StatsAggregation } from '../../hooks/useStats';
 import { COLORBLIND_AGENT_PALETTE } from '../../constants/colorblindPalettes';
 
 // Tooltip positioning constants
-const TOOLTIP_FLIP_THRESHOLD = 80; // pixels from top of viewport to trigger flip
-const TOOLTIP_OFFSET = 10; // pixels gap between tooltip and data point
+const TOOLTIP_OFFSET = 12; // pixels gap between tooltip and cursor
 
 // 10 distinct colors for agents
 const AGENT_COLORS = [
@@ -466,50 +466,47 @@ export function AgentThroughputChart({
 					</svg>
 				)}
 
-				{/* Tooltip */}
-				{hoveredDay && tooltipPos && allDates[hoveredDay.dayIndex] && (
-					<div
-						className="fixed z-50 px-3 py-2 rounded-lg shadow-lg text-xs pointer-events-none"
-						style={{
-							backgroundColor: theme.colors.bgSidebar,
-							border: `1px solid ${theme.colors.border}`,
-							color: theme.colors.textMain,
-							left: tooltipPos.x,
-							// Flip tooltip below data point if it would overflow viewport top
-							top:
-								tooltipPos.y < TOOLTIP_FLIP_THRESHOLD
-									? tooltipPos.y + TOOLTIP_OFFSET
-									: tooltipPos.y - TOOLTIP_OFFSET,
-							transform:
-								tooltipPos.y < TOOLTIP_FLIP_THRESHOLD
-									? 'translateX(-50%)'
-									: 'translate(-50%, -100%)',
-						}}
-					>
-						<div className="font-medium mb-1">{allDates[hoveredDay.dayIndex].formattedDate}</div>
-						{hoveredDay.sessionId && chartData[hoveredDay.sessionId] && (
-							<div className="flex items-center gap-2">
-								<div
-									className="w-2 h-2 rounded-full"
-									style={{
-										backgroundColor: getAgentColor(
-											sessionIds.indexOf(hoveredDay.sessionId),
-											colorBlindMode
-										),
-									}}
-								/>
-								<span style={{ color: theme.colors.textDim }}>
-									{sessionDisplayNames[hoveredDay.sessionId]}:
-								</span>
-								<span className="font-medium">
-									{formatThroughput(
-										chartData[hoveredDay.sessionId][hoveredDay.dayIndex].avgTokensPerSecond
-									)}
-								</span>
-							</div>
-						)}
-					</div>
-				)}
+				{/* Tooltip - rendered via portal to avoid stacking context issues */}
+				{hoveredDay &&
+					tooltipPos &&
+					allDates[hoveredDay.dayIndex] &&
+					createPortal(
+						<div
+							className="fixed z-[10000] px-3 py-2 rounded-lg shadow-lg text-xs pointer-events-none"
+							style={{
+								backgroundColor: theme.colors.bgSidebar,
+								border: `1px solid ${theme.colors.border}`,
+								color: theme.colors.textMain,
+								left: tooltipPos.x,
+								top: tooltipPos.y - TOOLTIP_OFFSET,
+								transform: 'translate(-50%, -100%)',
+							}}
+						>
+							<div className="font-medium mb-1">{allDates[hoveredDay.dayIndex].formattedDate}</div>
+							{hoveredDay.sessionId && chartData[hoveredDay.sessionId] && (
+								<div className="flex items-center gap-2">
+									<div
+										className="w-2 h-2 rounded-full"
+										style={{
+											backgroundColor: getAgentColor(
+												sessionIds.indexOf(hoveredDay.sessionId),
+												colorBlindMode
+											),
+										}}
+									/>
+									<span style={{ color: theme.colors.textDim }}>
+										{sessionDisplayNames[hoveredDay.sessionId]}:
+									</span>
+									<span className="font-medium">
+										{formatThroughput(
+											chartData[hoveredDay.sessionId][hoveredDay.dayIndex].avgTokensPerSecond
+										)}
+									</span>
+								</div>
+							)}
+						</div>,
+						document.body
+					)}
 			</div>
 
 			{/* Legend */}
