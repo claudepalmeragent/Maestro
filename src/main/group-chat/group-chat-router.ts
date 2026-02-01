@@ -169,9 +169,10 @@ export function extractMentions(text: string, participants: GroupChatParticipant
 	// Match @Name patterns - captures characters after @ excluding:
 	// - Whitespace and @
 	// - Common punctuation that typically follows mentions: :,;!?()[]{}'"<>
+	// - Asterisks (*) which are used for markdown bold formatting like **@agent-name**
 	// This supports names with emojis, Unicode characters, dots, hyphens, underscores, etc.
 	// Examples: @RunMaestro.ai, @my-agent, @✅-autorun-wizard, @日本語
-	const mentionPattern = /@([^\s@:,;!?()\[\]{}'"<>]+)/g;
+	const mentionPattern = /@([^\s@:,;!?()\[\]{}'"<>*]+)/g;
 	let match;
 
 	while ((match = mentionPattern.exec(text)) !== null) {
@@ -198,9 +199,10 @@ export function extractAllMentions(text: string): string[] {
 	// Match @Name patterns - captures characters after @ excluding:
 	// - Whitespace and @
 	// - Common punctuation that typically follows mentions: :,;!?()[]{}'"<>
+	// - Asterisks (*) which are used for markdown bold formatting like **@agent-name**
 	// This supports names with emojis, Unicode characters, dots, hyphens, underscores, etc.
 	// Examples: @RunMaestro.ai, @my-agent, @✅-autorun-wizard, @日本語
-	const mentionPattern = /@([^\s@:,;!?()\[\]{}'"<>]+)/g;
+	const mentionPattern = /@([^\s@:,;!?()\[\]{}'"<>*]+)/g;
 	let match;
 
 	while ((match = mentionPattern.exec(text)) !== null) {
