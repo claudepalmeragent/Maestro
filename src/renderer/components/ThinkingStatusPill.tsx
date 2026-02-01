@@ -10,6 +10,9 @@ import { GitBranch } from 'lucide-react';
 import type { Session, Theme, AITab, BatchRunState } from '../types';
 import { formatTokensCompact } from '../utils/formatters';
 
+// Estimated bytes per token for Claude responses (UTF-8 English text averages ~3.5 bytes/token)
+const BYTES_PER_TOKEN_ESTIMATE = 3.5;
+
 // Helper to get the write-mode (busy) tab from a session
 function getWriteModeTab(session: Session): AITab | undefined {
 	return session.aiTabs?.find((tab) => tab.state === 'busy');
@@ -159,6 +162,10 @@ const SessionRow = memo(
 		const tabDisplayName = getSessionDisplayName(session, namedSessions);
 		const maestroName = session.name; // The name from the left sidebar
 		const tokens = session.currentCycleTokens || 0;
+		const bytes = session.currentCycleBytes || 0;
+		// Estimate tokens from bytes when actual count isn't available
+		const estimatedTokens = bytes > 0 ? Math.floor(bytes / BYTES_PER_TOKEN_ESTIMATE) : 0;
+		const displayTokens = tokens > 0 ? tokens : estimatedTokens;
 		const busyTab = getWriteModeTab(session);
 		const thinkingStart = busyTab?.thinkingStartTime || session.thinkingStartTime;
 
@@ -187,15 +194,15 @@ const SessionRow = memo(
 					className="flex items-center gap-2 shrink-0 text-xs"
 					style={{ color: theme.colors.textDim }}
 				>
-					{tokens > 0 && thinkingStart && (
+					{displayTokens > 0 && thinkingStart && (
 						<ThroughputDisplay
-							tokens={tokens}
+							tokens={displayTokens}
 							startTime={thinkingStart}
 							textColor={theme.colors.textDim}
 							accentColor={theme.colors.accent}
 						/>
 					)}
-					{tokens > 0 && <span>{formatTokensCompact(tokens)}</span>}
+					{displayTokens > 0 && <span>{formatTokensCompact(displayTokens)}</span>}
 					{thinkingStart && (
 						<ElapsedTimeDisplay startTime={thinkingStart} textColor={theme.colors.textDim} />
 					)}
@@ -367,6 +374,13 @@ function ThinkingStatusPillInner({
 
 	// Get tokens for current thinking cycle only (not cumulative context)
 	const primaryTokens = primarySession.currentCycleTokens || 0;
+	const primaryBytes = primarySession.currentCycleBytes || 0;
+
+	// Estimate tokens from bytes when actual token count isn't available yet
+	// (Claude Code only reports token counts in the final 'result' message, not during streaming)
+	const estimatedTokens = primaryBytes > 0 ? Math.floor(primaryBytes / BYTES_PER_TOKEN_ESTIMATE) : 0;
+	const displayTokens = primaryTokens > 0 ? primaryTokens : estimatedTokens;
+	const isEstimated = primaryTokens === 0 && displayTokens > 0;
 
 	// Get display components - show more on larger screens
 	const maestroSessionName = primarySession.name;
@@ -422,22 +436,22 @@ function ThinkingStatusPillInner({
 				{/* Divider */}
 				<div className="w-px h-4 shrink-0" style={{ backgroundColor: theme.colors.border }} />
 
-				{/* Token info for this thought cycle - only show when available */}
-				{primaryTokens > 0 && (
+				{/* Token info for this thought cycle - shows estimated during streaming, actual after completion */}
+				{displayTokens > 0 && (
 					<div
 						className="flex items-center gap-1 shrink-0 text-xs"
 						style={{ color: theme.colors.textDim }}
 					>
-						<span>Tokens:</span>
+						<span>Tokens{isEstimated ? '~' : ''}:</span>
 						<span className="font-medium" style={{ color: theme.colors.textMain }}>
-							{formatTokensCompact(primaryTokens)}
+							{formatTokensCompact(displayTokens)}
 						</span>
 						{/* Real-time throughput display */}
 						{(writeModeTab?.thinkingStartTime || primarySession.thinkingStartTime) && (
 							<>
 								<span style={{ color: theme.colors.border }}>|</span>
 								<ThroughputDisplay
-									tokens={primaryTokens}
+									tokens={displayTokens}
 									startTime={writeModeTab?.thinkingStartTime || primarySession.thinkingStartTime!}
 									textColor={theme.colors.textDim}
 									accentColor={theme.colors.accent}
@@ -447,8 +461,8 @@ function ThinkingStatusPillInner({
 					</div>
 				)}
 
-				{/* Placeholder when no tokens yet */}
-				{primaryTokens === 0 && (
+				{/* Placeholder when no data yet (before first chunk arrives) */}
+				{displayTokens === 0 && (
 					<div
 						className="flex items-center gap-1 shrink-0 text-xs"
 						style={{ color: theme.colors.textDim }}
@@ -612,7 +626,8 @@ export const ThinkingStatusPill = memo(ThinkingStatusPillInner, (prevProps, next
 			prev.agentSessionId !== next.agentSessionId ||
 			prev.state !== next.state ||
 			prev.thinkingStartTime !== next.thinkingStartTime ||
-			prev.currentCycleTokens !== next.currentCycleTokens
+			prev.currentCycleTokens !== next.currentCycleTokens ||
+			prev.currentCycleBytes !== next.currentCycleBytes
 		) {
 			return false;
 		}
