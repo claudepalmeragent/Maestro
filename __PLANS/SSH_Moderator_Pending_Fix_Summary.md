@@ -132,6 +132,22 @@ return {
 
 ---
 
+## Part 3: SSH Remote Participant Message Routing Fix
+
+### Problem
+After SSH remote participants were successfully added and responded to the first message, subsequent messages from the moderator were not delivered. The participant appeared active but didn't receive follow-up @mentions.
+
+### Root Cause
+In `routeModeratorResponse()`, when spawning batch processes for mentioned participants, the code checked `agent.available` without considering SSH remote participants. This is a different code path from `addParticipant()` - it's used for routing messages to EXISTING participants.
+
+### Fix
+Updated `routeModeratorResponse()` in `group-chat-router.ts` to:
+1. Check if participant has `sshRemoteName` set
+2. Skip local availability check for SSH remote participants
+3. Wrap spawn with SSH using `wrapSpawnWithSsh()` when `sshRemoteId` is available
+
+---
+
 ## Summary of All Changes
 
 | Commit | Description |
@@ -141,4 +157,5 @@ return {
 | `2e1f0386` | Skip local availability check for SSH moderator |
 | `2adda937` | Fix cwd path for SSH remote execution |
 | `24921040` | Fix @mention matching for parenthetical session names |
-| (current) | Enable SSH remote participants in group chats |
+| `05440ab5` | Enable SSH remote participants in group chats (addParticipant) |
+| (current) | Fix SSH remote participant message routing (routeModeratorResponse) |
