@@ -158,15 +158,18 @@ export function NewGroupChatModal({
 
 	// Build moderator config from state
 	const buildModeratorConfig = useCallback((): ModeratorConfig | undefined => {
-		const hasConfig = customPath || customArgs || Object.keys(customEnvVars).length > 0;
+		const hasSshConfig = sshRemoteConfig?.enabled && sshRemoteConfig.remoteId;
+		const hasConfig =
+			customPath || customArgs || Object.keys(customEnvVars).length > 0 || hasSshConfig;
 		if (!hasConfig) return undefined;
 
 		return {
 			customPath: customPath || undefined,
 			customArgs: customArgs || undefined,
 			customEnvVars: Object.keys(customEnvVars).length > 0 ? customEnvVars : undefined,
+			sshRemoteConfig: hasSshConfig ? sshRemoteConfig : undefined,
 		};
-	}, [customPath, customArgs, customEnvVars]);
+	}, [customPath, customArgs, customEnvVars, sshRemoteConfig]);
 
 	const handleCreate = useCallback(() => {
 		if (name.trim() && selectedAgent) {
@@ -490,7 +493,8 @@ export function NewGroupChatModal({
 						</div>
 					) : sshConnectionError ? (
 						<div className="text-center py-8 text-sm" style={{ color: theme.colors.textDim }}>
-							Unable to connect to remote host. Please select a different remote or switch to Local Execution.
+							Unable to connect to remote host. Please select a different remote or switch to Local
+							Execution.
 						</div>
 					) : availableTiles.length === 0 ? (
 						<div className="text-center py-8 text-sm" style={{ color: theme.colors.textDim }}>
@@ -555,10 +559,7 @@ export function NewGroupChatModal({
 										</span>
 										{/* Remote host info */}
 										{isRemoteExecution && (
-											<span
-												className="text-[10px] mt-0.5"
-												style={{ color: theme.colors.textDim }}
-											>
+											<span className="text-[10px] mt-0.5" style={{ color: theme.colors.textDim }}>
 												on {getRemoteName(sshRemoteConfig?.remoteId ?? null)}
 											</span>
 										)}

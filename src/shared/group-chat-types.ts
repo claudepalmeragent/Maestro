@@ -64,6 +64,19 @@ export interface GroupChatParticipant {
 }
 
 /**
+ * SSH remote configuration for agents.
+ * Re-exported here to avoid circular dependencies.
+ */
+export interface AgentSshRemoteConfig {
+	/** Use SSH remote for this agent */
+	enabled: boolean;
+	/** Remote config ID to use (references SshRemoteConfig.id) */
+	remoteId: string | null;
+	/** Override working directory for this agent */
+	workingDirOverride?: string;
+}
+
+/**
  * Custom configuration for an agent (moderator)
  */
 export interface ModeratorConfig {
@@ -73,6 +86,8 @@ export interface ModeratorConfig {
 	customArgs?: string;
 	/** Custom environment variables */
 	customEnvVars?: Record<string, string>;
+	/** SSH remote configuration for running moderator on remote host */
+	sshRemoteConfig?: AgentSshRemoteConfig;
 }
 
 /**

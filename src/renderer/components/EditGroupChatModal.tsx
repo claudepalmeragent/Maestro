@@ -82,6 +82,7 @@ export function EditGroupChatModal({
 		setCustomPath(groupChat.moderatorConfig?.customPath || '');
 		setCustomArgs(groupChat.moderatorConfig?.customArgs || '');
 		setCustomEnvVars(groupChat.moderatorConfig?.customEnvVars || {});
+		setSshRemoteConfig(groupChat.moderatorConfig?.sshRemoteConfig);
 		setViewMode('grid');
 		setIsTransitioning(false);
 		setAgentConfig({});
@@ -173,15 +174,18 @@ export function EditGroupChatModal({
 
 	// Build moderator config from state
 	const buildModeratorConfig = useCallback((): ModeratorConfig | undefined => {
-		const hasConfig = customPath || customArgs || Object.keys(customEnvVars).length > 0;
+		const hasSshConfig = sshRemoteConfig?.enabled && sshRemoteConfig.remoteId;
+		const hasConfig =
+			customPath || customArgs || Object.keys(customEnvVars).length > 0 || hasSshConfig;
 		if (!hasConfig) return undefined;
 
 		return {
 			customPath: customPath || undefined,
 			customArgs: customArgs || undefined,
 			customEnvVars: Object.keys(customEnvVars).length > 0 ? customEnvVars : undefined,
+			sshRemoteConfig: hasSshConfig ? sshRemoteConfig : undefined,
 		};
-	}, [customPath, customArgs, customEnvVars]);
+	}, [customPath, customArgs, customEnvVars, sshRemoteConfig]);
 
 	const handleSave = useCallback(() => {
 		if (name.trim() && selectedAgent && groupChat) {
@@ -204,6 +208,9 @@ export function EditGroupChatModal({
 		const originalEnvVars = groupChat.moderatorConfig?.customEnvVars || {};
 		const envVarsChanged = JSON.stringify(customEnvVars) !== JSON.stringify(originalEnvVars);
 
+		const originalSshConfig = groupChat.moderatorConfig?.sshRemoteConfig;
+		const sshChanged = JSON.stringify(sshRemoteConfig) !== JSON.stringify(originalSshConfig);
+
 		// Also consider changes if user modified agent-level config (model, etc.)
 		return (
 			nameChanged ||
@@ -211,9 +218,19 @@ export function EditGroupChatModal({
 			pathChanged ||
 			argsChanged ||
 			envVarsChanged ||
+			sshChanged ||
 			configWasModified
 		);
-	}, [groupChat, name, selectedAgent, customPath, customArgs, customEnvVars, configWasModified]);
+	}, [
+		groupChat,
+		name,
+		selectedAgent,
+		customPath,
+		customArgs,
+		customEnvVars,
+		sshRemoteConfig,
+		configWasModified,
+	]);
 
 	const canSave = name.trim().length > 0 && selectedAgent !== null && hasChanges();
 
@@ -503,7 +520,8 @@ export function EditGroupChatModal({
 						</div>
 					) : sshConnectionError ? (
 						<div className="text-center py-8 text-sm" style={{ color: theme.colors.textDim }}>
-							Unable to connect to remote host. Please select a different remote or switch to Local Execution.
+							Unable to connect to remote host. Please select a different remote or switch to Local
+							Execution.
 						</div>
 					) : availableTiles.length === 0 ? (
 						<div className="text-center py-8 text-sm" style={{ color: theme.colors.textDim }}>
@@ -568,10 +586,7 @@ export function EditGroupChatModal({
 										</span>
 										{/* Remote host info */}
 										{isRemoteExecution && (
-											<span
-												className="text-[10px] mt-0.5"
-												style={{ color: theme.colors.textDim }}
-											>
+											<span className="text-[10px] mt-0.5" style={{ color: theme.colors.textDim }}>
 												on {getRemoteName(sshRemoteConfig?.remoteId ?? null)}
 											</span>
 										)}

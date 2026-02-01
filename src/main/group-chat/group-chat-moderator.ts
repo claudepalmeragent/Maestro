@@ -30,6 +30,10 @@ export interface IProcessManager {
 		contextWindow?: number;
 		promptArgs?: (prompt: string) => string[];
 		noPromptSeparator?: boolean;
+		/** SSH remote ID for tracking and error messages */
+		sshRemoteId?: string;
+		/** SSH remote host for tracking and error messages */
+		sshRemoteHost?: string;
 	}): { pid: number; success: boolean };
 
 	write(sessionId: string, data: string): boolean;
