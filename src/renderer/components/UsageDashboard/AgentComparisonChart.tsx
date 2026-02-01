@@ -17,6 +17,10 @@ import type { Theme } from '../../types';
 import type { StatsAggregation } from '../../hooks/useStats';
 import { COLORBLIND_AGENT_PALETTE } from '../../constants/colorblindPalettes';
 
+// Tooltip positioning constants
+const TOOLTIP_FLIP_THRESHOLD = 80; // pixels from top of viewport to trigger flip
+const TOOLTIP_OFFSET = 8; // pixels gap between tooltip and data point
+
 interface AgentData {
 	agent: string;
 	count: number;
