@@ -33,6 +33,9 @@ import {
 	applyAgentConfigOverrides,
 	getContextWindowValue,
 } from '../utils/agent-args';
+import { wrapSpawnWithSsh } from '../utils/ssh-spawn-helper';
+import { getSettingsStore } from '../stores/getters';
+import { isInitialized as areStoresInitialized } from '../stores/instances';
 import { groupChatParticipantRequestPrompt } from '../../prompts';
 
 // Import emitters from IPC handlers (will be populated after handlers are registered)
@@ -437,6 +440,9 @@ ${message}`;
 			console.log(`[GroupChat:Debug] CWD: ${process.env.HOME || '/tmp'}`);
 			console.log(`[GroupChat:Debug] Command: ${command}`);
 			console.log(`[GroupChat:Debug] ReadOnly: true`);
+			console.log(
+				`[GroupChat:Debug] SSH Remote Config: ${JSON.stringify(chat.moderatorConfig?.sshRemoteConfig)}`
+			);
 
 			// Spawn the moderator process in batch mode
 			try {
@@ -447,20 +453,60 @@ ${message}`;
 				// Add power block reason to prevent sleep during group chat activity
 				powerManager.addBlockReason(`groupchat:${groupChatId}`);
 
+				// Wrap the spawn configuration with SSH if SSH remote is configured
+				const effectiveCustomEnvVars =
+					configResolution.effectiveCustomEnvVars ??
+					getCustomEnvVarsCallback?.(chat.moderatorAgentId);
+
+				// Only attempt SSH wrapping if stores are initialized (may not be in tests)
+				const sshWrapResult = areStoresInitialized()
+					? await wrapSpawnWithSsh(
+							{
+								command,
+								args: finalArgs,
+								cwd: process.env.HOME || '/tmp',
+								prompt: fullPrompt,
+								customEnvVars: effectiveCustomEnvVars,
+								sshRemoteConfig: chat.moderatorConfig?.sshRemoteConfig,
+								binaryName: agent.binaryName,
+								customPath: chat.moderatorConfig?.customPath,
+								promptArgs: agent.promptArgs,
+								noPromptSeparator: agent.noPromptSeparator,
+							},
+							getSettingsStore()
+						)
+					: {
+							command,
+							args: finalArgs,
+							cwd: process.env.HOME || '/tmp',
+							usedSsh: false,
+						};
+
+				console.log(`[GroupChat:Debug] SSH wrap result: usedSsh=${sshWrapResult.usedSsh}`);
+				if (sshWrapResult.sshConfig) {
+					console.log(
+						`[GroupChat:Debug] SSH remote: ${sshWrapResult.sshConfig.name} (${sshWrapResult.sshConfig.host})`
+					);
+				}
+
 				const spawnResult = processManager.spawn({
 					sessionId,
 					toolType: chat.moderatorAgentId,
-					cwd: process.env.HOME || '/tmp',
-					command,
-					args: finalArgs,
+					cwd: sshWrapResult.cwd,
+					command: sshWrapResult.command,
+					args: sshWrapResult.args,
 					readOnlyMode: true,
-					prompt: fullPrompt,
+					// When using SSH, prompt is already in args
+					prompt: sshWrapResult.usedSsh ? undefined : fullPrompt,
 					contextWindow: getContextWindowValue(agent, agentConfigValues),
-					customEnvVars:
-						configResolution.effectiveCustomEnvVars ??
-						getCustomEnvVarsCallback?.(chat.moderatorAgentId),
-					promptArgs: agent.promptArgs,
-					noPromptSeparator: agent.noPromptSeparator,
+					// When using SSH, env vars are in the remote command
+					customEnvVars: sshWrapResult.usedSsh ? undefined : effectiveCustomEnvVars,
+					// When using SSH, promptArgs already applied
+					promptArgs: sshWrapResult.usedSsh ? undefined : agent.promptArgs,
+					noPromptSeparator: sshWrapResult.usedSsh ? undefined : agent.noPromptSeparator,
+					// SSH remote context (for error messages and tracking)
+					sshRemoteId: sshWrapResult.sshConfig?.id,
+					sshRemoteHost: sshWrapResult.sshConfig?.host,
 				});
 
 				console.log(`[GroupChat:Debug] Spawn result: ${JSON.stringify(spawnResult)}`);
@@ -1050,6 +1096,9 @@ Review the agent responses above. Either:
 	console.log(`[GroupChat:Debug] Args: ${JSON.stringify(finalArgs)}`);
 
 	console.log(`[GroupChat:Debug] Synthesis prompt length: ${synthesisPrompt.length} chars`);
+	console.log(
+		`[GroupChat:Debug] SSH Remote Config: ${JSON.stringify(chat.moderatorConfig?.sshRemoteConfig)}`
+	);
 
 	// Spawn the synthesis process
 	try {
@@ -1058,20 +1107,59 @@ Review the agent responses above. Either:
 		groupChatEmitters.emitStateChange?.(groupChatId, 'moderator-thinking');
 		console.log(`[GroupChat:Debug] Emitted state change: moderator-thinking`);
 
+		// Wrap the spawn configuration with SSH if SSH remote is configured
+		const effectiveCustomEnvVars =
+			configResolution.effectiveCustomEnvVars ?? getCustomEnvVarsCallback?.(chat.moderatorAgentId);
+
+		// Only attempt SSH wrapping if stores are initialized (may not be in tests)
+		const sshWrapResult = areStoresInitialized()
+			? await wrapSpawnWithSsh(
+					{
+						command,
+						args: finalArgs,
+						cwd: process.env.HOME || '/tmp',
+						prompt: synthesisPrompt,
+						customEnvVars: effectiveCustomEnvVars,
+						sshRemoteConfig: chat.moderatorConfig?.sshRemoteConfig,
+						binaryName: agent.binaryName,
+						customPath: chat.moderatorConfig?.customPath,
+						promptArgs: agent.promptArgs,
+						noPromptSeparator: agent.noPromptSeparator,
+					},
+					getSettingsStore()
+				)
+			: {
+					command,
+					args: finalArgs,
+					cwd: process.env.HOME || '/tmp',
+					usedSsh: false,
+				};
+
+		console.log(`[GroupChat:Debug] SSH wrap result: usedSsh=${sshWrapResult.usedSsh}`);
+		if (sshWrapResult.sshConfig) {
+			console.log(
+				`[GroupChat:Debug] SSH remote: ${sshWrapResult.sshConfig.name} (${sshWrapResult.sshConfig.host})`
+			);
+		}
+
 		const spawnResult = processManager.spawn({
 			sessionId,
 			toolType: chat.moderatorAgentId,
-			cwd: process.env.HOME || '/tmp',
-			command,
-			args: finalArgs,
+			cwd: sshWrapResult.cwd,
+			command: sshWrapResult.command,
+			args: sshWrapResult.args,
 			readOnlyMode: true,
-			prompt: synthesisPrompt,
+			// When using SSH, prompt is already in args
+			prompt: sshWrapResult.usedSsh ? undefined : synthesisPrompt,
 			contextWindow: getContextWindowValue(agent, agentConfigValues),
-			customEnvVars:
-				configResolution.effectiveCustomEnvVars ??
-				getCustomEnvVarsCallback?.(chat.moderatorAgentId),
-			promptArgs: agent.promptArgs,
-			noPromptSeparator: agent.noPromptSeparator,
+			// When using SSH, env vars are in the remote command
+			customEnvVars: sshWrapResult.usedSsh ? undefined : effectiveCustomEnvVars,
+			// When using SSH, promptArgs already applied
+			promptArgs: sshWrapResult.usedSsh ? undefined : agent.promptArgs,
+			noPromptSeparator: sshWrapResult.usedSsh ? undefined : agent.noPromptSeparator,
+			// SSH remote context
+			sshRemoteId: sshWrapResult.sshConfig?.id,
+			sshRemoteHost: sshWrapResult.sshConfig?.host,
 		});
 
 		console.log(`[GroupChat:Debug] Synthesis spawn result: ${JSON.stringify(spawnResult)}`);
