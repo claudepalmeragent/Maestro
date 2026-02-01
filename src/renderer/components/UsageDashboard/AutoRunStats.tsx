@@ -17,6 +17,10 @@ import { Play, CheckSquare, ListChecks, Target, Clock, Timer } from 'lucide-reac
 import type { Theme } from '../../types';
 import type { StatsTimeRange } from '../../hooks/useStats';
 
+// Tooltip positioning constants
+const TOOLTIP_FLIP_THRESHOLD = 80; // pixels from top of viewport to trigger flip
+const TOOLTIP_OFFSET = 8; // pixels gap between tooltip and data point
+
 /**
  * Auto Run session data shape from the API
  */
@@ -270,10 +274,10 @@ export function AutoRunStats({ timeRange, theme, columns = 6 }: AutoRunStatsProp
 			event: React.MouseEvent<HTMLDivElement>
 		) => {
 			setHoveredBar(data);
-			const rect = event.currentTarget.getBoundingClientRect();
+			// Use mouse position directly - more reliable positioning
 			setTooltipPos({
-				x: rect.left + rect.width / 2,
-				y: rect.top - 8,
+				x: event.clientX,
+				y: event.clientY,
 			});
 		},
 		[]
@@ -480,8 +484,15 @@ export function AutoRunStats({ timeRange, theme, columns = 6 }: AutoRunStatsProp
 								className="fixed z-50 px-3 py-2 rounded text-xs whitespace-nowrap pointer-events-none shadow-lg"
 								style={{
 									left: tooltipPos.x,
-									top: tooltipPos.y,
-									transform: 'translate(-50%, -100%)',
+									// Flip tooltip below data point if it would overflow viewport top
+									top:
+										tooltipPos.y < TOOLTIP_FLIP_THRESHOLD
+											? tooltipPos.y + TOOLTIP_OFFSET
+											: tooltipPos.y - TOOLTIP_OFFSET,
+									transform:
+										tooltipPos.y < TOOLTIP_FLIP_THRESHOLD
+											? 'translateX(-50%)'
+											: 'translate(-50%, -100%)',
 									backgroundColor: theme.colors.bgActivity,
 									color: theme.colors.textMain,
 									border: `1px solid ${theme.colors.border}`,

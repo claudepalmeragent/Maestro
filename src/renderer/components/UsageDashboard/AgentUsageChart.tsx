@@ -20,6 +20,10 @@ import type { Theme, Session } from '../../types';
 import type { StatsTimeRange, StatsAggregation } from '../../hooks/useStats';
 import { COLORBLIND_AGENT_PALETTE } from '../../constants/colorblindPalettes';
 
+// Tooltip positioning constants
+const TOOLTIP_FLIP_THRESHOLD = 80; // pixels from top of viewport to trigger flip
+const TOOLTIP_OFFSET = 8; // pixels gap between tooltip and data point
+
 // 10 distinct colors for agents
 const AGENT_COLORS = [
 	'#a78bfa', // violet
@@ -310,10 +314,10 @@ export function AgentUsageChart({
 	const handleMouseEnter = useCallback(
 		(dayIndex: number, agent: string, event: React.MouseEvent<SVGCircleElement>) => {
 			setHoveredDay({ dayIndex, agent });
-			const rect = event.currentTarget.getBoundingClientRect();
+			// Use mouse position directly - more reliable than getBoundingClientRect on SVG elements
 			setTooltipPos({
-				x: rect.left + rect.width / 2,
-				y: rect.top,
+				x: event.clientX,
+				y: event.clientY,
 			});
 		},
 		[]
@@ -503,8 +507,15 @@ export function AgentUsageChart({
 						className="fixed z-50 px-3 py-2 rounded text-xs whitespace-nowrap pointer-events-none shadow-lg"
 						style={{
 							left: tooltipPos.x,
-							top: tooltipPos.y - 8,
-							transform: 'translate(-50%, -100%)',
+							// Flip tooltip below data point if it would overflow viewport top
+							top:
+								tooltipPos.y < TOOLTIP_FLIP_THRESHOLD
+									? tooltipPos.y + TOOLTIP_OFFSET
+									: tooltipPos.y - TOOLTIP_OFFSET,
+							transform:
+								tooltipPos.y < TOOLTIP_FLIP_THRESHOLD
+									? 'translateX(-50%)'
+									: 'translate(-50%, -100%)',
 							backgroundColor: theme.colors.bgActivity,
 							color: theme.colors.textMain,
 							border: `1px solid ${theme.colors.border}`,
