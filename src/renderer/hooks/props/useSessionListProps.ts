@@ -106,6 +106,7 @@ export interface UseSessionListPropsDeps {
 	handleDragOver: (e: React.DragEvent) => void;
 	handleDropOnGroup: (groupId: string) => void;
 	handleDropOnUngrouped: () => void;
+	handleDropOnProjectFolder: (folderId: string, sessionId: string) => void;
 	finishRenamingGroup: (groupId: string, newName: string) => void;
 	finishRenamingSession: (sessId: string, newName: string) => void;
 	startRenamingGroup: (groupId: string) => void;
@@ -198,6 +199,7 @@ export function useSessionListProps(deps: UseSessionListPropsDeps) {
 			handleDragOver: deps.handleDragOver,
 			handleDropOnGroup: deps.handleDropOnGroup,
 			handleDropOnUngrouped: deps.handleDropOnUngrouped,
+			onDropSessionOnProjectFolder: deps.handleDropOnProjectFolder,
 			finishRenamingGroup: deps.finishRenamingGroup,
 			finishRenamingSession: deps.finishRenamingSession,
 			startRenamingGroup: deps.startRenamingGroup,

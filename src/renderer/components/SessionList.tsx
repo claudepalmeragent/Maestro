@@ -1072,6 +1072,7 @@ interface SessionListProps {
 	addNewSession: () => void;
 	onDeleteSession?: (id: string) => void;
 	onDeleteWorktreeGroup?: (groupId: string) => void;
+	onDropSessionOnProjectFolder?: (folderId: string, sessionId: string) => void; // Drop session on project folder
 
 	// Rename modal handlers (for context menu rename)
 	setRenameInstanceModalOpen: (open: boolean) => void;
@@ -1189,6 +1190,7 @@ function SessionListInner(props: SessionListProps) {
 		addNewSession,
 		onDeleteSession,
 		onDeleteWorktreeGroup,
+		onDropSessionOnProjectFolder,
 		setRenameInstanceModalOpen,
 		setRenameInstanceValue,
 		setRenameInstanceSessionId,
@@ -1886,8 +1888,13 @@ function SessionListInner(props: SessionListProps) {
 
 			// Check if we're dropping a session into this folder
 			if (draggingSessionId) {
-				// Add the session to this project folder
-				addSessionToFolder(targetFolderId, draggingSessionId);
+				// Use the prop handler if available (updates React state + persists)
+				// Fall back to context method (persists only, no React state update)
+				if (onDropSessionOnProjectFolder) {
+					onDropSessionOnProjectFolder(targetFolderId, draggingSessionId);
+				} else {
+					addSessionToFolder(targetFolderId, draggingSessionId);
+				}
 				return;
 			}
 
@@ -1916,6 +1923,7 @@ function SessionListInner(props: SessionListProps) {
 			sortedProjectFolders,
 			reorderFolders,
 			addSessionToFolder,
+			onDropSessionOnProjectFolder,
 		]
 	);
 
