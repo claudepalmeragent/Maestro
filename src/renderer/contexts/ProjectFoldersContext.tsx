@@ -17,6 +17,7 @@ import React, {
 	ReactNode,
 } from 'react';
 import type { ProjectFolder } from '../../shared/types';
+import { useSession } from './SessionContext';
 
 /**
  * Project folders context value - all folder states and operations
@@ -82,6 +83,9 @@ interface ProjectFoldersProviderProps {
  * </SessionProvider>
  */
 export function ProjectFoldersProvider({ children }: ProjectFoldersProviderProps): JSX.Element {
+	// Access session context for updating session state
+	const { setSessions } = useSession();
+
 	// Core state
 	const [projectFolders, setProjectFolders] = useState<ProjectFolder[]>([]);
 	const [projectFoldersLoaded, setProjectFoldersLoaded] = useState(false);
@@ -156,16 +160,41 @@ export function ProjectFoldersProvider({ children }: ProjectFoldersProviderProps
 	// Session Assignment Operations
 	const addSessionToFolder = useCallback(
 		async (folderId: string, sessionId: string): Promise<boolean> => {
-			return window.maestro.projectFolders.addSession(folderId, sessionId);
+			const success = await window.maestro.projectFolders.addSession(folderId, sessionId);
+			if (success) {
+				// Update React state to trigger UI re-render
+				setSessions((prev) =>
+					prev.map((s) =>
+						s.id === sessionId
+							? { ...s, projectFolderIds: [...(s.projectFolderIds || []), folderId] }
+							: s
+					)
+				);
+			}
+			return success;
 		},
-		[]
+		[setSessions]
 	);
 
 	const removeSessionFromFolder = useCallback(
 		async (folderId: string, sessionId: string): Promise<boolean> => {
-			return window.maestro.projectFolders.removeSession(folderId, sessionId);
+			const success = await window.maestro.projectFolders.removeSession(folderId, sessionId);
+			if (success) {
+				// Update React state to trigger UI re-render
+				setSessions((prev) =>
+					prev.map((s) =>
+						s.id === sessionId
+							? {
+									...s,
+									projectFolderIds: (s.projectFolderIds || []).filter((id) => id !== folderId),
+								}
+							: s
+					)
+				);
+			}
+			return success;
 		},
-		[]
+		[setSessions]
 	);
 
 	// Group Assignment Operations
