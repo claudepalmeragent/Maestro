@@ -47,6 +47,7 @@ import {
 	registerWebHandlers,
 	registerLeaderboardHandlers,
 	registerNotificationsHandlers,
+	registerProjectFoldersHandlers,
 	setupLoggerEventForwarding,
 	cleanupAllGroomingSessions,
 	getActiveGroomingSessionCount,
@@ -602,6 +603,9 @@ function setupIpcHandlers() {
 		app,
 		settingsStore: store,
 	});
+
+	// Register project folders handlers (extracted to handlers/projectFolders.ts)
+	registerProjectFoldersHandlers();
 }
 
 // Handle process output streaming (set up after initialization)
