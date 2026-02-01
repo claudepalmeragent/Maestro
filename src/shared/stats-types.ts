@@ -84,7 +84,7 @@ export interface StatsAggregation {
 	totalQueries: number;
 	totalDuration: number;
 	avgDuration: number;
-	byAgent: Record<string, { count: number; duration: number }>;
+	byAgent: Record<string, { count: number; duration: number; totalOutputTokens: number; avgTokensPerSecond: number }>;
 	bySource: { user: number; auto: number };
 	byDay: Array<{
 		date: string;
@@ -105,8 +105,8 @@ export interface StatsAggregation {
 	sessionsByDay: Array<{ date: string; count: number }>;
 	/** Average session duration in ms (for closed sessions) */
 	avgSessionDuration: number;
-	/** Queries and duration by provider per day (for provider comparison) */
-	byAgentByDay: Record<string, Array<{ date: string; count: number; duration: number }>>;
+	/** Queries and duration by provider per day (for provider comparison and throughput trends) */
+	byAgentByDay: Record<string, Array<{ date: string; count: number; duration: number; outputTokens: number; avgTokensPerSecond: number }>>;
 	/** Queries and duration by Maestro session per day (for agent usage chart) */
 	bySessionByDay: Record<string, Array<{ date: string; count: number; duration: number }>>;
 	/** Total output tokens generated across all queries */

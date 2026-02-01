@@ -5,6 +5,7 @@
  * Shows breakdown by: total count, agent type, git vs folder, remote vs local.
  *
  * Features:
+ * - Query-based metrics: TOTAL TIME, AVG DURATION, TOTAL TOKENS, AVG THROUGHPUT
  * - Summary cards showing key session metrics
  * - Breakdown by agent type with color-coded indicators
  * - Repository vs plain folder breakdown
@@ -12,9 +13,10 @@
  */
 
 import React, { useMemo } from 'react';
-import { Monitor, GitBranch, Folder, Laptop } from 'lucide-react';
+import { Monitor, GitBranch, Folder, Laptop, Clock, Timer, Hash, Zap } from 'lucide-react';
 import type { Theme, Session, ToolType } from '../../types';
 import { COLORBLIND_AGENT_PALETTE } from '../../constants/colorblindPalettes';
+import type { StatsAggregation } from '../../hooks/useStats';
 
 interface SessionStatsProps {
 	/** Array of all sessions */
@@ -23,6 +25,8 @@ interface SessionStatsProps {
 	theme: Theme;
 	/** Enable colorblind-friendly colors */
 	colorBlindMode?: boolean;
+	/** Aggregated stats data for query-based metrics */
+	data?: StatsAggregation | null;
 }
 
 interface StatCardProps {
@@ -98,7 +102,45 @@ function formatAgentName(toolType: ToolType): string {
 	return names[toolType] || toolType;
 }
 
-export function SessionStats({ sessions, theme, colorBlindMode = false }: SessionStatsProps) {
+/**
+ * Format duration in milliseconds to human-readable string
+ */
+function formatDuration(ms: number): string {
+	if (ms < 1000) return '<1s';
+	const seconds = Math.floor(ms / 1000);
+	const minutes = Math.floor(seconds / 60);
+	const hours = Math.floor(minutes / 60);
+	const days = Math.floor(hours / 24);
+
+	if (days > 0) {
+		const remainingHours = hours % 24;
+		return `${days}d ${remainingHours}h`;
+	}
+	if (hours > 0) {
+		const remainingMins = minutes % 60;
+		return `${hours}h ${remainingMins}m`;
+	}
+	if (minutes > 0) {
+		const remainingSecs = seconds % 60;
+		return `${minutes}m ${remainingSecs}s`;
+	}
+	return `${seconds}s`;
+}
+
+/**
+ * Format token count with K/M suffix
+ */
+function formatTokenCount(tokens: number): string {
+	if (tokens >= 1_000_000) {
+		return `${(tokens / 1_000_000).toFixed(1)}M`;
+	}
+	if (tokens >= 1_000) {
+		return `${(tokens / 1_000).toFixed(1)}K`;
+	}
+	return tokens.toString();
+}
+
+export function SessionStats({ sessions, theme, colorBlindMode = false, data }: SessionStatsProps) {
 	// Filter out terminal-only sessions for meaningful stats
 	const agentSessions = useMemo(
 		() => sessions.filter((s) => s.toolType !== 'terminal'),
@@ -174,6 +216,27 @@ export function SessionStats({ sessions, theme, colorBlindMode = false }: Sessio
 		[stats.byAgent, theme, colorBlindMode]
 	);
 
+	// Compute query-based metrics from byAgent data
+	const queryMetrics = useMemo(() => {
+		if (!data?.byAgent) {
+			return { totalTime: 0, avgDuration: 0, totalTokens: 0, avgThroughput: 0 };
+		}
+
+		const agents = Object.values(data.byAgent);
+		const totalTime = agents.reduce((sum, a) => sum + a.duration, 0);
+		const totalQueries = agents.reduce((sum, a) => sum + a.count, 0);
+		const avgDuration = totalQueries > 0 ? totalTime / totalQueries : 0;
+		const totalTokens = agents.reduce((sum, a) => sum + (a.totalOutputTokens || 0), 0);
+
+		// Weighted average throughput (by query count)
+		const weightedThroughput = agents.reduce((sum, a) => {
+			return sum + (a.avgTokensPerSecond || 0) * a.count;
+		}, 0);
+		const avgThroughput = totalQueries > 0 ? weightedThroughput / totalQueries : 0;
+
+		return { totalTime, avgDuration, totalTokens, avgThroughput };
+	}, [data?.byAgent]);
+
 	if (agentSessions.length === 0) {
 		return (
 			<div className="p-4 rounded-lg" style={{ backgroundColor: theme.colors.bgMain }}>
@@ -196,7 +259,37 @@ export function SessionStats({ sessions, theme, colorBlindMode = false }: Sessio
 				Agent Statistics
 			</h3>
 
-			{/* Summary Cards */}
+			{/* Query-Based Metrics Summary Cards */}
+			{data && (
+				<div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+					<StatCard
+						label="TOTAL TIME"
+						value={formatDuration(queryMetrics.totalTime)}
+						icon={<Clock className="w-4 h-4" style={{ color: theme.colors.accent }} />}
+						theme={theme}
+					/>
+					<StatCard
+						label="AVG DURATION"
+						value={formatDuration(queryMetrics.avgDuration)}
+						icon={<Timer className="w-4 h-4" style={{ color: theme.colors.accent }} />}
+						theme={theme}
+					/>
+					<StatCard
+						label="TOTAL TOKENS"
+						value={queryMetrics.totalTokens > 0 ? formatTokenCount(queryMetrics.totalTokens) : 'N/A'}
+						icon={<Hash className="w-4 h-4" style={{ color: theme.colors.accent }} />}
+						theme={theme}
+					/>
+					<StatCard
+						label="AVG THROUGHPUT"
+						value={queryMetrics.avgThroughput > 0 ? `${queryMetrics.avgThroughput.toFixed(1)} tok/s` : 'N/A'}
+						icon={<Zap className="w-4 h-4" style={{ color: theme.colors.accent }} />}
+						theme={theme}
+					/>
+				</div>
+			)}
+
+			{/* Session-Based Summary Cards */}
 			<div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
 				<StatCard
 					label="Total Agents"
