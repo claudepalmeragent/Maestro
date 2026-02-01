@@ -155,6 +155,14 @@ export class ExitHandler {
 		// Emit query-complete event for batch mode processes (for stats tracking)
 		if (isBatchMode && managedProcess.querySource) {
 			const duration = Date.now() - managedProcess.startTime;
+
+			// Compute tokens per second from lastUsageTotals (populated by StdoutHandler)
+			const durationSeconds = duration / 1000;
+			const outputTokens = managedProcess.lastUsageTotals?.outputTokens;
+			const inputTokens = managedProcess.lastUsageTotals?.inputTokens;
+			const tokensPerSecond =
+				outputTokens && durationSeconds > 0 ? outputTokens / durationSeconds : undefined;
+
 			this.emitter.emit('query-complete', sessionId, {
 				sessionId,
 				agentType: toolType,
@@ -163,11 +171,17 @@ export class ExitHandler {
 				duration,
 				projectPath: managedProcess.projectPath,
 				tabId: managedProcess.tabId,
+				inputTokens,
+				outputTokens,
+				tokensPerSecond,
 			});
 			logger.debug('[ProcessManager] Query complete event emitted', 'ProcessManager', {
 				sessionId,
 				duration,
 				source: managedProcess.querySource,
+				inputTokens,
+				outputTokens,
+				tokensPerSecond: tokensPerSecond?.toFixed(1),
 			});
 		}
 
