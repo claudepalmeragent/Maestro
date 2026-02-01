@@ -129,6 +129,13 @@ interface GroupChatListProps {
 	groupChatStates?: Map<string, GroupChatState>;
 	/** Participant states for ALL group chats (groupChatId -> Map<participantName, state>) */
 	allGroupChatParticipantStates?: Map<string, Map<string, 'idle' | 'working'>>;
+	/**
+	 * Filter group chats by project folder ID.
+	 * - undefined: Show all group chats (no filtering)
+	 * - null: Show only unassigned group chats (no projectFolderId)
+	 * - string: Show only group chats with matching projectFolderId
+	 */
+	projectFolderId?: string | null;
 }
 
 export function GroupChatList({
@@ -146,6 +153,7 @@ export function GroupChatList({
 	participantStates,
 	groupChatStates,
 	allGroupChatParticipantStates,
+	projectFolderId,
 }: GroupChatListProps): JSX.Element {
 	// Support both controlled and uncontrolled modes
 	// If isExpanded prop is provided, use it as controlled state
@@ -187,10 +195,21 @@ export function GroupChatList({
 		setContextMenu({ x: e.clientX, y: e.clientY, chatId });
 	};
 
-	// Sort group chats alphabetically by name (case-insensitive)
+	// Filter and sort group chats alphabetically by name (case-insensitive)
 	const sortedGroupChats = useMemo(() => {
-		return [...groupChats].sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
-	}, [groupChats]);
+		// Apply project folder filtering
+		let filtered = groupChats;
+		if (projectFolderId !== undefined) {
+			if (projectFolderId === null) {
+				// Show only unassigned group chats (no projectFolderId)
+				filtered = groupChats.filter((chat) => !chat.projectFolderId);
+			} else {
+				// Show only group chats with matching projectFolderId
+				filtered = groupChats.filter((chat) => chat.projectFolderId === projectFolderId);
+			}
+		}
+		return [...filtered].sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+	}, [groupChats, projectFolderId]);
 
 	return (
 		<div className="border-t mt-4" style={{ borderColor: theme.colors.border }}>

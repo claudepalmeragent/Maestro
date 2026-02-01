@@ -52,8 +52,11 @@ import { getStatusColor, getContextColor, formatActiveTime } from '../utils/them
 import { formatShortcutKeys } from '../utils/shortcutFormatter';
 import { SessionItem } from './SessionItem';
 import { GroupChatList } from './GroupChatList';
+import { ProjectFolderHeader } from './sidebar/ProjectFolderHeader';
 import { useLiveOverlay, useClickOutside } from '../hooks';
 import { useGitFileStatus } from '../contexts/GitStatusContext';
+import { useProjectFoldersContext } from '../contexts/ProjectFoldersContext';
+import type { ProjectFolder } from '../../shared/types';
 
 // ============================================================================
 // SessionContextMenu - Right-click context menu for session items
@@ -1145,6 +1148,22 @@ function SessionListInner(props: SessionListProps) {
 	const [filterModeInitialized, setFilterModeInitialized] = useState(false);
 	const [menuOpen, setMenuOpen] = useState(false);
 
+	// Project Folders state and operations
+	const {
+		projectFolders,
+		projectFoldersLoaded,
+		getSortedFolders,
+		createFolder,
+		updateFolder,
+		deleteFolder: deleteProjectFolder,
+		reorderFolders,
+	} = useProjectFoldersContext();
+
+	// Project folder editing state
+	const [editingProjectFolderId, setEditingProjectFolderId] = useState<string | null>(null);
+	const [draggingProjectFolderId, setDraggingProjectFolderId] = useState<string | null>(null);
+	const [dragOverProjectFolderId, setDragOverProjectFolderId] = useState<string | null>(null);
+
 	// Live overlay state (extracted hook)
 	const {
 		liveOverlayOpen,
@@ -1703,6 +1722,108 @@ function SessionListInner(props: SessionListProps) {
 		[groups]
 	);
 
+	// Project folders sorted by order
+	const sortedProjectFolders = useMemo(
+		() => getSortedFolders(),
+		[getSortedFolders, projectFolders]
+	);
+
+	// Helper: Get sessions that belong to a specific project folder
+	const getSessionsForProjectFolder = useCallback(
+		(folderId: string | null): Session[] => {
+			if (folderId === null) {
+				// Unassigned sessions (no projectFolderIds or empty array)
+				return sessions.filter(
+					(s) => !s.parentSessionId && (!s.projectFolderIds || s.projectFolderIds.length === 0)
+				);
+			}
+			return sessions.filter((s) => !s.parentSessionId && s.projectFolderIds?.includes(folderId));
+		},
+		[sessions]
+	);
+
+	// Helper: Get groups that belong to a specific project folder
+	const getGroupsForProjectFolder = useCallback(
+		(folderId: string | null): Group[] => {
+			if (folderId === null) {
+				// Unassigned groups (no projectFolderId)
+				return groups.filter((g) => !g.projectFolderId);
+			}
+			return groups.filter((g) => g.projectFolderId === folderId);
+		},
+		[groups]
+	);
+
+	// Helper: Count items in a project folder
+	const getProjectFolderItemCount = useCallback(
+		(folderId: string): number => {
+			const folderSessions = getSessionsForProjectFolder(folderId);
+			const folderGroups = getGroupsForProjectFolder(folderId);
+			const folderGroupChats = groupChats.filter((gc) => gc.projectFolderId === folderId);
+			return folderSessions.length + folderGroups.length + folderGroupChats.length;
+		},
+		[getSessionsForProjectFolder, getGroupsForProjectFolder, groupChats]
+	);
+
+	// Project folder drag handlers
+	const handleProjectFolderDragStart = useCallback((e: React.DragEvent, folderId: string) => {
+		e.dataTransfer.effectAllowed = 'move';
+		e.dataTransfer.setData('text/plain', folderId);
+		setDraggingProjectFolderId(folderId);
+	}, []);
+
+	const handleProjectFolderDragOver = useCallback((e: React.DragEvent, folderId: string) => {
+		e.preventDefault();
+		e.dataTransfer.dropEffect = 'move';
+		setDragOverProjectFolderId(folderId);
+	}, []);
+
+	const handleProjectFolderDragLeave = useCallback((_e: React.DragEvent) => {
+		setDragOverProjectFolderId(null);
+	}, []);
+
+	const handleProjectFolderDrop = useCallback(
+		(e: React.DragEvent, targetFolderId: string) => {
+			e.preventDefault();
+			setDragOverProjectFolderId(null);
+
+			if (!draggingProjectFolderId || draggingProjectFolderId === targetFolderId) {
+				setDraggingProjectFolderId(null);
+				return;
+			}
+
+			// Reorder folders
+			const orderedIds = sortedProjectFolders.map((f) => f.id);
+			const dragIndex = orderedIds.indexOf(draggingProjectFolderId);
+			const dropIndex = orderedIds.indexOf(targetFolderId);
+
+			if (dragIndex !== -1 && dropIndex !== -1) {
+				orderedIds.splice(dragIndex, 1);
+				orderedIds.splice(dropIndex, 0, draggingProjectFolderId);
+				reorderFolders(orderedIds);
+			}
+
+			setDraggingProjectFolderId(null);
+		},
+		[draggingProjectFolderId, sortedProjectFolders, reorderFolders]
+	);
+
+	const handleProjectFolderDragEnd = useCallback((_e: React.DragEvent) => {
+		setDraggingProjectFolderId(null);
+		setDragOverProjectFolderId(null);
+	}, []);
+
+	// Toggle project folder collapse
+	const toggleProjectFolderCollapse = useCallback(
+		(folderId: string) => {
+			const folder = projectFolders.find((f) => f.id === folderId);
+			if (folder) {
+				updateFolder(folderId, { collapsed: !folder.collapsed });
+			}
+		},
+		[projectFolders, updateFolder]
+	);
+
 	// When filter opens, apply filter mode preferences (or defaults on first open)
 	// When filter closes, save current states as filter mode preferences and restore original states
 	useEffect(() => {
@@ -1806,6 +1927,192 @@ function SessionListInner(props: SessionListProps) {
 		// Show 1-9 for positions 0-8, and 0 for position 9 (10th session)
 		return index === 9 ? '0' : String(index + 1);
 	};
+
+	// Helper: Create a new project folder
+	const handleCreateProjectFolder = useCallback(async () => {
+		const newFolder = await createFolder({
+			name: 'New Project',
+			emoji: '📁',
+			collapsed: false,
+			order: projectFolders.length,
+		});
+		// Start editing the new folder's name
+		setEditingProjectFolderId(newFolder.id);
+	}, [createFolder, projectFolders.length]);
+
+	// Helper: Finish renaming a project folder
+	const handleFinishRenamingProjectFolder = useCallback(
+		(folderId: string, newName: string) => {
+			if (newName.trim()) {
+				updateFolder(folderId, { name: newName.trim() });
+			}
+			setEditingProjectFolderId(null);
+		},
+		[updateFolder]
+	);
+
+	// Helper: Handle project folder context menu
+	const handleProjectFolderContextMenu = useCallback((e: React.MouseEvent, _folderId: string) => {
+		e.preventDefault();
+		// TODO: Implement project folder context menu
+	}, []);
+
+	// Render sessions that belong to a specific project folder (or unassigned)
+	const renderFolderSessions = (
+		folderId: string | null,
+		folderGroups: Group[],
+		folderSessions: Session[]
+	) => {
+		const folderBookmarked = folderSessions.filter((s) => s.bookmarked);
+		const folderUngrouped = folderSessions.filter((s) => !s.groupId);
+		const folderGroupedMap = new Map<string, Session[]>();
+		folderSessions.forEach((s) => {
+			if (s.groupId) {
+				const list = folderGroupedMap.get(s.groupId);
+				if (list) list.push(s);
+				else folderGroupedMap.set(s.groupId, [s]);
+			}
+		});
+
+		const sortFn = (a: Session, b: Session) => compareSessionNames(a.name, b.name);
+		const sortedFolderBookmarked = [...folderBookmarked].sort(sortFn);
+		const sortedFolderUngrouped = [...folderUngrouped].sort(sortFn);
+		const sortedFolderGroups = [...folderGroups].sort((a, b) =>
+			compareSessionNames(a.name, b.name)
+		);
+
+		return (
+			<>
+				{/* Bookmarks in this folder */}
+				{folderBookmarked.length > 0 && (
+					<div className="mb-1 ml-2">
+						<div
+							className="px-3 py-1 flex items-center gap-2 text-xs font-bold uppercase tracking-wider"
+							style={{ color: theme.colors.accent }}
+						>
+							<Bookmark className="w-3 h-3" fill={theme.colors.accent} />
+							<span>Bookmarks</span>
+						</div>
+						<div
+							className="flex flex-col border-l ml-4"
+							style={{ borderColor: theme.colors.accent }}
+						>
+							{sortedFolderBookmarked.map((session) => {
+								const group = groups.find((g) => g.id === session.groupId);
+								return renderSessionWithWorktrees(session, 'bookmark', {
+									keyPrefix: `folder-${folderId}-bookmark`,
+									group,
+								});
+							})}
+						</div>
+					</div>
+				)}
+
+				{/* Groups in this folder */}
+				{sortedFolderGroups.map((group) => {
+					const groupSessions = folderGroupedMap.get(group.id) || [];
+					const sortedGroupSessions = [...groupSessions].sort(sortFn);
+					return (
+						<div key={group.id} className="mb-1 ml-2">
+							<div
+								className="px-3 py-1 flex items-center gap-2 cursor-pointer hover:bg-opacity-50"
+								onClick={() => toggleGroup(group.id)}
+							>
+								<div
+									className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider flex-1"
+									style={{ color: theme.colors.textDim }}
+								>
+									{group.collapsed ? (
+										<ChevronRight className="w-3 h-3" />
+									) : (
+										<ChevronDown className="w-3 h-3" />
+									)}
+									<span className="text-sm">{group.emoji}</span>
+									<span>{group.name}</span>
+								</div>
+							</div>
+							{!group.collapsed && (
+								<div
+									className="flex flex-col border-l ml-4"
+									style={{ borderColor: theme.colors.border }}
+								>
+									{sortedGroupSessions.map((session) =>
+										renderSessionWithWorktrees(session, 'group', {
+											keyPrefix: `folder-${folderId}-group-${group.id}`,
+											groupId: group.id,
+										})
+									)}
+								</div>
+							)}
+						</div>
+					);
+				})}
+
+				{/* Ungrouped sessions in this folder */}
+				{folderUngrouped.length > 0 && folderGroups.length > 0 && (
+					<div className="mb-1 ml-2">
+						<div
+							className="px-3 py-1 flex items-center gap-2 text-xs font-bold uppercase tracking-wider"
+							style={{ color: theme.colors.textDim }}
+						>
+							<Folder className="w-3 h-3" />
+							<span>Ungrouped</span>
+						</div>
+						<div
+							className="flex flex-col border-l ml-4"
+							style={{ borderColor: theme.colors.border }}
+						>
+							{sortedFolderUngrouped.map((session) =>
+								renderSessionWithWorktrees(session, 'ungrouped', {
+									keyPrefix: `folder-${folderId}-ungrouped`,
+								})
+							)}
+						</div>
+					</div>
+				)}
+
+				{/* If no groups, show sessions directly */}
+				{folderSessions.length > 0 && folderGroups.length === 0 && (
+					<div className="flex flex-col ml-2">
+						{sortedFolderUngrouped.map((session) =>
+							renderSessionWithWorktrees(session, 'flat', {
+								keyPrefix: `folder-${folderId}-flat`,
+							})
+						)}
+					</div>
+				)}
+
+				{/* Group chats in this folder */}
+				{onNewGroupChat &&
+					onOpenGroupChat &&
+					onEditGroupChat &&
+					onRenameGroupChat &&
+					onDeleteGroupChat &&
+					sessions.filter((s) => s.toolType !== 'terminal').length >= 2 && (
+						<div className="ml-2">
+							<GroupChatList
+								theme={theme}
+								groupChats={groupChats}
+								activeGroupChatId={activeGroupChatId}
+								onOpenGroupChat={onOpenGroupChat}
+								onNewGroupChat={onNewGroupChat}
+								onEditGroupChat={onEditGroupChat}
+								onRenameGroupChat={onRenameGroupChat}
+								onDeleteGroupChat={onDeleteGroupChat}
+								groupChatState={groupChatState}
+								participantStates={participantStates}
+								groupChatStates={groupChatStates}
+								allGroupChatParticipantStates={allGroupChatParticipantStates}
+								projectFolderId={folderId}
+							/>
+						</div>
+					)}
+			</>
+		);
+	};
+
+	// Determine if we should render the project folder hierarchy
+	const hasProjectFolders = sortedProjectFolders.length > 0;
 
 	return (
 		<div
@@ -2455,260 +2762,377 @@ function SessionListInner(props: SessionListProps) {
 						</div>
 					)}
 
-					{/* BOOKMARKS SECTION - only show if there are bookmarked sessions */}
-					{bookmarkedSessions.length > 0 && (
-						<div className="mb-1">
-							<div
-								className="px-3 py-1.5 flex items-center justify-between cursor-pointer hover:bg-opacity-50 group"
-								onClick={() => setBookmarksCollapsed(!bookmarksCollapsed)}
-							>
-								<div
-									className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider flex-1"
-									style={{ color: theme.colors.accent }}
-								>
-									{bookmarksCollapsed ? (
-										<ChevronRight className="w-3 h-3" />
-									) : (
-										<ChevronDown className="w-3 h-3" />
-									)}
-									<Bookmark className="w-3.5 h-3.5" fill={theme.colors.accent} />
-									<span>Bookmarks</span>
-								</div>
-							</div>
+					{/* Create Project Folder Button - always visible */}
+					<div className="px-3 mb-2">
+						<button
+							onClick={handleCreateProjectFolder}
+							className="w-full px-3 py-1.5 rounded text-xs font-medium hover:opacity-80 transition-opacity flex items-center justify-center gap-2"
+							style={{
+								backgroundColor: theme.colors.bgActivity,
+								color: theme.colors.textDim,
+								border: `1px dashed ${theme.colors.border}`,
+							}}
+							title="Create a new project folder to organize your agents"
+						>
+							<FolderPlus className="w-3.5 h-3.5" />
+							<span>New Project Folder</span>
+						</button>
+					</div>
 
-							{!bookmarksCollapsed ? (
-								<div
-									className="flex flex-col border-l ml-4"
-									style={{ borderColor: theme.colors.accent }}
-								>
-									{sortedBookmarkedSessions.map((session) => {
-										const group = groups.find((g) => g.id === session.groupId);
-										return renderSessionWithWorktrees(session, 'bookmark', {
-											keyPrefix: 'bookmark',
-											group,
-										});
-									})}
-								</div>
-							) : (
-								/* Collapsed Bookmarks Palette - uses subdivided pills for worktrees */
-								<div
-									className="ml-8 mr-3 mt-1 mb-2 flex gap-1 h-1.5 cursor-pointer"
-									onClick={() => setBookmarksCollapsed(false)}
-								>
-									{sortedBookmarkedParentSessions.map((s) =>
-										renderCollapsedPill(s, 'bookmark-collapsed', () => setBookmarksCollapsed(false))
-									)}
-								</div>
-							)}
-						</div>
+					{/* PROJECT FOLDERS HIERARCHY */}
+					{hasProjectFolders && (
+						<>
+							{sortedProjectFolders.map((folder) => {
+								const folderSessions = getSessionsForProjectFolder(folder.id);
+								const folderGroups = getGroupsForProjectFolder(folder.id);
+								const itemCount = getProjectFolderItemCount(folder.id);
+
+								return (
+									<div key={folder.id} className="mb-2">
+										<ProjectFolderHeader
+											folder={folder}
+											theme={theme}
+											isCollapsed={folder.collapsed}
+											isEditing={editingProjectFolderId === folder.id}
+											itemCount={itemCount}
+											isDragging={draggingProjectFolderId === folder.id}
+											isDragOver={dragOverProjectFolderId === folder.id}
+											onToggleCollapse={() => toggleProjectFolderCollapse(folder.id)}
+											onStartRename={() => setEditingProjectFolderId(folder.id)}
+											onFinishRename={(newName) =>
+												handleFinishRenamingProjectFolder(folder.id, newName)
+											}
+											onContextMenu={(e) => handleProjectFolderContextMenu(e, folder.id)}
+											onDragStart={(e) => handleProjectFolderDragStart(e, folder.id)}
+											onDragOver={(e) => handleProjectFolderDragOver(e, folder.id)}
+											onDragLeave={handleProjectFolderDragLeave}
+											onDrop={(e) => handleProjectFolderDrop(e, folder.id)}
+											onDragEnd={handleProjectFolderDragEnd}
+										/>
+
+										{/* Folder contents (when expanded) */}
+										{!folder.collapsed && (
+											<div
+												className="border-l ml-3"
+												style={{
+													borderColor: folder.highlightColor || theme.colors.border,
+													borderLeftWidth: folder.highlightColor ? '3px' : '1px',
+												}}
+											>
+												{itemCount === 0 ? (
+													<div
+														className="text-xs px-3 py-2 ml-2 italic"
+														style={{ color: theme.colors.textDim }}
+													>
+														Drag agents here to organize
+													</div>
+												) : (
+													renderFolderSessions(folder.id, folderGroups, folderSessions)
+												)}
+											</div>
+										)}
+									</div>
+								);
+							})}
+
+							{/* Unassigned section - items without project folder */}
+							{(() => {
+								const unassignedSessions = getSessionsForProjectFolder(null);
+								const unassignedGroups = getGroupsForProjectFolder(null);
+								const unassignedGroupChats = groupChats.filter((gc) => !gc.projectFolderId);
+								const hasUnassigned =
+									unassignedSessions.length > 0 ||
+									unassignedGroups.length > 0 ||
+									unassignedGroupChats.length > 0;
+
+								if (!hasUnassigned) return null;
+
+								return (
+									<div className="mb-2 mt-4">
+										<div
+											className="px-3 py-1.5 flex items-center gap-2 text-xs font-bold uppercase tracking-wider"
+											style={{ color: theme.colors.textDim }}
+										>
+											<Folder className="w-3.5 h-3.5" />
+											<span>Unassigned</span>
+										</div>
+										<div className="border-l ml-3" style={{ borderColor: theme.colors.border }}>
+											{renderFolderSessions(null, unassignedGroups, unassignedSessions)}
+										</div>
+									</div>
+								);
+							})()}
+						</>
 					)}
 
-					{/* GROUPS */}
-					{sortedGroups.map((group) => {
-						const groupSessions = sortedGroupSessionsById.get(group.id) || [];
-						return (
-							<div key={group.id} className="mb-1">
-								<div
-									className="px-3 py-1.5 flex items-center justify-between cursor-pointer hover:bg-opacity-50 group"
-									onClick={() => toggleGroup(group.id)}
-									onDragOver={handleDragOver}
-									onDrop={() => handleDropOnGroup(group.id)}
-								>
+					{/* LEGACY VIEW - when no project folders exist, show the original layout */}
+					{!hasProjectFolders && (
+						<>
+							{/* BOOKMARKS SECTION - only show if there are bookmarked sessions */}
+							{bookmarkedSessions.length > 0 && (
+								<div className="mb-1">
 									<div
-										className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider flex-1"
-										style={{ color: theme.colors.textDim }}
+										className="px-3 py-1.5 flex items-center justify-between cursor-pointer hover:bg-opacity-50 group"
+										onClick={() => setBookmarksCollapsed(!bookmarksCollapsed)}
 									>
-										{group.collapsed ? (
-											<ChevronRight className="w-3 h-3" />
-										) : (
-											<ChevronDown className="w-3 h-3" />
-										)}
-										<span className="text-sm">{group.emoji}</span>
-										{editingGroupId === group.id ? (
-											<input
-												autoFocus
-												className="bg-transparent outline-none w-full border-b border-indigo-500"
-												defaultValue={group.name}
-												onClick={(e) => e.stopPropagation()}
-												onBlur={(e) => finishRenamingGroup(group.id, e.target.value)}
-												onKeyDown={(e) => {
-													e.stopPropagation();
-													if (e.key === 'Enter')
-														finishRenamingGroup(group.id, e.currentTarget.value);
-												}}
-											/>
-										) : (
-											<span onDoubleClick={() => startRenamingGroup(group.id)}>{group.name}</span>
-										)}
+										<div
+											className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider flex-1"
+											style={{ color: theme.colors.accent }}
+										>
+											{bookmarksCollapsed ? (
+												<ChevronRight className="w-3 h-3" />
+											) : (
+												<ChevronDown className="w-3 h-3" />
+											)}
+											<Bookmark className="w-3.5 h-3.5" fill={theme.colors.accent} />
+											<span>Bookmarks</span>
+										</div>
 									</div>
-									{/* Delete button for empty groups */}
-									{groupSessions.length === 0 && (
-										<button
-											onClick={(e) => {
-												e.stopPropagation();
-												showConfirmation(
-													`Are you sure you want to delete the group "${group.name}"?`,
-													() => {
-														setGroups((prev) => prev.filter((g) => g.id !== group.id));
-													}
-												);
-											}}
-											className="p-1 rounded hover:bg-red-500/20 opacity-0 group-hover:opacity-100 transition-opacity"
-											style={{ color: theme.colors.error }}
-											title="Delete empty group"
-										>
-											<X className="w-3 h-3" />
-										</button>
-									)}
-									{/* Delete button for worktree groups with agents */}
-									{group.emoji === '🌳' && groupSessions.length > 0 && onDeleteWorktreeGroup && (
-										<button
-											onClick={(e) => {
-												e.stopPropagation();
-												onDeleteWorktreeGroup(group.id);
-											}}
-											className="p-1 rounded hover:bg-red-500/20 opacity-0 group-hover:opacity-100 transition-opacity"
-											style={{ color: theme.colors.error }}
-											title="Remove group and all agents"
-										>
-											<Trash2 className="w-3 h-3" />
-										</button>
-									)}
-								</div>
 
-								{!group.collapsed ? (
-									<div
-										className="flex flex-col border-l ml-4"
-										style={{ borderColor: theme.colors.border }}
-									>
-										{groupSessions.map((session) =>
-											renderSessionWithWorktrees(session, 'group', {
-												keyPrefix: `group-${group.id}`,
-												groupId: group.id,
-												onDrop: () => handleDropOnGroup(group.id),
-											})
-										)}
-									</div>
-								) : (
-									/* Collapsed Group Palette - uses subdivided pills for worktrees */
-									<div
-										className="ml-8 mr-3 mt-1 mb-2 flex gap-1 h-1.5 cursor-pointer"
-										onClick={() => toggleGroup(group.id)}
-									>
-										{groupSessions
-											.filter((s) => !s.parentSessionId)
-											.map((s) =>
-												renderCollapsedPill(s, `group-collapsed-${group.id}`, () =>
-													toggleGroup(group.id)
+									{!bookmarksCollapsed ? (
+										<div
+											className="flex flex-col border-l ml-4"
+											style={{ borderColor: theme.colors.accent }}
+										>
+											{sortedBookmarkedSessions.map((session) => {
+												const group = groups.find((g) => g.id === session.groupId);
+												return renderSessionWithWorktrees(session, 'bookmark', {
+													keyPrefix: 'bookmark',
+													group,
+												});
+											})}
+										</div>
+									) : (
+										/* Collapsed Bookmarks Palette - uses subdivided pills for worktrees */
+										<div
+											className="ml-8 mr-3 mt-1 mb-2 flex gap-1 h-1.5 cursor-pointer"
+											onClick={() => setBookmarksCollapsed(false)}
+										>
+											{sortedBookmarkedParentSessions.map((s) =>
+												renderCollapsedPill(s, 'bookmark-collapsed', () =>
+													setBookmarksCollapsed(false)
 												)
 											)}
-									</div>
-								)}
-							</div>
-						);
-					})}
-
-					{/* SESSIONS - Flat list when no groups exist, otherwise show Ungrouped folder */}
-					{sessions.length > 0 && groups.length === 0 ? (
-						/* FLAT LIST - No groups exist yet, show sessions directly */
-						<div className="flex flex-col">
-							{sortedFilteredSessions.map((session) =>
-								renderSessionWithWorktrees(session, 'flat', { keyPrefix: 'flat' })
-							)}
-						</div>
-					) : (
-						groups.length > 0 && (
-							/* UNGROUPED FOLDER - Groups exist, show as collapsible folder */
-							<div className="mb-1 mt-4">
-								<div
-									className="px-3 py-1.5 flex items-center justify-between cursor-pointer hover:bg-opacity-50 group"
-									onClick={() => setUngroupedCollapsed(!ungroupedCollapsed)}
-									onDragOver={handleDragOver}
-									onDrop={handleDropOnUngrouped}
-								>
-									<div
-										className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider flex-1"
-										style={{ color: theme.colors.textDim }}
-									>
-										{ungroupedCollapsed ? (
-											<ChevronRight className="w-3 h-3" />
-										) : (
-											<ChevronDown className="w-3 h-3" />
-										)}
-										<Folder className="w-3.5 h-3.5" />
-										<span>Ungrouped Agents</span>
-									</div>
-									<button
-										onClick={(e) => {
-											e.stopPropagation();
-											createNewGroup();
-										}}
-										className="px-2 py-0.5 rounded-full text-[10px] font-medium hover:opacity-80 transition-opacity flex items-center gap-1"
-										style={{
-											backgroundColor: theme.colors.accent + '20',
-											color: theme.colors.accent,
-											border: `1px solid ${theme.colors.accent}40`,
-										}}
-										title="Create new group"
-									>
-										<Plus className="w-3 h-3" />
-										<span>New Group</span>
-									</button>
+										</div>
+									)}
 								</div>
+							)}
 
-								{!ungroupedCollapsed ? (
-									<div
-										className="flex flex-col border-l ml-4"
-										style={{ borderColor: theme.colors.border }}
-									>
-										{sortedUngroupedSessions.map((session) =>
-											renderSessionWithWorktrees(session, 'ungrouped', { keyPrefix: 'ungrouped' })
+							{/* GROUPS */}
+							{sortedGroups.map((group) => {
+								const groupSessions = sortedGroupSessionsById.get(group.id) || [];
+								return (
+									<div key={group.id} className="mb-1">
+										<div
+											className="px-3 py-1.5 flex items-center justify-between cursor-pointer hover:bg-opacity-50 group"
+											onClick={() => toggleGroup(group.id)}
+											onDragOver={handleDragOver}
+											onDrop={() => handleDropOnGroup(group.id)}
+										>
+											<div
+												className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider flex-1"
+												style={{ color: theme.colors.textDim }}
+											>
+												{group.collapsed ? (
+													<ChevronRight className="w-3 h-3" />
+												) : (
+													<ChevronDown className="w-3 h-3" />
+												)}
+												<span className="text-sm">{group.emoji}</span>
+												{editingGroupId === group.id ? (
+													<input
+														autoFocus
+														className="bg-transparent outline-none w-full border-b border-indigo-500"
+														defaultValue={group.name}
+														onClick={(e) => e.stopPropagation()}
+														onBlur={(e) => finishRenamingGroup(group.id, e.target.value)}
+														onKeyDown={(e) => {
+															e.stopPropagation();
+															if (e.key === 'Enter')
+																finishRenamingGroup(group.id, e.currentTarget.value);
+														}}
+													/>
+												) : (
+													<span onDoubleClick={() => startRenamingGroup(group.id)}>
+														{group.name}
+													</span>
+												)}
+											</div>
+											{/* Delete button for empty groups */}
+											{groupSessions.length === 0 && (
+												<button
+													onClick={(e) => {
+														e.stopPropagation();
+														showConfirmation(
+															`Are you sure you want to delete the group "${group.name}"?`,
+															() => {
+																setGroups((prev) => prev.filter((g) => g.id !== group.id));
+															}
+														);
+													}}
+													className="p-1 rounded hover:bg-red-500/20 opacity-0 group-hover:opacity-100 transition-opacity"
+													style={{ color: theme.colors.error }}
+													title="Delete empty group"
+												>
+													<X className="w-3 h-3" />
+												</button>
+											)}
+											{/* Delete button for worktree groups with agents */}
+											{group.emoji === '🌳' &&
+												groupSessions.length > 0 &&
+												onDeleteWorktreeGroup && (
+													<button
+														onClick={(e) => {
+															e.stopPropagation();
+															onDeleteWorktreeGroup(group.id);
+														}}
+														className="p-1 rounded hover:bg-red-500/20 opacity-0 group-hover:opacity-100 transition-opacity"
+														style={{ color: theme.colors.error }}
+														title="Remove group and all agents"
+													>
+														<Trash2 className="w-3 h-3" />
+													</button>
+												)}
+										</div>
+
+										{!group.collapsed ? (
+											<div
+												className="flex flex-col border-l ml-4"
+												style={{ borderColor: theme.colors.border }}
+											>
+												{groupSessions.map((session) =>
+													renderSessionWithWorktrees(session, 'group', {
+														keyPrefix: `group-${group.id}`,
+														groupId: group.id,
+														onDrop: () => handleDropOnGroup(group.id),
+													})
+												)}
+											</div>
+										) : (
+											/* Collapsed Group Palette - uses subdivided pills for worktrees */
+											<div
+												className="ml-8 mr-3 mt-1 mb-2 flex gap-1 h-1.5 cursor-pointer"
+												onClick={() => toggleGroup(group.id)}
+											>
+												{groupSessions
+													.filter((s) => !s.parentSessionId)
+													.map((s) =>
+														renderCollapsedPill(s, `group-collapsed-${group.id}`, () =>
+															toggleGroup(group.id)
+														)
+													)}
+											</div>
 										)}
 									</div>
-								) : (
-									/* Collapsed Ungrouped Palette - uses subdivided pills for worktrees */
-									<div
-										className="ml-8 mr-3 mt-1 mb-2 flex gap-1 h-1.5 cursor-pointer"
-										onClick={() => setUngroupedCollapsed(false)}
-									>
-										{sortedUngroupedParentSessions.map((s) =>
-											renderCollapsedPill(s, 'ungrouped-collapsed', () =>
-												setUngroupedCollapsed(false)
-											)
+								);
+							})}
+
+							{/* SESSIONS - Flat list when no groups exist, otherwise show Ungrouped folder */}
+							{sessions.length > 0 && groups.length === 0 ? (
+								/* FLAT LIST - No groups exist yet, show sessions directly */
+								<div className="flex flex-col">
+									{sortedFilteredSessions.map((session) =>
+										renderSessionWithWorktrees(session, 'flat', { keyPrefix: 'flat' })
+									)}
+								</div>
+							) : (
+								groups.length > 0 && (
+									/* UNGROUPED FOLDER - Groups exist, show as collapsible folder */
+									<div className="mb-1 mt-4">
+										<div
+											className="px-3 py-1.5 flex items-center justify-between cursor-pointer hover:bg-opacity-50 group"
+											onClick={() => setUngroupedCollapsed(!ungroupedCollapsed)}
+											onDragOver={handleDragOver}
+											onDrop={handleDropOnUngrouped}
+										>
+											<div
+												className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider flex-1"
+												style={{ color: theme.colors.textDim }}
+											>
+												{ungroupedCollapsed ? (
+													<ChevronRight className="w-3 h-3" />
+												) : (
+													<ChevronDown className="w-3 h-3" />
+												)}
+												<Folder className="w-3.5 h-3.5" />
+												<span>Ungrouped Agents</span>
+											</div>
+											<button
+												onClick={(e) => {
+													e.stopPropagation();
+													createNewGroup();
+												}}
+												className="px-2 py-0.5 rounded-full text-[10px] font-medium hover:opacity-80 transition-opacity flex items-center gap-1"
+												style={{
+													backgroundColor: theme.colors.accent + '20',
+													color: theme.colors.accent,
+													border: `1px solid ${theme.colors.accent}40`,
+												}}
+												title="Create new group"
+											>
+												<Plus className="w-3 h-3" />
+												<span>New Group</span>
+											</button>
+										</div>
+
+										{!ungroupedCollapsed ? (
+											<div
+												className="flex flex-col border-l ml-4"
+												style={{ borderColor: theme.colors.border }}
+											>
+												{sortedUngroupedSessions.map((session) =>
+													renderSessionWithWorktrees(session, 'ungrouped', {
+														keyPrefix: 'ungrouped',
+													})
+												)}
+											</div>
+										) : (
+											/* Collapsed Ungrouped Palette - uses subdivided pills for worktrees */
+											<div
+												className="ml-8 mr-3 mt-1 mb-2 flex gap-1 h-1.5 cursor-pointer"
+												onClick={() => setUngroupedCollapsed(false)}
+											>
+												{sortedUngroupedParentSessions.map((s) =>
+													renderCollapsedPill(s, 'ungrouped-collapsed', () =>
+														setUngroupedCollapsed(false)
+													)
+												)}
+											</div>
 										)}
 									</div>
+								)
+							)}
+
+							{/* Flexible spacer to push group chats to bottom */}
+							<div className="flex-grow min-h-4" />
+
+							{/* GROUP CHATS SECTION - Only show when at least 2 AI agents exist */}
+							{onNewGroupChat &&
+								onOpenGroupChat &&
+								onEditGroupChat &&
+								onRenameGroupChat &&
+								onDeleteGroupChat &&
+								sessions.filter((s) => s.toolType !== 'terminal').length >= 2 && (
+									<GroupChatList
+										theme={theme}
+										groupChats={groupChats}
+										activeGroupChatId={activeGroupChatId}
+										onOpenGroupChat={onOpenGroupChat}
+										onNewGroupChat={onNewGroupChat}
+										onEditGroupChat={onEditGroupChat}
+										onRenameGroupChat={onRenameGroupChat}
+										onDeleteGroupChat={onDeleteGroupChat}
+										isExpanded={groupChatsExpanded}
+										onExpandedChange={onGroupChatsExpandedChange}
+										groupChatState={groupChatState}
+										participantStates={participantStates}
+										groupChatStates={groupChatStates}
+										allGroupChatParticipantStates={allGroupChatParticipantStates}
+									/>
 								)}
-							</div>
-						)
+						</>
 					)}
-
-					{/* Flexible spacer to push group chats to bottom */}
-					<div className="flex-grow min-h-4" />
-
-					{/* GROUP CHATS SECTION - Only show when at least 2 AI agents exist */}
-					{onNewGroupChat &&
-						onOpenGroupChat &&
-						onEditGroupChat &&
-						onRenameGroupChat &&
-						onDeleteGroupChat &&
-						sessions.filter((s) => s.toolType !== 'terminal').length >= 2 && (
-							<GroupChatList
-								theme={theme}
-								groupChats={groupChats}
-								activeGroupChatId={activeGroupChatId}
-								onOpenGroupChat={onOpenGroupChat}
-								onNewGroupChat={onNewGroupChat}
-								onEditGroupChat={onEditGroupChat}
-								onRenameGroupChat={onRenameGroupChat}
-								onDeleteGroupChat={onDeleteGroupChat}
-								isExpanded={groupChatsExpanded}
-								onExpandedChange={onGroupChatsExpandedChange}
-								groupChatState={groupChatState}
-								participantStates={participantStates}
-								groupChatStates={groupChatStates}
-								allGroupChatParticipantStates={allGroupChatParticipantStates}
-							/>
-						)}
+					{/* End of legacy view / project folders view */}
 				</div>
 			) : (
 				/* SIDEBAR CONTENT: SKINNY MODE */

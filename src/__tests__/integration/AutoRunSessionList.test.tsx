@@ -143,6 +143,32 @@ vi.mock('../../renderer/contexts/GitStatusContext', () => ({
 		getFileCount: () => 0,
 		getStatus: () => undefined,
 	}),
+	useGitFileStatus: () => ({
+		getFileCount: () => 0,
+		hasChanges: () => false,
+		isLoading: false,
+	}),
+}));
+
+// Mock ProjectFoldersContext to avoid Provider requirement
+vi.mock('../../renderer/contexts/ProjectFoldersContext', () => ({
+	useProjectFoldersContext: () => ({
+		projectFolders: [],
+		setProjectFolders: vi.fn(),
+		projectFoldersLoaded: true,
+		setProjectFoldersLoaded: vi.fn(),
+		projectFoldersRef: { current: [] },
+		createFolder: vi.fn().mockResolvedValue({ id: 'mock-folder', name: 'Mock Folder' }),
+		updateFolder: vi.fn().mockResolvedValue({ id: 'mock-folder', name: 'Mock Folder' }),
+		deleteFolder: vi.fn().mockResolvedValue(true),
+		addSessionToFolder: vi.fn().mockResolvedValue(true),
+		removeSessionFromFolder: vi.fn().mockResolvedValue(true),
+		assignGroupToFolder: vi.fn().mockResolvedValue(true),
+		reorderFolders: vi.fn().mockResolvedValue(true),
+		getFolderById: () => undefined,
+		getSortedFolders: () => [],
+	}),
+	ProjectFoldersProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
 
 vi.mock('../../renderer/hooks/useLiveOverlay', () => ({
