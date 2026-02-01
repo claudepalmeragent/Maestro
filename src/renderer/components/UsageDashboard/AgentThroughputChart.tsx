@@ -132,7 +132,9 @@ export function AgentThroughputChart({
 	colorBlindMode = false,
 	sessions,
 }: AgentThroughputChartProps) {
-	const [hoveredDay, setHoveredDay] = useState<{ dayIndex: number; sessionId?: string } | null>(null);
+	const [hoveredDay, setHoveredDay] = useState<{ dayIndex: number; sessionId?: string } | null>(
+		null
+	);
 	const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(null);
 
 	// Chart dimensions
@@ -146,28 +148,30 @@ export function AgentThroughputChart({
 	const { sessionIds, chartData, allDates, sessionDisplayNames } = useMemo(() => {
 		const bySessionByDay = data.bySessionByDay || {};
 
-		// Calculate average throughput per session to rank them
-		const sessionTotals: Array<{ sessionId: string; avgThroughput: number; totalQueries: number }> = [];
+		// Calculate total queries per session to rank them (include all sessions, even without throughput data)
+		const sessionTotals: Array<{ sessionId: string; avgThroughput: number; totalQueries: number }> =
+			[];
 		for (const sessionId of Object.keys(bySessionByDay)) {
 			const days = bySessionByDay[sessionId];
 			// Calculate weighted average throughput (by query count per day)
 			let totalWeightedThroughput = 0;
 			let totalQueries = 0;
+			let queriesWithThroughput = 0;
 			for (const day of days) {
+				totalQueries += day.count;
 				if (day.avgTokensPerSecond > 0) {
 					totalWeightedThroughput += day.avgTokensPerSecond * day.count;
-					totalQueries += day.count;
+					queriesWithThroughput += day.count;
 				}
 			}
-			const avgThroughput = totalQueries > 0 ? totalWeightedThroughput / totalQueries : 0;
+			const avgThroughput =
+				queriesWithThroughput > 0 ? totalWeightedThroughput / queriesWithThroughput : 0;
 			sessionTotals.push({ sessionId, avgThroughput, totalQueries });
 		}
 
-		// Sort by average throughput descending and take top 10 with data
-		sessionTotals.sort((a, b) => b.avgThroughput - a.avgThroughput);
-		const topSessions = sessionTotals
-			.filter((s) => s.avgThroughput > 0)
-			.slice(0, 10);
+		// Sort by total queries descending and take top 10 (include ALL sessions, even without throughput data)
+		sessionTotals.sort((a, b) => b.totalQueries - a.totalQueries);
+		const topSessions = sessionTotals.slice(0, 10);
 		const sessionIdList = topSessions.map((s) => s.sessionId);
 
 		// Build display name map
@@ -188,7 +192,10 @@ export function AgentThroughputChart({
 		// Build per-session arrays aligned to all dates
 		const sessionData: Record<string, SessionDayData[]> = {};
 		for (const sessionId of sessionIdList) {
-			const dayMap = new Map<string, { avgTokensPerSecond: number; outputTokens: number; count: number }>();
+			const dayMap = new Map<
+				string,
+				{ avgTokensPerSecond: number; outputTokens: number; count: number }
+			>();
 			for (const day of bySessionByDay[sessionId]) {
 				dayMap.set(day.date, {
 					avgTokensPerSecond: day.avgTokensPerSecond || 0,
@@ -206,17 +213,20 @@ export function AgentThroughputChart({
 			}));
 		}
 
-		// Build combined day data for tooltips
+		// Build combined day data for tooltips (include all sessions, even with zero throughput)
 		interface CombinedDayData {
 			date: string;
 			formattedDate: string;
 			sessions: Record<string, { avgTokensPerSecond: number; outputTokens: number; count: number }>;
 		}
 		const combinedData: CombinedDayData[] = sortedDates.map((date) => {
-			const sessionsOnDay: Record<string, { avgTokensPerSecond: number; outputTokens: number; count: number }> = {};
+			const sessionsOnDay: Record<
+				string,
+				{ avgTokensPerSecond: number; outputTokens: number; count: number }
+			> = {};
 			for (const sessionId of sessionIdList) {
 				const dayData = sessionData[sessionId].find((d) => d.date === date);
-				if (dayData && dayData.avgTokensPerSecond > 0) {
+				if (dayData) {
 					sessionsOnDay[sessionId] = {
 						avgTokensPerSecond: dayData.avgTokensPerSecond,
 						outputTokens: dayData.outputTokens,
@@ -275,25 +285,19 @@ export function AgentThroughputChart({
 		return { xScale: xScaleFn, yScale: yScaleFn, yTicks: yTicksArr };
 	}, [allDates, sessionIds, chartData, chartHeight, innerWidth, innerHeight, padding]);
 
-	// Generate line paths for each session
+	// Generate line paths for each session (include all points, even zeros)
 	const linePaths = useMemo(() => {
 		const paths: Record<string, string> = {};
 		for (const sessionId of sessionIds) {
 			const sessionDays = chartData[sessionId];
 			if (sessionDays.length === 0) continue;
 
-			// Only draw lines through points with data (skip zeros)
-			const pointsWithData = sessionDays
-				.map((day, idx) => ({ day, idx }))
-				.filter((p) => p.day.avgTokensPerSecond > 0);
-
-			if (pointsWithData.length === 0) continue;
-
-			paths[sessionId] = pointsWithData
-				.map((p, i) => {
-					const x = xScale(p.idx);
-					const y = yScale(p.day.avgTokensPerSecond);
-					return `${i === 0 ? 'M' : 'L'} ${x} ${y}`;
+			// Include all points in the line path (zeros will appear at y=0)
+			paths[sessionId] = sessionDays
+				.map((day, idx) => {
+					const x = xScale(idx);
+					const y = yScale(day.avgTokensPerSecond);
+					return `${idx === 0 ? 'M' : 'L'} ${x} ${y}`;
 				})
 				.join(' ');
 		}
@@ -431,23 +435,23 @@ export function AgentThroughputChart({
 							/>
 						))}
 
-						{/* Data points */}
+						{/* Data points (show all points, smaller for zero values) */}
 						{sessionIds.map((sessionId, sessionIdx) =>
 							chartData[sessionId].map((day, dayIdx) => {
-								if (day.avgTokensPerSecond === 0) return null;
-
 								const isHovered =
 									hoveredDay?.dayIndex === dayIdx && hoveredDay?.sessionId === sessionId;
+								const isZero = day.avgTokensPerSecond === 0;
 
 								return (
 									<circle
 										key={`point-${sessionId}-${dayIdx}`}
 										cx={xScale(dayIdx)}
 										cy={yScale(day.avgTokensPerSecond)}
-										r={isHovered ? 6 : 4}
+										r={isHovered ? 6 : isZero ? 2 : 4}
 										fill={getAgentColor(sessionIdx, colorBlindMode)}
 										stroke={theme.colors.bgMain}
-										strokeWidth={2}
+										strokeWidth={isZero ? 1 : 2}
+										opacity={isZero ? 0.5 : 1}
 										style={{ cursor: 'pointer', transition: 'r 0.15s ease' }}
 										onMouseEnter={(e) => handleMouseEnter(dayIdx, sessionId, e)}
 										onMouseLeave={handleMouseLeave}
@@ -487,7 +491,9 @@ export function AgentThroughputChart({
 									{sessionDisplayNames[hoveredDay.sessionId]}:
 								</span>
 								<span className="font-medium">
-									{formatThroughput(chartData[hoveredDay.sessionId][hoveredDay.dayIndex].avgTokensPerSecond)}
+									{formatThroughput(
+										chartData[hoveredDay.sessionId][hoveredDay.dayIndex].avgTokensPerSecond
+									)}
 								</span>
 							</div>
 						)}
