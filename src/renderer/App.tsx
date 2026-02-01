@@ -10439,6 +10439,32 @@ You are taking over this conversation. Based on the context above, provide a bri
 		[setCreateGroupModalOpen]
 	);
 
+	// --- PROJECT FOLDER DROP HANDLER ---
+	// Handler for dropping a session on a project folder
+	// Updates React state AND persists via IPC
+	const handleDropOnProjectFolder = useCallback(
+		(folderId: string, sessionId: string) => {
+			// Update React state to immediately reflect the change
+			setSessions((prev) =>
+				prev.map((s) => {
+					if (s.id === sessionId) {
+						// Add this folder to the session's projectFolderIds
+						const currentFolderIds = s.projectFolderIds || [];
+						if (!currentFolderIds.includes(folderId)) {
+							return { ...s, projectFolderIds: [...currentFolderIds, folderId] };
+						}
+					}
+					return s;
+				})
+			);
+			// Clear the dragging state
+			setDraggingSessionId(null);
+			// Persist to backend via IPC
+			window.maestro.projectFolders.addSession(folderId, sessionId);
+		},
+		[setSessions, setDraggingSessionId]
+	);
+
 	// Worktree Modal Handlers (stable callbacks for AppWorktreeModals)
 	const handleCloseWorktreeConfigModal = useCallback(() => {
 		setWorktreeConfigModalOpen(false);
@@ -12093,6 +12119,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 		handleDragOver,
 		handleDropOnGroup,
 		handleDropOnUngrouped,
+		handleDropOnProjectFolder,
 		finishRenamingGroup,
 		finishRenamingSession,
 		startRenamingGroup,
