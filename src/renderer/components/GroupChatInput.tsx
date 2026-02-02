@@ -13,7 +13,7 @@
  */
 
 import React, { useState, useRef, useCallback, useMemo, useEffect } from 'react';
-import { ArrowUp, ImageIcon, Eye, Keyboard, PenLine } from 'lucide-react';
+import { ArrowUp, ImageIcon, Eye, Keyboard, PenLine, Brain } from 'lucide-react';
 import type {
 	Theme,
 	GroupChatParticipant,
@@ -66,6 +66,9 @@ interface GroupChatInputProps {
 	showFlashNotification?: (message: string) => void;
 	// Shortcuts for displaying keyboard hints
 	shortcuts?: Record<string, Shortcut>;
+	// Show Thinking toggle
+	showThinking?: boolean;
+	onToggleShowThinking?: () => void;
 }
 
 // PERF: Wrap in React.memo to prevent unnecessary re-renders when parent state changes
@@ -94,6 +97,8 @@ export const GroupChatInput = React.memo(function GroupChatInput({
 	setEnterToSendAI: setEnterToSendAIProp,
 	showFlashNotification,
 	shortcuts,
+	showThinking,
+	onToggleShowThinking,
 }: GroupChatInputProps): JSX.Element {
 	const [message, setMessage] = useState(draftMessage || '');
 	const [showMentions, setShowMentions] = useState(false);
@@ -509,6 +514,27 @@ export const GroupChatInput = React.memo(function GroupChatInput({
 								<Eye className="w-3 h-3" />
 								<span>Read-only</span>
 							</button>
+
+							{/* Show Thinking toggle */}
+							{onToggleShowThinking && (
+								<button
+									onClick={onToggleShowThinking}
+									className={`flex items-center gap-1.5 text-[10px] px-2 py-1 rounded-full cursor-pointer transition-all ${
+										showThinking ? '' : 'opacity-40 hover:opacity-70'
+									}`}
+									style={{
+										backgroundColor: showThinking ? `${theme.colors.accentText}25` : 'transparent',
+										color: showThinking ? theme.colors.accentText : theme.colors.textDim,
+										border: showThinking
+											? `1px solid ${theme.colors.accentText}50`
+											: '1px solid transparent',
+									}}
+									title="Show Thinking - Stream AI reasoning in real-time"
+								>
+									<Brain className="w-3 h-3" />
+									<span>Thinking</span>
+								</button>
+							)}
 
 							{/* Enter to send toggle */}
 							<button

@@ -591,6 +591,12 @@ function MaestroConsoleInner() {
 		groupChatInputRef,
 		groupChatMessagesRef,
 		clearGroupChatError: handleClearGroupChatErrorBase,
+		groupChatShowThinking,
+		setGroupChatShowThinking,
+		groupChatThinkingContent,
+		setGroupChatThinkingContent,
+		groupChatThinkingCollapsed,
+		setGroupChatThinkingCollapsed,
 	} = useGroupChat();
 
 	// SSH Remote configs for looking up SSH remote names (used for participant cards in group chat)
@@ -3352,6 +3358,21 @@ function MaestroConsoleInner() {
 			}
 		);
 
+		// Listen for thinking content from moderator and participants
+		const unsubThinkingContent = window.maestro.groupChat.onThinkingContent?.(
+			(id, participantName, content) => {
+				// Only update if this is the active group chat and show thinking is enabled
+				if (id === activeGroupChatId && groupChatShowThinking) {
+					setGroupChatThinkingContent((prev) => {
+						const next = new Map(prev);
+						const existing = next.get(participantName) || '';
+						next.set(participantName, existing + content);
+						return next;
+					});
+				}
+			}
+		);
+
 		return () => {
 			unsubMessage();
 			unsubState();
@@ -3359,8 +3380,9 @@ function MaestroConsoleInner() {
 			unsubModeratorUsage?.();
 			unsubParticipantState?.();
 			unsubModeratorSessionId?.();
+			unsubThinkingContent?.();
 		};
-	}, [activeGroupChatId]);
+	}, [activeGroupChatId, groupChatShowThinking]);
 
 	// Process group chat execution queue when state becomes idle
 	useEffect(() => {
@@ -3384,6 +3406,13 @@ function MaestroConsoleInner() {
 			);
 		}
 	}, [groupChatState, groupChatExecutionQueue, activeGroupChatId]);
+
+	// Clear thinking content when group chat state becomes idle
+	useEffect(() => {
+		if (groupChatState === 'idle') {
+			setGroupChatThinkingContent(new Map());
+		}
+	}, [groupChatState]);
 
 	// Refs (groupChatInputRef and groupChatMessagesRef are now in GroupChatContext)
 	const logsEndRef = useRef<HTMLDivElement>(null);
@@ -12947,6 +12976,18 @@ You are taking over this conversation. Based on the context above, provide a bri
 									participantColors={groupChatParticipantColors}
 									messagesRef={groupChatMessagesRef}
 									participantStates={participantStates}
+									showThinking={groupChatShowThinking}
+									onToggleShowThinking={() => setGroupChatShowThinking(!groupChatShowThinking)}
+									thinkingContent={groupChatThinkingContent}
+									thinkingCollapsed={groupChatThinkingCollapsed}
+									onToggleThinkingCollapsed={(participantName: string) => {
+										setGroupChatThinkingCollapsed((prev) => {
+											const next = new Map(prev);
+											const current = next.get(participantName) ?? true;
+											next.set(participantName, !current);
+											return next;
+										});
+									}}
 								/>
 							</div>
 							<GroupChatRightPanel

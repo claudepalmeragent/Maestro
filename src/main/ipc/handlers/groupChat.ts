@@ -98,6 +98,7 @@ export const groupChatEmitters: {
 		state: ParticipantState
 	) => void;
 	emitModeratorSessionIdChanged?: (groupChatId: string, sessionId: string) => void;
+	emitThinkingContent?: (groupChatId: string, participantName: string, content: string) => void;
 } = {};
 
 // Helper to create handler options with consistent context
@@ -852,6 +853,26 @@ Respond with ONLY the summary text, no additional commentary.`;
 		const mainWindow = getMainWindow();
 		if (mainWindow && !mainWindow.isDestroyed()) {
 			mainWindow.webContents.send('groupChat:moderatorSessionIdChanged', groupChatId, sessionId);
+		}
+	};
+
+	/**
+	 * Emit thinking/reasoning content to the renderer.
+	 * Called when streaming thinking content is received from moderator or participants.
+	 */
+	groupChatEmitters.emitThinkingContent = (
+		groupChatId: string,
+		participantName: string,
+		content: string
+	): void => {
+		const mainWindow = getMainWindow();
+		if (mainWindow && !mainWindow.isDestroyed()) {
+			mainWindow.webContents.send(
+				'groupChat:thinkingContent',
+				groupChatId,
+				participantName,
+				content
+			);
 		}
 	};
 

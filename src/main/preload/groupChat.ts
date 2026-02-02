@@ -218,6 +218,15 @@ export function createGroupChatApi() {
 			ipcRenderer.on('groupChat:moderatorSessionIdChanged', handler);
 			return () => ipcRenderer.removeListener('groupChat:moderatorSessionIdChanged', handler);
 		},
+
+		onThinkingContent: (
+			callback: (groupChatId: string, participantName: string, content: string) => void
+		) => {
+			const handler = (_: any, groupChatId: string, participantName: string, content: string) =>
+				callback(groupChatId, participantName, content);
+			ipcRenderer.on('groupChat:thinkingContent', handler);
+			return () => ipcRenderer.removeListener('groupChat:thinkingContent', handler);
+		},
 	};
 }
 
