@@ -2184,34 +2184,34 @@ function SessionListInner(props: SessionListProps) {
 					);
 				})}
 
-				{/* Ungrouped sessions in this folder */}
-				{folderUngrouped.length > 0 && (
-					<div className="mb-1 ml-2">
-						<div
-							className="px-3 py-1 flex items-center justify-between text-xs font-bold uppercase tracking-wider"
-							style={{ color: theme.colors.textDim }}
-						>
-							<div className="flex items-center gap-2">
-								<Folder className="w-3 h-3" />
-								<span>Ungrouped</span>
-							</div>
-							<button
-								onClick={(e) => {
-									e.stopPropagation();
-									createNewGroup(folderId ?? undefined);
-								}}
-								className="px-2 py-0.5 rounded-full text-[10px] font-medium hover:opacity-80 transition-opacity flex items-center gap-1"
-								style={{
-									backgroundColor: theme.colors.accent + '20',
-									color: theme.colors.accent,
-									border: `1px solid ${theme.colors.accent}40`,
-								}}
-								title="Create new group"
-							>
-								<Plus className="w-3 h-3" />
-								<span>New Group</span>
-							</button>
+				{/* Ungrouped sessions in this folder - always show header with New Group button */}
+				<div className="mb-1 ml-2">
+					<div
+						className="px-3 py-1 flex items-center justify-between text-xs font-bold uppercase tracking-wider"
+						style={{ color: theme.colors.textDim }}
+					>
+						<div className="flex items-center gap-2">
+							<Folder className="w-3 h-3" />
+							<span>Ungrouped</span>
 						</div>
+						<button
+							onClick={(e) => {
+								e.stopPropagation();
+								createNewGroup(folderId ?? undefined);
+							}}
+							className="px-2 py-0.5 rounded-full text-[10px] font-medium hover:opacity-80 transition-opacity flex items-center gap-1"
+							style={{
+								backgroundColor: theme.colors.accent + '20',
+								color: theme.colors.accent,
+								border: `1px solid ${theme.colors.accent}40`,
+							}}
+							title="Create new group"
+						>
+							<Plus className="w-3 h-3" />
+							<span>New Group</span>
+						</button>
+					</div>
+					{folderUngrouped.length > 0 && (
 						<div
 							className="flex flex-col border-l ml-4"
 							style={{ borderColor: theme.colors.border }}
@@ -2222,8 +2222,8 @@ function SessionListInner(props: SessionListProps) {
 								})
 							)}
 						</div>
-					</div>
-				)}
+					)}
+				</div>
 
 				{/* Group chats in this folder */}
 				{onNewGroupChat &&
@@ -2993,11 +2993,29 @@ function SessionListInner(props: SessionListProps) {
 								return (
 									<div className="mb-2 mt-4">
 										<div
-											className="px-3 py-1.5 flex items-center gap-2 text-xs font-bold uppercase tracking-wider"
+											className="px-3 py-1.5 flex items-center justify-between text-xs font-bold uppercase tracking-wider"
 											style={{ color: theme.colors.textDim }}
 										>
-											<Folder className="w-3.5 h-3.5" />
-											<span>Unassigned</span>
+											<div className="flex items-center gap-2">
+												<Folder className="w-3.5 h-3.5" />
+												<span>Unassigned</span>
+											</div>
+											<button
+												onClick={(e) => {
+													e.stopPropagation();
+													createNewGroup();
+												}}
+												className="px-2 py-0.5 rounded-full text-[10px] font-medium hover:opacity-80 transition-opacity flex items-center gap-1"
+												style={{
+													backgroundColor: theme.colors.accent + '20',
+													color: theme.colors.accent,
+													border: `1px solid ${theme.colors.accent}40`,
+												}}
+												title="Create new group"
+											>
+												<Plus className="w-3 h-3" />
+												<span>New Group</span>
+											</button>
 										</div>
 										<div className="border-l ml-3" style={{ borderColor: theme.colors.border }}>
 											{renderFolderSessions(null, unassignedGroups, unassignedSessions)}
