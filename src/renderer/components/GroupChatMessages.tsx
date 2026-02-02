@@ -15,6 +15,7 @@ import {
 	useImperativeHandle,
 } from 'react';
 import { Eye, FileText, Copy, ChevronDown, ChevronUp } from 'lucide-react';
+import { GroupChatThinkingBubble } from './GroupChatThinkingBubble';
 import type { GroupChatMessage, GroupChatParticipant, GroupChatState, Theme } from '../types';
 import { MarkdownRenderer } from './MarkdownRenderer';
 import { stripMarkdown } from '../utils/textProcessing';
@@ -33,6 +34,14 @@ interface GroupChatMessagesProps {
 	participantColors?: Record<string, string>;
 	/** Per-participant working state (name -> 'idle' | 'working') for showing which agent is working */
 	participantStates?: Map<string, 'idle' | 'working'>;
+	/** Show thinking content when enabled */
+	showThinking?: boolean;
+	/** Streaming thinking content per participant (participantName -> content) */
+	thinkingContent?: Map<string, string>;
+	/** Collapsed state for thinking bubbles per participant (participantName -> isCollapsed) */
+	thinkingCollapsed?: Map<string, boolean>;
+	/** Toggle collapse callback for thinking bubbles */
+	onToggleThinkingCollapsed?: (participantName: string) => void;
 }
 
 /** Handle exposed via ref for scrolling to messages */
@@ -52,6 +61,10 @@ export const GroupChatMessages = forwardRef<GroupChatMessagesHandle, GroupChatMe
 			maxOutputLines = 30,
 			participantColors: externalColors,
 			participantStates,
+			showThinking,
+			thinkingContent,
+			thinkingCollapsed,
+			onToggleThinkingCollapsed,
 		},
 		ref
 	) {
@@ -404,48 +417,67 @@ export const GroupChatMessages = forwardRef<GroupChatMessagesHandle, GroupChatMe
 					})
 				)}
 
-				{/* Typing indicator */}
-				{state !== 'idle' && (
-					<div className="flex gap-4 px-6 py-2">
-						<div className="w-20 shrink-0" />
-						<div
-							className="flex-1 min-w-0 p-4 rounded-xl border rounded-tl-none"
-							style={{ backgroundColor: theme.colors.bgActivity, borderColor: theme.colors.border }}
-						>
-							<div className="flex items-center gap-2">
-								<div
-									className="w-2 h-2 rounded-full animate-pulse"
-									style={{ backgroundColor: theme.colors.warning }}
-								/>
-								<span className="text-sm" style={{ color: theme.colors.textDim }}>
-									{state === 'moderator-thinking'
-										? 'Moderator is thinking...'
-										: (() => {
-												// Get working participants from participantStates map
-												const workingParticipants = participantStates
-													? Array.from(participantStates.entries())
-															.filter(([, s]) => s === 'working')
-															.map(([name]) => name)
-													: [];
+				{/* Thinking bubbles or typing indicator */}
+				{state !== 'idle' &&
+					(showThinking && thinkingContent && thinkingContent.size > 0 ? (
+						// Render ThinkingBubble for each participant with content
+						Array.from(thinkingContent.entries()).map(([name, content]) => (
+							<GroupChatThinkingBubble
+								key={name}
+								theme={theme}
+								participantName={name}
+								participantColor={getParticipantColor(name === 'Moderator' ? 'Moderator' : name)}
+								thinkingContent={content}
+								isCollapsed={thinkingCollapsed?.get(name) ?? true}
+								onToggleCollapse={() => onToggleThinkingCollapsed?.(name)}
+								state={state}
+							/>
+						))
+					) : (
+						// Original simple typing indicator
+						<div className="flex gap-4 px-6 py-2">
+							<div className="w-20 shrink-0" />
+							<div
+								className="flex-1 min-w-0 p-4 rounded-xl border rounded-tl-none"
+								style={{
+									backgroundColor: theme.colors.bgActivity,
+									borderColor: theme.colors.border,
+								}}
+							>
+								<div className="flex items-center gap-2">
+									<div
+										className="w-2 h-2 rounded-full animate-pulse"
+										style={{ backgroundColor: theme.colors.warning }}
+									/>
+									<span className="text-sm" style={{ color: theme.colors.textDim }}>
+										{state === 'moderator-thinking'
+											? 'Moderator is thinking...'
+											: (() => {
+													// Get working participants from participantStates map
+													const workingParticipants = participantStates
+														? Array.from(participantStates.entries())
+																.filter(([, s]) => s === 'working')
+																.map(([name]) => name)
+														: [];
 
-												if (workingParticipants.length === 0) {
-													return 'Agent is working...'; // Fallback
-												} else if (workingParticipants.length === 1) {
-													return `${workingParticipants[0]} is working...`;
-												} else if (workingParticipants.length === 2) {
-													return `${workingParticipants.join(' and ')} are working...`;
-												} else {
-													// 3+ participants: "Agent1, Agent2, and Agent3 are working..."
-													const allButLast = workingParticipants.slice(0, -1).join(', ');
-													const last = workingParticipants[workingParticipants.length - 1];
-													return `${allButLast}, and ${last} are working...`;
-												}
-											})()}
-								</span>
+													if (workingParticipants.length === 0) {
+														return 'Agent is working...'; // Fallback
+													} else if (workingParticipants.length === 1) {
+														return `${workingParticipants[0]} is working...`;
+													} else if (workingParticipants.length === 2) {
+														return `${workingParticipants.join(' and ')} are working...`;
+													} else {
+														// 3+ participants: "Agent1, Agent2, and Agent3 are working..."
+														const allButLast = workingParticipants.slice(0, -1).join(', ');
+														const last = workingParticipants[workingParticipants.length - 1];
+														return `${allButLast}, and ${last} are working...`;
+													}
+												})()}
+									</span>
+								</div>
 							</div>
 						</div>
-					</div>
-				)}
+					))}
 			</div>
 		);
 	}

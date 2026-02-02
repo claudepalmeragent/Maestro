@@ -71,6 +71,16 @@ interface GroupChatPanelProps {
 	messagesRef?: React.RefObject<GroupChatMessagesHandle>;
 	/** Per-participant working state (name -> 'idle' | 'working') for showing which agent is working */
 	participantStates?: Map<string, 'idle' | 'working'>;
+	/** Show Thinking toggle state */
+	showThinking?: boolean;
+	/** Toggle Show Thinking callback */
+	onToggleShowThinking?: () => void;
+	/** Streaming thinking content per participant */
+	thinkingContent?: Map<string, string>;
+	/** Collapsed state for thinking bubbles per participant */
+	thinkingCollapsed?: Map<string, boolean>;
+	/** Toggle collapse callback for thinking bubbles */
+	onToggleThinkingCollapsed?: (participantName: string) => void;
 }
 
 export function GroupChatPanel({
@@ -110,6 +120,11 @@ export function GroupChatPanel({
 	participantColors,
 	messagesRef,
 	participantStates,
+	showThinking,
+	onToggleShowThinking,
+	thinkingContent,
+	thinkingCollapsed,
+	onToggleThinkingCollapsed,
 }: GroupChatPanelProps): JSX.Element {
 	return (
 		<div className="flex flex-col h-full" style={{ backgroundColor: theme.colors.bgMain }}>
@@ -138,6 +153,10 @@ export function GroupChatPanel({
 				maxOutputLines={maxOutputLines}
 				participantColors={participantColors}
 				participantStates={participantStates}
+				showThinking={showThinking}
+				thinkingContent={thinkingContent}
+				thinkingCollapsed={thinkingCollapsed}
+				onToggleThinkingCollapsed={onToggleThinkingCollapsed}
 			/>
 
 			<GroupChatInput
@@ -165,6 +184,8 @@ export function GroupChatPanel({
 				setEnterToSendAI={setEnterToSendAI}
 				showFlashNotification={showFlashNotification}
 				shortcuts={shortcuts}
+				showThinking={showThinking}
+				onToggleShowThinking={onToggleShowThinking}
 			/>
 		</div>
 	);

@@ -1892,6 +1892,9 @@ interface MaestroAPI {
 		onModeratorSessionIdChanged: (
 			callback: (groupChatId: string, sessionId: string) => void
 		) => () => void;
+		onThinkingContent: (
+			callback: (groupChatId: string, participantName: string, content: string) => void
+		) => () => void;
 	};
 	// Leaderboard API
 	leaderboard: {

@@ -15,6 +15,7 @@
  * - Read-only mode and execution queue
  * - Right panel tab selection
  * - Group chat errors
+ * - Show thinking toggle and streaming thinking content
  */
 
 import React, {
@@ -106,6 +107,18 @@ export interface GroupChatContextValue {
 	groupChatError: GroupChatErrorState | null;
 	setGroupChatError: React.Dispatch<React.SetStateAction<GroupChatErrorState | null>>;
 
+	// Show Thinking toggle for group chat
+	groupChatShowThinking: boolean;
+	setGroupChatShowThinking: React.Dispatch<React.SetStateAction<boolean>>;
+
+	// Streaming thinking content per participant (participantName -> content)
+	groupChatThinkingContent: Map<string, string>;
+	setGroupChatThinkingContent: React.Dispatch<React.SetStateAction<Map<string, string>>>;
+
+	// Collapsed state for thinking bubbles per participant (participantName -> isCollapsed)
+	groupChatThinkingCollapsed: Map<string, boolean>;
+	setGroupChatThinkingCollapsed: React.Dispatch<React.SetStateAction<Map<string, boolean>>>;
+
 	// Refs for focus management
 	groupChatInputRef: React.RefObject<HTMLTextAreaElement>;
 	groupChatMessagesRef: React.RefObject<GroupChatMessagesHandle>;
@@ -188,6 +201,19 @@ export function GroupChatProvider({ children }: GroupChatProviderProps) {
 	// Group chat error state
 	const [groupChatError, setGroupChatError] = useState<GroupChatErrorState | null>(null);
 
+	// Show Thinking toggle for group chat
+	const [groupChatShowThinking, setGroupChatShowThinking] = useState(false);
+
+	// Streaming thinking content per participant
+	const [groupChatThinkingContent, setGroupChatThinkingContent] = useState<Map<string, string>>(
+		new Map()
+	);
+
+	// Collapsed state for thinking bubbles per participant
+	const [groupChatThinkingCollapsed, setGroupChatThinkingCollapsed] = useState<
+		Map<string, boolean>
+	>(new Map());
+
 	// Refs for focus management
 	const groupChatInputRef = useRef<HTMLTextAreaElement>(null);
 	const groupChatMessagesRef = useRef<GroupChatMessagesHandle>(null);
@@ -205,6 +231,8 @@ export function GroupChatProvider({ children }: GroupChatProviderProps) {
 		setGroupChatState('idle');
 		setParticipantStates(new Map());
 		setGroupChatError(null);
+		setGroupChatThinkingContent(new Map());
+		setGroupChatThinkingCollapsed(new Map());
 	}, []);
 
 	// Memoize the context value to prevent unnecessary re-renders
@@ -262,6 +290,14 @@ export function GroupChatProvider({ children }: GroupChatProviderProps) {
 			groupChatError,
 			setGroupChatError,
 
+			// Thinking state
+			groupChatShowThinking,
+			setGroupChatShowThinking,
+			groupChatThinkingContent,
+			setGroupChatThinkingContent,
+			groupChatThinkingCollapsed,
+			setGroupChatThinkingCollapsed,
+
 			// Refs
 			groupChatInputRef,
 			groupChatMessagesRef,
@@ -297,6 +333,10 @@ export function GroupChatProvider({ children }: GroupChatProviderProps) {
 			groupChatParticipantColors,
 			// Error state
 			groupChatError,
+			// Thinking state
+			groupChatShowThinking,
+			groupChatThinkingContent,
+			groupChatThinkingCollapsed,
 			// Convenience methods
 			clearGroupChatError,
 			resetGroupChatState,
