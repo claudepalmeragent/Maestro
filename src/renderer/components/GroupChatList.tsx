@@ -113,7 +113,7 @@ interface GroupChatListProps {
 	groupChats: GroupChat[];
 	activeGroupChatId: string | null;
 	onOpenGroupChat: (id: string) => void;
-	onNewGroupChat: () => void;
+	onNewGroupChat: (folderId?: string) => void;
 	onEditGroupChat: (id: string) => void;
 	onRenameGroupChat: (id: string) => void;
 	onDeleteGroupChat: (id: string) => void;
@@ -240,7 +240,7 @@ export function GroupChatList({
 				<button
 					onClick={(e) => {
 						e.stopPropagation();
-						onNewGroupChat();
+						onNewGroupChat(projectFolderId ?? undefined);
 					}}
 					className="px-2 py-0.5 rounded-full text-[10px] font-medium hover:opacity-80 transition-opacity flex items-center gap-1"
 					style={{

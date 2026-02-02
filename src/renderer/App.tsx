@@ -357,6 +357,8 @@ function MaestroConsoleInner() {
 		// Group Chat Modals
 		showNewGroupChatModal,
 		setShowNewGroupChatModal,
+		createGroupChatForFolderId,
+		setCreateGroupChatForFolderId,
 		showDeleteGroupChatModal,
 		setShowDeleteGroupChatModal,
 		showRenameGroupChatModal,
@@ -5457,9 +5459,13 @@ You are taking over this conversation. Based on the context above, provide a bri
 		setTourOpen(true);
 	}, []);
 
-	const handleNewGroupChat = useCallback(() => {
-		setShowNewGroupChatModal(true);
-	}, []);
+	const handleNewGroupChat = useCallback(
+		(folderId?: string) => {
+			setCreateGroupChatForFolderId(folderId);
+			setShowNewGroupChatModal(true);
+		},
+		[setCreateGroupChatForFolderId]
+	);
 
 	const handleEditGroupChat = useCallback((id: string) => {
 		setShowEditGroupChatModal(id);
@@ -7440,14 +7446,21 @@ You are taking over this conversation. Based on the context above, provide a bri
 				customPath?: string;
 				customArgs?: string;
 				customEnvVars?: Record<string, string>;
-			}
+			},
+			projectFolderId?: string
 		) => {
-			const chat = await window.maestro.groupChat.create(name, moderatorAgentId, moderatorConfig);
+			const chat = await window.maestro.groupChat.create(
+				name,
+				moderatorAgentId,
+				moderatorConfig,
+				projectFolderId
+			);
 			setGroupChats((prev) => [chat, ...prev]);
 			setShowNewGroupChatModal(false);
+			setCreateGroupChatForFolderId(undefined);
 			handleOpenGroupChat(chat.id);
 		},
-		[handleOpenGroupChat]
+		[handleOpenGroupChat, setCreateGroupChatForFolderId]
 	);
 
 	const handleDeleteGroupChat = useCallback(
@@ -7492,7 +7505,10 @@ You are taking over this conversation. Based on the context above, provide a bri
 
 	// --- GROUP CHAT MODAL HANDLERS ---
 	// Stable callback handlers for AppGroupChatModals component
-	const handleCloseNewGroupChatModal = useCallback(() => setShowNewGroupChatModal(false), []);
+	const handleCloseNewGroupChatModal = useCallback(() => {
+		setShowNewGroupChatModal(false);
+		setCreateGroupChatForFolderId(undefined);
+	}, [setCreateGroupChatForFolderId]);
 	const handleCloseDeleteGroupChatModal = useCallback(() => setShowDeleteGroupChatModal(null), []);
 	const handleConfirmDeleteGroupChat = useCallback(() => {
 		if (showDeleteGroupChatModal) {
@@ -12615,6 +12631,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 					showNewGroupChatModal={showNewGroupChatModal}
 					onCloseNewGroupChatModal={handleCloseNewGroupChatModal}
 					onCreateGroupChat={handleCreateGroupChat}
+					createGroupChatForFolderId={createGroupChatForFolderId}
 					showDeleteGroupChatModal={showDeleteGroupChatModal}
 					onCloseDeleteGroupChatModal={handleCloseDeleteGroupChatModal}
 					onConfirmDeleteGroupChat={handleConfirmDeleteGroupChat}

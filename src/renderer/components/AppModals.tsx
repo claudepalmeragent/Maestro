@@ -1298,8 +1298,11 @@ export interface AppGroupChatModalsProps {
 	onCreateGroupChat: (
 		name: string,
 		moderatorAgentId: string,
-		moderatorConfig?: ModeratorConfig
+		moderatorConfig?: ModeratorConfig,
+		projectFolderId?: string
 	) => void;
+	/** Project folder ID to scope the new group chat to */
+	createGroupChatForFolderId?: string;
 
 	// DeleteGroupChatModal
 	showDeleteGroupChatModal: string | null;
@@ -1346,6 +1349,7 @@ export function AppGroupChatModals({
 	showNewGroupChatModal,
 	onCloseNewGroupChatModal,
 	onCreateGroupChat,
+	createGroupChatForFolderId,
 	// DeleteGroupChatModal
 	showDeleteGroupChatModal,
 	onCloseDeleteGroupChatModal,
@@ -1391,6 +1395,7 @@ export function AppGroupChatModals({
 					isOpen={showNewGroupChatModal}
 					onClose={onCloseNewGroupChatModal}
 					onCreate={onCreateGroupChat}
+					projectFolderId={createGroupChatForFolderId}
 				/>
 			)}
 
@@ -1950,8 +1955,10 @@ export interface AppModalsProps {
 	onCreateGroupChat: (
 		name: string,
 		moderatorAgentId: string,
-		moderatorConfig?: ModeratorConfig
+		moderatorConfig?: ModeratorConfig,
+		projectFolderId?: string
 	) => void;
+	createGroupChatForFolderId?: string;
 	showDeleteGroupChatModal: string | null;
 	onCloseDeleteGroupChatModal: () => void;
 	onConfirmDeleteGroupChat: () => void;
@@ -2251,6 +2258,7 @@ export function AppModals(props: AppModalsProps) {
 		showNewGroupChatModal,
 		onCloseNewGroupChatModal,
 		onCreateGroupChat,
+		createGroupChatForFolderId,
 		showDeleteGroupChatModal,
 		onCloseDeleteGroupChatModal,
 		onConfirmDeleteGroupChat,
@@ -2558,6 +2566,7 @@ export function AppModals(props: AppModalsProps) {
 				showNewGroupChatModal={showNewGroupChatModal}
 				onCloseNewGroupChatModal={onCloseNewGroupChatModal}
 				onCreateGroupChat={onCreateGroupChat}
+				createGroupChatForFolderId={createGroupChatForFolderId}
 				showDeleteGroupChatModal={showDeleteGroupChatModal}
 				onCloseDeleteGroupChatModal={onCloseDeleteGroupChatModal}
 				onConfirmDeleteGroupChat={onConfirmDeleteGroupChat}

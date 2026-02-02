@@ -238,6 +238,8 @@ export interface ModalContextValue {
 	// Group Chat Modals
 	showNewGroupChatModal: boolean;
 	setShowNewGroupChatModal: (open: boolean) => void;
+	createGroupChatForFolderId: string | undefined;
+	setCreateGroupChatForFolderId: (folderId: string | undefined) => void;
 	showDeleteGroupChatModal: string | null;
 	setShowDeleteGroupChatModal: (id: string | null) => void;
 	showRenameGroupChatModal: string | null;
@@ -424,6 +426,9 @@ export function ModalProvider({ children }: ModalProviderProps) {
 
 	// Group Chat Modals
 	const [showNewGroupChatModal, setShowNewGroupChatModal] = useState(false);
+	const [createGroupChatForFolderId, setCreateGroupChatForFolderId] = useState<string | undefined>(
+		undefined
+	);
 	const [showDeleteGroupChatModal, setShowDeleteGroupChatModal] = useState<string | null>(null);
 	const [showRenameGroupChatModal, setShowRenameGroupChatModal] = useState<string | null>(null);
 	const [showEditGroupChatModal, setShowEditGroupChatModal] = useState<string | null>(null);
@@ -663,6 +668,8 @@ export function ModalProvider({ children }: ModalProviderProps) {
 			// Group Chat Modals
 			showNewGroupChatModal,
 			setShowNewGroupChatModal,
+			createGroupChatForFolderId,
+			setCreateGroupChatForFolderId,
 			showDeleteGroupChatModal,
 			setShowDeleteGroupChatModal,
 			showRenameGroupChatModal,
@@ -787,6 +794,7 @@ export function ModalProvider({ children }: ModalProviderProps) {
 			sendToAgentModalOpen,
 			// Group Chat Modals
 			showNewGroupChatModal,
+			createGroupChatForFolderId,
 			showDeleteGroupChatModal,
 			showRenameGroupChatModal,
 			showEditGroupChatModal,
