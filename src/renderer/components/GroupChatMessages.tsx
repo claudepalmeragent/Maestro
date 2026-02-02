@@ -31,6 +31,8 @@ interface GroupChatMessagesProps {
 	maxOutputLines?: number;
 	/** Pre-computed participant colors (if provided, overrides internal color generation) */
 	participantColors?: Record<string, string>;
+	/** Per-participant working state (name -> 'idle' | 'working') for showing which agent is working */
+	participantStates?: Map<string, 'idle' | 'working'>;
 }
 
 /** Handle exposed via ref for scrolling to messages */
@@ -49,6 +51,7 @@ export const GroupChatMessages = forwardRef<GroupChatMessagesHandle, GroupChatMe
 			onToggleMarkdownEditMode,
 			maxOutputLines = 30,
 			participantColors: externalColors,
+			participantStates,
 		},
 		ref
 	) {
@@ -417,7 +420,27 @@ export const GroupChatMessages = forwardRef<GroupChatMessagesHandle, GroupChatMe
 								<span className="text-sm" style={{ color: theme.colors.textDim }}>
 									{state === 'moderator-thinking'
 										? 'Moderator is thinking...'
-										: 'Agent is working...'}
+										: (() => {
+												// Get working participants from participantStates map
+												const workingParticipants = participantStates
+													? Array.from(participantStates.entries())
+															.filter(([, s]) => s === 'working')
+															.map(([name]) => name)
+													: [];
+
+												if (workingParticipants.length === 0) {
+													return 'Agent is working...'; // Fallback
+												} else if (workingParticipants.length === 1) {
+													return `${workingParticipants[0]} is working...`;
+												} else if (workingParticipants.length === 2) {
+													return `${workingParticipants.join(' and ')} are working...`;
+												} else {
+													// 3+ participants: "Agent1, Agent2, and Agent3 are working..."
+													const allButLast = workingParticipants.slice(0, -1).join(', ');
+													const last = workingParticipants[workingParticipants.length - 1];
+													return `${allButLast}, and ${last} are working...`;
+												}
+											})()}
 								</span>
 							</div>
 						</div>
