@@ -52,6 +52,7 @@ import { formatShortcutKeys } from '../utils/shortcutFormatter';
 import { SessionItem } from './SessionItem';
 import { GroupChatList } from './GroupChatList';
 import { ProjectFolderHeader } from './sidebar/ProjectFolderHeader';
+import { ProjectFolderModal } from './modals/ProjectFolderModal';
 import { useLiveOverlay, useClickOutside } from '../hooks';
 import { useGitFileStatus } from '../contexts/GitStatusContext';
 import { useProjectFoldersContext } from '../contexts/ProjectFoldersContext';
@@ -433,6 +434,7 @@ interface ProjectFolderContextMenuProps {
 	theme: Theme;
 	folder: ProjectFolder;
 	onRename: () => void;
+	onEdit: () => void;
 	onDelete: () => void;
 	onDismiss: () => void;
 }
@@ -441,8 +443,9 @@ function ProjectFolderContextMenu({
 	x,
 	y,
 	theme,
-	folder,
+	folder: _folder,
 	onRename,
+	onEdit,
 	onDelete,
 	onDismiss,
 }: ProjectFolderContextMenuProps) {
@@ -495,6 +498,19 @@ function ProjectFolderContextMenu({
 			>
 				<Edit3 className="w-3.5 h-3.5" />
 				Rename Folder
+			</button>
+
+			{/* Edit (opens modal with color picker) */}
+			<button
+				onClick={() => {
+					onEdit();
+					onDismiss();
+				}}
+				className="w-full text-left px-3 py-1.5 text-xs hover:bg-white/5 transition-colors flex items-center gap-2"
+				style={{ color: theme.colors.textMain }}
+			>
+				<Settings className="w-3.5 h-3.5" />
+				Edit Folder...
 			</button>
 
 			{/* Delete */}
@@ -1261,6 +1277,11 @@ function SessionListInner(props: SessionListProps) {
 		y: number;
 		folderId: string;
 	} | null>(null);
+	// Project folder modal state (for create/edit with color picker)
+	const [showProjectFolderModal, setShowProjectFolderModal] = useState(false);
+	const [editingProjectFolder, setEditingProjectFolder] = useState<ProjectFolder | undefined>(
+		undefined
+	);
 
 	// Live overlay state (extracted hook)
 	const {
@@ -1601,6 +1622,7 @@ function SessionListInner(props: SessionListProps) {
 					gitFileCount={getFileCount(session.id)}
 					isInBatch={activeBatchSessionIds.includes(session.id)}
 					jumpNumber={getSessionJumpNumber(session.id)}
+					projectFolders={getSessionProjectFolders(session.id)}
 					onSelect={selectHandlers.get(session.id)!}
 					onDragStart={dragStartHandlers.get(session.id)!}
 					onDragOver={handleDragOver}
@@ -1663,6 +1685,7 @@ function SessionListInner(props: SessionListProps) {
 										gitFileCount={getFileCount(child.id)}
 										isInBatch={activeBatchSessionIds.includes(child.id)}
 										jumpNumber={getSessionJumpNumber(child.id)}
+										projectFolders={getSessionProjectFolders(child.id)}
 										onSelect={selectHandlers.get(child.id)!}
 										onDragStart={dragStartHandlers.get(child.id)!}
 										onContextMenu={contextMenuHandlers.get(child.id)!}
@@ -1851,6 +1874,16 @@ function SessionListInner(props: SessionListProps) {
 			return groups.filter((g) => g.projectFolderId === folderId);
 		},
 		[groups]
+	);
+
+	// Helper: Get project folders that a session belongs to (for color bars)
+	const getSessionProjectFolders = useCallback(
+		(sessionId: string): ProjectFolder[] => {
+			const session = sessions.find((s) => s.id === sessionId);
+			if (!session?.projectFolderIds?.length) return [];
+			return projectFolders.filter((f) => session.projectFolderIds?.includes(f.id));
+		},
+		[sessions, projectFolders]
 	);
 
 	// Filter groups for context menu based on session's project folder
@@ -2054,17 +2087,36 @@ function SessionListInner(props: SessionListProps) {
 		return index === 9 ? '0' : String(index + 1);
 	};
 
-	// Helper: Create a new project folder
-	const handleCreateProjectFolder = useCallback(async () => {
-		const newFolder = await createFolder({
-			name: 'New Project',
-			emoji: '📁',
-			collapsed: false,
-			order: projectFolders.length,
-		});
-		// Start editing the new folder's name
-		setEditingProjectFolderId(newFolder.id);
-	}, [createFolder, projectFolders.length]);
+	// Helper: Create a new project folder (opens modal)
+	const handleCreateProjectFolder = useCallback(() => {
+		setEditingProjectFolder(undefined); // Create mode
+		setShowProjectFolderModal(true);
+	}, []);
+
+	// Helper: Save project folder (create or update)
+	const handleSaveProjectFolder = useCallback(
+		async (folderData: Omit<ProjectFolder, 'id' | 'createdAt' | 'updatedAt'>) => {
+			if (editingProjectFolder) {
+				// Update existing folder
+				await updateFolder(editingProjectFolder.id, folderData);
+			} else {
+				// Create new folder
+				await createFolder({
+					...folderData,
+					order: projectFolders.length,
+				});
+			}
+			setShowProjectFolderModal(false);
+			setEditingProjectFolder(undefined);
+		},
+		[editingProjectFolder, createFolder, updateFolder, projectFolders.length]
+	);
+
+	// Helper: Edit project folder (opens modal with existing data)
+	const handleEditProjectFolder = useCallback((folder: ProjectFolder) => {
+		setEditingProjectFolder(folder);
+		setShowProjectFolderModal(true);
+	}, []);
 
 	// Helper: Finish renaming a project folder
 	const handleFinishRenamingProjectFolder = useCallback(
@@ -3570,6 +3622,9 @@ function SessionListInner(props: SessionListProps) {
 							onRename={() => {
 								setEditingProjectFolderId(folder.id);
 							}}
+							onEdit={() => {
+								handleEditProjectFolder(folder);
+							}}
 							onDelete={() => {
 								deleteProjectFolder(folder.id);
 							}}
@@ -3577,6 +3632,19 @@ function SessionListInner(props: SessionListProps) {
 						/>
 					);
 				})()}
+
+			{/* Project Folder Modal (Create/Edit with Color Picker) */}
+			{showProjectFolderModal && (
+				<ProjectFolderModal
+					theme={theme}
+					onClose={() => {
+						setShowProjectFolderModal(false);
+						setEditingProjectFolder(undefined);
+					}}
+					onSave={handleSaveProjectFolder}
+					existingFolder={editingProjectFolder}
+				/>
+			)}
 		</div>
 	);
 }
