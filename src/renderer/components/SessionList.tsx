@@ -1115,7 +1115,7 @@ interface SessionListProps {
 	groupChats?: GroupChat[];
 	activeGroupChatId?: string | null;
 	onOpenGroupChat?: (id: string) => void;
-	onNewGroupChat?: () => void;
+	onNewGroupChat?: (folderId?: string) => void;
 	onEditGroupChat?: (id: string) => void;
 	onRenameGroupChat?: (id: string) => void;
 	onDeleteGroupChat?: (id: string) => void;

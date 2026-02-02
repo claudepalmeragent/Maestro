@@ -128,7 +128,7 @@ export interface UseSessionListPropsDeps {
 
 	// Group Chat handlers
 	handleOpenGroupChat: (id: string) => void;
-	handleNewGroupChat: () => void;
+	handleNewGroupChat: (folderId?: string) => void;
 	handleEditGroupChat: (id: string) => void;
 	handleOpenRenameGroupChatModal: (id: string) => void;
 	handleOpenDeleteGroupChatModal: (id: string) => void;

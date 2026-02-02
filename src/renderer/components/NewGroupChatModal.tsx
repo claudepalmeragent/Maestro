@@ -23,7 +23,14 @@ interface NewGroupChatModalProps {
 	theme: Theme;
 	isOpen: boolean;
 	onClose: () => void;
-	onCreate: (name: string, moderatorAgentId: string, moderatorConfig?: ModeratorConfig) => void;
+	onCreate: (
+		name: string,
+		moderatorAgentId: string,
+		moderatorConfig?: ModeratorConfig,
+		projectFolderId?: string
+	) => void;
+	/** Project folder to scope the new group chat to */
+	projectFolderId?: string;
 }
 
 export function NewGroupChatModal({
@@ -31,6 +38,7 @@ export function NewGroupChatModal({
 	isOpen,
 	onClose,
 	onCreate,
+	projectFolderId,
 }: NewGroupChatModalProps): JSX.Element | null {
 	const [name, setName] = useState('');
 	const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
@@ -174,11 +182,11 @@ export function NewGroupChatModal({
 	const handleCreate = useCallback(() => {
 		if (name.trim() && selectedAgent) {
 			const moderatorConfig = buildModeratorConfig();
-			onCreate(name.trim(), selectedAgent, moderatorConfig);
+			onCreate(name.trim(), selectedAgent, moderatorConfig, projectFolderId);
 			resetState();
 			onClose();
 		}
-	}, [name, selectedAgent, buildModeratorConfig, onCreate, resetState, onClose]);
+	}, [name, selectedAgent, buildModeratorConfig, onCreate, projectFolderId, resetState, onClose]);
 
 	const canCreate = name.trim().length > 0 && selectedAgent !== null;
 
