@@ -10400,7 +10400,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 	});
 
 	// Destructure group modal state for use in JSX
-	const { createGroupModalOpen, setCreateGroupModalOpen } = groupModalState;
+	const { createGroupModalOpen, setCreateGroupModalOpen, createGroupForFolderId } = groupModalState;
 
 	// State to track session that should be moved to newly created group
 	const [pendingMoveToGroupSessionId, setPendingMoveToGroupSessionId] = useState<string | null>(
@@ -12416,6 +12416,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 					// AppGroupModals props
 					createGroupModalOpen={createGroupModalOpen}
 					onCloseCreateGroupModal={handleCloseCreateGroupModal}
+					createGroupForFolderId={createGroupForFolderId}
 					onGroupCreated={handleGroupCreated}
 					renameGroupModalOpen={renameGroupModalOpen}
 					renameGroupId={renameGroupId}
