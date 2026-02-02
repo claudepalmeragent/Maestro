@@ -487,9 +487,9 @@ The work has been divided into **3 non-conflicting packages** to enable parallel
 2. `/src/renderer/types/index.ts` - Add projectFolderIds to Session
 3. `/src/shared/group-chat-types.ts` - Add projectFolderId to GroupChat
 4. `/src/renderer/contexts/ProjectFolderContext.tsx` - NEW: Context provider
-5. `/src/main/ipc/handlers/projectFolders.ts` - NEW: IPC handlers
-6. `/src/main/stores/projectFoldersStore.ts` - NEW: Electron store
-7. `/src/main/preload/projectFolders.ts` - NEW: Add projectFolders API
+5. `/src/main/ipc/projectFolders.ts` - NEW: IPC handlers
+6. `/src/main/store/projectFoldersStore.ts` - NEW: Electron store
+7. `/src/preload/index.ts` - Add projectFolders API
 8. `/src/renderer/hooks/useProjectFolderManagement.ts` - NEW: CRUD hook
 
 **Deliverables:**
@@ -528,7 +528,7 @@ The work has been divided into **3 non-conflicting packages** to enable parallel
 ---
 
 ### Work Package 3: Sidebar Restructure & Integration
-**Assigned to:** `@moderator`
+**Assigned to:** `@agent-moderator`
 
 **Scope:** SessionList restructure, GroupChatList filtering, context menu integration
 
@@ -646,9 +646,8 @@ useProjectFolder ───────► MoveToProjectMenu          UILayoutCon
 /src/renderer/types/index.ts                         (modify)
 /src/shared/group-chat-types.ts                      (modify)
 /src/renderer/contexts/ProjectFolderContext.tsx      (create)
-/src/main/ipc/handlers/projectFolders.ts             (create)
-/src/main/stores/projectFoldersStore.ts              (create)
-/src/main/preload/projectFolders.ts                  (create)
+/src/main/ipc/projectFolders.ts                      (create)
+/src/main/store/projectFoldersStore.ts               (create)
 /src/renderer/hooks/useProjectFolderManagement.ts    (create)
 /src/renderer/components/ProjectFolderHeader.tsx     (create)
 /src/renderer/components/ProjectFolderModal.tsx      (create)
@@ -658,7 +657,7 @@ useProjectFolder ───────► MoveToProjectMenu          UILayoutCon
 
 ### Modified Files
 ```
-/src/main/preload/index.ts
+/src/preload/index.ts
 /src/renderer/contexts/UILayoutContext.tsx
 /src/renderer/components/SessionList.tsx
 /src/renderer/components/SessionItem.tsx
