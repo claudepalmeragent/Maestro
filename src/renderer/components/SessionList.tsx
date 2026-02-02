@@ -6,7 +6,6 @@ import {
 	ChevronRight,
 	ChevronDown,
 	ChevronUp,
-	X,
 	Keyboard,
 	Radio,
 	Copy,
@@ -2151,7 +2150,7 @@ function SessionListInner(props: SessionListProps) {
 					return (
 						<div key={group.id} className="mb-1 ml-2">
 							<div
-								className="px-3 py-1 flex items-center gap-2 cursor-pointer hover:bg-opacity-50"
+								className="px-3 py-1 flex items-center justify-between cursor-pointer hover:bg-opacity-50 group"
 								onClick={() => toggleGroup(group.id)}
 							>
 								<div
@@ -2164,7 +2163,68 @@ function SessionListInner(props: SessionListProps) {
 										<ChevronDown className="w-3 h-3" />
 									)}
 									<span className="text-sm">{group.emoji}</span>
-									<span>{group.name}</span>
+									{editingGroupId === group.id ? (
+										<input
+											autoFocus
+											className="bg-transparent outline-none w-full border-b border-indigo-500"
+											defaultValue={group.name}
+											onClick={(e) => e.stopPropagation()}
+											onBlur={(e) => finishRenamingGroup(group.id, e.target.value)}
+											onKeyDown={(e) => {
+												e.stopPropagation();
+												if (e.key === 'Enter') finishRenamingGroup(group.id, e.currentTarget.value);
+											}}
+										/>
+									) : (
+										<span onDoubleClick={() => startRenamingGroup(group.id)}>{group.name}</span>
+									)}
+								</div>
+								{/* Action buttons - visible on hover */}
+								<div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+									{/* Rename button */}
+									<button
+										onClick={(e) => {
+											e.stopPropagation();
+											startRenamingGroup(group.id);
+										}}
+										className="p-1 rounded hover:bg-white/10 transition-colors"
+										style={{ color: theme.colors.textDim }}
+										title="Rename group"
+									>
+										<Edit3 className="w-3 h-3" />
+									</button>
+									{/* Delete button */}
+									<button
+										onClick={(e) => {
+											e.stopPropagation();
+											const message =
+												groupSessions.length > 0
+													? `Are you sure you want to delete the group "${group.name}"? ${groupSessions.length} agent(s) will be moved to Ungrouped.`
+													: `Are you sure you want to delete the group "${group.name}"?`;
+											showConfirmation(message, () => {
+												// Move agents to ungrouped first if group has agents
+												if (groupSessions.length > 0) {
+													const sessionIds = groupSessions.map((s) => s.id);
+													setSessions((prev) =>
+														prev.map((s) =>
+															sessionIds.includes(s.id) ? { ...s, groupId: undefined } : s
+														)
+													);
+												}
+												// Delete the group
+												setGroups((prev) => prev.filter((g) => g.id !== group.id));
+											});
+										}}
+										className="p-1 rounded hover:bg-red-500/20 transition-colors"
+										style={{ color: theme.colors.error }}
+										title={
+											groupSessions.length > 0
+												? 'Delete group (agents will be ungrouped)'
+												: 'Delete group'
+										}
+									>
+										<Trash2 className="w-3 h-3" />
+									</button>
 								</div>
 							</div>
 							{!group.collapsed && (
@@ -3119,41 +3179,69 @@ function SessionListInner(props: SessionListProps) {
 													</span>
 												)}
 											</div>
-											{/* Delete button for empty groups */}
-											{groupSessions.length === 0 && (
+											{/* Action buttons - visible on hover */}
+											<div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+												{/* Rename button */}
 												<button
 													onClick={(e) => {
 														e.stopPropagation();
-														showConfirmation(
-															`Are you sure you want to delete the group "${group.name}"?`,
-															() => {
-																setGroups((prev) => prev.filter((g) => g.id !== group.id));
-															}
-														);
+														startRenamingGroup(group.id);
 													}}
-													className="p-1 rounded hover:bg-red-500/20 opacity-0 group-hover:opacity-100 transition-opacity"
-													style={{ color: theme.colors.error }}
-													title="Delete empty group"
+													className="p-1 rounded hover:bg-white/10 transition-colors"
+													style={{ color: theme.colors.textDim }}
+													title="Rename group"
 												>
-													<X className="w-3 h-3" />
+													<Edit3 className="w-3 h-3" />
 												</button>
-											)}
-											{/* Delete button for worktree groups with agents */}
-											{group.emoji === '🌳' &&
+												{/* Delete button - works for all groups (worktree groups use special handler) */}
+												{group.emoji === '🌳' &&
 												groupSessions.length > 0 &&
-												onDeleteWorktreeGroup && (
+												onDeleteWorktreeGroup ? (
 													<button
 														onClick={(e) => {
 															e.stopPropagation();
 															onDeleteWorktreeGroup(group.id);
 														}}
-														className="p-1 rounded hover:bg-red-500/20 opacity-0 group-hover:opacity-100 transition-opacity"
+														className="p-1 rounded hover:bg-red-500/20 transition-colors"
 														style={{ color: theme.colors.error }}
 														title="Remove group and all agents"
 													>
 														<Trash2 className="w-3 h-3" />
 													</button>
+												) : (
+													<button
+														onClick={(e) => {
+															e.stopPropagation();
+															const message =
+																groupSessions.length > 0
+																	? `Are you sure you want to delete the group "${group.name}"? ${groupSessions.length} agent(s) will be moved to Ungrouped.`
+																	: `Are you sure you want to delete the group "${group.name}"?`;
+															showConfirmation(message, () => {
+																// Move agents to ungrouped first if group has agents
+																if (groupSessions.length > 0) {
+																	const sessionIds = groupSessions.map((s) => s.id);
+																	setSessions((prev) =>
+																		prev.map((s) =>
+																			sessionIds.includes(s.id) ? { ...s, groupId: undefined } : s
+																		)
+																	);
+																}
+																// Delete the group
+																setGroups((prev) => prev.filter((g) => g.id !== group.id));
+															});
+														}}
+														className="p-1 rounded hover:bg-red-500/20 transition-colors"
+														style={{ color: theme.colors.error }}
+														title={
+															groupSessions.length > 0
+																? 'Delete group (agents will be ungrouped)'
+																: 'Delete group'
+														}
+													>
+														<Trash2 className="w-3 h-3" />
+													</button>
 												)}
+											</div>
 										</div>
 
 										{!group.collapsed ? (
