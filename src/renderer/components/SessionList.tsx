@@ -1289,6 +1289,7 @@ function SessionListInner(props: SessionListProps) {
 	const contextMenuSession = contextMenu
 		? sessions.find((s) => s.id === contextMenu.sessionId)
 		: null;
+
 	const [tooltipPosition, setTooltipPosition] = useState<{ x: number; y: number } | null>(null);
 	const menuRef = useRef<HTMLDivElement>(null);
 
@@ -1853,6 +1854,13 @@ function SessionListInner(props: SessionListProps) {
 		[groups]
 	);
 
+	// Filter groups for context menu based on session's project folder
+	const contextMenuGroups = useMemo(() => {
+		if (!contextMenuSession) return groups;
+		const sessionFolderId = contextMenuSession.projectFolderIds?.[0] || null;
+		return getGroupsForProjectFolder(sessionFolderId);
+	}, [contextMenuSession, getGroupsForProjectFolder, groups]);
+
 	// Helper: Count items in a project folder
 	const getProjectFolderItemCount = useCallback(
 		(folderId: string): number => {
@@ -2180,11 +2188,29 @@ function SessionListInner(props: SessionListProps) {
 				{folderUngrouped.length > 0 && (
 					<div className="mb-1 ml-2">
 						<div
-							className="px-3 py-1 flex items-center gap-2 text-xs font-bold uppercase tracking-wider"
+							className="px-3 py-1 flex items-center justify-between text-xs font-bold uppercase tracking-wider"
 							style={{ color: theme.colors.textDim }}
 						>
-							<Folder className="w-3 h-3" />
-							<span>Ungrouped</span>
+							<div className="flex items-center gap-2">
+								<Folder className="w-3 h-3" />
+								<span>Ungrouped</span>
+							</div>
+							<button
+								onClick={(e) => {
+									e.stopPropagation();
+									createNewGroup();
+								}}
+								className="px-2 py-0.5 rounded-full text-[10px] font-medium hover:opacity-80 transition-opacity flex items-center gap-1"
+								style={{
+									backgroundColor: theme.colors.accent + '20',
+									color: theme.colors.accent,
+									border: `1px solid ${theme.colors.accent}40`,
+								}}
+								title="Create new group"
+							>
+								<Plus className="w-3 h-3" />
+								<span>New Group</span>
+							</button>
 						</div>
 						<div
 							className="flex flex-col border-l ml-4"
@@ -3144,80 +3170,80 @@ function SessionListInner(props: SessionListProps) {
 								);
 							})}
 
-							{/* SESSIONS - Flat list when no groups exist, otherwise show Ungrouped folder */}
-							{sessions.length > 0 && groups.length === 0 ? (
-								/* FLAT LIST - No groups exist yet, show sessions directly */
-								<div className="flex flex-col">
-									{sortedFilteredSessions.map((session) =>
-										renderSessionWithWorktrees(session, 'flat', { keyPrefix: 'flat' })
+							{/* UNGROUPED AGENTS SECTION - Always show header with New Group button when sessions exist */}
+							{sessions.length > 0 && (
+								<div className="mb-1 mt-4">
+									<div
+										className="px-3 py-1.5 flex items-center justify-between cursor-pointer hover:bg-opacity-50 group"
+										onClick={() => setUngroupedCollapsed(!ungroupedCollapsed)}
+										onDragOver={handleDragOver}
+										onDrop={handleDropOnUngrouped}
+									>
+										<div
+											className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider flex-1"
+											style={{ color: theme.colors.textDim }}
+										>
+											{ungroupedCollapsed ? (
+												<ChevronRight className="w-3 h-3" />
+											) : (
+												<ChevronDown className="w-3 h-3" />
+											)}
+											<Folder className="w-3.5 h-3.5" />
+											<span>Ungrouped Agents</span>
+										</div>
+										<button
+											onClick={(e) => {
+												e.stopPropagation();
+												createNewGroup();
+											}}
+											className="px-2 py-0.5 rounded-full text-[10px] font-medium hover:opacity-80 transition-opacity flex items-center gap-1"
+											style={{
+												backgroundColor: theme.colors.accent + '20',
+												color: theme.colors.accent,
+												border: `1px solid ${theme.colors.accent}40`,
+											}}
+											title="Create new group"
+										>
+											<Plus className="w-3 h-3" />
+											<span>New Group</span>
+										</button>
+									</div>
+
+									{!ungroupedCollapsed ? (
+										<div
+											className="flex flex-col border-l ml-4"
+											style={{ borderColor: theme.colors.border }}
+										>
+											{/* Show ungrouped sessions when groups exist, otherwise show all sessions */}
+											{groups.length > 0
+												? sortedUngroupedSessions.map((session) =>
+														renderSessionWithWorktrees(session, 'ungrouped', {
+															keyPrefix: 'ungrouped',
+														})
+													)
+												: sortedFilteredSessions.map((session) =>
+														renderSessionWithWorktrees(session, 'flat', {
+															keyPrefix: 'flat',
+														})
+													)}
+										</div>
+									) : (
+										/* Collapsed Ungrouped Palette - uses subdivided pills for worktrees */
+										<div
+											className="ml-8 mr-3 mt-1 mb-2 flex gap-1 h-1.5 cursor-pointer"
+											onClick={() => setUngroupedCollapsed(false)}
+										>
+											{(groups.length > 0
+												? sortedUngroupedParentSessions
+												: sortedFilteredSessions.filter((s) => !s.parentSessionId)
+											).map((s) =>
+												renderCollapsedPill(s, 'ungrouped-collapsed', () =>
+													setUngroupedCollapsed(false)
+												)
+											)}
+										</div>
 									)}
 								</div>
-							) : (
-								groups.length > 0 && (
-									/* UNGROUPED FOLDER - Groups exist, show as collapsible folder */
-									<div className="mb-1 mt-4">
-										<div
-											className="px-3 py-1.5 flex items-center justify-between cursor-pointer hover:bg-opacity-50 group"
-											onClick={() => setUngroupedCollapsed(!ungroupedCollapsed)}
-											onDragOver={handleDragOver}
-											onDrop={handleDropOnUngrouped}
-										>
-											<div
-												className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider flex-1"
-												style={{ color: theme.colors.textDim }}
-											>
-												{ungroupedCollapsed ? (
-													<ChevronRight className="w-3 h-3" />
-												) : (
-													<ChevronDown className="w-3 h-3" />
-												)}
-												<Folder className="w-3.5 h-3.5" />
-												<span>Ungrouped Agents</span>
-											</div>
-											<button
-												onClick={(e) => {
-													e.stopPropagation();
-													createNewGroup();
-												}}
-												className="px-2 py-0.5 rounded-full text-[10px] font-medium hover:opacity-80 transition-opacity flex items-center gap-1"
-												style={{
-													backgroundColor: theme.colors.accent + '20',
-													color: theme.colors.accent,
-													border: `1px solid ${theme.colors.accent}40`,
-												}}
-												title="Create new group"
-											>
-												<Plus className="w-3 h-3" />
-												<span>New Group</span>
-											</button>
-										</div>
-
-										{!ungroupedCollapsed ? (
-											<div
-												className="flex flex-col border-l ml-4"
-												style={{ borderColor: theme.colors.border }}
-											>
-												{sortedUngroupedSessions.map((session) =>
-													renderSessionWithWorktrees(session, 'ungrouped', {
-														keyPrefix: 'ungrouped',
-													})
-												)}
-											</div>
-										) : (
-											/* Collapsed Ungrouped Palette - uses subdivided pills for worktrees */
-											<div
-												className="ml-8 mr-3 mt-1 mb-2 flex gap-1 h-1.5 cursor-pointer"
-												onClick={() => setUngroupedCollapsed(false)}
-											>
-												{sortedUngroupedParentSessions.map((s) =>
-													renderCollapsedPill(s, 'ungrouped-collapsed', () =>
-														setUngroupedCollapsed(false)
-													)
-												)}
-											</div>
-										)}
-									</div>
-								)
 							)}
 
 							{/* Flexible spacer to push group chats to bottom */}
@@ -3379,7 +3405,7 @@ function SessionListInner(props: SessionListProps) {
 					y={contextMenu.y}
 					theme={theme}
 					session={contextMenuSession}
-					groups={groups}
+					groups={contextMenuGroups}
 					hasWorktreeChildren={sessions.some((s) => s.parentSessionId === contextMenuSession.id)}
 					onRename={() => {
 						setRenameInstanceValue(contextMenuSession.name);
