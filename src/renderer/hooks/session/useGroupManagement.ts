@@ -9,6 +9,10 @@ export interface GroupModalState {
 	createGroupModalOpen: boolean;
 	/** Setters for modal state */
 	setCreateGroupModalOpen: React.Dispatch<React.SetStateAction<boolean>>;
+	/** Project folder ID for the new group (null = main list/unassigned) */
+	createGroupForFolderId: string | undefined;
+	/** Setter for project folder ID */
+	setCreateGroupForFolderId: React.Dispatch<React.SetStateAction<string | undefined>>;
 }
 
 /**
@@ -42,7 +46,7 @@ export interface UseGroupManagementReturn {
 	/** Finish renaming a group */
 	finishRenamingGroup: (groupId: string, newName: string) => void;
 	/** Open the create group modal */
-	createNewGroup: () => void;
+	createNewGroup: (folderId?: string) => void;
 	/** Drop a session on a group */
 	handleDropOnGroup: (groupId: string) => void;
 	/** Drop a session on ungrouped area */
@@ -75,6 +79,9 @@ export function useGroupManagement(deps: UseGroupManagementDeps): UseGroupManage
 
 	// Modal state for create group dialog
 	const [createGroupModalOpen, setCreateGroupModalOpen] = useState(false);
+	const [createGroupForFolderId, setCreateGroupForFolderId] = useState<string | undefined>(
+		undefined
+	);
 
 	/**
 	 * Toggle group collapse/expand state
@@ -119,7 +126,8 @@ export function useGroupManagement(deps: UseGroupManagementDeps): UseGroupManage
 	/**
 	 * Open the create group modal
 	 */
-	const createNewGroup = useCallback(() => {
+	const createNewGroup = useCallback((folderId?: string) => {
+		setCreateGroupForFolderId(folderId);
 		setCreateGroupModalOpen(true);
 	}, []);
 
@@ -154,6 +162,8 @@ export function useGroupManagement(deps: UseGroupManagementDeps): UseGroupManage
 	const modalState: GroupModalState = {
 		createGroupModalOpen,
 		setCreateGroupModalOpen,
+		createGroupForFolderId,
+		setCreateGroupForFolderId,
 	};
 
 	return {
