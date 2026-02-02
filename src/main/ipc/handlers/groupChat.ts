@@ -171,13 +171,20 @@ export function registerGroupChatHandlers(deps: GroupChatHandlerDependencies): v
 					customPath?: string;
 					customArgs?: string;
 					customEnvVars?: Record<string, string>;
-				}
+				},
+				projectFolderId?: string
 			): Promise<GroupChat> => {
 				logger.info(`Creating group chat: ${name}`, LOG_CONTEXT, {
 					moderatorAgentId,
 					hasConfig: !!moderatorConfig,
+					projectFolderId,
 				});
-				const chat = await createGroupChat(name, moderatorAgentId, moderatorConfig);
+				const chat = await createGroupChat(
+					name,
+					moderatorAgentId,
+					moderatorConfig,
+					projectFolderId
+				);
 
 				// Initialize the moderator immediately so it's "hot and ready"
 				// This spawns the session ID prefix so the UI doesn't show "pending"

@@ -81,6 +81,8 @@ export interface GroupChat {
 	participants: GroupChatParticipant[];
 	logPath: string;
 	imagesDir: string;
+	/** Project Folder this group chat belongs to (undefined = unassigned) */
+	projectFolderId?: string;
 }
 
 /**
@@ -165,13 +167,15 @@ function sanitizeChatName(name: string): string {
  * @param name - Display name for the group chat
  * @param moderatorAgentId - ID of the agent to use as moderator (e.g., 'claude-code')
  * @param moderatorConfig - Optional custom configuration for the moderator agent
+ * @param projectFolderId - Optional project folder ID to scope this group chat to
  * @returns The created GroupChat object
  * @throws Error if moderatorAgentId is not a valid agent ID
  */
 export async function createGroupChat(
 	name: string,
 	moderatorAgentId: string,
-	moderatorConfig?: ModeratorConfig
+	moderatorConfig?: ModeratorConfig,
+	projectFolderId?: string
 ): Promise<GroupChat> {
 	// Validate agent ID against whitelist
 	if (!VALID_MODERATOR_AGENT_IDS.includes(moderatorAgentId as ToolType)) {
@@ -208,6 +212,7 @@ export async function createGroupChat(
 		participants: [],
 		logPath,
 		imagesDir,
+		projectFolderId,
 	};
 
 	// Write metadata
