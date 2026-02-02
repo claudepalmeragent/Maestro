@@ -10,10 +10,11 @@ interface CreateGroupModalProps {
 	groups: Group[];
 	setGroups: React.Dispatch<React.SetStateAction<Group[]>>;
 	onGroupCreated?: (groupId: string) => void; // Optional callback when group is created
+	projectFolderId?: string; // Project folder to scope the new group to
 }
 
 export function CreateGroupModal(props: CreateGroupModalProps) {
-	const { theme, onClose, groups, setGroups, onGroupCreated } = props;
+	const { theme, onClose, groups, setGroups, onGroupCreated, projectFolderId } = props;
 
 	const [groupName, setGroupName] = useState('');
 	const [groupEmoji, setGroupEmoji] = useState('📂');
@@ -28,6 +29,7 @@ export function CreateGroupModal(props: CreateGroupModalProps) {
 				name: groupName.trim().toUpperCase(),
 				emoji: groupEmoji,
 				collapsed: false,
+				projectFolderId, // Scope to project folder if provided
 			};
 			setGroups([...groups, newGroup]);
 

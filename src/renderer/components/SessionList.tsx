@@ -1067,7 +1067,7 @@ interface SessionListProps {
 	showConfirmation: (message: string, onConfirm: () => void) => void;
 	setGroups: React.Dispatch<React.SetStateAction<Group[]>>;
 	setSessions: React.Dispatch<React.SetStateAction<Session[]>>;
-	createNewGroup: () => void;
+	createNewGroup: (folderId?: string) => void;
 	onCreateGroupAndMove?: (sessionId: string) => void; // Create new group and move session to it
 	addNewSession: () => void;
 	onDeleteSession?: (id: string) => void;
@@ -2198,7 +2198,7 @@ function SessionListInner(props: SessionListProps) {
 							<button
 								onClick={(e) => {
 									e.stopPropagation();
-									createNewGroup();
+									createNewGroup(folderId ?? undefined);
 								}}
 								className="px-2 py-0.5 rounded-full text-[10px] font-medium hover:opacity-80 transition-opacity flex items-center gap-1"
 								style={{
@@ -3445,7 +3445,7 @@ function SessionListInner(props: SessionListProps) {
 					onCreateGroup={
 						onCreateGroupAndMove
 							? () => onCreateGroupAndMove(contextMenuSession.id)
-							: createNewGroup
+							: () => createNewGroup(contextMenuSession.projectFolderIds?.[0])
 					}
 				/>
 			)}

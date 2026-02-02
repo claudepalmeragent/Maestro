@@ -505,6 +505,7 @@ export interface AppGroupModalsProps {
 	createGroupModalOpen: boolean;
 	onCloseCreateGroupModal: () => void;
 	onGroupCreated?: (groupId: string) => void;
+	createGroupForFolderId?: string; // Project folder context for new group
 
 	// RenameGroupModal
 	renameGroupModalOpen: boolean;
@@ -531,6 +532,7 @@ export function AppGroupModals({
 	createGroupModalOpen,
 	onCloseCreateGroupModal,
 	onGroupCreated,
+	createGroupForFolderId,
 	// RenameGroupModal
 	renameGroupModalOpen,
 	renameGroupId,
@@ -550,6 +552,7 @@ export function AppGroupModals({
 					groups={groups}
 					setGroups={setGroups}
 					onGroupCreated={onGroupCreated}
+					projectFolderId={createGroupForFolderId}
 				/>
 			)}
 
@@ -1761,6 +1764,7 @@ export interface AppModalsProps {
 	createGroupModalOpen: boolean;
 	onCloseCreateGroupModal: () => void;
 	onGroupCreated?: (groupId: string) => void;
+	createGroupForFolderId?: string; // Project folder context for new group
 	renameGroupModalOpen: boolean;
 	renameGroupId: string | null;
 	renameGroupValue: string;
@@ -2086,6 +2090,7 @@ export function AppModals(props: AppModalsProps) {
 		createGroupModalOpen,
 		onCloseCreateGroupModal,
 		onGroupCreated,
+		createGroupForFolderId,
 		renameGroupModalOpen,
 		renameGroupId,
 		renameGroupValue,
@@ -2372,6 +2377,7 @@ export function AppModals(props: AppModalsProps) {
 				createGroupModalOpen={createGroupModalOpen}
 				onCloseCreateGroupModal={onCloseCreateGroupModal}
 				onGroupCreated={onGroupCreated}
+				createGroupForFolderId={createGroupForFolderId}
 				renameGroupModalOpen={renameGroupModalOpen}
 				renameGroupId={renameGroupId}
 				renameGroupValue={renameGroupValue}
