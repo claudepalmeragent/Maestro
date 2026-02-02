@@ -12946,6 +12946,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 									}}
 									participantColors={groupChatParticipantColors}
 									messagesRef={groupChatMessagesRef}
+									participantStates={participantStates}
 								/>
 							</div>
 							<GroupChatRightPanel

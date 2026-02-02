@@ -69,6 +69,8 @@ interface GroupChatPanelProps {
 	participantColors?: Record<string, string>;
 	/** Ref to expose scrollToMessage on the messages component */
 	messagesRef?: React.RefObject<GroupChatMessagesHandle>;
+	/** Per-participant working state (name -> 'idle' | 'working') for showing which agent is working */
+	participantStates?: Map<string, 'idle' | 'working'>;
 }
 
 export function GroupChatPanel({
@@ -107,6 +109,7 @@ export function GroupChatPanel({
 	showFlashNotification,
 	participantColors,
 	messagesRef,
+	participantStates,
 }: GroupChatPanelProps): JSX.Element {
 	return (
 		<div className="flex flex-col h-full" style={{ backgroundColor: theme.colors.bgMain }}>
@@ -134,6 +137,7 @@ export function GroupChatPanel({
 				onToggleMarkdownEditMode={onToggleMarkdownEditMode}
 				maxOutputLines={maxOutputLines}
 				participantColors={participantColors}
+				participantStates={participantStates}
 			/>
 
 			<GroupChatInput
