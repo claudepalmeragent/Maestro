@@ -1648,7 +1648,8 @@ interface MaestroAPI {
 				customPath?: string;
 				customArgs?: string;
 				customEnvVars?: Record<string, string>;
-			}
+			},
+			projectFolderId?: string
 		) => Promise<{
 			id: string;
 			name: string;
@@ -1663,6 +1664,7 @@ interface MaestroAPI {
 			logPath: string;
 			imagesDir: string;
 			createdAt: number;
+			projectFolderId?: string;
 		}>;
 		list: () => Promise<
 			Array<{
