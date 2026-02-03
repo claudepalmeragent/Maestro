@@ -19,7 +19,12 @@ import { logger } from '../utils/logger';
 import { CLAUDE_SESSION_PARSE_LIMITS } from '../constants';
 import { calculateClaudeCost } from '../utils/pricing';
 import { encodeClaudeProjectPath } from '../utils/statsCache';
-import { readDirRemote, readFileRemote, statRemote } from '../utils/remote-fs';
+import {
+	readDirRemote,
+	readFileRemote,
+	readFileRemotePartial,
+	statRemote,
+} from '../utils/remote-fs';
 import type {
 	AgentSessionStorage,
 	AgentSessionInfo,
@@ -217,7 +222,138 @@ async function parseSessionFile(
 }
 
 /**
+ * Parse partial session content to extract metadata for listing.
+ * This is used for large remote files where reading the entire content
+ * would exceed buffer limits. We extract what we can from head/tail.
+ *
+ * Note: Message count and token totals will be approximate for large files.
+ */
+function parsePartialSessionContent(
+	head: string,
+	tail: string,
+	totalLines: number,
+	sessionId: string,
+	projectPath: string,
+	stats: { size: number; mtimeMs: number }
+): AgentSessionInfo | null {
+	try {
+		const headLines = head.split('\n').filter((l) => l.trim());
+		const tailLines = tail.split('\n').filter((l) => l.trim());
+
+		let firstAssistantMessage = '';
+		let firstUserMessage = '';
+		let timestamp = new Date(stats.mtimeMs).toISOString();
+
+		// Estimate message count from total lines (rough approximation)
+		// Most JSONL entries are single-line messages
+		const estimatedMessageCount = Math.max(1, Math.floor(totalLines * 0.4));
+
+		// Extract first meaningful message content from head
+		for (
+			let i = 0;
+			i < Math.min(headLines.length, CLAUDE_SESSION_PARSE_LIMITS.FIRST_MESSAGE_SCAN_LINES);
+			i++
+		) {
+			try {
+				const entry = JSON.parse(headLines[i]);
+				if (!firstUserMessage && entry.type === 'user' && entry.message?.content) {
+					const textContent = extractTextFromContent(entry.message.content);
+					if (textContent.trim()) {
+						firstUserMessage = textContent;
+						timestamp = entry.timestamp || timestamp;
+					}
+				}
+				if (!firstAssistantMessage && entry.type === 'assistant' && entry.message?.content) {
+					const textContent = extractTextFromContent(entry.message.content);
+					if (textContent.trim()) {
+						firstAssistantMessage = textContent;
+						break;
+					}
+				}
+			} catch {
+				// Skip malformed lines
+			}
+		}
+
+		const previewMessage = firstAssistantMessage || firstUserMessage;
+
+		// Extract token counts from head (partial - won't have full totals for large files)
+		let totalInputTokens = 0;
+		let totalOutputTokens = 0;
+		let totalCacheReadTokens = 0;
+		let totalCacheCreationTokens = 0;
+
+		const combinedContent = head + '\n' + tail;
+		const inputMatches = combinedContent.matchAll(/"input_tokens"\s*:\s*(\d+)/g);
+		for (const m of inputMatches) totalInputTokens += parseInt(m[1], 10);
+
+		const outputMatches = combinedContent.matchAll(/"output_tokens"\s*:\s*(\d+)/g);
+		for (const m of outputMatches) totalOutputTokens += parseInt(m[1], 10);
+
+		const cacheReadMatches = combinedContent.matchAll(/"cache_read_input_tokens"\s*:\s*(\d+)/g);
+		for (const m of cacheReadMatches) totalCacheReadTokens += parseInt(m[1], 10);
+
+		const cacheCreationMatches = combinedContent.matchAll(
+			/"cache_creation_input_tokens"\s*:\s*(\d+)/g
+		);
+		for (const m of cacheCreationMatches) totalCacheCreationTokens += parseInt(m[1], 10);
+
+		const costUsd = calculateClaudeCost(
+			totalInputTokens,
+			totalOutputTokens,
+			totalCacheReadTokens,
+			totalCacheCreationTokens
+		);
+
+		// Extract last timestamp from tail for duration
+		let lastTimestamp = timestamp;
+		for (let i = tailLines.length - 1; i >= 0; i--) {
+			try {
+				const entry = JSON.parse(tailLines[i]);
+				if (entry.timestamp) {
+					lastTimestamp = entry.timestamp;
+					break;
+				}
+			} catch {
+				// Skip malformed lines
+			}
+		}
+
+		const startTime = new Date(timestamp).getTime();
+		const endTime = new Date(lastTimestamp).getTime();
+		const durationSeconds = Math.max(0, Math.floor((endTime - startTime) / 1000));
+
+		return {
+			sessionId,
+			projectPath,
+			timestamp,
+			modifiedAt: new Date(stats.mtimeMs).toISOString(),
+			firstMessage: previewMessage.slice(
+				0,
+				CLAUDE_SESSION_PARSE_LIMITS.FIRST_MESSAGE_PREVIEW_LENGTH
+			),
+			messageCount: estimatedMessageCount,
+			sizeBytes: stats.size,
+			costUsd,
+			inputTokens: totalInputTokens,
+			outputTokens: totalOutputTokens,
+			cacheReadTokens: totalCacheReadTokens,
+			cacheCreationTokens: totalCacheCreationTokens,
+			durationSeconds,
+		};
+	} catch (error) {
+		logger.error(
+			`Error parsing partial session content for session: ${sessionId}`,
+			LOG_CONTEXT,
+			error
+		);
+		return null;
+	}
+}
+
+/**
  * Parse a session file and extract metadata (remote via SSH)
+ * Uses partial reading for large files to avoid buffer overflow
  */
 async function parseSessionFileRemote(
 	filePath: string,
@@ -227,6 +363,33 @@ async function parseSessionFileRemote(
 	sshConfig: SshRemoteConfig
 ): Promise<AgentSessionInfo | null> {
 	try {
+		// For large files (> 5MB), use partial reading to avoid buffer overflow
+		const LARGE_FILE_THRESHOLD = 5 * 1024 * 1024;
+
+		if (stats.size > LARGE_FILE_THRESHOLD) {
+			logger.debug(
+				`Using partial read for large session file: ${filePath} (${stats.size} bytes)`,
+				LOG_CONTEXT
+			);
+			const result = await readFileRemotePartial(filePath, sshConfig, 100, 50);
+			if (!result.success || !result.data) {
+				logger.error(
+					`Failed to read remote session file (partial): ${filePath} - ${result.error}`,
+					LOG_CONTEXT
+				);
+				return null;
+			}
+			return parsePartialSessionContent(
+				result.data.head,
+				result.data.tail,
+				result.data.totalLines,
+				sessionId,
+				projectPath,
+				stats
+			);
+		}
+
+		// For smaller files, read the entire content
 		const result = await readFileRemote(filePath, sshConfig);
 		if (!result.success || !result.data) {
 			logger.error(

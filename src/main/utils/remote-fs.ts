@@ -342,13 +342,77 @@ export async function readFileRemote(
 					? `Path is a directory: ${filePath}`
 					: error.includes('Permission denied')
 						? `Permission denied: ${filePath}`
-						: error,
+						: error.includes('maxBuffer')
+							? `File too large to read via SSH: ${filePath}`
+							: error,
 		};
 	}
 
 	return {
 		success: true,
 		data: result.stdout,
+	};
+}
+
+/**
+ * Read partial file contents from a remote host via SSH.
+ *
+ * Reads the first N lines and last M lines of a file, which is useful for
+ * extracting metadata from large files without loading the entire content.
+ *
+ * @param filePath Path to the file on the remote host
+ * @param sshRemote SSH remote configuration
+ * @param headLines Number of lines to read from the beginning (default: 100)
+ * @param tailLines Number of lines to read from the end (default: 50)
+ * @param deps Optional dependencies for testing
+ * @returns Partial file contents with head and tail sections
+ */
+export async function readFileRemotePartial(
+	filePath: string,
+	sshRemote: SshRemoteConfig,
+	headLines: number = 100,
+	tailLines: number = 50,
+	deps: RemoteFsDeps = defaultDeps
+): Promise<RemoteFsResult<{ head: string; tail: string; totalLines: number }>> {
+	const escapedPath = escapeRemotePath(filePath);
+
+	// Get total line count, head, and tail in one SSH command to minimize round trips
+	// Use a separator that's unlikely to appear in JSONL content
+	const separator = '___MAESTRO_SECTION_SEP___';
+	const remoteCommand = `wc -l < ${escapedPath} && echo "${separator}" && head -n ${headLines} ${escapedPath} && echo "${separator}" && tail -n ${tailLines} ${escapedPath}`;
+
+	const result = await execRemoteCommand(sshRemote, remoteCommand, deps);
+
+	if (result.exitCode !== 0) {
+		const error = result.stderr || `Failed to read file: ${filePath}`;
+		return {
+			success: false,
+			error: error.includes('No such file')
+				? `File not found: ${filePath}`
+				: error.includes('Is a directory')
+					? `Path is a directory: ${filePath}`
+					: error.includes('Permission denied')
+						? `Permission denied: ${filePath}`
+						: error,
+		};
+	}
+
+	// Parse the output sections
+	const sections = result.stdout.split(separator);
+	if (sections.length < 3) {
+		return {
+			success: false,
+			error: `Failed to parse partial file output for: ${filePath}`,
+		};
+	}
+
+	const totalLines = parseInt(sections[0].trim(), 10) || 0;
+	const head = sections[1].trim();
+	const tail = sections[2].trim();
+
+	return {
+		success: true,
+		data: { head, tail, totalLines },
 	};
 }
 
