@@ -765,6 +765,39 @@ export interface OpenSpecMetadata {
 	sourceUrl: string; // GitHub repo URL
 }
 
+// Prompt Library entry for saved prompts with AI variable support
+export interface PromptLibraryEntry {
+	id: string; // Unique ID: `prompt-{timestamp}-{random}`
+	title: string; // User-defined or auto-generated from first line
+	prompt: string; // The full prompt text (supports {{variables}})
+	description?: string; // Optional short description
+
+	// Origin metadata
+	projectName: string; // Project name where prompt was first created
+	projectPath: string; // Full path to project
+	agentId: string; // Agent ID (e.g., 'claude-code')
+	agentName: string; // Agent display name
+	agentSessionId?: string; // Original session ID (for pill hover)
+
+	// Timestamps
+	createdAt: number; // Unix timestamp of creation
+	updatedAt: number; // Unix timestamp of last modification
+	lastUsedAt?: number; // Unix timestamp of last use
+
+	// Usage tracking
+	useCount: number; // Number of times used
+
+	// Tags for future categorization
+	tags?: string[];
+}
+
+// Prompt Library metadata for tracking version and state
+export interface PromptLibraryMetadata {
+	version: number; // Schema version for migrations
+	lastModified: number; // File last modified timestamp
+	totalPrompts: number; // Quick count without loading all
+}
+
 // Leaderboard registration data for runmaestro.ai integration
 export interface LeaderboardRegistration {
 	// Required fields

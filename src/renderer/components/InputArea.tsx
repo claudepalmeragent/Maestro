@@ -15,6 +15,7 @@ import {
 	PenLine,
 	Brain,
 	Wand2,
+	Library,
 } from 'lucide-react';
 import type { Session, Theme, BatchRunState, Shortcut } from '../types';
 import { formatShortcutKeys } from '../utils/shortcutFormatter';
@@ -118,6 +119,8 @@ interface InputAreaProps {
 	onToggleTabSaveToHistory?: () => void;
 	// Prompt composer modal
 	onOpenPromptComposer?: () => void;
+	// Prompt Library (opens Prompt Composer with library open)
+	onOpenPromptLibrary?: () => void;
 	// Shortcuts for displaying keyboard hints
 	shortcuts?: Record<string, Shortcut>;
 	// Flash notification callback
@@ -212,6 +215,7 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 		tabSaveToHistory = false,
 		onToggleTabSaveToHistory,
 		onOpenPromptComposer,
+		onOpenPromptLibrary,
 		shortcuts,
 		showFlashNotification,
 		tabShowThinking = false,
@@ -954,6 +958,15 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 										title={`Open Prompt Composer${shortcuts?.openPromptComposer ? ` (${formatShortcutKeys(shortcuts.openPromptComposer.keys)})` : ''}`}
 									>
 										<PenLine className="w-4 h-4" />
+									</button>
+								)}
+								{session.inputMode === 'ai' && onOpenPromptLibrary && (
+									<button
+										onClick={onOpenPromptLibrary}
+										className="p-1 hover:bg-white/10 rounded opacity-50 hover:opacity-100"
+										title="Open Prompt Library"
+									>
+										<Library className="w-4 h-4" />
 									</button>
 								)}
 								{session.inputMode === 'ai' && canAttachImages && (
