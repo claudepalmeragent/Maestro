@@ -152,6 +152,14 @@ export function PromptLibrarySearchBar({
 		(e: React.KeyboardEvent) => {
 			if (e.key === 'Escape') {
 				e.preventDefault();
+				e.stopPropagation(); // Prevent LayerStack from closing the parent modal
+				onClose();
+				return;
+			}
+			// Cmd/Ctrl + Shift + L to close library (same shortcut that opens it)
+			if (e.key === 'l' && (e.metaKey || e.ctrlKey) && e.shiftKey) {
+				e.preventDefault();
+				e.stopPropagation();
 				onClose();
 				return;
 			}
@@ -382,6 +390,8 @@ export function PromptLibrarySearchBar({
 					<kbd className="px-1 py-0.5 rounded bg-white/10 mx-1">Enter</kbd>
 					select
 					<kbd className="px-1 py-0.5 rounded bg-white/10 mx-1">Esc</kbd>
+					or
+					<kbd className="px-1 py-0.5 rounded bg-white/10 mx-1">⌘⇧L</kbd>
 					close
 				</div>
 			</div>
