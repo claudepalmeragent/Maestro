@@ -877,6 +877,38 @@ interface MaestroAPI {
 			sessionId: string,
 			starred: boolean
 		) => Promise<void>;
+		// Subagent APIs
+		listSubagents: (
+			agentId: string,
+			projectPath: string,
+			sessionId: string,
+			sshRemoteId?: string
+		) => Promise<
+			Array<{
+				agentId: string;
+				agentType: string;
+				parentSessionId: string;
+				filePath: string;
+				timestamp: string;
+				modifiedAt: string;
+				messageCount: number;
+				sizeBytes: number;
+				inputTokens: number;
+				outputTokens: number;
+				cacheReadTokens: number;
+				cacheCreationTokens: number;
+				costUsd: number;
+				firstMessage: string;
+				durationSeconds: number;
+			}>
+		>;
+		getSubagentMessages: (
+			agentId: string,
+			projectPath: string,
+			agentSubId: string,
+			options?: { offset?: number; limit?: number },
+			sshRemoteId?: string
+		) => Promise<SessionMessagesResult>;
 	};
 	dialog: {
 		selectFolder: () => Promise<string | null>;
@@ -2147,6 +2179,12 @@ interface MaestroAPI {
 			projectPath?: string;
 			tabId?: string;
 			isRemote?: boolean;
+			/** Input tokens sent in this request */
+			inputTokens?: number;
+			/** Output tokens received in response */
+			outputTokens?: number;
+			/** Calculated throughput: outputTokens / (duration/1000) */
+			tokensPerSecond?: number;
 		}) => Promise<string>;
 		// Start an Auto Run session (returns session ID)
 		startAutoRun: (session: {
@@ -2224,17 +2262,54 @@ interface MaestroAPI {
 			totalQueries: number;
 			totalDuration: number;
 			avgDuration: number;
-			byAgent: Record<string, { count: number; duration: number }>;
+			byAgent: Record<
+				string,
+				{ count: number; duration: number; totalOutputTokens: number; avgTokensPerSecond: number }
+			>;
 			bySource: { user: number; auto: number };
 			byLocation: { local: number; remote: number };
-			byDay: Array<{ date: string; count: number; duration: number }>;
+			byDay: Array<{
+				date: string;
+				count: number;
+				duration: number;
+				outputTokens?: number;
+				avgTokensPerSecond?: number;
+			}>;
 			byHour: Array<{ hour: number; count: number; duration: number }>;
 			totalSessions: number;
 			sessionsByAgent: Record<string, number>;
 			sessionsByDay: Array<{ date: string; count: number }>;
 			avgSessionDuration: number;
-			byAgentByDay: Record<string, Array<{ date: string; count: number; duration: number }>>;
-			bySessionByDay: Record<string, Array<{ date: string; count: number; duration: number }>>;
+			byAgentByDay: Record<
+				string,
+				Array<{
+					date: string;
+					count: number;
+					duration: number;
+					outputTokens: number;
+					avgTokensPerSecond: number;
+				}>
+			>;
+			bySessionByDay: Record<
+				string,
+				Array<{
+					date: string;
+					count: number;
+					duration: number;
+					outputTokens: number;
+					avgTokensPerSecond: number;
+				}>
+			>;
+			/** Total output tokens generated across all queries */
+			totalOutputTokens: number;
+			/** Total input tokens sent across all queries */
+			totalInputTokens: number;
+			/** Average throughput in tokens per second (for queries with token data) */
+			avgTokensPerSecond: number;
+			/** Average output tokens per query (for queries with token data) */
+			avgOutputTokensPerQuery: number;
+			/** Number of queries that have token data */
+			queriesWithTokenData: number;
 		}>;
 		// Export query events to CSV
 		exportCsv: (range: 'day' | 'week' | 'month' | 'year' | 'all') => Promise<string>;

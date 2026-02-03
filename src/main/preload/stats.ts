@@ -21,6 +21,12 @@ export interface QueryEvent {
 	projectPath?: string;
 	tabId?: string;
 	isRemote?: boolean;
+	/** Input tokens sent in this request */
+	inputTokens?: number;
+	/** Output tokens received in response */
+	outputTokens?: number;
+	/** Calculated throughput: outputTokens / (duration/1000) */
+	tokensPerSecond?: number;
 }
 
 /**
@@ -67,9 +73,62 @@ export interface StatsAggregation {
 	totalQueries: number;
 	totalDuration: number;
 	avgDuration: number;
-	byAgent: Record<string, { count: number; duration: number }>;
+	byAgent: Record<
+		string,
+		{ count: number; duration: number; totalOutputTokens: number; avgTokensPerSecond: number }
+	>;
 	bySource: { user: number; auto: number };
-	byDay: Array<{ date: string; count: number; duration: number }>;
+	byDay: Array<{
+		date: string;
+		count: number;
+		duration: number;
+		outputTokens?: number;
+		avgTokensPerSecond?: number;
+	}>;
+	/** Breakdown by session location (local vs SSH remote) */
+	byLocation: { local: number; remote: number };
+	/** Breakdown by hour of day (0-23) for peak hours chart */
+	byHour: Array<{ hour: number; count: number; duration: number }>;
+	/** Total unique sessions launched in the time period */
+	totalSessions: number;
+	/** Sessions by agent type */
+	sessionsByAgent: Record<string, number>;
+	/** Sessions launched per day */
+	sessionsByDay: Array<{ date: string; count: number }>;
+	/** Average session duration in ms (for closed sessions) */
+	avgSessionDuration: number;
+	/** Queries and duration by provider per day (for provider comparison and throughput trends) */
+	byAgentByDay: Record<
+		string,
+		Array<{
+			date: string;
+			count: number;
+			duration: number;
+			outputTokens: number;
+			avgTokensPerSecond: number;
+		}>
+	>;
+	/** Queries and duration by Maestro session per day (for agent usage chart and throughput trends) */
+	bySessionByDay: Record<
+		string,
+		Array<{
+			date: string;
+			count: number;
+			duration: number;
+			outputTokens: number;
+			avgTokensPerSecond: number;
+		}>
+	>;
+	/** Total output tokens generated across all queries */
+	totalOutputTokens: number;
+	/** Total input tokens sent across all queries */
+	totalInputTokens: number;
+	/** Average throughput in tokens per second (for queries with token data) */
+	avgTokensPerSecond: number;
+	/** Average output tokens per query (for queries with token data) */
+	avgOutputTokensPerQuery: number;
+	/** Number of queries that have token data */
+	queriesWithTokenData: number;
 }
 
 /**

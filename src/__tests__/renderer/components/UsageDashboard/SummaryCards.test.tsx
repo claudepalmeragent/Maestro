@@ -131,11 +131,11 @@ describe('SummaryCards', () => {
 			expect(screen.getByTestId('summary-cards')).toBeInTheDocument();
 		});
 
-		it('renders all six metric cards', () => {
+		it('renders all eight metric cards', () => {
 			render(<SummaryCards data={mockData} theme={theme} />);
 
 			const cards = screen.getAllByTestId('metric-card');
-			expect(cards).toHaveLength(6);
+			expect(cards).toHaveLength(8);
 		});
 
 		it('renders Total Queries metric', () => {
@@ -329,20 +329,20 @@ describe('SummaryCards', () => {
 		it('renders SVG icons for each metric', () => {
 			const { container } = render(<SummaryCards data={mockData} theme={theme} />);
 
-			// Each card should have an SVG icon
+			// Each card should have an SVG icon (8 cards)
 			const svgElements = container.querySelectorAll('svg');
-			expect(svgElements.length).toBe(6);
+			expect(svgElements.length).toBe(8);
 		});
 	});
 
 	describe('Grid Layout', () => {
-		it('uses 3-column grid layout by default (2 rows × 3 cols)', () => {
+		it('uses 4-column grid layout by default (2 rows × 4 cols)', () => {
 			render(<SummaryCards data={mockData} theme={theme} />);
 
 			const container = screen.getByTestId('summary-cards');
 			expect(container).toHaveClass('grid');
 			expect(container).toHaveStyle({
-				gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+				gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
 			});
 		});
 

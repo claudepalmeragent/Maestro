@@ -321,6 +321,13 @@ const mockMaestro = {
 		updateSessionName: vi.fn().mockResolvedValue(undefined),
 		updateSessionStarred: vi.fn().mockResolvedValue(undefined),
 		registerSessionOrigin: vi.fn().mockResolvedValue(undefined),
+		// Subagent APIs
+		listSubagents: vi.fn().mockResolvedValue([]),
+		getSubagentMessages: vi.fn().mockResolvedValue({
+			messages: [],
+			total: 0,
+			hasMore: false,
+		}),
 	},
 	autorun: {
 		readDoc: vi.fn().mockResolvedValue({ success: true, content: '' }),

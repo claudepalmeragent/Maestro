@@ -25,6 +25,10 @@ import {
 	HardDrive,
 	DollarSign,
 	Search,
+	ChevronRight,
+	ChevronDown,
+	Loader2,
+	Zap,
 } from 'lucide-react';
 import type { Theme } from '../types';
 import { formatSize, formatRelativeTime } from '../utils/formatters';
@@ -80,6 +84,14 @@ export interface SessionListItemProps {
 	onSubmitRename: (sessionId: string) => void;
 	/** Handler for canceling rename */
 	onCancelRename: () => void;
+	/** Handler for toggling subagent expansion (optional) */
+	onToggleExpand?: () => void;
+	/** Whether the session's subagents are expanded */
+	isExpanded?: boolean;
+	/** Whether this session has subagents */
+	hasSubagents?: boolean;
+	/** Whether subagents are currently loading */
+	isLoadingSubagents?: boolean;
 }
 
 /**
@@ -105,10 +117,18 @@ export function SessionListItem({
 	onRenameChange,
 	onSubmitRename,
 	onCancelRename,
+	onToggleExpand,
+	isExpanded,
+	hasSubagents,
+	isLoadingSubagents,
 }: SessionListItemProps) {
 	const isSelected = index === selectedIndex;
 	const isRenaming = renamingSessionId === session.sessionId;
 	const isActive = activeAgentSessionId === session.sessionId;
+
+	// Use aggregated values when available (includes subagent stats)
+	const displayCost = session.aggregatedCostUsd ?? session.costUsd;
+	const displayMessages = session.aggregatedMessageCount ?? session.messageCount;
 
 	return (
 		<div
@@ -120,6 +140,36 @@ export function SessionListItem({
 				borderColor: theme.colors.border + '50',
 			}}
 		>
+			{/* Expand toggle button for sessions with subagents */}
+			{onToggleExpand && (
+				<button
+					onClick={(e) => {
+						e.stopPropagation();
+						onToggleExpand();
+					}}
+					style={{
+						display: 'flex',
+						alignItems: 'center',
+						justifyContent: 'center',
+						padding: '2px',
+						border: 'none',
+						background: 'transparent',
+						color: theme.colors.textDim,
+						cursor: 'pointer',
+						marginRight: '4px',
+					}}
+					title={isExpanded ? 'Collapse subagents' : 'Expand subagents'}
+				>
+					{isLoadingSubagents ? (
+						<Loader2 size={14} className="animate-spin" />
+					) : isExpanded ? (
+						<ChevronDown size={14} />
+					) : (
+						<ChevronRight size={14} />
+					)}
+				</button>
+			)}
+
 			{/* Star button */}
 			<button
 				onClick={(e) => onToggleStar(session.sessionId, e)}
@@ -252,28 +302,40 @@ export function SessionListItem({
 							: session.sessionId.split('-')[0].toUpperCase()}
 					</span>
 
-					{/* Stats */}
+					{/* Stats - use aggregated values when available */}
 					<span className="flex items-center gap-1">
 						<Clock className="w-3 h-3" />
 						{formatRelativeTime(session.modifiedAt)}
 					</span>
 					<span className="flex items-center gap-1">
 						<MessageSquare className="w-3 h-3" />
-						{session.messageCount}
+						{displayMessages}
 					</span>
 					<span className="flex items-center gap-1">
 						<HardDrive className="w-3 h-3" />
 						{formatSize(session.sizeBytes)}
 					</span>
 
-					{/* Cost per session */}
-					{(session.costUsd ?? 0) > 0 && (
+					{/* Cost per session - use aggregated cost */}
+					{(displayCost ?? 0) > 0 && (
 						<span
 							className="flex items-center gap-1 font-mono"
 							style={{ color: theme.colors.success }}
 						>
 							<DollarSign className="w-3 h-3" />
-							{(session.costUsd ?? 0).toFixed(2)}
+							{(displayCost ?? 0).toFixed(2)}
+						</span>
+					)}
+
+					{/* Subagent indicator - show if session has subagents */}
+					{hasSubagents && session.subagentCount && session.subagentCount > 0 && (
+						<span
+							className="flex items-center gap-0.5"
+							style={{ color: theme.colors.accent }}
+							title={`Includes ${session.subagentCount} subagent(s)`}
+						>
+							<Zap className="w-3 h-3" />
+							<span className="text-[10px]">+{session.subagentCount}</span>
 						</span>
 					)}
 

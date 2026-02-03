@@ -37,6 +37,7 @@ import type {
 	AgentSessionOrigin,
 	SessionOriginInfo,
 	SessionMessage,
+	SubagentInfo,
 } from '../agents';
 import type { ToolType, SshRemoteConfig } from '../../shared/types';
 
@@ -218,6 +219,137 @@ async function parseSessionFile(
 	} catch (error) {
 		logger.error(`Error reading session file: ${filePath}`, LOG_CONTEXT, error);
 		return null;
+	}
+}
+
+/**
+ * Compute aggregated stats for a session including its subagents.
+ * This pre-computes stats at listing time for efficient display.
+ */
+async function computeAggregatedStats(
+	session: AgentSessionInfo,
+	subagentsDir: string,
+	isRemote: boolean,
+	sshConfig?: SshRemoteConfig
+): Promise<AgentSessionInfo> {
+	try {
+		// Check if subagents folder exists
+		let subagentFiles: string[] = [];
+
+		if (isRemote && sshConfig) {
+			const dirResult = await readDirRemote(subagentsDir, sshConfig);
+			if (dirResult.success && dirResult.data) {
+				subagentFiles = dirResult.data
+					.filter((e) => !e.isDirectory && e.name.endsWith('.jsonl') && e.name.startsWith('agent-'))
+					.map((e) => e.name);
+			}
+		} else {
+			try {
+				const files = await fs.readdir(subagentsDir);
+				subagentFiles = files.filter((f) => f.endsWith('.jsonl') && f.startsWith('agent-'));
+			} catch {
+				// No subagents folder
+			}
+		}
+
+		if (subagentFiles.length === 0) {
+			return {
+				...session,
+				hasSubagents: false,
+				subagentCount: 0,
+				aggregatedInputTokens: session.inputTokens,
+				aggregatedOutputTokens: session.outputTokens,
+				aggregatedCacheReadTokens: session.cacheReadTokens,
+				aggregatedCacheCreationTokens: session.cacheCreationTokens,
+				aggregatedCostUsd: session.costUsd,
+				aggregatedMessageCount: session.messageCount,
+			};
+		}
+
+		// Aggregate subagent stats
+		let subagentInputTokens = 0;
+		let subagentOutputTokens = 0;
+		let subagentCacheReadTokens = 0;
+		let subagentCacheCreationTokens = 0;
+		let subagentMessageCount = 0;
+
+		for (const filename of subagentFiles) {
+			try {
+				let content: string;
+
+				if (isRemote && sshConfig) {
+					const filePath = `${subagentsDir}/${filename}`;
+					const result = await readFileRemote(filePath, sshConfig);
+					if (!result.success || !result.data) continue;
+					content = result.data;
+				} else {
+					const filePath = path.join(subagentsDir, filename);
+					content = await fs.readFile(filePath, 'utf-8');
+				}
+
+				// Fast regex-based extraction
+				const inputMatches = content.matchAll(/"input_tokens"\s*:\s*(\d+)/g);
+				for (const m of inputMatches) subagentInputTokens += parseInt(m[1], 10);
+
+				const outputMatches = content.matchAll(/"output_tokens"\s*:\s*(\d+)/g);
+				for (const m of outputMatches) subagentOutputTokens += parseInt(m[1], 10);
+
+				const cacheReadMatches = content.matchAll(/"cache_read_input_tokens"\s*:\s*(\d+)/g);
+				for (const m of cacheReadMatches) subagentCacheReadTokens += parseInt(m[1], 10);
+
+				const cacheCreationMatches = content.matchAll(/"cache_creation_input_tokens"\s*:\s*(\d+)/g);
+				for (const m of cacheCreationMatches) subagentCacheCreationTokens += parseInt(m[1], 10);
+
+				// Count messages
+				const userCount = (content.match(/"type"\s*:\s*"user"/g) || []).length;
+				const assistantCount = (content.match(/"type"\s*:\s*"assistant"/g) || []).length;
+				subagentMessageCount += userCount + assistantCount;
+			} catch {
+				// Skip files that can't be read
+			}
+		}
+
+		const aggregatedInputTokens = session.inputTokens + subagentInputTokens;
+		const aggregatedOutputTokens = session.outputTokens + subagentOutputTokens;
+		const aggregatedCacheReadTokens = (session.cacheReadTokens || 0) + subagentCacheReadTokens;
+		const aggregatedCacheCreationTokens =
+			(session.cacheCreationTokens || 0) + subagentCacheCreationTokens;
+		const aggregatedCostUsd = calculateClaudeCost(
+			aggregatedInputTokens,
+			aggregatedOutputTokens,
+			aggregatedCacheReadTokens,
+			aggregatedCacheCreationTokens
+		);
+
+		return {
+			...session,
+			hasSubagents: true,
+			subagentCount: subagentFiles.length,
+			aggregatedInputTokens,
+			aggregatedOutputTokens,
+			aggregatedCacheReadTokens,
+			aggregatedCacheCreationTokens,
+			aggregatedCostUsd,
+			aggregatedMessageCount: session.messageCount + subagentMessageCount,
+		};
+	} catch (error) {
+		logger.error(
+			`Error computing aggregated stats for session: ${session.sessionId}`,
+			LOG_CONTEXT,
+			error
+		);
+		// Return session with original stats if aggregation fails
+		return {
+			...session,
+			hasSubagents: false,
+			subagentCount: 0,
+			aggregatedInputTokens: session.inputTokens,
+			aggregatedOutputTokens: session.outputTokens,
+			aggregatedCacheReadTokens: session.cacheReadTokens,
+			aggregatedCacheCreationTokens: session.cacheCreationTokens,
+			aggregatedCostUsd: session.costUsd,
+			aggregatedMessageCount: session.messageCount,
+		};
 	}
 }
 
@@ -406,6 +538,197 @@ async function parseSessionFileRemote(
 }
 
 /**
+ * Known subagent types in Claude Code
+ */
+const KNOWN_SUBAGENT_TYPES = [
+	'Explore',
+	'Plan',
+	'general-purpose',
+	'Bash',
+	'statusline-setup',
+	'Claude Code Guide',
+];
+
+/**
+ * Extract the subagent type from transcript content.
+ * Looks for subagent_type or agentType fields in the first few lines,
+ * or tries to infer from the system prompt content.
+ */
+function extractSubagentType(content: string): string {
+	const lines = content.split('\n').slice(0, 20);
+
+	for (const line of lines) {
+		if (!line.trim()) continue;
+		try {
+			const entry = JSON.parse(line);
+
+			// Check for explicit subagent_type field
+			if (entry.subagent_type) {
+				return entry.subagent_type;
+			}
+
+			// Check for agentType in system entries
+			if (entry.type === 'system' && entry.agentType) {
+				return entry.agentType;
+			}
+
+			// Check for Task tool invocation that names the subagent
+			if (entry.type === 'user' && entry.message?.content) {
+				const contentStr =
+					typeof entry.message.content === 'string'
+						? entry.message.content
+						: JSON.stringify(entry.message.content);
+
+				// Look for known subagent type mentions
+				for (const knownType of KNOWN_SUBAGENT_TYPES) {
+					if (contentStr.toLowerCase().includes(knownType.toLowerCase())) {
+						return knownType;
+					}
+				}
+			}
+		} catch {
+			// Skip malformed lines
+		}
+	}
+
+	return 'unknown';
+}
+
+/**
+ * Parse subagent transcript content and extract metadata.
+ * Uses the same parsing logic as main sessions but extracts subagent-specific info.
+ */
+function parseSubagentContent(
+	content: string,
+	agentId: string,
+	parentSessionId: string,
+	filePath: string,
+	stats: { size: number; mtimeMs: number }
+): SubagentInfo | null {
+	try {
+		const lines = content.split('\n').filter((l) => l.trim());
+
+		if (lines.length === 0) {
+			return null;
+		}
+
+		// Extract subagent type
+		const agentType = extractSubagentType(content);
+
+		let firstUserMessage = '';
+		let firstAssistantMessage = '';
+		let timestamp = new Date(stats.mtimeMs).toISOString();
+
+		// Count messages using regex (fast)
+		const userMessageCount = (content.match(/"type"\s*:\s*"user"/g) || []).length;
+		const assistantMessageCount = (content.match(/"type"\s*:\s*"assistant"/g) || []).length;
+		const messageCount = userMessageCount + assistantMessageCount;
+
+		// Extract first meaningful message content
+		for (
+			let i = 0;
+			i < Math.min(lines.length, CLAUDE_SESSION_PARSE_LIMITS.FIRST_MESSAGE_SCAN_LINES);
+			i++
+		) {
+			try {
+				const entry = JSON.parse(lines[i]);
+
+				if (!firstUserMessage && entry.type === 'user' && entry.message?.content) {
+					const textContent = extractTextFromContent(entry.message.content);
+					if (textContent.trim()) {
+						firstUserMessage = textContent;
+						timestamp = entry.timestamp || timestamp;
+					}
+				}
+
+				if (!firstAssistantMessage && entry.type === 'assistant' && entry.message?.content) {
+					const textContent = extractTextFromContent(entry.message.content);
+					if (textContent.trim()) {
+						firstAssistantMessage = textContent;
+						break;
+					}
+				}
+			} catch {
+				// Skip malformed lines
+			}
+		}
+
+		const previewMessage = firstAssistantMessage || firstUserMessage;
+
+		// Extract token counts using regex (fast)
+		let totalInputTokens = 0;
+		let totalOutputTokens = 0;
+		let totalCacheReadTokens = 0;
+		let totalCacheCreationTokens = 0;
+
+		const inputMatches = content.matchAll(/"input_tokens"\s*:\s*(\d+)/g);
+		for (const m of inputMatches) totalInputTokens += parseInt(m[1], 10);
+
+		const outputMatches = content.matchAll(/"output_tokens"\s*:\s*(\d+)/g);
+		for (const m of outputMatches) totalOutputTokens += parseInt(m[1], 10);
+
+		const cacheReadMatches = content.matchAll(/"cache_read_input_tokens"\s*:\s*(\d+)/g);
+		for (const m of cacheReadMatches) totalCacheReadTokens += parseInt(m[1], 10);
+
+		const cacheCreationMatches = content.matchAll(/"cache_creation_input_tokens"\s*:\s*(\d+)/g);
+		for (const m of cacheCreationMatches) totalCacheCreationTokens += parseInt(m[1], 10);
+
+		const costUsd = calculateClaudeCost(
+			totalInputTokens,
+			totalOutputTokens,
+			totalCacheReadTokens,
+			totalCacheCreationTokens
+		);
+
+		// Extract last timestamp for duration
+		let lastTimestamp = timestamp;
+		for (
+			let i = lines.length - 1;
+			i >= Math.max(0, lines.length - CLAUDE_SESSION_PARSE_LIMITS.LAST_TIMESTAMP_SCAN_LINES);
+			i--
+		) {
+			try {
+				const entry = JSON.parse(lines[i]);
+				if (entry.timestamp) {
+					lastTimestamp = entry.timestamp;
+					break;
+				}
+			} catch {
+				// Skip malformed lines
+			}
+		}
+
+		const startTime = new Date(timestamp).getTime();
+		const endTime = new Date(lastTimestamp).getTime();
+		const durationSeconds = Math.max(0, Math.floor((endTime - startTime) / 1000));
+
+		return {
+			agentId,
+			agentType,
+			parentSessionId,
+			filePath,
+			timestamp,
+			modifiedAt: new Date(stats.mtimeMs).toISOString(),
+			messageCount,
+			sizeBytes: stats.size,
+			inputTokens: totalInputTokens,
+			outputTokens: totalOutputTokens,
+			cacheReadTokens: totalCacheReadTokens,
+			cacheCreationTokens: totalCacheCreationTokens,
+			costUsd,
+			firstMessage: previewMessage.slice(
+				0,
+				CLAUDE_SESSION_PARSE_LIMITS.FIRST_MESSAGE_PREVIEW_LENGTH
+			),
+			durationSeconds,
+		};
+	} catch (error) {
+		logger.error(`Error parsing subagent content for agentId: ${agentId}`, LOG_CONTEXT, error);
+		return null;
+	}
+}
+
+/**
  * Claude Code Session Storage Implementation
  *
  * Provides access to Claude Code's local session storage at ~/.claude/projects/
@@ -456,6 +779,22 @@ export class ClaudeSessionStorage implements AgentSessionStorage {
 	private getRemoteEncodedProjectDir(projectPath: string): string {
 		const encodedPath = encodeClaudeProjectPath(projectPath);
 		return `${this.getRemoteProjectsDir()}/${encodedPath}`;
+	}
+
+	/**
+	 * Get the subagents folder path for a project (local)
+	 */
+	private getSubagentsFolderPath(projectPath: string): string {
+		const encodedPath = encodeClaudeProjectPath(projectPath);
+		return path.join(this.getProjectsDir(), encodedPath, 'subagents');
+	}
+
+	/**
+	 * Get the subagents folder path for a project (remote via SSH)
+	 */
+	private getRemoteSubagentsFolderPath(projectPath: string): string {
+		const encodedPath = encodeClaudeProjectPath(projectPath);
+		return `${this.getRemoteProjectsDir()}/${encodedPath}/subagents`;
 	}
 
 	/**
@@ -702,13 +1041,21 @@ export class ClaudeSessionStorage implements AgentSessionStorage {
 
 		const validSessions = sessions.filter((s): s is NonNullable<typeof s> => s !== null);
 
+		// Compute aggregated stats for each session (includes subagent stats)
+		const subagentsDir = path.join(projectDir, 'subagents');
+		const sessionsWithAggregatedStats = await Promise.all(
+			validSessions.map(async (session) => {
+				return computeAggregatedStats(session, subagentsDir, false);
+			})
+		);
+
 		logger.info(
-			`Paginated Claude sessions - returned ${validSessions.length} of ${totalCount} total (cursor: ${cursor || 'null'}, startIndex: ${startIndex}, hasMore: ${hasMore}, nextCursor: ${nextCursor || 'null'})`,
+			`Paginated Claude sessions - returned ${sessionsWithAggregatedStats.length} of ${totalCount} total (cursor: ${cursor || 'null'}, startIndex: ${startIndex}, hasMore: ${hasMore}, nextCursor: ${nextCursor || 'null'})`,
 			LOG_CONTEXT
 		);
 
 		return {
-			sessions: validSessions,
+			sessions: sessionsWithAggregatedStats,
 			hasMore,
 			totalCount,
 			nextCursor,
@@ -854,13 +1201,23 @@ export class ClaudeSessionStorage implements AgentSessionStorage {
 
 		const validSessions = sessions.filter((s): s is NonNullable<typeof s> => s !== null);
 
+		// Compute aggregated stats for each session (includes subagent stats)
+		const sessionsWithAggregatedStats = await Promise.all(
+			validSessions.map(async (session) => {
+				// For remote sessions, we need to use the encoded project path
+				const encodedPath = encodeClaudeProjectPath(session.projectPath);
+				const subagentsDir = `${this.getRemoteProjectsDir()}/${encodedPath}/subagents`;
+				return computeAggregatedStats(session, subagentsDir, true, sshConfig);
+			})
+		);
+
 		logger.info(
-			`Paginated Claude sessions (remote) - returned ${validSessions.length} of ${totalCount} total (cursor: ${cursor || 'null'}, startIndex: ${startIndex}, hasMore: ${hasMore}, nextCursor: ${nextCursor || 'null'})`,
+			`Paginated Claude sessions (remote) - returned ${sessionsWithAggregatedStats.length} of ${totalCount} total (cursor: ${cursor || 'null'}, startIndex: ${startIndex}, hasMore: ${hasMore}, nextCursor: ${nextCursor || 'null'})`,
 			LOG_CONTEXT
 		);
 
 		return {
-			sessions: validSessions,
+			sessions: sessionsWithAggregatedStats,
 			hasMore,
 			totalCount,
 			nextCursor,
@@ -1138,6 +1495,277 @@ export class ClaudeSessionStorage implements AgentSessionStorage {
 		}
 
 		return matchingSessions;
+	}
+
+	/**
+	 * List all subagent transcripts for a given session.
+	 * Scans the subagents/ folder within the project directory.
+	 *
+	 * @param projectPath - The project path (used to locate session storage)
+	 * @param sessionId - The parent session ID (used for linking, not filtering)
+	 * @param sshConfig - Optional SSH config for remote access
+	 * @returns Array of SubagentInfo objects sorted by timestamp (newest first)
+	 */
+	async listSubagentsForSession(
+		projectPath: string,
+		sessionId: string,
+		sshConfig?: SshRemoteConfig
+	): Promise<SubagentInfo[]> {
+		// Use SSH remote access if config provided
+		if (sshConfig) {
+			return this.listSubagentsForSessionRemote(projectPath, sessionId, sshConfig);
+		}
+
+		const subagentsDir = this.getSubagentsFolderPath(projectPath);
+
+		// Check if subagents folder exists
+		try {
+			await fs.access(subagentsDir);
+		} catch {
+			logger.debug(`No subagents folder found for project: ${projectPath}`, LOG_CONTEXT);
+			return [];
+		}
+
+		// List all agent-*.jsonl files
+		const files = await fs.readdir(subagentsDir);
+		const agentFiles = files.filter((f) => f.endsWith('.jsonl') && f.startsWith('agent-'));
+
+		if (agentFiles.length === 0) {
+			return [];
+		}
+
+		// Parse each subagent file
+		const subagents = await Promise.all(
+			agentFiles.map(async (filename) => {
+				// Extract agentId from filename: agent-{agentId}.jsonl
+				const agentId = filename.replace('agent-', '').replace('.jsonl', '');
+				const filePath = path.join(subagentsDir, filename);
+
+				try {
+					const stats = await fs.stat(filePath);
+
+					// Skip empty files
+					if (stats.size === 0) {
+						return null;
+					}
+
+					const content = await fs.readFile(filePath, 'utf-8');
+					return parseSubagentContent(content, agentId, sessionId, filePath, {
+						size: stats.size,
+						mtimeMs: stats.mtimeMs,
+					});
+				} catch (error) {
+					logger.error(`Error processing subagent file: ${filename}`, LOG_CONTEXT, error);
+					return null;
+				}
+			})
+		);
+
+		// Filter out nulls and sort by timestamp (newest first)
+		const validSubagents = subagents
+			.filter((s): s is SubagentInfo => s !== null)
+			.sort((a, b) => new Date(b.modifiedAt).getTime() - new Date(a.modifiedAt).getTime());
+
+		logger.info(
+			`Found ${validSubagents.length} subagents for session in project: ${projectPath}`,
+			LOG_CONTEXT
+		);
+
+		return validSubagents;
+	}
+
+	/**
+	 * List subagents for a session from remote host via SSH.
+	 */
+	private async listSubagentsForSessionRemote(
+		projectPath: string,
+		sessionId: string,
+		sshConfig: SshRemoteConfig
+	): Promise<SubagentInfo[]> {
+		const subagentsDir = this.getRemoteSubagentsFolderPath(projectPath);
+
+		// Check if subagents folder exists on remote
+		const dirResult = await readDirRemote(subagentsDir, sshConfig);
+		if (!dirResult.success || !dirResult.data) {
+			logger.debug(`No subagents folder found on remote for project: ${projectPath}`, LOG_CONTEXT);
+			return [];
+		}
+
+		// Filter for agent-*.jsonl files
+		const agentFiles = dirResult.data.filter(
+			(entry) =>
+				!entry.isDirectory && entry.name.endsWith('.jsonl') && entry.name.startsWith('agent-')
+		);
+
+		if (agentFiles.length === 0) {
+			return [];
+		}
+
+		// Parse each subagent file
+		const subagents = await Promise.all(
+			agentFiles.map(async (entry) => {
+				const agentId = entry.name.replace('agent-', '').replace('.jsonl', '');
+				const filePath = `${subagentsDir}/${entry.name}`;
+
+				try {
+					// Get file stats
+					const statResult = await statRemote(filePath, sshConfig);
+					if (!statResult.success || !statResult.data) {
+						logger.error(`Failed to stat remote subagent file: ${filePath}`, LOG_CONTEXT);
+						return null;
+					}
+
+					// Skip empty files
+					if (statResult.data.size === 0) {
+						return null;
+					}
+
+					// Read file content (use partial for large files)
+					const LARGE_FILE_THRESHOLD = 5 * 1024 * 1024;
+					let content: string;
+
+					if (statResult.data.size > LARGE_FILE_THRESHOLD) {
+						// For large files, use partial reading
+						const partialResult = await readFileRemotePartial(filePath, sshConfig, 100, 50);
+						if (!partialResult.success || !partialResult.data) {
+							return null;
+						}
+						content = partialResult.data.head + '\n' + partialResult.data.tail;
+					} else {
+						const readResult = await readFileRemote(filePath, sshConfig);
+						if (!readResult.success || !readResult.data) {
+							return null;
+						}
+						content = readResult.data;
+					}
+
+					return parseSubagentContent(content, agentId, sessionId, filePath, {
+						size: statResult.data.size,
+						mtimeMs: statResult.data.mtime,
+					});
+				} catch (error) {
+					logger.error(`Error processing remote subagent file: ${entry.name}`, LOG_CONTEXT, error);
+					return null;
+				}
+			})
+		);
+
+		// Filter out nulls and sort by timestamp (newest first)
+		const validSubagents = subagents
+			.filter((s): s is SubagentInfo => s !== null)
+			.sort((a, b) => new Date(b.modifiedAt).getTime() - new Date(a.modifiedAt).getTime());
+
+		logger.info(
+			`Found ${validSubagents.length} subagents for session on remote: ${projectPath}`,
+			LOG_CONTEXT
+		);
+
+		return validSubagents;
+	}
+
+	/**
+	 * Read messages from a subagent transcript file.
+	 * Supports pagination for lazy loading.
+	 *
+	 * @param projectPath - The project path
+	 * @param agentId - The subagent ID (from filename)
+	 * @param options - Pagination options (offset, limit)
+	 * @param sshConfig - Optional SSH config for remote access
+	 * @returns Paginated messages result
+	 */
+	async getSubagentMessages(
+		projectPath: string,
+		agentId: string,
+		options?: SessionReadOptions,
+		sshConfig?: SshRemoteConfig
+	): Promise<SessionMessagesResult> {
+		const subagentsDir = sshConfig
+			? this.getRemoteSubagentsFolderPath(projectPath)
+			: this.getSubagentsFolderPath(projectPath);
+
+		const filePath = sshConfig
+			? `${subagentsDir}/agent-${agentId}.jsonl`
+			: path.join(subagentsDir, `agent-${agentId}.jsonl`);
+
+		// Get content either locally or via SSH
+		let content: string;
+
+		if (sshConfig) {
+			const result = await readFileRemote(filePath, sshConfig);
+			if (!result.success || !result.data) {
+				logger.error(
+					`Failed to read remote subagent messages: ${filePath} - ${result.error}`,
+					LOG_CONTEXT
+				);
+				return { messages: [], total: 0, hasMore: false };
+			}
+			content = result.data;
+		} else {
+			try {
+				content = await fs.readFile(filePath, 'utf-8');
+			} catch (error) {
+				logger.error(`Failed to read subagent file: ${filePath}`, LOG_CONTEXT, error);
+				return { messages: [], total: 0, hasMore: false };
+			}
+		}
+
+		const lines = content.split('\n').filter((l) => l.trim());
+		const messages: SessionMessage[] = [];
+
+		for (const line of lines) {
+			try {
+				const entry = JSON.parse(line);
+				if (entry.type === 'user' || entry.type === 'assistant') {
+					let msgContent = '';
+					let toolUse = undefined;
+
+					if (entry.message?.content) {
+						if (typeof entry.message.content === 'string') {
+							msgContent = entry.message.content;
+						} else if (Array.isArray(entry.message.content)) {
+							const textBlocks = entry.message.content.filter(
+								(b: { type?: string }) => b.type === 'text'
+							);
+							const toolBlocks = entry.message.content.filter(
+								(b: { type?: string }) => b.type === 'tool_use'
+							);
+
+							msgContent = textBlocks.map((b: { text?: string }) => b.text).join('\n');
+							if (toolBlocks.length > 0) {
+								toolUse = toolBlocks;
+							}
+						}
+					}
+
+					if (msgContent && msgContent.trim()) {
+						messages.push({
+							type: entry.type,
+							role: entry.message?.role,
+							content: msgContent,
+							timestamp: entry.timestamp,
+							uuid: entry.uuid,
+							toolUse,
+						});
+					}
+				}
+			} catch {
+				// Skip malformed lines
+			}
+		}
+
+		// Apply offset and limit for lazy loading
+		const offset = options?.offset ?? 0;
+		const limit = options?.limit ?? 20;
+
+		const startIndex = Math.max(0, messages.length - offset - limit);
+		const endIndex = messages.length - offset;
+		const slice = messages.slice(startIndex, endIndex);
+
+		return {
+			messages: slice,
+			total: messages.length,
+			hasMore: startIndex > 0,
+		};
 	}
 
 	getSessionPath(
