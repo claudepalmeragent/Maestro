@@ -92,6 +92,11 @@ export {
 } from './useProjectFolders';
 
 // ============================================================================
+// Prompt Library Module - Prompt library management
+// ============================================================================
+export { usePromptLibrary } from './prompt-library';
+
+// ============================================================================
 // Re-export TransferError types from component for convenience
 // ============================================================================
 export type {

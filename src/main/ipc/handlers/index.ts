@@ -50,6 +50,7 @@ import { registerLeaderboardHandlers, LeaderboardHandlerDependencies } from './l
 import { registerNotificationsHandlers } from './notifications';
 import { registerAgentErrorHandlers } from './agent-error';
 import { registerProjectFoldersHandlers } from './projectFolders';
+import { registerPromptLibraryHandlers } from './prompt-library';
 import { AgentDetector } from '../../agents';
 import { ProcessManager } from '../../process-manager';
 import { WebServer } from '../../web-server';
@@ -89,6 +90,7 @@ export type { LeaderboardHandlerDependencies };
 export { registerNotificationsHandlers };
 export { registerAgentErrorHandlers };
 export { registerProjectFoldersHandlers };
+export { registerPromptLibraryHandlers };
 export type { AgentsHandlerDependencies };
 export type { ProcessHandlerDependencies };
 export type { PersistenceHandlerDependencies };
@@ -254,6 +256,8 @@ export function registerAllHandlers(deps: HandlerDependencies): void {
 	registerAgentErrorHandlers();
 	// Register project folders handlers (no dependencies - uses stores directly)
 	registerProjectFoldersHandlers();
+	// Register prompt library handlers (no dependencies - uses manager directly)
+	registerPromptLibraryHandlers();
 	// Setup logger event forwarding to renderer
 	setupLoggerEventForwarding(deps.getMainWindow);
 }

@@ -2289,6 +2289,151 @@ interface MaestroAPI {
 			}) => void
 		) => () => void;
 	};
+	// Prompt Library API (saved prompts with AI variable support)
+	promptLibrary: {
+		getAll: () => Promise<
+			Array<{
+				id: string;
+				title: string;
+				prompt: string;
+				description?: string;
+				projectName: string;
+				projectPath: string;
+				agentId: string;
+				agentName: string;
+				agentSessionId?: string;
+				createdAt: number;
+				updatedAt: number;
+				lastUsedAt?: number;
+				useCount: number;
+				tags?: string[];
+			}>
+		>;
+		getById: (id: string) => Promise<{
+			id: string;
+			title: string;
+			prompt: string;
+			description?: string;
+			projectName: string;
+			projectPath: string;
+			agentId: string;
+			agentName: string;
+			agentSessionId?: string;
+			createdAt: number;
+			updatedAt: number;
+			lastUsedAt?: number;
+			useCount: number;
+			tags?: string[];
+		} | null>;
+		search: (query: string) => Promise<
+			Array<{
+				id: string;
+				title: string;
+				prompt: string;
+				description?: string;
+				projectName: string;
+				projectPath: string;
+				agentId: string;
+				agentName: string;
+				agentSessionId?: string;
+				createdAt: number;
+				updatedAt: number;
+				lastUsedAt?: number;
+				useCount: number;
+				tags?: string[];
+			}>
+		>;
+		add: (entry: {
+			title?: string;
+			prompt: string;
+			description?: string;
+			projectName: string;
+			projectPath: string;
+			agentId: string;
+			agentName: string;
+			agentSessionId?: string;
+			tags?: string[];
+		}) => Promise<{
+			id: string;
+			title: string;
+			prompt: string;
+			description?: string;
+			projectName: string;
+			projectPath: string;
+			agentId: string;
+			agentName: string;
+			agentSessionId?: string;
+			createdAt: number;
+			updatedAt: number;
+			lastUsedAt?: number;
+			useCount: number;
+			tags?: string[];
+		}>;
+		update: (
+			id: string,
+			updates: {
+				title?: string;
+				prompt?: string;
+				description?: string;
+				tags?: string[];
+			}
+		) => Promise<{
+			id: string;
+			title: string;
+			prompt: string;
+			description?: string;
+			projectName: string;
+			projectPath: string;
+			agentId: string;
+			agentName: string;
+			agentSessionId?: string;
+			createdAt: number;
+			updatedAt: number;
+			lastUsedAt?: number;
+			useCount: number;
+			tags?: string[];
+		} | null>;
+		delete: (id: string) => Promise<boolean>;
+		recordUsage: (id: string) => Promise<boolean>;
+		getByProject: (projectPath: string) => Promise<
+			Array<{
+				id: string;
+				title: string;
+				prompt: string;
+				description?: string;
+				projectName: string;
+				projectPath: string;
+				agentId: string;
+				agentName: string;
+				agentSessionId?: string;
+				createdAt: number;
+				updatedAt: number;
+				lastUsedAt?: number;
+				useCount: number;
+				tags?: string[];
+			}>
+		>;
+		getStats: () => Promise<{
+			totalPrompts: number;
+			uniqueProjects: number;
+			mostUsedPrompt: {
+				id: string;
+				title: string;
+				prompt: string;
+				description?: string;
+				projectName: string;
+				projectPath: string;
+				agentId: string;
+				agentName: string;
+				agentSessionId?: string;
+				createdAt: number;
+				updatedAt: number;
+				lastUsedAt?: number;
+				useCount: number;
+				tags?: string[];
+			} | null;
+		}>;
+	};
 }
 
 declare global {

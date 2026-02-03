@@ -1,9 +1,21 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { X, PenLine, Send, ImageIcon, History, Eye, Keyboard, Brain } from 'lucide-react';
-import type { Theme } from '../types';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+import {
+	X,
+	PenLine,
+	Send,
+	ImageIcon,
+	History,
+	Eye,
+	Keyboard,
+	Brain,
+	Library,
+	Save,
+} from 'lucide-react';
+import type { Theme, PromptLibraryEntry } from '../types';
 import { useLayerStack } from '../contexts/LayerStackContext';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 import { estimateTokenCount } from '../../shared/formatters';
+import { PromptLibrarySearchBar } from './PromptLibrarySearchBar';
 
 interface PromptComposerModalProps {
 	isOpen: boolean;
@@ -28,6 +40,16 @@ interface PromptComposerModalProps {
 	supportsThinking?: boolean;
 	enterToSend?: boolean;
 	onToggleEnterToSend?: () => void;
+	// Prompt Library props
+	promptLibraryOpen?: boolean;
+	onTogglePromptLibrary?: () => void;
+	currentProjectName?: string;
+	currentProjectPath?: string;
+	currentAgentId?: string;
+	currentAgentName?: string;
+	currentAgentSessionId?: string;
+	autoSaveToLibrary?: boolean;
+	onToggleAutoSaveToLibrary?: () => void;
 }
 
 export function PromptComposerModal({
@@ -51,8 +73,18 @@ export function PromptComposerModal({
 	supportsThinking = false,
 	enterToSend = false,
 	onToggleEnterToSend,
+	promptLibraryOpen = false,
+	onTogglePromptLibrary,
+	currentProjectName = 'Unknown',
+	currentProjectPath = '',
+	currentAgentId = 'claude-code',
+	currentAgentName = 'Claude',
+	currentAgentSessionId,
+	autoSaveToLibrary = false,
+	onToggleAutoSaveToLibrary,
 }: PromptComposerModalProps) {
 	const [value, setValue] = useState(initialValue);
+	const [libraryOpen, setLibraryOpen] = useState(promptLibraryOpen);
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const { registerLayer, unregisterLayer } = useLayerStack();
@@ -69,8 +101,9 @@ export function PromptComposerModal({
 	useEffect(() => {
 		if (isOpen) {
 			setValue(initialValue);
+			setLibraryOpen(promptLibraryOpen);
 		}
-	}, [isOpen, initialValue]);
+	}, [isOpen, initialValue, promptLibraryOpen]);
 
 	// Focus textarea when modal opens
 	useEffect(() => {
@@ -103,10 +136,65 @@ export function PromptComposerModal({
 
 	if (!isOpen) return null;
 
-	const handleSend = () => {
+	const handleSend = async () => {
 		if (!value.trim()) return;
+
+		// Auto-save to library if enabled
+		if (autoSaveToLibrary) {
+			try {
+				await window.maestro.promptLibrary.add({
+					title: '', // Will be auto-generated from first line
+					prompt: value,
+					projectName: currentProjectName,
+					projectPath: currentProjectPath,
+					agentId: currentAgentId,
+					agentName: currentAgentName,
+					agentSessionId: currentAgentSessionId,
+				});
+			} catch (error) {
+				console.error('Failed to auto-save prompt to library:', error);
+			}
+		}
+
 		onSend(value);
 		onClose();
+	};
+
+	const handleSelectPrompt = (prompt: PromptLibraryEntry) => {
+		setValue(prompt.prompt);
+		setLibraryOpen(false);
+		// Focus textarea after selection
+		setTimeout(() => {
+			textareaRef.current?.focus();
+		}, 100);
+	};
+
+	const handleDeletePrompt = (id: string) => {
+		// Prompt was deleted in the search bar component
+		// No additional action needed here
+	};
+
+	const handleSaveToLibrary = async () => {
+		if (!value.trim()) return;
+		try {
+			await window.maestro.promptLibrary.add({
+				title: '', // Will be auto-generated from first line
+				prompt: value,
+				projectName: currentProjectName,
+				projectPath: currentProjectPath,
+				agentId: currentAgentId,
+				agentName: currentAgentName,
+				agentSessionId: currentAgentSessionId,
+			});
+			// Could show a toast notification here
+		} catch (error) {
+			console.error('Failed to save prompt to library:', error);
+		}
+	};
+
+	const toggleLibrary = () => {
+		setLibraryOpen(!libraryOpen);
+		onTogglePromptLibrary?.();
 	};
 
 	const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -237,7 +325,22 @@ export function PromptComposerModal({
 							— {sessionName}
 						</span>
 					</div>
-					<div className="flex items-center gap-3">
+					<div className="flex items-center gap-2">
+						{/* Prompt Library toggle button */}
+						<button
+							onClick={toggleLibrary}
+							className={`flex items-center gap-1.5 px-2 py-1 rounded transition-colors ${
+								libraryOpen ? '' : 'opacity-60 hover:opacity-100'
+							}`}
+							style={{
+								backgroundColor: libraryOpen ? `${theme.colors.accent}20` : 'transparent',
+								color: libraryOpen ? theme.colors.accent : theme.colors.textDim,
+							}}
+							title="Toggle Prompt Library (search saved prompts)"
+						>
+							<Library className="w-4 h-4" />
+							<span className="text-xs">Library</span>
+						</button>
 						<button
 							onClick={() => {
 								onSubmit(value);
@@ -250,6 +353,19 @@ export function PromptComposerModal({
 						</button>
 					</div>
 				</div>
+
+				{/* Prompt Library Search Bar */}
+				{libraryOpen && (
+					<PromptLibrarySearchBar
+						theme={theme}
+						isOpen={libraryOpen}
+						onClose={() => setLibraryOpen(false)}
+						onSelectPrompt={handleSelectPrompt}
+						onDeletePrompt={handleDeletePrompt}
+						currentProjectName={currentProjectName}
+						currentAgentName={currentAgentName}
+					/>
+				)}
 
 				{/* Staged Images Thumbnails */}
 				{stagedImages.length > 0 && (
@@ -305,7 +421,7 @@ export function PromptComposerModal({
 					className="flex items-center justify-between px-4 py-3 border-t"
 					style={{ borderColor: theme.colors.border, backgroundColor: theme.colors.bgSidebar }}
 				>
-					{/* Left side: stats and image button */}
+					{/* Left side: stats, image button, and save to library */}
 					<div className="flex items-center gap-3">
 						{/* Image attachment button */}
 						{setStagedImages && (
@@ -327,6 +443,18 @@ export function PromptComposerModal({
 								/>
 							</>
 						)}
+						{/* Save to Library button */}
+						<button
+							onClick={handleSaveToLibrary}
+							disabled={!value.trim()}
+							className="flex items-center gap-1.5 p-1.5 rounded hover:bg-white/10 transition-colors opacity-60 hover:opacity-100 disabled:opacity-30 disabled:cursor-not-allowed"
+							title="Save prompt to library"
+						>
+							<Save className="w-4 h-4" style={{ color: theme.colors.textDim }} />
+							<span className="text-xs" style={{ color: theme.colors.textDim }}>
+								Save
+							</span>
+						</button>
 						<div
 							className="text-xs flex items-center gap-3"
 							style={{ color: theme.colors.textDim }}
@@ -338,6 +466,26 @@ export function PromptComposerModal({
 
 					{/* Right side: toggles and send button */}
 					<div className="flex items-center gap-2">
+						{/* Auto-save to Library toggle */}
+						{onToggleAutoSaveToLibrary && (
+							<button
+								onClick={onToggleAutoSaveToLibrary}
+								className={`flex items-center gap-1.5 text-[10px] px-2 py-1 rounded-full cursor-pointer transition-all ${
+									autoSaveToLibrary ? '' : 'opacity-40 hover:opacity-70'
+								}`}
+								style={{
+									backgroundColor: autoSaveToLibrary ? `${theme.colors.success}25` : 'transparent',
+									color: autoSaveToLibrary ? theme.colors.success : theme.colors.textDim,
+									border: autoSaveToLibrary
+										? `1px solid ${theme.colors.success}50`
+										: '1px solid transparent',
+								}}
+								title="Auto-save prompts to library on send"
+							>
+								<Library className="w-3 h-3" />
+								<span>Auto-save</span>
+							</button>
+						)}
 						{/* Save to History toggle */}
 						{onToggleTabSaveToHistory && (
 							<button

@@ -34,6 +34,7 @@ import { createSshRemoteApi } from './sshRemote';
 import { createLoggerApi } from './logger';
 import { createClaudeApi, createAgentSessionsApi } from './sessions';
 import { createTempfileApi, createHistoryApi, createCliApi } from './files';
+import { createPromptLibraryApi } from './promptLibrary';
 import { createSpeckitApi, createOpenspecApi } from './commands';
 import { createAutorunApi, createPlaybooksApi, createMarketplaceApi } from './autorun';
 import { createDebugApi, createDocumentGraphApi } from './debug';
@@ -176,6 +177,9 @@ contextBridge.exposeInMainWorld('maestro', {
 
 	// Project Folders API
 	projectFolders: createProjectFoldersApi(),
+
+	// Prompt Library API
+	promptLibrary: createPromptLibraryApi(),
 });
 
 // Re-export factory functions for external consumers (e.g., tests)
@@ -243,6 +247,8 @@ export {
 	createAgentsApi,
 	// Project Folders
 	createProjectFoldersApi,
+	// Prompt Library
+	createPromptLibraryApi,
 };
 
 // Re-export types for TypeScript consumers
@@ -415,3 +421,8 @@ export type {
 	// From projectFolders
 	ProjectFoldersApi,
 } from './projectFolders';
+export type {
+	// From promptLibrary
+	PromptLibraryApi,
+	PromptLibraryEntry,
+} from './promptLibrary';
