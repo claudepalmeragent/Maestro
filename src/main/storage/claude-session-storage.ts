@@ -563,9 +563,18 @@ export class ClaudeSessionStorage implements AgentSessionStorage {
 		const { cursor, limit = 100 } = options || {};
 		const projectDir = this.getRemoteEncodedProjectDir(projectPath);
 
+		logger.info(
+			`Listing remote sessions: projectPath=${projectPath}, encodedDir=${projectDir}, sshHost=${sshConfig.host}`,
+			LOG_CONTEXT
+		);
+
 		// List directory via SSH
 		const dirResult = await readDirRemote(projectDir, sshConfig);
 		if (!dirResult.success || !dirResult.data) {
+			logger.warn(
+				`Failed to read remote directory: ${projectDir} - ${dirResult.error || 'unknown error'}`,
+				LOG_CONTEXT
+			);
 			return { sessions: [], hasMore: false, totalCount: 0, nextCursor: null };
 		}
 
