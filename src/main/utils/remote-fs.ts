@@ -75,6 +75,41 @@ const defaultDeps: RemoteFsDeps = {
 };
 
 /**
+ * Escape a path for remote shell execution, handling home directory expansion.
+ *
+ * Shell escaping with single quotes prevents ~ and $HOME from expanding.
+ * This function handles paths that start with ~ or $HOME by:
+ * 1. Keeping the home dir reference unquoted so the shell expands it
+ * 2. Properly escaping the rest of the path
+ *
+ * @param dirPath The path to escape
+ * @returns A shell-safe string that allows home directory expansion
+ */
+function escapeRemotePath(dirPath: string): string {
+	// Handle ~ at start - expand via shell
+	if (dirPath.startsWith('~/')) {
+		const rest = dirPath.slice(2);
+		// Use $HOME concatenation: $HOME'/rest/of/path'
+		return `"$HOME"${shellEscape('/' + rest)}`;
+	}
+	if (dirPath === '~') {
+		return '"$HOME"';
+	}
+
+	// Handle $HOME at start - expand via shell
+	if (dirPath.startsWith('$HOME/')) {
+		const rest = dirPath.slice(6);
+		return `"$HOME"${shellEscape('/' + rest)}`;
+	}
+	if (dirPath === '$HOME') {
+		return '"$HOME"';
+	}
+
+	// Regular path - just escape normally
+	return shellEscape(dirPath);
+}
+
+/**
  * Patterns indicating transient SSH errors that should be retried.
  * These are network/connection issues that may resolve on retry.
  */
@@ -211,7 +246,7 @@ export async function readDirRemote(
 	// -F: Append indicator (/ for dirs, @ for symlinks, * for executables)
 	// --color=never: Disable color codes in output
 	// We avoid -l because parsing long format is complex and locale-dependent
-	const escapedPath = shellEscape(dirPath);
+	const escapedPath = escapeRemotePath(dirPath);
 	const remoteCommand = `ls -1AF --color=never ${escapedPath} 2>/dev/null || echo "__LS_ERROR__"`;
 
 	const result = await execRemoteCommand(sshRemote, remoteCommand, deps);
@@ -291,7 +326,7 @@ export async function readFileRemote(
 	sshRemote: SshRemoteConfig,
 	deps: RemoteFsDeps = defaultDeps
 ): Promise<RemoteFsResult<string>> {
-	const escapedPath = shellEscape(filePath);
+	const escapedPath = escapeRemotePath(filePath);
 	// Use cat with explicit error handling
 	const remoteCommand = `cat ${escapedPath}`;
 
@@ -337,7 +372,7 @@ export async function statRemote(
 	sshRemote: SshRemoteConfig,
 	deps: RemoteFsDeps = defaultDeps
 ): Promise<RemoteFsResult<RemoteStatResult>> {
-	const escapedPath = shellEscape(filePath);
+	const escapedPath = escapeRemotePath(filePath);
 	// Use stat with format string:
 	// %s = size in bytes
 	// %F = file type (regular file, directory, symbolic link, etc.)
