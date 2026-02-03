@@ -280,10 +280,11 @@ export function AgentSessionsBrowser({
 		return unsubscribe;
 	}, [activeSession?.projectRoot, agentId]);
 
-	// Compute stats from loaded sessions for non-Claude agents
+	// Compute stats from loaded sessions for non-Claude agents or SSH Remote Claude sessions
 	useEffect(() => {
-		// Only for non-Claude agents (Claude uses progressive stats from backend)
-		if (agentId === 'claude-code') return;
+		// For local Claude Code sessions, use progressive stats from backend via onProjectStatsUpdate
+		// For SSH Remote sessions, we scan all project folders so we need to compute stats from loaded sessions
+		if (agentId === 'claude-code' && !isRemoteSession) return;
 		if (loading) return;
 
 		// Compute aggregate stats from the sessions array
@@ -314,7 +315,7 @@ export function AgentSessionsBrowser({
 			oldestTimestamp,
 			isComplete: !hasMoreSessions, // Complete when all sessions are loaded
 		});
-	}, [agentId, sessions, loading, hasMoreSessions]);
+	}, [agentId, isRemoteSession, sessions, loading, hasMoreSessions]);
 
 	// Toggle star status for a session
 	const toggleStar = useCallback(
