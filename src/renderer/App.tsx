@@ -12651,6 +12651,17 @@ You are taking over this conversation. Based on the context above, provide a bri
 					}
 					promptEnterToSend={enterToSendAI}
 					onPromptToggleEnterToSend={handlePromptToggleEnterToSend}
+					// Prompt Library props - pass actual session data
+					promptLibraryProjectName={
+						activeSession?.fullPath?.split('/').pop() || activeSession?.name || 'Unknown'
+					}
+					promptLibraryProjectPath={activeSession?.fullPath || activeSession?.cwd || ''}
+					promptLibraryAgentId={activeSession?.id}
+					promptLibraryAgentName={activeSession?.name}
+					promptLibraryAgentSessionId={
+						activeSession?.aiTabs?.find((t) => t.id === activeSession.activeTabId)
+							?.agentSessionId || undefined
+					}
 					queueBrowserOpen={queueBrowserOpen}
 					onCloseQueueBrowser={handleCloseQueueBrowser}
 					onRemoveQueueItem={handleRemoveQueueItem}

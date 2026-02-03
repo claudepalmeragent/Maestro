@@ -12,6 +12,8 @@ interface PromptLibrarySearchBarProps {
 	onEditPrompt?: (prompt: PromptLibraryEntry) => void;
 	currentProjectName?: string;
 	currentAgentName?: string;
+	/** External trigger to refresh the prompt list (increments to trigger refresh) */
+	refreshTrigger?: number;
 }
 
 export function PromptLibrarySearchBar({
@@ -21,8 +23,9 @@ export function PromptLibrarySearchBar({
 	onSelectPrompt,
 	onDeletePrompt,
 	onEditPrompt,
-	currentProjectName,
-	currentAgentName,
+	currentProjectName: _currentProjectName,
+	currentAgentName: _currentAgentName,
+	refreshTrigger,
 }: PromptLibrarySearchBarProps) {
 	const [searchQuery, setSearchQuery] = useState('');
 	const [prompts, setPrompts] = useState<PromptLibraryEntry[]>([]);
@@ -34,12 +37,12 @@ export function PromptLibrarySearchBar({
 	const inputRef = useRef<HTMLInputElement>(null);
 	const listRef = useRef<HTMLDivElement>(null);
 
-	// Load prompts on mount
+	// Load prompts on mount and when refreshTrigger changes
 	useEffect(() => {
 		if (isOpen) {
 			loadPrompts();
 		}
-	}, [isOpen]);
+	}, [isOpen, refreshTrigger]);
 
 	// Focus input when opened
 	useEffect(() => {
