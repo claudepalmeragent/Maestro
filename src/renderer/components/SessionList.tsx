@@ -3072,6 +3072,11 @@ function SessionListInner(props: SessionListProps) {
 												style={{
 													borderColor: folder.highlightColor || theme.colors.border,
 													borderLeftWidth: folder.highlightColor ? '3px' : '1px',
+													backgroundColor: folder.highlightColor
+														? folder.highlightColor + '10' // 10 = ~6% opacity (subtler than header)
+														: 'transparent',
+													borderRadius: folder.highlightColor ? '0 4px 4px 0' : undefined,
+													paddingLeft: folder.highlightColor ? '2px' : undefined,
 												}}
 											>
 												{itemCount === 0 ? (

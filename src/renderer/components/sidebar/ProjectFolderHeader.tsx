@@ -94,12 +94,11 @@ export const ProjectFolderHeader = memo(function ProjectFolderHeader({
 	const hasColor = !!folder.highlightColor;
 
 	const headerStyle: React.CSSProperties = {
-		backgroundColor:
-			isCollapsed && hasColor
-				? folder.highlightColor + '20' // 20 = ~12% opacity
-				: isDragOver
-					? theme.colors.bgActivity
-					: 'transparent',
+		backgroundColor: hasColor
+			? folder.highlightColor + '20' // 20 = ~12% opacity, always visible when color is set
+			: isDragOver
+				? theme.colors.bgActivity
+				: 'transparent',
 		borderLeftColor: !isCollapsed && hasColor ? folder.highlightColor : 'transparent',
 		borderLeftWidth: !isCollapsed && hasColor ? '3px' : '0px',
 		opacity: isDragging ? 0.5 : 1,
