@@ -48,6 +48,7 @@ import {
 	registerLeaderboardHandlers,
 	registerNotificationsHandlers,
 	registerProjectFoldersHandlers,
+	registerPromptLibraryHandlers,
 	setupLoggerEventForwarding,
 	cleanupAllGroomingSessions,
 	getActiveGroomingSessionCount,
@@ -606,6 +607,9 @@ function setupIpcHandlers() {
 
 	// Register project folders handlers (extracted to handlers/projectFolders.ts)
 	registerProjectFoldersHandlers();
+
+	// Register prompt library handlers (extracted to handlers/prompt-library.ts)
+	registerPromptLibraryHandlers();
 }
 
 // Handle process output streaming (set up after initialization)
