@@ -15,6 +15,7 @@ import { useListNavigation } from '../hooks';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 import { formatSize, formatRelativeTime } from '../utils/formatters';
 import { ToolCallCard } from './ToolCallCard';
+import { getSessionSshRemoteId } from '../utils/sessionHelpers';
 
 interface AgentSession {
 	sessionId: string;
@@ -140,11 +141,15 @@ export function AgentSessionsModal({
 			const agentId = activeSession.toolType || 'claude-code';
 			// Use projectRoot (not cwd) for consistent session storage access
 			const projectPath = activeSession.projectRoot;
+			// Get SSH remote ID for remote session support
+			const sshRemoteId = getSessionSshRemoteId(activeSession);
 			console.log(
 				'AgentSessionsModal: Loading sessions for projectPath:',
 				projectPath,
 				'agentId:',
-				agentId
+				agentId,
+				'sshRemoteId:',
+				sshRemoteId || 'local'
 			);
 			try {
 				// Load starred sessions from session origins (shared with AgentSessionsBrowser)
@@ -169,14 +174,19 @@ export function AgentSessionsModal({
 				setStarredSessions(starredFromOrigins);
 
 				// Use generic agentSessions API for session listing
-				const result = await window.maestro.agentSessions.listPaginated(agentId, projectPath, {
-					limit: 100,
-				});
+				// Pass sshRemoteId to fetch sessions from remote host when using SSH Remote
+				const result = await window.maestro.agentSessions.listPaginated(
+					agentId,
+					projectPath,
+					{ limit: 100 },
+					sshRemoteId
+				);
 				console.log(
 					'AgentSessionsModal: Got sessions:',
 					result.sessions.length,
 					'of',
-					result.totalCount
+					result.totalCount,
+					sshRemoteId ? '(remote)' : '(local)'
 				);
 				setSessions(result.sessions);
 				setHasMoreSessions(result.hasMore);
@@ -190,7 +200,12 @@ export function AgentSessionsModal({
 		};
 
 		loadSessions();
-	}, [activeSession?.projectRoot, activeSession?.toolType]);
+	}, [
+		activeSession?.projectRoot,
+		activeSession?.toolType,
+		activeSession?.sshRemoteId,
+		activeSession?.sessionSshRemoteConfig?.remoteId,
+	]);
 
 	// Load more sessions when scrolling near bottom
 	const loadMoreSessions = useCallback(async () => {
@@ -204,6 +219,7 @@ export function AgentSessionsModal({
 			return;
 
 		const agentId = activeSession.toolType || 'claude-code';
+		const sshRemoteId = getSessionSshRemoteId(activeSession);
 		setIsLoadingMoreSessions(true);
 		try {
 			const result = await window.maestro.agentSessions.listPaginated(
@@ -212,7 +228,8 @@ export function AgentSessionsModal({
 				{
 					cursor: nextCursorRef.current,
 					limit: 100,
-				}
+				},
+				sshRemoteId
 			);
 
 			// Append new sessions, avoiding duplicates
@@ -228,7 +245,7 @@ export function AgentSessionsModal({
 		} finally {
 			setIsLoadingMoreSessions(false);
 		}
-	}, [activeSession?.projectRoot, activeSession?.toolType, hasMoreSessions, isLoadingMoreSessions]);
+	}, [activeSession, hasMoreSessions, isLoadingMoreSessions]);
 
 	// Handle scroll for sessions list pagination - load more at 70% scroll
 	const handleSessionsScroll = useCallback(() => {
@@ -245,6 +262,7 @@ export function AgentSessionsModal({
 	}, [hasMoreSessions, isLoadingMoreSessions, loadMoreSessions]);
 
 	// Toggle star status for a session
+	// Note: Starred status is stored locally (not on remote) so no sshRemoteId needed
 	const toggleStar = useCallback(
 		async (sessionId: string, e: React.MouseEvent) => {
 			e.stopPropagation(); // Don't trigger session view
@@ -260,6 +278,7 @@ export function AgentSessionsModal({
 
 			// Persist to session origins (shared with AgentSessionsBrowser)
 			// Use projectRoot (not cwd) for consistent session storage access
+			// Note: Origins/starred status are stored locally even for SSH Remote sessions
 			if (activeSession?.projectRoot) {
 				if (agentId === 'claude-code') {
 					// Claude Code uses its own origins store
@@ -294,13 +313,15 @@ export function AgentSessionsModal({
 			if (!activeSession?.cwd) return;
 
 			const agentId = activeSession.toolType || 'claude-code';
+			const sshRemoteId = getSessionSshRemoteId(activeSession);
 			setMessagesLoading(true);
 			try {
 				const result = await window.maestro.agentSessions.read(
 					agentId,
-					activeSession.cwd,
+					activeSession.projectRoot,
 					session.sessionId,
-					{ offset, limit: 20 }
+					{ offset, limit: 20 },
+					sshRemoteId
 				);
 
 				if (offset === 0) {
@@ -318,7 +339,7 @@ export function AgentSessionsModal({
 				setMessagesLoading(false);
 			}
 		},
-		[activeSession?.cwd, activeSession?.toolType]
+		[activeSession]
 	);
 
 	// Handle viewing a session
@@ -488,6 +509,18 @@ export function AgentSessionsModal({
 								onChange={(e) => setSearch(e.target.value)}
 								onKeyDown={handleKeyDown}
 							/>
+							{getSessionSshRemoteId(activeSession) && (
+								<div
+									className="px-2 py-0.5 rounded text-xs font-medium"
+									style={{
+										backgroundColor: theme.colors.accent,
+										color: theme.colors.accentForeground,
+									}}
+									title="Sessions from SSH Remote host"
+								>
+									Remote
+								</div>
+							)}
 							<div
 								className="px-2 py-0.5 rounded text-xs font-bold"
 								style={{ backgroundColor: theme.colors.bgMain, color: theme.colors.textDim }}
@@ -592,11 +625,18 @@ export function AgentSessionsModal({
 						{loading ? (
 							<div className="flex items-center justify-center py-8">
 								<Loader2 className="w-6 h-6 animate-spin" style={{ color: theme.colors.textDim }} />
+								{getSessionSshRemoteId(activeSession) && (
+									<span className="ml-2 text-xs" style={{ color: theme.colors.textDim }}>
+										Loading from remote...
+									</span>
+								)}
 							</div>
 						) : filteredSessions.length === 0 ? (
 							<div className="px-4 py-8 text-center" style={{ color: theme.colors.textDim }}>
 								{sessions.length === 0
-									? 'No Claude sessions found for this project'
+									? getSessionSshRemoteId(activeSession)
+										? 'No sessions found on the remote host for this project'
+										: 'No Claude sessions found for this project'
 									: 'No sessions match your search'}
 							</div>
 						) : (
