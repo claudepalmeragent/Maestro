@@ -272,7 +272,7 @@ export class ClaudeSessionStorage implements AgentSessionStorage {
 
 	/**
 	 * Get the Claude projects directory path (remote via SSH)
-	 * On remote Linux hosts, ~ expands to the user's home directory
+	 * Uses ~ which expands via escapeRemotePath in remote-fs.ts
 	 */
 	private getRemoteProjectsDir(): string {
 		return '~/.claude/projects';
