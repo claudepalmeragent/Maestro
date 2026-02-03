@@ -892,6 +892,7 @@ export interface AppUtilityModalsProps {
 	// Prompt Library props
 	promptLibraryProjectName?: string;
 	promptLibraryProjectPath?: string;
+	promptLibraryProjectFolderColor?: string;
 	promptLibraryAgentId?: string;
 	promptLibraryAgentName?: string;
 	promptLibraryAgentSessionId?: string;
@@ -1066,6 +1067,7 @@ export function AppUtilityModals({
 	// Prompt Library props
 	promptLibraryProjectName,
 	promptLibraryProjectPath,
+	promptLibraryProjectFolderColor,
 	promptLibraryAgentId,
 	promptLibraryAgentName,
 	promptLibraryAgentSessionId,
@@ -1278,6 +1280,7 @@ export function AppUtilityModals({
 				onToggleEnterToSend={onPromptToggleEnterToSend}
 				currentProjectName={promptLibraryProjectName}
 				currentProjectPath={promptLibraryProjectPath}
+				currentProjectFolderColor={promptLibraryProjectFolderColor}
 				currentAgentId={promptLibraryAgentId}
 				currentAgentName={promptLibraryAgentName}
 				currentAgentSessionId={promptLibraryAgentSessionId}
@@ -1963,6 +1966,7 @@ export interface AppModalsProps {
 	// Prompt Library props
 	promptLibraryProjectName?: string;
 	promptLibraryProjectPath?: string;
+	promptLibraryProjectFolderColor?: string;
 	promptLibraryAgentId?: string;
 	promptLibraryAgentName?: string;
 	promptLibraryAgentSessionId?: string;
@@ -2275,6 +2279,7 @@ export function AppModals(props: AppModalsProps) {
 		// Prompt Library props
 		promptLibraryProjectName,
 		promptLibraryProjectPath,
+		promptLibraryProjectFolderColor,
 		promptLibraryAgentId,
 		promptLibraryAgentName,
 		promptLibraryAgentSessionId,
@@ -2583,6 +2588,7 @@ export function AppModals(props: AppModalsProps) {
 				onPromptToggleEnterToSend={onPromptToggleEnterToSend}
 				promptLibraryProjectName={promptLibraryProjectName}
 				promptLibraryProjectPath={promptLibraryProjectPath}
+				promptLibraryProjectFolderColor={promptLibraryProjectFolderColor}
 				promptLibraryAgentId={promptLibraryAgentId}
 				promptLibraryAgentName={promptLibraryAgentName}
 				promptLibraryAgentSessionId={promptLibraryAgentSessionId}

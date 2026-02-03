@@ -46,6 +46,7 @@ interface PromptComposerModalProps {
 	onTogglePromptLibrary?: () => void;
 	currentProjectName?: string;
 	currentProjectPath?: string;
+	currentProjectFolderColor?: string;
 	currentAgentId?: string;
 	currentAgentName?: string;
 	currentAgentSessionId?: string;
@@ -76,9 +77,10 @@ export function PromptComposerModal({
 	onToggleEnterToSend,
 	promptLibraryOpen = false,
 	onTogglePromptLibrary,
-	currentProjectName = 'Unknown',
+	currentProjectName = 'Unassigned',
 	currentProjectPath = '',
-	currentAgentId = 'claude-code',
+	currentProjectFolderColor,
+	currentAgentId = '',
 	currentAgentName = 'Claude',
 	currentAgentSessionId,
 	autoSaveToLibrary = false,
@@ -150,6 +152,7 @@ export function PromptComposerModal({
 					prompt: value,
 					projectName: currentProjectName,
 					projectPath: currentProjectPath,
+					projectFolderColor: currentProjectFolderColor,
 					agentId: currentAgentId,
 					agentName: currentAgentName,
 					agentSessionId: currentAgentSessionId,
@@ -191,6 +194,7 @@ export function PromptComposerModal({
 				prompt: value,
 				projectName: currentProjectName,
 				projectPath: currentProjectPath,
+				projectFolderColor: currentProjectFolderColor,
 				agentId: currentAgentId,
 				agentName: currentAgentName,
 				agentSessionId: currentAgentSessionId,

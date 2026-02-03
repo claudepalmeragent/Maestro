@@ -265,29 +265,33 @@ export function PromptLibrarySearchBar({
 
 							{/* Metadata Pills */}
 							<div className="flex items-center gap-2 shrink-0">
-								{/* Project Pill */}
+								{/* Project Pill - uses project folder color if available */}
 								<span
-									className="text-[10px] px-2 py-0.5 rounded-full border"
+									className="text-[10px] px-2 py-0.5 rounded-full border whitespace-nowrap"
 									style={{
-										backgroundColor: theme.colors.bgSidebar,
-										borderColor: theme.colors.border,
-										color: theme.colors.textDim,
+										backgroundColor: prompt.projectFolderColor
+											? `${prompt.projectFolderColor}20`
+											: theme.colors.bgSidebar,
+										borderColor: prompt.projectFolderColor || theme.colors.border,
+										color: prompt.projectFolderColor || theme.colors.textDim,
 									}}
-									title={`Project: ${prompt.projectPath}`}
+									title={`Project: ${prompt.projectPath || prompt.projectName}`}
 								>
-									{truncateText(prompt.projectName, 12)}
+									{prompt.projectName}
 								</span>
 
-								{/* Agent Pill */}
+								{/* Agent Pill - uses lighter project folder color for background */}
 								<span
-									className="text-[10px] px-2 py-0.5 rounded-full"
+									className="text-[10px] px-2 py-0.5 rounded-full whitespace-nowrap"
 									style={{
-										backgroundColor: `${theme.colors.accent}20`,
-										color: theme.colors.accent,
+										backgroundColor: prompt.projectFolderColor
+											? `${prompt.projectFolderColor}30`
+											: `${theme.colors.accent}20`,
+										color: prompt.projectFolderColor || theme.colors.accent,
 									}}
-									title={`Agent: ${prompt.agentId}${prompt.agentSessionId ? `\nSession: ${prompt.agentSessionId}` : ''}`}
+									title={`Agent: ${prompt.agentName}${prompt.agentSessionId ? `\nSession: ${prompt.agentSessionId}` : ''}`}
 								>
-									{truncateText(prompt.agentName, 10)}
+									{prompt.agentName}
 								</span>
 
 								{/* Use count badge */}

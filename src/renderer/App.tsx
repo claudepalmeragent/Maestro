@@ -97,7 +97,7 @@ import { GroupChatProvider, useGroupChat } from './contexts/GroupChatContext';
 import { AutoRunProvider, useAutoRun } from './contexts/AutoRunContext';
 import { SessionProvider, useSession } from './contexts/SessionContext';
 import { InlineWizardProvider, useInlineWizardContext } from './contexts/InlineWizardContext';
-import { ProjectFoldersProvider } from './contexts/ProjectFoldersContext';
+import { ProjectFoldersProvider, useProjectFoldersContext } from './contexts/ProjectFoldersContext';
 import { ToastContainer } from './components/Toast';
 
 // Import services
@@ -195,6 +195,9 @@ function MaestroConsoleInner() {
 		setAudioFeedback,
 		setOsNotifications,
 	} = useToast();
+
+	// --- PROJECT FOLDERS (for Prompt Library metadata) ---
+	const { getFolderById } = useProjectFoldersContext();
 
 	// --- MODAL STATE (centralized modal state management) ---
 	const {
@@ -12652,10 +12655,22 @@ You are taking over this conversation. Based on the context above, provide a bri
 					promptEnterToSend={enterToSendAI}
 					onPromptToggleEnterToSend={handlePromptToggleEnterToSend}
 					// Prompt Library props - pass actual session data
-					promptLibraryProjectName={
-						activeSession?.fullPath?.split('/').pop() || activeSession?.name || 'Unknown'
-					}
+					promptLibraryProjectName={(() => {
+						// Get the first project folder the session belongs to
+						const folderId = activeSession?.projectFolderIds?.[0];
+						if (folderId) {
+							const folder = getFolderById(folderId);
+							if (folder) {
+								return folder.emoji ? `${folder.emoji} ${folder.name}` : folder.name;
+							}
+						}
+						return 'Unassigned';
+					})()}
 					promptLibraryProjectPath={activeSession?.fullPath || activeSession?.cwd || ''}
+					promptLibraryProjectFolderColor={(() => {
+						const folderId = activeSession?.projectFolderIds?.[0];
+						return folderId ? getFolderById(folderId)?.highlightColor : undefined;
+					})()}
 					promptLibraryAgentId={activeSession?.id}
 					promptLibraryAgentName={activeSession?.name}
 					promptLibraryAgentSessionId={

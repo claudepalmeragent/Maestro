@@ -20,6 +20,7 @@ export interface PromptLibraryEntry {
 	description?: string;
 	projectName: string;
 	projectPath: string;
+	projectFolderColor?: string;
 	agentId: string;
 	agentName: string;
 	agentSessionId?: string;
