@@ -463,7 +463,11 @@ function setupIpcHandlers() {
 	// This provides the new window.maestro.agentSessions.* API
 	// Pass the shared claudeSessionOriginsStore so session names/stars are consistent
 	initializeSessionStorages({ claudeSessionOriginsStore });
-	registerAgentSessionsHandlers({ getMainWindow: () => mainWindow, agentSessionOriginsStore });
+	registerAgentSessionsHandlers({
+		getMainWindow: () => mainWindow,
+		agentSessionOriginsStore,
+		settingsStore: store,
+	});
 
 	// Helper to get agent config values (custom args/env vars, model, etc.)
 	const getAgentConfigForAgent = (agentId: string): Record<string, any> => {
