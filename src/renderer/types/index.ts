@@ -773,11 +773,12 @@ export interface PromptLibraryEntry {
 	description?: string; // Optional short description
 
 	// Origin metadata
-	projectName: string; // Project name where prompt was first created
-	projectPath: string; // Full path to project
-	agentId: string; // Agent ID (e.g., 'claude-code')
-	agentName: string; // Agent display name
-	agentSessionId?: string; // Original session ID (for pill hover)
+	projectName: string; // Project Folder display name (or 'Unassigned')
+	projectPath: string; // Full filesystem path to project (for tooltip)
+	projectFolderColor?: string; // Project Folder highlight color (hex)
+	agentId: string; // Maestro session ID
+	agentName: string; // Agent display name (from session.name)
+	agentSessionId?: string; // Claude Code session UUID (for pill hover)
 
 	// Timestamps
 	createdAt: number; // Unix timestamp of creation
