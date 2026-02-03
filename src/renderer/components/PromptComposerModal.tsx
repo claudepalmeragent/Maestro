@@ -248,12 +248,17 @@ export function PromptComposerModal({
 			return;
 		}
 
-		// Cmd/Ctrl + Shift + L to open lightbox (if images are staged)
+		// Cmd/Ctrl + Shift + L to toggle Prompt Library
 		if (e.key === 'l' && (e.metaKey || e.ctrlKey) && e.shiftKey) {
 			e.preventDefault();
-			if (stagedImages.length > 0 && onOpenLightbox) {
-				onOpenLightbox(stagedImages[0], stagedImages, 'staged');
-			}
+			toggleLibrary();
+			return;
+		}
+
+		// Cmd/Ctrl + Shift + S to save prompt to library
+		if (e.key === 's' && (e.metaKey || e.ctrlKey) && e.shiftKey) {
+			e.preventDefault();
+			handleSaveToLibrary();
 			return;
 		}
 
@@ -363,7 +368,7 @@ export function PromptComposerModal({
 								backgroundColor: libraryOpen ? `${theme.colors.accent}20` : 'transparent',
 								color: libraryOpen ? theme.colors.accent : theme.colors.textDim,
 							}}
-							title="Toggle Prompt Library (search saved prompts)"
+							title="Toggle Prompt Library (⌘+Shift+L)"
 						>
 							<Library className="w-4 h-4" />
 							<span className="text-xs">Library</span>
@@ -476,7 +481,7 @@ export function PromptComposerModal({
 							onClick={handleSaveToLibrary}
 							disabled={!value.trim()}
 							className="flex items-center gap-1.5 p-1.5 rounded hover:bg-white/10 transition-colors opacity-60 hover:opacity-100 disabled:opacity-30 disabled:cursor-not-allowed"
-							title="Save prompt to library"
+							title="Save prompt to library (⌘+Shift+S)"
 						>
 							<Save className="w-4 h-4" style={{ color: theme.colors.textDim }} />
 							<span className="text-xs" style={{ color: theme.colors.textDim }}>

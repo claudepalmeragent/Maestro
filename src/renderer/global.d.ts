@@ -2299,6 +2299,7 @@ interface MaestroAPI {
 				description?: string;
 				projectName: string;
 				projectPath: string;
+				projectFolderColor?: string;
 				agentId: string;
 				agentName: string;
 				agentSessionId?: string;
@@ -2316,6 +2317,7 @@ interface MaestroAPI {
 			description?: string;
 			projectName: string;
 			projectPath: string;
+			projectFolderColor?: string;
 			agentId: string;
 			agentName: string;
 			agentSessionId?: string;
@@ -2333,6 +2335,7 @@ interface MaestroAPI {
 				description?: string;
 				projectName: string;
 				projectPath: string;
+				projectFolderColor?: string;
 				agentId: string;
 				agentName: string;
 				agentSessionId?: string;
@@ -2349,6 +2352,7 @@ interface MaestroAPI {
 			description?: string;
 			projectName: string;
 			projectPath: string;
+			projectFolderColor?: string;
 			agentId: string;
 			agentName: string;
 			agentSessionId?: string;
@@ -2360,6 +2364,7 @@ interface MaestroAPI {
 			description?: string;
 			projectName: string;
 			projectPath: string;
+			projectFolderColor?: string;
 			agentId: string;
 			agentName: string;
 			agentSessionId?: string;
@@ -2384,6 +2389,7 @@ interface MaestroAPI {
 			description?: string;
 			projectName: string;
 			projectPath: string;
+			projectFolderColor?: string;
 			agentId: string;
 			agentName: string;
 			agentSessionId?: string;
@@ -2403,6 +2409,7 @@ interface MaestroAPI {
 				description?: string;
 				projectName: string;
 				projectPath: string;
+				projectFolderColor?: string;
 				agentId: string;
 				agentName: string;
 				agentSessionId?: string;
@@ -2423,6 +2430,7 @@ interface MaestroAPI {
 				description?: string;
 				projectName: string;
 				projectPath: string;
+				projectFolderColor?: string;
 				agentId: string;
 				agentName: string;
 				agentSessionId?: string;
