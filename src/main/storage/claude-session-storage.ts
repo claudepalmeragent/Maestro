@@ -716,65 +716,111 @@ export class ClaudeSessionStorage implements AgentSessionStorage {
 	}
 
 	/**
-	 * List sessions with pagination from remote host via SSH
+	 * List sessions with pagination from remote host via SSH.
+	 * Unlike local listing, this scans ALL project folders on the remote host
+	 * since users typically work on one remote machine across multiple directories.
+	 *
+	 * @param _projectPath - Not used for remote listing (scans all projects), kept for API consistency
 	 */
 	private async listSessionsPaginatedRemote(
-		projectPath: string,
+		_projectPath: string,
 		options: SessionListOptions | undefined,
 		sshConfig: SshRemoteConfig
 	): Promise<PaginatedSessionsResult> {
 		const { cursor, limit = 100 } = options || {};
-		const projectDir = this.getRemoteEncodedProjectDir(projectPath);
+		const projectsDir = this.getRemoteProjectsDir();
 
 		logger.info(
-			`Listing remote sessions: projectPath=${projectPath}, encodedDir=${projectDir}, sshHost=${sshConfig.host}`,
+			`Listing ALL remote sessions from: ${projectsDir}, sshHost=${sshConfig.host}`,
 			LOG_CONTEXT
 		);
 
-		// List directory via SSH
-		const dirResult = await readDirRemote(projectDir, sshConfig);
-		if (!dirResult.success || !dirResult.data) {
+		// First, list all project directories under ~/.claude/projects/
+		const projectsDirResult = await readDirRemote(projectsDir, sshConfig);
+		if (!projectsDirResult.success || !projectsDirResult.data) {
 			logger.warn(
-				`Failed to read remote directory: ${projectDir} - ${dirResult.error || 'unknown error'}`,
+				`Failed to read remote projects directory: ${projectsDir} - ${projectsDirResult.error || 'unknown error'}`,
 				LOG_CONTEXT
 			);
 			return { sessions: [], hasMore: false, totalCount: 0, nextCursor: null };
 		}
 
-		// Filter for .jsonl files
-		const sessionFiles = dirResult.data.filter(
-			(entry) => !entry.isDirectory && entry.name.endsWith('.jsonl')
+		// Get all subdirectories (each is an encoded project path)
+		const projectDirs = projectsDirResult.data.filter((entry) => entry.isDirectory);
+
+		logger.info(
+			`Found ${projectDirs.length} project directories on remote: ${projectDirs.map((d) => d.name).join(', ')}`,
+			LOG_CONTEXT
 		);
 
-		// Get file stats for all session files
-		const fileStats = await Promise.all(
-			sessionFiles.map(async (entry) => {
+		// Collect session files from all project directories
+		interface RemoteFileInfo {
+			sessionId: string;
+			filename: string;
+			filePath: string;
+			projectDir: string;
+			decodedProjectPath: string;
+			modifiedAt: number;
+			sizeBytes: number;
+		}
+
+		const allFileStats: RemoteFileInfo[] = [];
+
+		for (const projDir of projectDirs) {
+			const fullProjDir = `${projectsDir}/${projDir.name}`;
+
+			// List session files in this project directory
+			const dirResult = await readDirRemote(fullProjDir, sshConfig);
+			if (!dirResult.success || !dirResult.data) {
+				continue; // Skip directories we can't read
+			}
+
+			// Filter for .jsonl files
+			const sessionFiles = dirResult.data.filter(
+				(entry) => !entry.isDirectory && entry.name.endsWith('.jsonl')
+			);
+
+			// Get file stats for all session files in this project
+			const fileStatsPromises = sessionFiles.map(async (entry) => {
 				const sessionId = entry.name.replace('.jsonl', '');
-				const filePath = `${projectDir}/${entry.name}`;
+				const filePath = `${fullProjDir}/${entry.name}`;
 				try {
 					const statResult = await statRemote(filePath, sshConfig);
 					if (!statResult.success || !statResult.data) {
 						return null;
 					}
+					// Decode the project path from the directory name (reverse of encodeClaudeProjectPath)
+					// e.g., "-app" -> "/app", "-home-maestro" -> "/home/maestro"
+					const decodedProjectPath = this.decodeProjectPath(projDir.name);
 					return {
 						sessionId,
 						filename: entry.name,
 						filePath,
+						projectDir: projDir.name,
+						decodedProjectPath,
 						modifiedAt: statResult.data.mtime,
 						sizeBytes: statResult.data.size,
 					};
 				} catch {
 					return null;
 				}
-			})
-		);
+			});
 
-		const sortedFiles = fileStats
-			.filter((s): s is NonNullable<typeof s> => s !== null)
-			.filter((s) => s.sizeBytes > 0)
-			.sort((a, b) => b.modifiedAt - a.modifiedAt);
+			const projectFileStats = await Promise.all(fileStatsPromises);
+			allFileStats.push(
+				...projectFileStats.filter((s): s is RemoteFileInfo => s !== null && s.sizeBytes > 0)
+			);
+		}
+
+		// Sort all sessions by modification date (most recent first)
+		const sortedFiles = allFileStats.sort((a, b) => b.modifiedAt - a.modifiedAt);
 
 		const totalCount = sortedFiles.length;
+
+		logger.info(
+			`Found ${totalCount} total sessions across all remote project folders`,
+			LOG_CONTEXT
+		);
 
 		// Find cursor position
 		let startIndex = 0;
@@ -787,21 +833,20 @@ export class ClaudeSessionStorage implements AgentSessionStorage {
 		const hasMore = startIndex + limit < totalCount;
 		const nextCursor = hasMore ? pageFiles[pageFiles.length - 1]?.sessionId : null;
 
-		// Get project origins (stored locally)
-		const projectOrigins = this.getProjectOrigins(projectPath);
-
 		// Read full content for sessions in this page
 		const sessions = await Promise.all(
 			pageFiles.map(async (fileInfo) => {
 				const session = await parseSessionFileRemote(
 					fileInfo.filePath,
 					fileInfo.sessionId,
-					projectPath,
+					fileInfo.decodedProjectPath, // Use the actual project path for this session
 					{ size: fileInfo.sizeBytes, mtimeMs: fileInfo.modifiedAt },
 					sshConfig
 				);
 				if (session) {
-					return this.attachOriginInfo(session, projectOrigins);
+					// Get origins for this specific project path
+					const sessionProjectOrigins = this.getProjectOrigins(fileInfo.decodedProjectPath);
+					return this.attachOriginInfo(session, sessionProjectOrigins);
 				}
 				return null;
 			})
@@ -820,6 +865,24 @@ export class ClaudeSessionStorage implements AgentSessionStorage {
 			totalCount,
 			nextCursor,
 		};
+	}
+
+	/**
+	 * Decode an encoded project directory name back to the original path.
+	 * This is the reverse of encodeClaudeProjectPath.
+	 * Note: This is a best-effort decode since the encoding is lossy
+	 * (both / and . become -, so we can't distinguish them perfectly).
+	 * We assume the most common case: leading dash means root path.
+	 */
+	private decodeProjectPath(encodedName: string): string {
+		// If it starts with a dash, it's likely a root-relative path
+		// e.g., "-app" -> "/app", "-home-maestro" -> "/home/maestro"
+		if (encodedName.startsWith('-')) {
+			// Replace dashes with slashes (best guess for path separators)
+			return encodedName.replace(/-/g, '/');
+		}
+		// Otherwise treat the whole thing as a path with dashes as separators
+		return '/' + encodedName.replace(/-/g, '/');
 	}
 
 	async readSessionMessages(
