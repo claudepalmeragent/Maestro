@@ -338,7 +338,8 @@ describe('AgentSessionsModal', () => {
 				expect(window.maestro.agentSessions.listPaginated).toHaveBeenCalledWith(
 					'claude-code',
 					'/my/project',
-					{ limit: 100 }
+					{ limit: 100 },
+					undefined // sshRemoteId - undefined for local sessions
 				);
 			});
 		});
@@ -1943,7 +1944,8 @@ describe('AgentSessionsModal', () => {
 				expect(window.maestro.agentSessions.listPaginated).toHaveBeenCalledWith(
 					'claude-code',
 					expect.anything(),
-					{ cursor: 'cursor-100', limit: 100 }
+					{ cursor: 'cursor-100', limit: 100 },
+					undefined // sshRemoteId - undefined for local sessions
 				);
 			});
 		});

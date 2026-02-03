@@ -317,6 +317,13 @@ export function AboutModal({
 									</div>
 								)}
 							</div>
+							{/* Note about SSH Remote sessions */}
+							<div
+								className="text-[10px] text-center pt-2 mt-2 border-t"
+								style={{ borderColor: theme.colors.border, color: theme.colors.textDim }}
+							>
+								Local sessions only. SSH Remote sessions shown in Session Explorer.
+							</div>
 						</div>
 					) : (
 						<div className="text-xs text-center py-2" style={{ color: theme.colors.textDim }}>
