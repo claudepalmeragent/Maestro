@@ -337,6 +337,42 @@ export interface GlobalStats {
 	totalActiveTimeMs: number;
 }
 
+/**
+ * Information about a subagent transcript within a Claude Code session.
+ */
+export interface SubagentInfo {
+	/** Unique identifier extracted from filename: agent-{agentId}.jsonl */
+	agentId: string;
+	/** Type of subagent: Explore, Plan, general-purpose, Bash, or custom */
+	agentType: string;
+	/** Session ID of the parent session this subagent belongs to */
+	parentSessionId: string;
+	/** Full path to the subagent transcript file */
+	filePath: string;
+	/** Timestamp of the first message in the subagent conversation */
+	timestamp: string;
+	/** File modification timestamp */
+	modifiedAt: string;
+	/** Total number of messages in the subagent conversation */
+	messageCount: number;
+	/** File size in bytes */
+	sizeBytes: number;
+	/** Total input tokens used by the subagent */
+	inputTokens: number;
+	/** Total output tokens used by the subagent */
+	outputTokens: number;
+	/** Cache read tokens */
+	cacheReadTokens: number;
+	/** Cache creation tokens */
+	cacheCreationTokens: number;
+	/** Calculated cost in USD */
+	costUsd: number;
+	/** Preview of the first meaningful message */
+	firstMessage: string;
+	/** Duration of the subagent session in seconds */
+	durationSeconds: number;
+}
+
 // Badge unlock record for history tracking
 export interface BadgeUnlockRecord {
 	level: number;

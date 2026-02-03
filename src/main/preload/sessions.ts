@@ -7,6 +7,7 @@
  */
 
 import { ipcRenderer } from 'electron';
+import type { SubagentInfo, SessionMessagesResult } from '../agents';
 
 // Helper to log deprecation warnings
 const logDeprecationWarning = (method: string, replacement?: string) => {
@@ -345,8 +346,47 @@ export function createAgentSessionsApi() {
 				sessionId,
 				starred
 			),
+
+		/**
+		 * List subagents for a session
+		 */
+		listSubagents: (
+			agentId: string,
+			projectPath: string,
+			sessionId: string,
+			sshRemoteId?: string
+		): Promise<SubagentInfo[]> =>
+			ipcRenderer.invoke(
+				'agentSessions:listSubagents',
+				agentId,
+				projectPath,
+				sessionId,
+				sshRemoteId
+			),
+
+		/**
+		 * Get messages for a subagent
+		 */
+		getSubagentMessages: (
+			agentId: string,
+			projectPath: string,
+			agentSubId: string,
+			options?: { offset?: number; limit?: number },
+			sshRemoteId?: string
+		): Promise<SessionMessagesResult> =>
+			ipcRenderer.invoke(
+				'agentSessions:getSubagentMessages',
+				agentId,
+				projectPath,
+				agentSubId,
+				options,
+				sshRemoteId
+			),
 	};
 }
 
 export type ClaudeApi = ReturnType<typeof createClaudeApi>;
 export type AgentSessionsApi = ReturnType<typeof createAgentSessionsApi>;
+
+// Re-export types from agents module for preload consumers
+export type { SubagentInfo, SessionMessagesResult } from '../agents';

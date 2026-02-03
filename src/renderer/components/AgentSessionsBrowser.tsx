@@ -24,11 +24,12 @@ import {
 	ArrowUpFromLine,
 	Edit3,
 } from 'lucide-react';
-import type { Theme, Session, LogEntry, UsageStats } from '../types';
+import type { Theme, Session, LogEntry, UsageStats, SubagentInfo } from '../types';
 import { useLayerStack } from '../contexts/LayerStackContext';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 import { SessionActivityGraph, type ActivityEntry } from './SessionActivityGraph';
 import { SessionListItem } from './SessionListItem';
+import { SubagentListItem } from './SubagentListItem';
 import { ToolCallCard, getToolName } from './ToolCallCard';
 import { formatSize, formatNumber, formatTokens, formatRelativeTime } from '../utils/formatters';
 import {
@@ -36,6 +37,8 @@ import {
 	useSessionPagination,
 	useFilteredAndSortedSessions,
 	useClickOutside,
+	useSubagentLoader,
+	useSubagentViewer,
 	type ClaudeSession,
 } from '../hooks';
 
@@ -132,6 +135,36 @@ export function AgentSessionsBrowser({
 		projectPath: projectPathForSessions,
 		agentId,
 		onStarredSessionsLoaded: setStarredSessions,
+		sshRemoteId,
+	});
+
+	// Subagent loader hook for managing subagent data and expansion
+	const {
+		subagentsBySession,
+		expandedSessions,
+		loadingSubagents,
+		loadSubagentsForSession,
+		toggleSessionExpansion,
+		expandSession,
+	} = useSubagentLoader({
+		agentId,
+		projectPath: projectPathForSessions,
+		sshRemoteId,
+	});
+
+	// Subagent viewer hook for viewing subagent messages
+	const {
+		viewingSubagent,
+		messages: subagentMessages,
+		messagesLoading: subagentMessagesLoading,
+		hasMoreMessages: subagentHasMoreMessages,
+		totalMessages: subagentTotalMessages,
+		viewSubagent,
+		loadMoreMessages: loadMoreSubagentMessages,
+		clearViewing: clearSubagentViewing,
+	} = useSubagentViewer({
+		agentId,
+		projectPath: projectPathForSessions,
 		sshRemoteId,
 	});
 
@@ -281,13 +314,14 @@ export function AgentSessionsBrowser({
 	}, [activeSession?.projectRoot, agentId]);
 
 	// Compute stats from loaded sessions for non-Claude agents or SSH Remote Claude sessions
+	// Uses pre-computed aggregated values (includes subagent stats)
 	useEffect(() => {
 		// For local Claude Code sessions, use progressive stats from backend via onProjectStatsUpdate
 		// For SSH Remote sessions, we scan all project folders so we need to compute stats from loaded sessions
 		if (agentId === 'claude-code' && !isRemoteSession) return;
 		if (loading) return;
 
-		// Compute aggregate stats from the sessions array
+		// Compute aggregate stats from the sessions array using pre-computed aggregated values
 		let totalMessages = 0;
 		let totalCostUsd = 0;
 		let totalSizeBytes = 0;
@@ -295,10 +329,13 @@ export function AgentSessionsBrowser({
 		let oldestTimestamp: string | null = null;
 
 		for (const session of sessions) {
-			totalMessages += session.messageCount || 0;
-			totalCostUsd += session.costUsd || 0;
+			// Use aggregated values (includes subagent stats) when available
+			totalMessages += session.aggregatedMessageCount ?? session.messageCount ?? 0;
+			totalCostUsd += session.aggregatedCostUsd ?? session.costUsd ?? 0;
 			totalSizeBytes += session.sizeBytes || 0;
-			totalTokens += (session.inputTokens || 0) + (session.outputTokens || 0);
+			totalTokens +=
+				(session.aggregatedInputTokens ?? session.inputTokens ?? 0) +
+				(session.aggregatedOutputTokens ?? session.outputTokens ?? 0);
 			if (session.timestamp) {
 				if (!oldestTimestamp || session.timestamp < oldestTimestamp) {
 					oldestTimestamp = session.timestamp;
@@ -316,6 +353,37 @@ export function AgentSessionsBrowser({
 			isComplete: !hasMoreSessions, // Complete when all sessions are loaded
 		});
 	}, [agentId, isRemoteSession, sessions, loading, hasMoreSessions]);
+
+	// Auto-expand sessions with subagents and pre-load subagent data
+	useEffect(() => {
+		const loadAndExpandSessionsWithSubagents = async () => {
+			// Load subagents for all visible sessions
+			for (const session of sessions) {
+				// Skip if already loaded
+				if (subagentsBySession.has(session.sessionId)) continue;
+
+				try {
+					const subagents = await loadSubagentsForSession(session.sessionId);
+					// Auto-expand if session has subagents
+					if (subagents.length > 0) {
+						expandSession(session.sessionId);
+					}
+				} catch (error) {
+					// Silently handle errors - subagents are optional
+				}
+			}
+		};
+
+		if (sessions.length > 0 && projectPathForSessions) {
+			loadAndExpandSessionsWithSubagents();
+		}
+	}, [
+		sessions,
+		projectPathForSessions,
+		loadSubagentsForSession,
+		expandSession,
+		subagentsBySession,
+	]);
 
 	// Toggle star status for a session
 	const toggleStar = useCallback(
@@ -635,6 +703,81 @@ export function AgentSessionsBrowser({
 		[starredSessions, onResumeSession, onClose, buildUsageStats]
 	);
 
+	// Handle resume subagent
+	const handleResumeSubagent = useCallback(
+		async (subagent: SubagentInfo) => {
+			// For subagent resume, we use the subagent's agentId as the session to resume
+			// Claude Code supports resuming subagents by their agent ID
+			try {
+				// Load the subagent messages first
+				const result = await window.maestro.agentSessions.getSubagentMessages(
+					agentId,
+					projectPathForSessions || '',
+					subagent.agentId,
+					{ offset: 0, limit: 100 },
+					sshRemoteId
+				);
+
+				// Convert to LogEntry format for resume
+				const logEntries = result.messages.map(
+					(msg: { uuid?: string; timestamp: string; type: string; content: string }) => ({
+						id: msg.uuid || `${Date.now()}-${Math.random()}`,
+						timestamp: new Date(msg.timestamp).getTime(),
+						source: msg.type === 'user' ? ('stdout' as const) : ('stdout' as const),
+						text: msg.content,
+						sessionId: subagent.agentId,
+					})
+				);
+
+				// Resume the subagent session
+				// Note: Claude Code subagent resume uses a special format
+				onResumeSession(
+					subagent.agentId,
+					logEntries,
+					`Subagent: ${subagent.agentType}`,
+					false, // starred
+					{
+						inputTokens: subagent.inputTokens,
+						outputTokens: subagent.outputTokens,
+						cacheReadInputTokens: subagent.cacheReadTokens,
+						cacheCreationInputTokens: subagent.cacheCreationTokens,
+						totalCostUsd: subagent.costUsd,
+						contextWindow: 0,
+					}
+				);
+				onClose();
+			} catch (error) {
+				console.error('Failed to resume subagent:', error);
+			}
+		},
+		[agentId, projectPathForSessions, sshRemoteId, onResumeSession, onClose]
+	);
+
+	// Handle view subagent messages
+	const handleViewSubagent = useCallback(
+		(subagent: SubagentInfo) => {
+			viewSubagent(subagent);
+		},
+		[viewSubagent]
+	);
+
+	// Render subagent list items - extracted to avoid type inference issues
+	const renderSubagentItems = useCallback(
+		(subagents: SubagentInfo[]) => {
+			return subagents.map((sa) => (
+				<SubagentListItem
+					key={sa.agentId}
+					subagent={sa}
+					theme={theme}
+					isSelected={Boolean(viewingSubagent && viewingSubagent.agentId === sa.agentId)}
+					onClick={() => handleViewSubagent(sa)}
+					onResume={() => handleResumeSubagent(sa)}
+				/>
+			));
+		},
+		[theme, viewingSubagent, handleViewSubagent, handleResumeSubagent]
+	);
+
 	// Activity entries for the graph - cached in state to prevent re-renders during pagination
 	// Only updates when: switching TO graph view, or filters change while graph is visible
 	const [activityEntries, setActivityEntries] = useState<ActivityEntry[]>([]);
@@ -912,7 +1055,117 @@ export function AgentSessionsBrowser({
 			</div>
 
 			{/* Content */}
-			{viewingSession ? (
+			{viewingSubagent ? (
+				/* Subagent messages view */
+				<div
+					className="subagent-messages-view"
+					style={{ flex: 1, display: 'flex', flexDirection: 'column' }}
+				>
+					{/* Header */}
+					<div
+						style={{
+							display: 'flex',
+							alignItems: 'center',
+							padding: '12px 16px',
+							borderBottom: `1px solid ${theme.colors.border}`,
+							gap: '12px',
+						}}
+					>
+						<button
+							onClick={clearSubagentViewing}
+							style={{
+								display: 'flex',
+								alignItems: 'center',
+								padding: '4px 8px',
+								border: 'none',
+								borderRadius: '4px',
+								background: `${theme.colors.textMain}10`,
+								color: theme.colors.textMain,
+								cursor: 'pointer',
+								gap: '4px',
+							}}
+						>
+							<ChevronLeft size={16} />
+							Back
+						</button>
+						<span style={{ fontWeight: 500, color: theme.colors.textMain }}>
+							{viewingSubagent.agentType}: {viewingSubagent.firstMessage?.slice(0, 50) || ''}...
+						</span>
+						<span style={{ color: theme.colors.textDim, fontSize: '12px' }}>
+							({subagentTotalMessages} messages)
+						</span>
+					</div>
+
+					{/* Messages list */}
+					<div style={{ flex: 1, overflow: 'auto', padding: '16px' }}>
+						{subagentMessagesLoading && subagentMessages.length === 0 ? (
+							<div style={{ display: 'flex', justifyContent: 'center', padding: '20px' }}>
+								<Loader2
+									size={24}
+									className="animate-spin"
+									style={{ color: theme.colors.accent }}
+								/>
+							</div>
+						) : (
+							<>
+								{subagentHasMoreMessages && (
+									<button
+										onClick={loadMoreSubagentMessages}
+										disabled={subagentMessagesLoading}
+										style={{
+											display: 'block',
+											width: '100%',
+											padding: '8px',
+											marginBottom: '16px',
+											border: `1px solid ${theme.colors.border}`,
+											borderRadius: '4px',
+											background: 'transparent',
+											color: theme.colors.accent,
+											cursor: 'pointer',
+										}}
+									>
+										{subagentMessagesLoading ? 'Loading...' : 'Load earlier messages'}
+									</button>
+								)}
+								{subagentMessages.map((msg, idx) => (
+									<div
+										key={msg.uuid || idx}
+										style={{
+											marginBottom: '16px',
+											padding: '12px',
+											borderRadius: '8px',
+											background:
+												msg.type === 'user'
+													? `${theme.colors.accent}10`
+													: `${theme.colors.textMain}05`,
+										}}
+									>
+										<div
+											style={{
+												fontSize: '11px',
+												color: theme.colors.textDim,
+												marginBottom: '4px',
+											}}
+										>
+											{msg.type === 'user' ? 'Parent Agent' : 'Subagent'} •{' '}
+											{new Date(msg.timestamp).toLocaleString()}
+										</div>
+										<div
+											style={{
+												whiteSpace: 'pre-wrap',
+												wordBreak: 'break-word',
+												color: theme.colors.textMain,
+											}}
+										>
+											{msg.content}
+										</div>
+									</div>
+								))}
+							</>
+						)}
+					</div>
+				</div>
+			) : viewingSession ? (
 				<div className="flex-1 flex flex-col overflow-hidden">
 					{/* Session Stats Panel */}
 					<div
@@ -1237,6 +1490,17 @@ export function AgentSessionsBrowser({
 									</span>
 								</div>
 							)}
+							{/* Subagent indicator - show when stats include subagent usage */}
+							{sessions.some((s) => s.hasSubagents) && (
+								<div
+									className="flex items-center gap-1.5"
+									style={{ color: theme.colors.accent }}
+									title="Statistics include all subagent usage"
+								>
+									<Zap className="w-3.5 h-3.5" />
+									<span className="text-[11px] font-medium">incl. subagents</span>
+								</div>
+							)}
 							{stats.oldestSession && (
 								<div className="flex items-center gap-2">
 									<Clock className="w-4 h-4" style={{ color: theme.colors.textDim }} />
@@ -1471,30 +1735,51 @@ export function AgentSessionsBrowser({
 							</div>
 						) : (
 							<div className="py-2">
-								{filteredSessions.map((session, i) => (
-									<SessionListItem
-										key={session.sessionId}
-										session={session}
-										index={i}
-										selectedIndex={selectedIndex}
-										isStarred={starredSessions.has(session.sessionId)}
-										activeAgentSessionId={activeAgentSessionId}
-										renamingSessionId={renamingSessionId}
-										renameValue={renameValue}
-										searchMode={searchMode}
-										searchResultInfo={getSearchResultInfo(session.sessionId)}
-										theme={theme}
-										selectedItemRef={selectedItemRef}
-										renameInputRef={renameInputRef}
-										onSessionClick={handleViewSession}
-										onToggleStar={toggleStar}
-										onQuickResume={handleQuickResume}
-										onStartRename={startRename}
-										onRenameChange={setRenameValue}
-										onSubmitRename={submitRename}
-										onCancelRename={cancelRename}
-									/>
-								))}
+								{/* For each session, render the session followed by its subagents if expanded */}
+								{filteredSessions.map((session, i) => {
+									const sessionSubagents = subagentsBySession.get(session.sessionId) || [];
+									const isExpanded = expandedSessions.has(session.sessionId);
+									const isLoadingSessionSubagents = loadingSubagents.has(session.sessionId);
+									const hasSubagents = sessionSubagents.length > 0;
+
+									return (
+										<React.Fragment key={session.sessionId}>
+											{/* Session row with expand indicator */}
+											<SessionListItem
+												session={session}
+												index={i}
+												selectedIndex={selectedIndex}
+												isStarred={starredSessions.has(session.sessionId)}
+												activeAgentSessionId={activeAgentSessionId}
+												renamingSessionId={renamingSessionId}
+												renameValue={renameValue}
+												searchMode={searchMode}
+												searchResultInfo={getSearchResultInfo(session.sessionId)}
+												theme={theme}
+												selectedItemRef={selectedItemRef}
+												renameInputRef={renameInputRef}
+												onSessionClick={handleViewSession}
+												onToggleStar={toggleStar}
+												onQuickResume={handleQuickResume}
+												onStartRename={startRename}
+												onRenameChange={setRenameValue}
+												onSubmitRename={submitRename}
+												onCancelRename={cancelRename}
+												onToggleExpand={
+													hasSubagents || isLoadingSessionSubagents
+														? () => toggleSessionExpansion(session.sessionId)
+														: undefined
+												}
+												isExpanded={isExpanded}
+												hasSubagents={hasSubagents}
+												isLoadingSubagents={isLoadingSessionSubagents}
+											/>
+
+											{/* Subagent rows when expanded */}
+											{isExpanded && renderSubagentItems(sessionSubagents)}
+										</React.Fragment>
+									);
+								})}
 								{/* Pagination indicator */}
 								{(isLoadingMoreSessions || hasMoreSessions) && !search && (
 									<div className="py-4 flex justify-center items-center">

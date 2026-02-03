@@ -64,6 +64,61 @@ export interface AgentSessionInfo {
 	origin?: AgentSessionOrigin;
 	sessionName?: string;
 	starred?: boolean;
+	/** Subagent transcripts associated with this session (pre-loaded) */
+	subagents?: SubagentInfo[];
+	/** Whether this session has subagents */
+	hasSubagents?: boolean;
+	/** Count of subagents for quick display */
+	subagentCount?: number;
+	/** Aggregated input tokens (main + all subagents) */
+	aggregatedInputTokens?: number;
+	/** Aggregated output tokens (main + all subagents) */
+	aggregatedOutputTokens?: number;
+	/** Aggregated cache read tokens (main + all subagents) */
+	aggregatedCacheReadTokens?: number;
+	/** Aggregated cache creation tokens (main + all subagents) */
+	aggregatedCacheCreationTokens?: number;
+	/** Aggregated cost in USD (main + all subagents) */
+	aggregatedCostUsd?: number;
+	/** Aggregated message count (main + all subagents) */
+	aggregatedMessageCount?: number;
+}
+
+/**
+ * Information about a subagent transcript within a Claude Code session.
+ * Subagents are spawned via the Task tool and have their own conversation transcripts.
+ */
+export interface SubagentInfo {
+	/** Unique identifier extracted from filename: agent-{agentId}.jsonl */
+	agentId: string;
+	/** Type of subagent: Explore, Plan, general-purpose, Bash, or custom */
+	agentType: string;
+	/** Session ID of the parent session this subagent belongs to */
+	parentSessionId: string;
+	/** Full path to the subagent transcript file */
+	filePath: string;
+	/** Timestamp of the first message in the subagent conversation */
+	timestamp: string;
+	/** File modification timestamp */
+	modifiedAt: string;
+	/** Total number of messages in the subagent conversation */
+	messageCount: number;
+	/** File size in bytes */
+	sizeBytes: number;
+	/** Total input tokens used by the subagent */
+	inputTokens: number;
+	/** Total output tokens used by the subagent */
+	outputTokens: number;
+	/** Cache read tokens */
+	cacheReadTokens: number;
+	/** Cache creation tokens */
+	cacheCreationTokens: number;
+	/** Calculated cost in USD */
+	costUsd: number;
+	/** Preview of the first meaningful message */
+	firstMessage: string;
+	/** Duration of the subagent session in seconds */
+	durationSeconds: number;
 }
 
 /**

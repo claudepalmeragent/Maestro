@@ -91,3 +91,9 @@ export type {
 	TabSummarizeState,
 	UseSummarizeAndContinueResult,
 } from './useSummarizeAndContinue';
+
+// Subagent loading and caching
+export { useSubagentLoader } from './useSubagentLoader';
+
+// Subagent message viewing
+export { useSubagentViewer } from './useSubagentViewer';

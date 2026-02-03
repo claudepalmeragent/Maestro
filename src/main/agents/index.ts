@@ -52,6 +52,7 @@ export {
 	type AgentSessionOrigin,
 	type SessionMessage,
 	type AgentSessionInfo,
+	type SubagentInfo,
 	type PaginatedSessionsResult,
 	type SessionMessagesResult,
 	type SessionSearchResult,

@@ -31,6 +31,23 @@ export interface AgentSession {
 	durationSeconds: number;
 	origin?: 'user' | 'auto';
 	sessionName?: string;
+	starred?: boolean;
+	/** Whether this session has subagents */
+	hasSubagents?: boolean;
+	/** Count of subagents for quick display */
+	subagentCount?: number;
+	/** Aggregated input tokens (main + all subagents) */
+	aggregatedInputTokens?: number;
+	/** Aggregated output tokens (main + all subagents) */
+	aggregatedOutputTokens?: number;
+	/** Aggregated cache read tokens (main + all subagents) */
+	aggregatedCacheReadTokens?: number;
+	/** Aggregated cache creation tokens (main + all subagents) */
+	aggregatedCacheCreationTokens?: number;
+	/** Aggregated cost in USD (main + all subagents) */
+	aggregatedCostUsd?: number;
+	/** Aggregated message count (main + all subagents) */
+	aggregatedMessageCount?: number;
 }
 
 /**

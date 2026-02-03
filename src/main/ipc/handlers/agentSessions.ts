@@ -510,6 +510,90 @@ export function registerAgentSessionsHandlers(deps?: AgentSessionsHandlerDepende
 		)
 	);
 
+	// ============ List Subagents for Session ============
+
+	ipcMain.handle(
+		'agentSessions:listSubagents',
+		withIpcErrorLogging(
+			handlerOpts('listSubagents'),
+			async (
+				agentId: string,
+				projectPath: string,
+				sessionId: string,
+				sshRemoteId?: string
+			): Promise<import('../../agents').SubagentInfo[]> => {
+				const storage = getSessionStorage(agentId);
+				if (!storage) {
+					logger.warn(`No session storage available for agent: ${agentId}`, LOG_CONTEXT);
+					return [];
+				}
+
+				// Check if storage supports subagent listing
+				if (typeof (storage as any).listSubagentsForSession !== 'function') {
+					logger.debug(`Storage for ${agentId} does not support subagent listing`, LOG_CONTEXT);
+					return [];
+				}
+
+				// Get SSH config if provided
+				const sshConfig = sshRemoteId ? getSshRemoteById(sshRemoteId) : undefined;
+
+				const subagents = await (storage as any).listSubagentsForSession(
+					projectPath,
+					sessionId,
+					sshConfig
+				);
+				logger.info(
+					`Listed ${subagents.length} subagents for session ${sessionId} (agent: ${agentId})${sshRemoteId ? ' (remote via SSH)' : ''}`,
+					LOG_CONTEXT
+				);
+				return subagents;
+			}
+		)
+	);
+
+	// ============ Get Subagent Messages ============
+
+	ipcMain.handle(
+		'agentSessions:getSubagentMessages',
+		withIpcErrorLogging(
+			handlerOpts('getSubagentMessages'),
+			async (
+				agentId: string,
+				projectPath: string,
+				agentSubId: string,
+				options?: { offset?: number; limit?: number },
+				sshRemoteId?: string
+			): Promise<SessionMessagesResult> => {
+				const storage = getSessionStorage(agentId);
+				if (!storage) {
+					logger.warn(`No session storage available for agent: ${agentId}`, LOG_CONTEXT);
+					return { messages: [], total: 0, hasMore: false };
+				}
+
+				// Check if storage supports subagent messages
+				if (typeof (storage as any).getSubagentMessages !== 'function') {
+					logger.debug(`Storage for ${agentId} does not support subagent messages`, LOG_CONTEXT);
+					return { messages: [], total: 0, hasMore: false };
+				}
+
+				// Get SSH config if provided
+				const sshConfig = sshRemoteId ? getSshRemoteById(sshRemoteId) : undefined;
+
+				const result = await (storage as any).getSubagentMessages(
+					projectPath,
+					agentSubId,
+					options,
+					sshConfig
+				);
+				logger.info(
+					`Read ${result.messages.length} messages for subagent ${agentSubId} (agent: ${agentId})${sshRemoteId ? ' (remote via SSH)' : ''}`,
+					LOG_CONTEXT
+				);
+				return result;
+			}
+		)
+	);
+
 	// ============ Get Session Path ============
 
 	ipcMain.handle(

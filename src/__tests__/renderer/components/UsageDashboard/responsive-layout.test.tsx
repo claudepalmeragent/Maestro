@@ -7,7 +7,7 @@
  * - Medium screens (600-900px): 2-column charts, 3-column summary cards grid
  * - Wide screens (>900px): 2-column charts, 5-column summary cards grid
  *
- * Note: SummaryCards always renders 6 metric cards regardless of grid column count.
+ * Note: SummaryCards always renders 8 metric cards regardless of grid column count.
  *
  * The responsive system uses ResizeObserver to track container width and
  * dynamically adjusts grid column counts via CSS grid.
@@ -48,6 +48,8 @@ vi.mock('lucide-react', () => {
 		AlertTriangle: createIcon('alert-triangle', '⚠️'),
 		ChevronDown: createIcon('chevron-down', '▼'),
 		ChevronUp: createIcon('chevron-up', '▲'),
+		Zap: createIcon('zap', '⚡'),
+		FileText: createIcon('file-text', '📄'),
 	};
 });
 
@@ -324,9 +326,9 @@ describe('UsageDashboard Responsive Layout', () => {
 			simulateContainerResize(1000);
 
 			await waitFor(() => {
-				// In wide mode, summary cards should have 3 columns (2 rows × 3 cols layout)
+				// In wide mode, summary cards should have 4 columns (2 rows × 4 cols layout)
 				const summaryCards = screen.getByTestId('summary-cards');
-				expect(summaryCards).toHaveStyle({ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' });
+				expect(summaryCards).toHaveStyle({ gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' });
 			});
 		});
 	});
@@ -366,7 +368,7 @@ describe('UsageDashboard Responsive Layout', () => {
 			});
 		});
 
-		it('displays 3 columns in wide mode (>=900px) for 2×3 layout', async () => {
+		it('displays 4 columns in wide mode (>=900px) for 2×4 layout', async () => {
 			mockOffsetWidth = 1200;
 
 			render(<UsageDashboardModal isOpen={true} onClose={onClose} theme={theme} />);
@@ -379,20 +381,20 @@ describe('UsageDashboard Responsive Layout', () => {
 
 			await waitFor(() => {
 				const summaryCards = screen.getByTestId('summary-cards');
-				expect(summaryCards).toHaveStyle({ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' });
+				expect(summaryCards).toHaveStyle({ gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' });
 			});
 		});
 
-		it('renders all 6 metric cards regardless of column count', async () => {
+		it('renders all 8 metric cards regardless of column count', async () => {
 			render(<UsageDashboardModal isOpen={true} onClose={onClose} theme={theme} />);
 
 			await waitFor(() => {
 				expect(screen.getByTestId('usage-dashboard-content')).toBeInTheDocument();
 			});
 
-			// Should always have 6 metric cards
+			// Should always have 8 metric cards (Sessions, Total Queries, Total Time, Avg Duration, Avg Throughput, Total Tokens, Top Agent, Interactive %)
 			const metricCards = screen.getAllByTestId('metric-card');
-			expect(metricCards).toHaveLength(6);
+			expect(metricCards).toHaveLength(8);
 		});
 	});
 
@@ -485,8 +487,8 @@ describe('UsageDashboard Responsive Layout', () => {
 
 			await waitFor(() => {
 				const summaryCards = screen.getByTestId('summary-cards');
-				// 900px is >= 900, so wide layout uses 3 columns (2×3 grid)
-				expect(summaryCards).toHaveStyle({ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' });
+				// 900px is >= 900, so wide layout uses 4 columns (2×4 grid)
+				expect(summaryCards).toHaveStyle({ gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' });
 			});
 		});
 
@@ -542,7 +544,7 @@ describe('UsageDashboard Responsive Layout', () => {
 
 			await waitFor(() => {
 				const summaryCards = screen.getByTestId('summary-cards');
-				expect(summaryCards).toHaveStyle({ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' });
+				expect(summaryCards).toHaveStyle({ gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' });
 			});
 
 			// Resize to narrow
@@ -578,7 +580,7 @@ describe('UsageDashboard Responsive Layout', () => {
 
 			await waitFor(() => {
 				const summaryCards = screen.getByTestId('summary-cards');
-				expect(summaryCards).toHaveStyle({ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' });
+				expect(summaryCards).toHaveStyle({ gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' });
 			});
 		});
 
@@ -869,10 +871,10 @@ describe('UsageDashboard Responsive Layout', () => {
 
 			simulateContainerResize(2000);
 
-			// Should still use wide layout (3 columns for 2×3 summary grid)
+			// Should still use wide layout (4 columns for 2×4 summary grid)
 			await waitFor(() => {
 				const summaryCards = screen.getByTestId('summary-cards');
-				expect(summaryCards).toHaveStyle({ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' });
+				expect(summaryCards).toHaveStyle({ gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' });
 			});
 		});
 	});

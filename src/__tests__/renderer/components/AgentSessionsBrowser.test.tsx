@@ -15,7 +15,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import { AgentSessionsBrowser } from '../../../renderer/components/AgentSessionsBrowser';
 import { LayerStackProvider } from '../../../renderer/contexts/LayerStackContext';
-import type { Theme, Session, LogEntry } from '../../../renderer/types';
+import type { Theme, Session, LogEntry, SubagentInfo } from '../../../renderer/types';
 
 // Mock lucide-react icons
 vi.mock('lucide-react', () => ({
@@ -49,6 +49,10 @@ vi.mock('lucide-react', () => ({
 	Edit3: () => <span data-testid="icon-edit" />,
 	CheckCircle2: () => <span data-testid="icon-check-circle" />,
 	AlertCircle: () => <span data-testid="icon-alert-circle" />,
+	// Icons for SubagentListItem
+	ClipboardList: () => <span data-testid="icon-clipboard-list" />,
+	Terminal: () => <span data-testid="icon-terminal" />,
+	Sparkles: () => <span data-testid="icon-sparkles" />,
 }));
 
 // Default theme
@@ -145,6 +149,26 @@ const createMockActiveSession = (overrides: Partial<Session> = {}): Session => (
 	fileTree: [],
 	fileExplorerExpanded: [],
 	messageQueue: [],
+	...overrides,
+});
+
+// Create mock subagent info
+const createMockSubagent = (overrides: Partial<SubagentInfo> = {}): SubagentInfo => ({
+	agentId: `subagent-${Math.random().toString(36).substr(2, 6)}`,
+	agentType: 'Explore',
+	parentSessionId: 'd02d0bd6-0000-0000-0000-000000000001',
+	filePath: '/home/user/.claude/projects/-path-to-project/subagents/agent-test.jsonl',
+	timestamp: '2025-01-15T10:01:00Z',
+	modifiedAt: '2025-01-15T10:05:00Z',
+	messageCount: 5,
+	sizeBytes: 5000,
+	inputTokens: 1000,
+	outputTokens: 500,
+	cacheReadTokens: 200,
+	cacheCreationTokens: 100,
+	costUsd: 0.02,
+	firstMessage: 'Search for authentication files',
+	durationSeconds: 60,
 	...overrides,
 });
 
@@ -3002,6 +3026,584 @@ describe('AgentSessionsBrowser', () => {
 			});
 
 			expect(screen.getByText('D02D0BD6-1234-5678-90AB-CDEFGHIJKLMN')).toBeInTheDocument();
+		});
+	});
+
+	// ============================================================================
+	// Subagent Functionality Tests
+	// ============================================================================
+
+	describe('Subagent functionality', () => {
+		it('should call listSubagents for sessions on mount', async () => {
+			const mockSubagents = [
+				createMockSubagent({ agentId: 'sub1', agentType: 'Explore' }),
+				createMockSubagent({ agentId: 'sub2', agentType: 'Plan' }),
+			];
+			vi.mocked(window.maestro.agentSessions.listSubagents).mockResolvedValue(mockSubagents);
+
+			const mockSession = createMockClaudeSession({
+				sessionId: 'd02d0bd6-0000-0000-0000-000000000001',
+				firstMessage: 'Session with subagents',
+			});
+			vi.mocked(window.maestro.agentSessions.listPaginated).mockResolvedValue({
+				sessions: [mockSession],
+				hasMore: false,
+				totalCount: 1,
+				nextCursor: null,
+			});
+
+			await act(async () => {
+				renderWithProvider(<AgentSessionsBrowser {...createDefaultProps()} />);
+				await vi.runAllTimersAsync();
+			});
+
+			// Keep advancing timers until listSubagents is called
+			for (let i = 0; i < 10; i++) {
+				await act(async () => {
+					await vi.advanceTimersByTimeAsync(100);
+				});
+				if (vi.mocked(window.maestro.agentSessions.listSubagents).mock.calls.length > 0) {
+					break;
+				}
+			}
+
+			// Should call listSubagents for the session
+			expect(window.maestro.agentSessions.listSubagents).toHaveBeenCalledWith(
+				'claude-code',
+				'/path/to/project',
+				'd02d0bd6-0000-0000-0000-000000000001',
+				undefined
+			);
+		});
+
+		it('should display subagent rows when session has subagents', async () => {
+			const mockSubagents = [
+				createMockSubagent({
+					agentId: 'sub1',
+					agentType: 'Explore',
+					firstMessage: 'Search for authentication files',
+				}),
+				createMockSubagent({
+					agentId: 'sub2',
+					agentType: 'Plan',
+					firstMessage: 'Plan the refactoring',
+				}),
+			];
+			vi.mocked(window.maestro.agentSessions.listSubagents).mockResolvedValue(mockSubagents);
+
+			const mockSession = createMockClaudeSession({
+				sessionId: 'd02d0bd6-0000-0000-0000-000000000001',
+				firstMessage: 'Session with subagents',
+			});
+			vi.mocked(window.maestro.agentSessions.listPaginated).mockResolvedValue({
+				sessions: [mockSession],
+				hasMore: false,
+				totalCount: 1,
+				nextCursor: null,
+			});
+
+			await act(async () => {
+				renderWithProvider(<AgentSessionsBrowser {...createDefaultProps()} />);
+				await vi.runAllTimersAsync();
+			});
+
+			// Keep advancing timers until subagent rows appear
+			let foundSubagents = false;
+			for (let i = 0; i < 20; i++) {
+				await act(async () => {
+					await vi.advanceTimersByTimeAsync(100);
+				});
+				if (screen.queryByText(/Explore:/) && screen.queryByText(/Plan:/)) {
+					foundSubagents = true;
+					break;
+				}
+			}
+
+			expect(foundSubagents).toBe(true);
+			expect(screen.getByText(/Explore:/)).toBeInTheDocument();
+			expect(screen.getByText(/Plan:/)).toBeInTheDocument();
+		});
+
+		it('should display subagent preview text', async () => {
+			const mockSubagents = [
+				createMockSubagent({
+					agentId: 'sub1',
+					agentType: 'Explore',
+					firstMessage: 'Find all TypeScript interfaces',
+				}),
+			];
+			vi.mocked(window.maestro.agentSessions.listSubagents).mockResolvedValue(mockSubagents);
+
+			const mockSession = createMockClaudeSession({
+				sessionId: 'd02d0bd6-0000-0000-0000-000000000001',
+			});
+			vi.mocked(window.maestro.agentSessions.listPaginated).mockResolvedValue({
+				sessions: [mockSession],
+				hasMore: false,
+				totalCount: 1,
+				nextCursor: null,
+			});
+
+			await act(async () => {
+				renderWithProvider(<AgentSessionsBrowser {...createDefaultProps()} />);
+				await vi.runAllTimersAsync();
+			});
+
+			// Keep advancing timers until subagent preview text appears
+			for (let i = 0; i < 20; i++) {
+				await act(async () => {
+					await vi.advanceTimersByTimeAsync(100);
+				});
+				if (screen.queryByText(/Find all TypeScript interfaces/)) {
+					break;
+				}
+			}
+
+			expect(screen.getByText(/Find all TypeScript interfaces/)).toBeInTheDocument();
+		});
+
+		it('should navigate to subagent message view when clicking subagent row', async () => {
+			const mockSubagents = [
+				createMockSubagent({
+					agentId: 'sub1',
+					agentType: 'Explore',
+					firstMessage: 'Search for files',
+				}),
+			];
+			vi.mocked(window.maestro.agentSessions.listSubagents).mockResolvedValue(mockSubagents);
+			vi.mocked(window.maestro.agentSessions.getSubagentMessages).mockResolvedValue({
+				messages: [
+					{
+						type: 'user',
+						content: 'Search for files',
+						timestamp: '2025-01-15T10:01:00Z',
+						uuid: 'msg-1',
+					},
+					{
+						type: 'assistant',
+						content: 'Found 5 matching files...',
+						timestamp: '2025-01-15T10:01:05Z',
+						uuid: 'msg-2',
+					},
+				],
+				total: 2,
+				hasMore: false,
+			});
+
+			const mockSession = createMockClaudeSession({
+				sessionId: 'd02d0bd6-0000-0000-0000-000000000001',
+			});
+			vi.mocked(window.maestro.agentSessions.listPaginated).mockResolvedValue({
+				sessions: [mockSession],
+				hasMore: false,
+				totalCount: 1,
+				nextCursor: null,
+			});
+
+			await act(async () => {
+				renderWithProvider(<AgentSessionsBrowser {...createDefaultProps()} />);
+				await vi.runAllTimersAsync();
+			});
+
+			// Wait for subagent row to appear
+			for (let i = 0; i < 20; i++) {
+				await act(async () => {
+					await vi.advanceTimersByTimeAsync(100);
+				});
+				if (screen.queryByText(/Explore:/)) break;
+			}
+
+			expect(screen.getByText(/Explore:/)).toBeInTheDocument();
+
+			// Click on the subagent row - SubagentListItem is a button element
+			const exploreRow = screen.getByText(/Explore:/).closest('button');
+			await act(async () => {
+				fireEvent.click(exploreRow!);
+				await vi.runAllTimersAsync();
+			});
+
+			// Wait for subagent messages to appear
+			for (let i = 0; i < 20; i++) {
+				await act(async () => {
+					await vi.advanceTimersByTimeAsync(100);
+				});
+				if (screen.queryByText('Found 5 matching files...')) break;
+			}
+
+			expect(screen.getByText('Found 5 matching files...')).toBeInTheDocument();
+		});
+
+		it('should show back button when viewing subagent messages', async () => {
+			const mockSubagents = [createMockSubagent({ agentId: 'sub1', agentType: 'Explore' })];
+			vi.mocked(window.maestro.agentSessions.listSubagents).mockResolvedValue(mockSubagents);
+			vi.mocked(window.maestro.agentSessions.getSubagentMessages).mockResolvedValue({
+				messages: [
+					{ type: 'user', content: 'Test', timestamp: '2025-01-15T10:01:00Z', uuid: 'msg-1' },
+				],
+				total: 1,
+				hasMore: false,
+			});
+
+			const mockSession = createMockClaudeSession({
+				sessionId: 'd02d0bd6-0000-0000-0000-000000000001',
+			});
+			vi.mocked(window.maestro.agentSessions.listPaginated).mockResolvedValue({
+				sessions: [mockSession],
+				hasMore: false,
+				totalCount: 1,
+				nextCursor: null,
+			});
+
+			await act(async () => {
+				renderWithProvider(<AgentSessionsBrowser {...createDefaultProps()} />);
+				await vi.runAllTimersAsync();
+			});
+
+			// Wait for subagent row to appear
+			for (let i = 0; i < 20; i++) {
+				await act(async () => {
+					await vi.advanceTimersByTimeAsync(100);
+				});
+				if (screen.queryByText(/Explore:/)) break;
+			}
+
+			// SubagentListItem is a button element
+			const exploreRow = screen.getByText(/Explore:/).closest('button');
+			await act(async () => {
+				fireEvent.click(exploreRow!);
+				await vi.runAllTimersAsync();
+			});
+
+			// Wait for back button to appear
+			for (let i = 0; i < 20; i++) {
+				await act(async () => {
+					await vi.advanceTimersByTimeAsync(100);
+				});
+				if (screen.queryByText('Back')) break;
+			}
+
+			expect(screen.getByText('Back')).toBeInTheDocument();
+		});
+
+		it('should return to session list when clicking back from subagent view', async () => {
+			const mockSubagents = [
+				createMockSubagent({ agentId: 'sub1', agentType: 'Explore', firstMessage: 'Test search' }),
+			];
+			vi.mocked(window.maestro.agentSessions.listSubagents).mockResolvedValue(mockSubagents);
+			vi.mocked(window.maestro.agentSessions.getSubagentMessages).mockResolvedValue({
+				messages: [
+					{ type: 'user', content: 'Test', timestamp: '2025-01-15T10:01:00Z', uuid: 'msg-1' },
+				],
+				total: 1,
+				hasMore: false,
+			});
+
+			const mockSession = createMockClaudeSession({
+				sessionId: 'd02d0bd6-0000-0000-0000-000000000001',
+				firstMessage: 'Main session message',
+			});
+			vi.mocked(window.maestro.agentSessions.listPaginated).mockResolvedValue({
+				sessions: [mockSession],
+				hasMore: false,
+				totalCount: 1,
+				nextCursor: null,
+			});
+
+			await act(async () => {
+				renderWithProvider(<AgentSessionsBrowser {...createDefaultProps()} />);
+				await vi.runAllTimersAsync();
+			});
+
+			// Wait for subagent row to appear
+			for (let i = 0; i < 20; i++) {
+				await act(async () => {
+					await vi.advanceTimersByTimeAsync(100);
+				});
+				if (screen.queryByText(/Explore:/)) break;
+			}
+
+			// SubagentListItem is a button element
+			const exploreRow = screen.getByText(/Explore:/).closest('button');
+			await act(async () => {
+				fireEvent.click(exploreRow!);
+				await vi.runAllTimersAsync();
+			});
+
+			// Wait for back button to appear
+			for (let i = 0; i < 20; i++) {
+				await act(async () => {
+					await vi.advanceTimersByTimeAsync(100);
+				});
+				if (screen.queryByText('Back')) break;
+			}
+
+			const backButton = screen.getByText('Back').closest('button');
+			await act(async () => {
+				fireEvent.click(backButton!);
+				await vi.runAllTimersAsync();
+			});
+
+			// Should be back at session list
+			expect(screen.getByText('Main session message')).toBeInTheDocument();
+		});
+
+		it('should not display subagent rows for sessions without subagents', async () => {
+			// Return empty subagents
+			vi.mocked(window.maestro.agentSessions.listSubagents).mockResolvedValue([]);
+
+			const mockSession = createMockClaudeSession({
+				sessionId: 'd02d0bd6-0000-0000-0000-000000000001',
+				firstMessage: 'Session without subagents',
+			});
+			vi.mocked(window.maestro.agentSessions.listPaginated).mockResolvedValue({
+				sessions: [mockSession],
+				hasMore: false,
+				totalCount: 1,
+				nextCursor: null,
+			});
+
+			await act(async () => {
+				renderWithProvider(<AgentSessionsBrowser {...createDefaultProps()} />);
+				await vi.runAllTimersAsync();
+			});
+
+			// Session should be displayed
+			expect(screen.getByText('Session without subagents')).toBeInTheDocument();
+
+			// No subagent type labels should be present
+			expect(screen.queryByText(/Explore:/)).not.toBeInTheDocument();
+			expect(screen.queryByText(/Plan:/)).not.toBeInTheDocument();
+		});
+
+		it('should show different icons for different subagent types', async () => {
+			const mockSubagents = [
+				createMockSubagent({ agentId: 'sub1', agentType: 'Explore' }),
+				createMockSubagent({ agentId: 'sub2', agentType: 'Plan' }),
+				createMockSubagent({ agentId: 'sub3', agentType: 'general-purpose' }),
+				createMockSubagent({ agentId: 'sub4', agentType: 'Bash' }),
+			];
+			vi.mocked(window.maestro.agentSessions.listSubagents).mockResolvedValue(mockSubagents);
+
+			const mockSession = createMockClaudeSession({
+				sessionId: 'd02d0bd6-0000-0000-0000-000000000001',
+			});
+			vi.mocked(window.maestro.agentSessions.listPaginated).mockResolvedValue({
+				sessions: [mockSession],
+				hasMore: false,
+				totalCount: 1,
+				nextCursor: null,
+			});
+
+			await act(async () => {
+				renderWithProvider(<AgentSessionsBrowser {...createDefaultProps()} />);
+				await vi.runAllTimersAsync();
+			});
+
+			// Keep advancing timers until all subagent types appear
+			for (let i = 0; i < 20; i++) {
+				await act(async () => {
+					await vi.advanceTimersByTimeAsync(100);
+				});
+				if (
+					screen.queryByText(/Explore:/) &&
+					screen.queryByText(/Plan:/) &&
+					screen.queryByText(/Task:/) &&
+					screen.queryByText(/Bash:/)
+				) {
+					break;
+				}
+			}
+
+			// All subagent types should be displayed
+			expect(screen.getByText(/Explore:/)).toBeInTheDocument();
+			expect(screen.getByText(/Plan:/)).toBeInTheDocument();
+			expect(screen.getByText(/Task:/)).toBeInTheDocument();
+			expect(screen.getByText(/Bash:/)).toBeInTheDocument();
+		});
+
+		it('should handle subagent loading errors gracefully', async () => {
+			const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+			vi.mocked(window.maestro.agentSessions.listSubagents).mockRejectedValue(
+				new Error('Failed to load subagents')
+			);
+
+			const mockSession = createMockClaudeSession({
+				sessionId: 'd02d0bd6-0000-0000-0000-000000000001',
+				firstMessage: 'Session with error',
+			});
+			vi.mocked(window.maestro.agentSessions.listPaginated).mockResolvedValue({
+				sessions: [mockSession],
+				hasMore: false,
+				totalCount: 1,
+				nextCursor: null,
+			});
+
+			await act(async () => {
+				renderWithProvider(<AgentSessionsBrowser {...createDefaultProps()} />);
+				await vi.runAllTimersAsync();
+			});
+
+			// Session should still be displayed even if subagent loading fails
+			expect(screen.getByText('Session with error')).toBeInTheDocument();
+			consoleSpy.mockRestore();
+		});
+
+		it('should call onResumeSession when clicking resume button on subagent', async () => {
+			const mockOnResumeSession = vi.fn();
+			const mockSubagents = [
+				createMockSubagent({
+					agentId: 'sub-resume-test',
+					agentType: 'Explore',
+					firstMessage: 'Test search task',
+				}),
+			];
+			vi.mocked(window.maestro.agentSessions.listSubagents).mockResolvedValue(mockSubagents);
+			vi.mocked(window.maestro.agentSessions.getSubagentMessages).mockResolvedValue({
+				messages: [
+					{ type: 'user', content: 'Test', timestamp: '2025-01-15T10:01:00Z', uuid: 'msg-1' },
+				],
+				total: 1,
+				hasMore: false,
+			});
+
+			const mockSession = createMockClaudeSession({
+				sessionId: 'd02d0bd6-0000-0000-0000-000000000001',
+			});
+			vi.mocked(window.maestro.agentSessions.listPaginated).mockResolvedValue({
+				sessions: [mockSession],
+				hasMore: false,
+				totalCount: 1,
+				nextCursor: null,
+			});
+
+			await act(async () => {
+				renderWithProvider(
+					<AgentSessionsBrowser {...createDefaultProps({ onResumeSession: mockOnResumeSession })} />
+				);
+				await vi.runAllTimersAsync();
+			});
+
+			// Wait for subagent row to appear
+			for (let i = 0; i < 20; i++) {
+				await act(async () => {
+					await vi.advanceTimersByTimeAsync(100);
+				});
+				if (screen.queryByText(/Explore:/)) break;
+			}
+
+			expect(screen.getByText(/Explore:/)).toBeInTheDocument();
+
+			// Find and click the resume button (Play icon) on the subagent row
+			// The resume button should be in the subagent row area
+			const resumeButtons = screen.getAllByTitle(/Resume this/i);
+			// Click the first resume button (for the subagent)
+			await act(async () => {
+				fireEvent.click(resumeButtons[0]);
+				await vi.runAllTimersAsync();
+			});
+
+			// Keep advancing timers until onResumeSession is called
+			for (let i = 0; i < 20; i++) {
+				await act(async () => {
+					await vi.advanceTimersByTimeAsync(100);
+				});
+				if (mockOnResumeSession.mock.calls.length > 0) break;
+			}
+
+			// Verify onResumeSession was called with subagent ID
+			expect(mockOnResumeSession).toHaveBeenCalledWith(
+				'sub-resume-test',
+				expect.any(Array),
+				expect.stringContaining('Subagent'),
+				false,
+				expect.any(Object)
+			);
+		});
+
+		it('should display subagent cost and message count', async () => {
+			const mockSubagents = [
+				createMockSubagent({
+					agentId: 'sub1',
+					agentType: 'Explore',
+					messageCount: 15,
+					costUsd: 0.05,
+				}),
+			];
+			vi.mocked(window.maestro.agentSessions.listSubagents).mockResolvedValue(mockSubagents);
+
+			const mockSession = createMockClaudeSession({
+				sessionId: 'd02d0bd6-0000-0000-0000-000000000001',
+			});
+			vi.mocked(window.maestro.agentSessions.listPaginated).mockResolvedValue({
+				sessions: [mockSession],
+				hasMore: false,
+				totalCount: 1,
+				nextCursor: null,
+			});
+
+			await act(async () => {
+				renderWithProvider(<AgentSessionsBrowser {...createDefaultProps()} />);
+				await vi.runAllTimersAsync();
+			});
+
+			// Keep advancing timers until subagent cost and message count appear
+			// formatNumber(15) returns "15.0" and costUsd.toFixed(2) returns "0.05"
+			for (let i = 0; i < 20; i++) {
+				await act(async () => {
+					await vi.advanceTimersByTimeAsync(100);
+				});
+				if (screen.queryByText('15.0') && screen.queryByText('0.05')) {
+					break;
+				}
+			}
+
+			// Check that message count is displayed (formatNumber returns "15.0")
+			expect(screen.getByText('15.0')).toBeInTheDocument();
+			// Check that cost is displayed (toFixed(2) returns "0.05")
+			expect(screen.getByText('0.05')).toBeInTheDocument();
+		});
+
+		it('should pass sshRemoteId when loading subagents for SSH remote sessions', async () => {
+			vi.mocked(window.maestro.agentSessions.listSubagents).mockResolvedValue([]);
+
+			const mockSession = createMockClaudeSession({
+				sessionId: 'd02d0bd6-0000-0000-0000-000000000001',
+			});
+			vi.mocked(window.maestro.agentSessions.listPaginated).mockResolvedValue({
+				sessions: [mockSession],
+				hasMore: false,
+				totalCount: 1,
+				nextCursor: null,
+			});
+
+			const props = createDefaultProps({
+				activeSession: createMockActiveSession({
+					sshRemoteId: 'remote-server-123',
+				}),
+			});
+
+			await act(async () => {
+				renderWithProvider(<AgentSessionsBrowser {...props} />);
+				await vi.runAllTimersAsync();
+			});
+
+			// Keep advancing timers until listSubagents is called
+			for (let i = 0; i < 20; i++) {
+				await act(async () => {
+					await vi.advanceTimersByTimeAsync(100);
+				});
+				if (vi.mocked(window.maestro.agentSessions.listSubagents).mock.calls.length > 0) {
+					break;
+				}
+			}
+
+			// Verify sshRemoteId is passed to listSubagents
+			expect(window.maestro.agentSessions.listSubagents).toHaveBeenCalledWith(
+				'claude-code',
+				'/path/to/project',
+				'd02d0bd6-0000-0000-0000-000000000001',
+				'remote-server-123'
+			);
 		});
 	});
 });

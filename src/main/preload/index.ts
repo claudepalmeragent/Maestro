@@ -305,6 +305,8 @@ export type {
 	NamedSessionEntry,
 	NamedSessionEntryWithAgent,
 	GlobalStatsUpdate,
+	SubagentInfo,
+	SessionMessagesResult,
 } from './sessions';
 export type {
 	// From files

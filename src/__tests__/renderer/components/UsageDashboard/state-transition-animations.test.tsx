@@ -41,6 +41,8 @@ vi.mock('lucide-react', () => {
 		Bot: createIcon('bot', '🤖'),
 		Users: createIcon('users', '👥'),
 		Layers: createIcon('layers', '📚'),
+		Zap: createIcon('zap', '⚡'),
+		FileText: createIcon('file-text', '📄'),
 		Play: createIcon('play', '▶️'),
 		CheckSquare: createIcon('check-square', '✅'),
 		ListChecks: createIcon('list-checks', '📝'),
@@ -297,7 +299,7 @@ describe('Usage Dashboard State Transition Animations', () => {
 			render(<SummaryCards data={mockData} theme={mockTheme} />);
 
 			const cards = screen.getAllByTestId('metric-card');
-			expect(cards.length).toBe(6); // 6 metric cards
+			expect(cards.length).toBe(8); // 8 metric cards
 
 			// Verify each card has incrementing animation delay
 			cards.forEach((card, index) => {
@@ -313,11 +315,11 @@ describe('Usage Dashboard State Transition Animations', () => {
 			expect(cards[0]).toHaveStyle({ animationDelay: '0ms' });
 		});
 
-		it('last card has 250ms delay (5 * 50ms)', () => {
+		it('last card has 350ms delay (7 * 50ms)', () => {
 			render(<SummaryCards data={mockData} theme={mockTheme} />);
 
 			const cards = screen.getAllByTestId('metric-card');
-			expect(cards[5]).toHaveStyle({ animationDelay: '250ms' });
+			expect(cards[7]).toHaveStyle({ animationDelay: '350ms' });
 		});
 	});
 

@@ -34,6 +34,8 @@ vi.mock('lucide-react', () => {
 		Bot: createIcon('bot', '🤖'),
 		Users: createIcon('users', '👥'),
 		Layers: createIcon('layers', '📚'),
+		Zap: createIcon('zap', '⚡'),
+		FileText: createIcon('file-text', '📄'),
 		// AutoRunStats icons
 		Play: createIcon('play', '▶️'),
 		CheckSquare: createIcon('check-square', '✅'),
@@ -1768,9 +1770,9 @@ describe('UsageDashboardModal', () => {
 			summarySection.focus();
 			fireEvent.keyDown(summarySection, { key: 'End' });
 
-			// Should focus last section (duration trends)
+			// Should focus last section (throughput trends)
 			await waitFor(() => {
-				expect(document.activeElement).toBe(screen.getByTestId('section-duration-trends'));
+				expect(document.activeElement).toBe(screen.getByTestId('section-throughput-trends'));
 			});
 		});
 
