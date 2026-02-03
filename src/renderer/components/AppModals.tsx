@@ -889,6 +889,12 @@ export interface AppUtilityModalsProps {
 	promptSupportsThinking: boolean;
 	promptEnterToSend: boolean;
 	onPromptToggleEnterToSend: () => void;
+	// Prompt Library props
+	promptLibraryProjectName?: string;
+	promptLibraryProjectPath?: string;
+	promptLibraryAgentId?: string;
+	promptLibraryAgentName?: string;
+	promptLibraryAgentSessionId?: string;
 
 	// ExecutionQueueBrowser
 	queueBrowserOpen: boolean;
@@ -1057,6 +1063,12 @@ export function AppUtilityModals({
 	promptSupportsThinking,
 	promptEnterToSend,
 	onPromptToggleEnterToSend,
+	// Prompt Library props
+	promptLibraryProjectName,
+	promptLibraryProjectPath,
+	promptLibraryAgentId,
+	promptLibraryAgentName,
+	promptLibraryAgentSessionId,
 	// ExecutionQueueBrowser
 	queueBrowserOpen,
 	onCloseQueueBrowser,
@@ -1264,6 +1276,11 @@ export function AppUtilityModals({
 				supportsThinking={promptSupportsThinking}
 				enterToSend={promptEnterToSend}
 				onToggleEnterToSend={onPromptToggleEnterToSend}
+				currentProjectName={promptLibraryProjectName}
+				currentProjectPath={promptLibraryProjectPath}
+				currentAgentId={promptLibraryAgentId}
+				currentAgentName={promptLibraryAgentName}
+				currentAgentSessionId={promptLibraryAgentSessionId}
 			/>
 
 			{/* --- EXECUTION QUEUE BROWSER --- */}
@@ -1943,6 +1960,12 @@ export interface AppModalsProps {
 	promptSupportsThinking: boolean;
 	promptEnterToSend: boolean;
 	onPromptToggleEnterToSend: () => void;
+	// Prompt Library props
+	promptLibraryProjectName?: string;
+	promptLibraryProjectPath?: string;
+	promptLibraryAgentId?: string;
+	promptLibraryAgentName?: string;
+	promptLibraryAgentSessionId?: string;
 	queueBrowserOpen: boolean;
 	onCloseQueueBrowser: () => void;
 	onRemoveQueueItem: (sessionId: string, itemId: string) => void;
@@ -2249,6 +2272,12 @@ export function AppModals(props: AppModalsProps) {
 		promptSupportsThinking,
 		promptEnterToSend,
 		onPromptToggleEnterToSend,
+		// Prompt Library props
+		promptLibraryProjectName,
+		promptLibraryProjectPath,
+		promptLibraryAgentId,
+		promptLibraryAgentName,
+		promptLibraryAgentSessionId,
 		queueBrowserOpen,
 		onCloseQueueBrowser,
 		onRemoveQueueItem,
@@ -2552,6 +2581,11 @@ export function AppModals(props: AppModalsProps) {
 				promptSupportsThinking={promptSupportsThinking}
 				promptEnterToSend={promptEnterToSend}
 				onPromptToggleEnterToSend={onPromptToggleEnterToSend}
+				promptLibraryProjectName={promptLibraryProjectName}
+				promptLibraryProjectPath={promptLibraryProjectPath}
+				promptLibraryAgentId={promptLibraryAgentId}
+				promptLibraryAgentName={promptLibraryAgentName}
+				promptLibraryAgentSessionId={promptLibraryAgentSessionId}
 				queueBrowserOpen={queueBrowserOpen}
 				onCloseQueueBrowser={onCloseQueueBrowser}
 				onRemoveQueueItem={onRemoveQueueItem}

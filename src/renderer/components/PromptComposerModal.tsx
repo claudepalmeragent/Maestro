@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
 	X,
 	PenLine,
@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import type { Theme, PromptLibraryEntry } from '../types';
 import { useLayerStack } from '../contexts/LayerStackContext';
+import { useToast } from '../contexts/ToastContext';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 import { estimateTokenCount } from '../../shared/formatters';
 import { PromptLibrarySearchBar } from './PromptLibrarySearchBar';
@@ -85,9 +86,11 @@ export function PromptComposerModal({
 }: PromptComposerModalProps) {
 	const [value, setValue] = useState(initialValue);
 	const [libraryOpen, setLibraryOpen] = useState(promptLibraryOpen);
+	const [libraryRefreshTrigger, setLibraryRefreshTrigger] = useState(0);
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const { registerLayer, unregisterLayer } = useLayerStack();
+	const { addToast } = useToast();
 	const onCloseRef = useRef(onClose);
 	onCloseRef.current = onClose;
 	const onSubmitRef = useRef(onSubmit);
@@ -151,6 +154,12 @@ export function PromptComposerModal({
 					agentName: currentAgentName,
 					agentSessionId: currentAgentSessionId,
 				});
+				addToast({
+					type: 'success',
+					title: 'Prompt Saved!',
+					message: 'Your prompt has been auto-saved to the library.',
+					duration: 3000,
+				});
 			} catch (error) {
 				console.error('Failed to auto-save prompt to library:', error);
 			}
@@ -169,7 +178,7 @@ export function PromptComposerModal({
 		}, 100);
 	};
 
-	const handleDeletePrompt = (id: string) => {
+	const handleDeletePrompt = (_id: string) => {
 		// Prompt was deleted in the search bar component
 		// No additional action needed here
 	};
@@ -186,9 +195,23 @@ export function PromptComposerModal({
 				agentName: currentAgentName,
 				agentSessionId: currentAgentSessionId,
 			});
-			// Could show a toast notification here
+			// Show success toast
+			addToast({
+				type: 'success',
+				title: 'Prompt Saved!',
+				message: 'Your prompt has been saved to the library.',
+				duration: 3000, // 3 seconds
+			});
+			// Trigger refresh of the prompt library search bar
+			setLibraryRefreshTrigger((prev) => prev + 1);
 		} catch (error) {
 			console.error('Failed to save prompt to library:', error);
+			addToast({
+				type: 'error',
+				title: 'Save Failed',
+				message: 'Failed to save prompt to library.',
+				duration: 5000,
+			});
 		}
 	};
 
@@ -364,6 +387,7 @@ export function PromptComposerModal({
 						onDeletePrompt={handleDeletePrompt}
 						currentProjectName={currentProjectName}
 						currentAgentName={currentAgentName}
+						refreshTrigger={libraryRefreshTrigger}
 					/>
 				)}
 
