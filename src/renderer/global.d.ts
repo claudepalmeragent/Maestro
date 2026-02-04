@@ -286,6 +286,18 @@ interface MaestroAPI {
 				toolEvent: { toolName: string; state?: unknown; timestamp: number }
 			) => void
 		) => () => void;
+		onTaskToolInvocation: (
+			callback: (
+				sessionId: string,
+				taskEvent: {
+					subagentType: string;
+					taskDescription?: string;
+					toolId?: string;
+					timestamp: number;
+				}
+			) => void
+		) => () => void;
+		onSubagentClear: (callback: (sessionId: string) => void) => () => void;
 		onSshRemote: (
 			callback: (
 				sessionId: string,

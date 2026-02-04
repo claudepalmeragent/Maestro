@@ -121,6 +121,16 @@ export interface ToolExecutionEvent {
 }
 
 /**
+ * Task tool invocation event (subagent detection)
+ */
+export interface TaskToolInvocationEvent {
+	subagentType: string;
+	taskDescription?: string;
+	toolId?: string;
+	timestamp: number;
+}
+
+/**
  * SSH remote info
  */
 export interface SshRemoteInfo {
@@ -240,6 +250,29 @@ export function createProcessApi() {
 				callback(sessionId, toolEvent);
 			ipcRenderer.on('process:tool-execution', handler);
 			return () => ipcRenderer.removeListener('process:tool-execution', handler);
+		},
+
+		/**
+		 * Subscribe to Task tool invocation events (subagent detection)
+		 * Emitted when Claude Code spawns a subagent via the Task tool
+		 */
+		onTaskToolInvocation: (
+			callback: (sessionId: string, taskEvent: TaskToolInvocationEvent) => void
+		): (() => void) => {
+			const handler = (_: unknown, sessionId: string, taskEvent: TaskToolInvocationEvent) =>
+				callback(sessionId, taskEvent);
+			ipcRenderer.on('process:task-tool-invocation', handler);
+			return () => ipcRenderer.removeListener('process:task-tool-invocation', handler);
+		},
+
+		/**
+		 * Subscribe to subagent clear events (result received, subagent task completed)
+		 * Emitted when a result message is received, indicating subagent work is done
+		 */
+		onSubagentClear: (callback: (sessionId: string) => void): (() => void) => {
+			const handler = (_: unknown, sessionId: string) => callback(sessionId);
+			ipcRenderer.on('process:subagent-clear', handler);
+			return () => ipcRenderer.removeListener('process:subagent-clear', handler);
 		},
 
 		/**

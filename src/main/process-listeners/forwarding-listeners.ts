@@ -68,6 +68,27 @@ export function setupForwardingListeners(
 		safeSend('process:tool-execution', sessionId, toolEvent);
 	});
 
+	// Handle Task tool invocation events (subagent detection for Auto Run progress)
+	processManager.on(
+		'task-tool-invocation',
+		(
+			sessionId: string,
+			taskEvent: {
+				subagentType: string;
+				taskDescription?: string;
+				toolId?: string;
+				timestamp: number;
+			}
+		) => {
+			safeSend('process:task-tool-invocation', sessionId, taskEvent);
+		}
+	);
+
+	// Handle subagent clear events (result received, subagent task completed)
+	processManager.on('subagent-clear', (sessionId: string) => {
+		safeSend('process:subagent-clear', sessionId);
+	});
+
 	// Handle stderr separately from runCommand (for clean command execution)
 	processManager.on('stderr', (sessionId: string, data: string) => {
 		safeSend('process:stderr', sessionId, data);

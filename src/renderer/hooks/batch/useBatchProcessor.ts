@@ -23,6 +23,7 @@ import { batchReducer, DEFAULT_BATCH_STATE } from './batchReducer';
 import { useTimeTracking } from './useTimeTracking';
 import { useWorktreeManager } from './useWorktreeManager';
 import { useDocumentProcessor } from './useDocumentProcessor';
+import { useDocumentPolling } from './useDocumentPolling';
 
 // Debounce delay for batch state updates (Quick Win 1)
 const BATCH_STATE_DEBOUNCE_MS = 200;
@@ -104,6 +105,9 @@ interface UseBatchProcessorReturn {
 	skipCurrentDocument: (sessionId: string) => void;
 	resumeAfterError: (sessionId: string) => void;
 	abortBatchOnError: (sessionId: string) => void;
+	// Subagent tracking (Progress Enhancement)
+	setSubagentActive: (sessionId: string, subagentType: string) => void;
+	clearSubagentActive: (sessionId: string) => void;
 }
 
 type ErrorResolutionAction = 'resume' | 'skip-document' | 'abort';
@@ -246,6 +250,53 @@ export function useBatchProcessor({
 
 	// Custom prompts per session
 	const [customPrompts, setCustomPrompts] = useState<Record<string, string>>({});
+
+	/**
+	 * Handle progress updates from document polling (Option D - Progress Enhancement)
+	 *
+	 * This callback is invoked by useDocumentPolling when it detects that checkboxes
+	 * have been checked off during a long-running task. It updates the batch state
+	 * to reflect the incremental progress.
+	 *
+	 * @param sessionId - The session ID for the batch run
+	 * @param checkedCount - The new count of checked tasks in the current document
+	 * @param uncheckedCount - The count of unchecked tasks remaining
+	 */
+	const handlePollingProgressUpdate = useCallback(
+		(sessionId: string, checkedCount: number, uncheckedCount: number) => {
+			const state = batchRunStatesRef.current[sessionId];
+			if (!state || !state.isRunning) return;
+
+			// Calculate new completed tasks based on polling results
+			const previousCompleted = state.currentDocTasksCompleted;
+			const newCompleted = checkedCount;
+
+			// Only update if progress has actually increased
+			if (newCompleted > previousCompleted) {
+				const tasksCompletedThisUpdate = newCompleted - previousCompleted;
+
+				console.log(
+					`[BatchProcessor:handlePollingProgressUpdate] Progress detected via polling: ${previousCompleted} -> ${newCompleted} (+${tasksCompletedThisUpdate})`
+				);
+
+				// Dispatch progress update
+				dispatch({
+					type: 'UPDATE_PROGRESS',
+					sessionId,
+					payload: {
+						currentDocTasksCompleted: newCompleted,
+						currentDocTasksTotal: checkedCount + uncheckedCount,
+						completedTasksAcrossAllDocs:
+							state.completedTasksAcrossAllDocs + tasksCompletedThisUpdate,
+						// Legacy fields
+						completedTasks: state.completedTasks + tasksCompletedThisUpdate,
+						currentTaskIndex: state.currentTaskIndex + tasksCompletedThisUpdate,
+					},
+				});
+			}
+		},
+		[]
+	);
 
 	// Refs for tracking stop requests per session
 	const stopRequestedRefs = useRef<Record<string, boolean>>({});
@@ -713,6 +764,9 @@ export function useBatchProcessor({
 					cumulativeTaskTimeMs: 0, // Sum of actual task durations (most accurate)
 					accumulatedElapsedMs: 0, // Visibility-based time (excludes sleep/suspend)
 					lastActiveTimestamp: batchStartTime,
+					// Document polling state (Option D - Progress Enhancement)
+					pollingEnabled: config.enablePolling ?? true,
+					pollIntervalMs: config.pollingIntervalMs ?? (sshRemoteId ? 15000 : 10000),
 				},
 			});
 			// Broadcast state change
@@ -1828,6 +1882,44 @@ export function useBatchProcessor({
 		[updateBatchStateAndBroadcast]
 	);
 
+	/**
+	 * Set subagent as active (Task tool invocation detected)
+	 * Called when the Task tool is detected in agent output stream
+	 */
+	const setSubagentActive = useCallback((sessionId: string, subagentType: string) => {
+		if (!isMountedRef.current) return;
+
+		// Only update if batch is running for this session
+		const currentState = batchRunStatesRef.current[sessionId];
+		if (!currentState?.isRunning) return;
+
+		dispatch({
+			type: 'SET_SUBAGENT_ACTIVE',
+			sessionId,
+			payload: {
+				subagentType,
+				startTime: Date.now(),
+			},
+		});
+	}, []);
+
+	/**
+	 * Clear subagent active state (Task completed)
+	 * Called when agent result is received
+	 */
+	const clearSubagentActive = useCallback((sessionId: string) => {
+		if (!isMountedRef.current) return;
+
+		// Only update if batch is running for this session
+		const currentState = batchRunStatesRef.current[sessionId];
+		if (!currentState?.isRunning) return;
+
+		dispatch({
+			type: 'CLEAR_SUBAGENT_ACTIVE',
+			sessionId,
+		});
+	}, []);
+
 	return {
 		batchRunStates,
 		getBatchState,
@@ -1843,5 +1935,8 @@ export function useBatchProcessor({
 		skipCurrentDocument,
 		resumeAfterError,
 		abortBatchOnError,
+		// Subagent tracking (Progress Enhancement)
+		setSubagentActive,
+		clearSubagentActive,
 	};
 }
