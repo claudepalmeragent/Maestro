@@ -127,6 +127,7 @@ export function BatchRunnerModal(props: BatchRunnerModalProps) {
 
 	// Polling state (Option D - Progress Enhancement)
 	const [enablePolling, setEnablePolling] = useState(true); // Default to enabled
+	const [pollingIntervalMs, setPollingIntervalMs] = useState<number | undefined>(undefined); // undefined = use defaults
 
 	// Prompt state
 	const [prompt, setPrompt] = useState(initialPrompt || DEFAULT_BATCH_PROMPT);
@@ -311,6 +312,7 @@ export function BatchRunnerModal(props: BatchRunnerModalProps) {
 			loopEnabled,
 			maxLoops: loopEnabled ? maxLoops : null,
 			enablePolling,
+			pollingIntervalMs,
 		};
 
 		console.log('[BatchRunnerModal] handleGo - calling onGo with config:', config);
@@ -714,22 +716,56 @@ export function BatchRunnerModal(props: BatchRunnerModalProps) {
 							</span>
 							<span>to copy document</span>
 						</div>
-						{/* Polling Toggle */}
-						<label
-							className="flex items-center gap-2 cursor-pointer"
-							title="Poll document for progress updates during long-running tasks"
-						>
-							<input
-								type="checkbox"
-								checked={enablePolling}
-								onChange={(e) => setEnablePolling(e.target.checked)}
-								className="w-3.5 h-3.5 rounded border cursor-pointer accent-current"
-								style={{ accentColor: theme.colors.accent }}
-							/>
-							<span style={{ color: enablePolling ? theme.colors.textMain : theme.colors.textDim }}>
-								Poll for progress
-							</span>
-						</label>
+						{/* Polling Toggle and Interval */}
+						<div className="flex items-center gap-2">
+							<label
+								className="flex items-center gap-2 cursor-pointer"
+								title="Poll document for progress updates during long-running tasks"
+							>
+								<input
+									type="checkbox"
+									checked={enablePolling}
+									onChange={(e) => setEnablePolling(e.target.checked)}
+									className="w-3.5 h-3.5 rounded border cursor-pointer accent-current"
+									style={{ accentColor: theme.colors.accent }}
+								/>
+								<span
+									style={{ color: enablePolling ? theme.colors.textMain : theme.colors.textDim }}
+								>
+									Poll for progress
+								</span>
+							</label>
+							{enablePolling && (
+								<div className="flex items-center gap-1">
+									<input
+										type="number"
+										min={1}
+										max={300}
+										placeholder="(optional)"
+										value={pollingIntervalMs ? pollingIntervalMs / 1000 : ''}
+										onChange={(e) => {
+											const val = e.target.value;
+											if (val === '') {
+												setPollingIntervalMs(undefined);
+											} else {
+												const seconds = parseInt(val, 10);
+												if (!isNaN(seconds) && seconds >= 1 && seconds <= 300) {
+													setPollingIntervalMs(seconds * 1000);
+												}
+											}
+										}}
+										className="w-20 px-2 py-0.5 text-xs rounded border text-center"
+										style={{
+											backgroundColor: theme.colors.bgInput,
+											borderColor: theme.colors.border,
+											color: theme.colors.textMain,
+										}}
+										title="Polling interval in seconds (1-300). Leave empty for default (10s local, 15s SSH)."
+									/>
+									<span style={{ color: theme.colors.textDim }}>sec</span>
+								</div>
+							)}
+						</div>
 					</div>
 
 					{/* Right side: Buttons */}
