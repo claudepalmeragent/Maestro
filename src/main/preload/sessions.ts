@@ -370,6 +370,7 @@ export function createAgentSessionsApi() {
 		getSubagentMessages: (
 			agentId: string,
 			projectPath: string,
+			sessionId: string,
 			agentSubId: string,
 			options?: { offset?: number; limit?: number },
 			sshRemoteId?: string
@@ -378,6 +379,7 @@ export function createAgentSessionsApi() {
 				'agentSessions:getSubagentMessages',
 				agentId,
 				projectPath,
+				sessionId,
 				agentSubId,
 				options,
 				sshRemoteId

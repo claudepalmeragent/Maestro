@@ -66,6 +66,7 @@ export function useSubagentViewer({
 				const result = await window.maestro.agentSessions.getSubagentMessages(
 					agentId,
 					projectPath,
+					subagent.parentSessionId,
 					subagent.agentId,
 					{ offset: 0, limit: MESSAGES_PAGE_SIZE },
 					sshRemoteId
@@ -98,6 +99,7 @@ export function useSubagentViewer({
 			const result = await window.maestro.agentSessions.getSubagentMessages(
 				agentId,
 				projectPath,
+				viewingSubagent.parentSessionId,
 				viewingSubagent.agentId,
 				{ offset: offsetRef.current, limit: MESSAGES_PAGE_SIZE },
 				sshRemoteId

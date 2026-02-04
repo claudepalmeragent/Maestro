@@ -782,19 +782,21 @@ export class ClaudeSessionStorage implements AgentSessionStorage {
 	}
 
 	/**
-	 * Get the subagents folder path for a project (local)
+	 * Get the subagents folder path for a specific session (local)
+	 * Claude Code stores subagents in: <encoded-project>/<session-id>/subagents/
 	 */
-	private getSubagentsFolderPath(projectPath: string): string {
+	private getSubagentsFolderPath(projectPath: string, sessionId: string): string {
 		const encodedPath = encodeClaudeProjectPath(projectPath);
-		return path.join(this.getProjectsDir(), encodedPath, 'subagents');
+		return path.join(this.getProjectsDir(), encodedPath, sessionId, 'subagents');
 	}
 
 	/**
-	 * Get the subagents folder path for a project (remote via SSH)
+	 * Get the subagents folder path for a specific session (remote via SSH)
+	 * Claude Code stores subagents in: <encoded-project>/<session-id>/subagents/
 	 */
-	private getRemoteSubagentsFolderPath(projectPath: string): string {
+	private getRemoteSubagentsFolderPath(projectPath: string, sessionId: string): string {
 		const encodedPath = encodeClaudeProjectPath(projectPath);
-		return `${this.getRemoteProjectsDir()}/${encodedPath}/subagents`;
+		return `${this.getRemoteProjectsDir()}/${encodedPath}/${sessionId}/subagents`;
 	}
 
 	/**
@@ -1042,9 +1044,9 @@ export class ClaudeSessionStorage implements AgentSessionStorage {
 		const validSessions = sessions.filter((s): s is NonNullable<typeof s> => s !== null);
 
 		// Compute aggregated stats for each session (includes subagent stats)
-		const subagentsDir = path.join(projectDir, 'subagents');
 		const sessionsWithAggregatedStats = await Promise.all(
 			validSessions.map(async (session) => {
+				const subagentsDir = path.join(projectDir, session.sessionId, 'subagents');
 				return computeAggregatedStats(session, subagentsDir, false);
 			})
 		);
@@ -1204,9 +1206,9 @@ export class ClaudeSessionStorage implements AgentSessionStorage {
 		// Compute aggregated stats for each session (includes subagent stats)
 		const sessionsWithAggregatedStats = await Promise.all(
 			validSessions.map(async (session) => {
-				// For remote sessions, we need to use the encoded project path
+				// For remote sessions, we need to use the encoded project path and session ID
 				const encodedPath = encodeClaudeProjectPath(session.projectPath);
-				const subagentsDir = `${this.getRemoteProjectsDir()}/${encodedPath}/subagents`;
+				const subagentsDir = `${this.getRemoteProjectsDir()}/${encodedPath}/${session.sessionId}/subagents`;
 				return computeAggregatedStats(session, subagentsDir, true, sshConfig);
 			})
 		);
@@ -1516,13 +1518,16 @@ export class ClaudeSessionStorage implements AgentSessionStorage {
 			return this.listSubagentsForSessionRemote(projectPath, sessionId, sshConfig);
 		}
 
-		const subagentsDir = this.getSubagentsFolderPath(projectPath);
+		const subagentsDir = this.getSubagentsFolderPath(projectPath, sessionId);
 
 		// Check if subagents folder exists
 		try {
 			await fs.access(subagentsDir);
 		} catch {
-			logger.debug(`No subagents folder found for project: ${projectPath}`, LOG_CONTEXT);
+			logger.debug(
+				`No subagents folder found for session ${sessionId} in project: ${projectPath}`,
+				LOG_CONTEXT
+			);
 			return [];
 		}
 
@@ -1582,12 +1587,15 @@ export class ClaudeSessionStorage implements AgentSessionStorage {
 		sessionId: string,
 		sshConfig: SshRemoteConfig
 	): Promise<SubagentInfo[]> {
-		const subagentsDir = this.getRemoteSubagentsFolderPath(projectPath);
+		const subagentsDir = this.getRemoteSubagentsFolderPath(projectPath, sessionId);
 
 		// Check if subagents folder exists on remote
 		const dirResult = await readDirRemote(subagentsDir, sshConfig);
 		if (!dirResult.success || !dirResult.data) {
-			logger.debug(`No subagents folder found on remote for project: ${projectPath}`, LOG_CONTEXT);
+			logger.debug(
+				`No subagents folder found on remote for session ${sessionId} in project: ${projectPath}`,
+				LOG_CONTEXT
+			);
 			return [];
 		}
 
@@ -1675,13 +1683,14 @@ export class ClaudeSessionStorage implements AgentSessionStorage {
 	 */
 	async getSubagentMessages(
 		projectPath: string,
+		sessionId: string,
 		agentId: string,
 		options?: SessionReadOptions,
 		sshConfig?: SshRemoteConfig
 	): Promise<SessionMessagesResult> {
 		const subagentsDir = sshConfig
-			? this.getRemoteSubagentsFolderPath(projectPath)
-			: this.getSubagentsFolderPath(projectPath);
+			? this.getRemoteSubagentsFolderPath(projectPath, sessionId)
+			: this.getSubagentsFolderPath(projectPath, sessionId);
 
 		const filePath = sshConfig
 			? `${subagentsDir}/agent-${agentId}.jsonl`
