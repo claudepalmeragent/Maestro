@@ -84,12 +84,13 @@ describe('ClaudeSessionStorage - Subagents', () => {
 		projectPath = '/test/project';
 		encodedPath = 'test-project';
 
-		// Create directories
+		// Create directories - subagents live inside the session folder
 		const projectDir = path.join(testDir, '.claude', 'projects', encodedPath);
-		const subagentsDir = path.join(projectDir, 'subagents');
+		const sessionDir = path.join(projectDir, 'test-session');
+		const subagentsDir = path.join(sessionDir, 'subagents');
 		await fs.mkdir(subagentsDir, { recursive: true });
 
-		// Create mock session file
+		// Create mock session file (at project level, uses session ID as filename)
 		const sessionContent = [
 			'{"type":"user","timestamp":"2026-02-03T10:00:00.000Z","message":{"content":"Hello"},"uuid":"user1"}',
 			'{"type":"assistant","timestamp":"2026-02-03T10:00:05.000Z","message":{"content":"Hi there!"},"uuid":"asst1"}',
@@ -97,7 +98,7 @@ describe('ClaudeSessionStorage - Subagents', () => {
 		].join('\n');
 		await fs.writeFile(path.join(projectDir, 'test-session.jsonl'), sessionContent);
 
-		// Create mock subagent files
+		// Create mock subagent files inside the session's subagents folder
 		const exploreSubagent = [
 			'{"type":"system","agentType":"Explore"}',
 			'{"type":"user","timestamp":"2026-02-03T10:01:00.000Z","message":{"content":"Search for auth files"},"uuid":"sub-user1"}',
@@ -204,7 +205,14 @@ describe('ClaudeSessionStorage - Subagents', () => {
 
 		it('should skip empty subagent files', async () => {
 			// Create an empty subagent file
-			const subagentsDir = path.join(testDir, '.claude', 'projects', encodedPath, 'subagents');
+			const subagentsDir = path.join(
+				testDir,
+				'.claude',
+				'projects',
+				encodedPath,
+				'test-session',
+				'subagents'
+			);
 			await fs.writeFile(path.join(subagentsDir, 'agent-empty.jsonl'), '');
 
 			const subagents = await storage.listSubagentsForSession(projectPath, 'test-session');
@@ -213,7 +221,14 @@ describe('ClaudeSessionStorage - Subagents', () => {
 
 		it('should skip non-agent files in subagents folder', async () => {
 			// Create a non-agent file in the subagents folder
-			const subagentsDir = path.join(testDir, '.claude', 'projects', encodedPath, 'subagents');
+			const subagentsDir = path.join(
+				testDir,
+				'.claude',
+				'projects',
+				encodedPath,
+				'test-session',
+				'subagents'
+			);
 			await fs.writeFile(path.join(subagentsDir, 'random-file.jsonl'), '{"type":"test"}');
 			await fs.writeFile(path.join(subagentsDir, 'not-an-agent.txt'), 'test content');
 
@@ -269,7 +284,14 @@ describe('ClaudeSessionStorage - Subagents', () => {
 		});
 
 		it('should handle subagent with only user message', async () => {
-			const subagentsDir = path.join(testDir, '.claude', 'projects', encodedPath, 'subagents');
+			const subagentsDir = path.join(
+				testDir,
+				'.claude',
+				'projects',
+				encodedPath,
+				'test-session',
+				'subagents'
+			);
 			const userOnlySubagent = [
 				'{"type":"system","agentType":"Bash"}',
 				'{"type":"user","timestamp":"2026-02-03T10:03:00.000Z","message":{"content":"Run npm test"},"uuid":"bash-user1"}',
@@ -286,7 +308,14 @@ describe('ClaudeSessionStorage - Subagents', () => {
 		});
 
 		it('should identify subagent type from content when not in system message', async () => {
-			const subagentsDir = path.join(testDir, '.claude', 'projects', encodedPath, 'subagents');
+			const subagentsDir = path.join(
+				testDir,
+				'.claude',
+				'projects',
+				encodedPath,
+				'test-session',
+				'subagents'
+			);
 			// Subagent without explicit agentType in system, but with Explore mentioned in user message
 			const inferredTypeSubagent = [
 				'{"type":"user","timestamp":"2026-02-03T10:04:00.000Z","message":{"content":"Using Explore to search for files"},"uuid":"infer-user1"}',
@@ -304,7 +333,7 @@ describe('ClaudeSessionStorage - Subagents', () => {
 
 	describe('getSubagentMessages', () => {
 		it('should return messages for a subagent', async () => {
-			const result = await storage.getSubagentMessages(projectPath, 'abc123');
+			const result = await storage.getSubagentMessages(projectPath, 'test-session', 'abc123');
 
 			expect(result.messages).toHaveLength(2);
 			expect(result.total).toBe(2);
@@ -312,7 +341,7 @@ describe('ClaudeSessionStorage - Subagents', () => {
 		});
 
 		it('should return messages in correct order', async () => {
-			const result = await storage.getSubagentMessages(projectPath, 'abc123');
+			const result = await storage.getSubagentMessages(projectPath, 'test-session', 'abc123');
 
 			expect(result.messages[0].type).toBe('user');
 			expect(result.messages[0].content).toContain('Search for auth files');
@@ -321,7 +350,7 @@ describe('ClaudeSessionStorage - Subagents', () => {
 		});
 
 		it('should support pagination with offset and limit', async () => {
-			const result = await storage.getSubagentMessages(projectPath, 'abc123', {
+			const result = await storage.getSubagentMessages(projectPath, 'test-session', 'abc123', {
 				offset: 0,
 				limit: 1,
 			});
@@ -331,7 +360,7 @@ describe('ClaudeSessionStorage - Subagents', () => {
 		});
 
 		it('should return empty result for non-existent subagent', async () => {
-			const result = await storage.getSubagentMessages(projectPath, 'nonexistent');
+			const result = await storage.getSubagentMessages(projectPath, 'test-session', 'nonexistent');
 
 			expect(result.messages).toEqual([]);
 			expect(result.total).toBe(0);
@@ -339,21 +368,21 @@ describe('ClaudeSessionStorage - Subagents', () => {
 		});
 
 		it('should include timestamp in messages', async () => {
-			const result = await storage.getSubagentMessages(projectPath, 'abc123');
+			const result = await storage.getSubagentMessages(projectPath, 'test-session', 'abc123');
 
 			expect(result.messages[0].timestamp).toBe('2026-02-03T10:01:00.000Z');
 			expect(result.messages[1].timestamp).toBe('2026-02-03T10:01:05.000Z');
 		});
 
 		it('should include uuid in messages', async () => {
-			const result = await storage.getSubagentMessages(projectPath, 'abc123');
+			const result = await storage.getSubagentMessages(projectPath, 'test-session', 'abc123');
 
 			expect(result.messages[0].uuid).toBe('sub-user1');
 			expect(result.messages[1].uuid).toBe('sub-asst1');
 		});
 
 		it('should handle offset greater than total messages', async () => {
-			const result = await storage.getSubagentMessages(projectPath, 'abc123', {
+			const result = await storage.getSubagentMessages(projectPath, 'test-session', 'abc123', {
 				offset: 100,
 				limit: 10,
 			});
@@ -364,14 +393,21 @@ describe('ClaudeSessionStorage - Subagents', () => {
 
 		it('should handle messages with array content blocks', async () => {
 			// Create a subagent with array content
-			const subagentsDir = path.join(testDir, '.claude', 'projects', encodedPath, 'subagents');
+			const subagentsDir = path.join(
+				testDir,
+				'.claude',
+				'projects',
+				encodedPath,
+				'test-session',
+				'subagents'
+			);
 			const arrayContentSubagent = [
 				'{"type":"user","timestamp":"2026-02-03T10:05:00.000Z","message":{"content":[{"type":"text","text":"User message with blocks"}]},"uuid":"array-user1"}',
 				'{"type":"assistant","timestamp":"2026-02-03T10:05:05.000Z","message":{"content":[{"type":"text","text":"Assistant response"},{"type":"tool_use","id":"tool1","name":"Read","input":{}}]},"uuid":"array-asst1"}',
 			].join('\n');
 			await fs.writeFile(path.join(subagentsDir, 'agent-array.jsonl'), arrayContentSubagent);
 
-			const result = await storage.getSubagentMessages(projectPath, 'array');
+			const result = await storage.getSubagentMessages(projectPath, 'test-session', 'array');
 
 			expect(result.messages).toHaveLength(2);
 			expect(result.messages[0].content).toContain('User message with blocks');
@@ -474,7 +510,14 @@ describe('ClaudeSessionStorage - Subagents', () => {
 
 	describe('edge cases', () => {
 		it('should handle malformed JSON in subagent file gracefully', async () => {
-			const subagentsDir = path.join(testDir, '.claude', 'projects', encodedPath, 'subagents');
+			const subagentsDir = path.join(
+				testDir,
+				'.claude',
+				'projects',
+				encodedPath,
+				'test-session',
+				'subagents'
+			);
 			const malformedSubagent = [
 				'{"type":"system","agentType":"Explore"}',
 				'not valid json',
@@ -492,7 +535,14 @@ describe('ClaudeSessionStorage - Subagents', () => {
 		});
 
 		it('should handle subagent with unknown type', async () => {
-			const subagentsDir = path.join(testDir, '.claude', 'projects', encodedPath, 'subagents');
+			const subagentsDir = path.join(
+				testDir,
+				'.claude',
+				'projects',
+				encodedPath,
+				'test-session',
+				'subagents'
+			);
 			const unknownTypeSubagent = [
 				'{"type":"user","timestamp":"2026-02-03T10:07:00.000Z","message":{"content":"No type info"},"uuid":"unknown-user1"}',
 				'{"type":"assistant","timestamp":"2026-02-03T10:07:05.000Z","message":{"content":"Response"},"uuid":"unknown-asst1"}',
@@ -507,7 +557,14 @@ describe('ClaudeSessionStorage - Subagents', () => {
 		});
 
 		it('should handle subagent with cache tokens', async () => {
-			const subagentsDir = path.join(testDir, '.claude', 'projects', encodedPath, 'subagents');
+			const subagentsDir = path.join(
+				testDir,
+				'.claude',
+				'projects',
+				encodedPath,
+				'test-session',
+				'subagents'
+			);
 			const cacheSubagent = [
 				'{"type":"system","agentType":"general-purpose"}',
 				'{"type":"user","timestamp":"2026-02-03T10:08:00.000Z","message":{"content":"Test"},"uuid":"cache-user1"}',
@@ -526,7 +583,14 @@ describe('ClaudeSessionStorage - Subagents', () => {
 
 		it('should handle file read errors gracefully', async () => {
 			// Create a subagent file with no read permissions
-			const subagentsDir = path.join(testDir, '.claude', 'projects', encodedPath, 'subagents');
+			const subagentsDir = path.join(
+				testDir,
+				'.claude',
+				'projects',
+				encodedPath,
+				'test-session',
+				'subagents'
+			);
 			const unreadableFile = path.join(subagentsDir, 'agent-unreadable.jsonl');
 			await fs.writeFile(unreadableFile, 'content');
 			await fs.chmod(unreadableFile, 0o000);

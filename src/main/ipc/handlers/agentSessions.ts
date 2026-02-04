@@ -560,6 +560,7 @@ export function registerAgentSessionsHandlers(deps?: AgentSessionsHandlerDepende
 			async (
 				agentId: string,
 				projectPath: string,
+				sessionId: string,
 				agentSubId: string,
 				options?: { offset?: number; limit?: number },
 				sshRemoteId?: string
@@ -581,12 +582,13 @@ export function registerAgentSessionsHandlers(deps?: AgentSessionsHandlerDepende
 
 				const result = await (storage as any).getSubagentMessages(
 					projectPath,
+					sessionId,
 					agentSubId,
 					options,
 					sshConfig
 				);
 				logger.info(
-					`Read ${result.messages.length} messages for subagent ${agentSubId} (agent: ${agentId})${sshRemoteId ? ' (remote via SSH)' : ''}`,
+					`Read ${result.messages.length} messages for subagent ${agentSubId} in session ${sessionId} (agent: ${agentId})${sshRemoteId ? ' (remote via SSH)' : ''}`,
 					LOG_CONTEXT
 				);
 				return result;

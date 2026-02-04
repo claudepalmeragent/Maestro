@@ -905,6 +905,7 @@ interface MaestroAPI {
 		getSubagentMessages: (
 			agentId: string,
 			projectPath: string,
+			sessionId: string,
 			agentSubId: string,
 			options?: { offset?: number; limit?: number },
 			sshRemoteId?: string

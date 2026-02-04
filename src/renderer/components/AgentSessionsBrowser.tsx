@@ -713,6 +713,7 @@ export function AgentSessionsBrowser({
 				const result = await window.maestro.agentSessions.getSubagentMessages(
 					agentId,
 					projectPathForSessions || '',
+					subagent.parentSessionId,
 					subagent.agentId,
 					{ offset: 0, limit: 100 },
 					sshRemoteId
