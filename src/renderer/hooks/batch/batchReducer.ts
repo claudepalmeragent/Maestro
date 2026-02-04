@@ -170,6 +170,9 @@ export interface StartBatchPayload {
 	cumulativeTaskTimeMs: number;
 	accumulatedElapsedMs: number;
 	lastActiveTimestamp: number;
+	// Document polling state (Option D - Progress Enhancement)
+	pollingEnabled?: boolean;
+	pollIntervalMs?: number;
 }
 
 /**
@@ -225,7 +228,20 @@ export type BatchAction =
 	| { type: 'CLEAR_ERROR'; sessionId: string }
 	| { type: 'SET_COMPLETING'; sessionId: string } // RUNNING -> COMPLETING
 	| { type: 'COMPLETE_BATCH'; sessionId: string; finalSessionIds?: string[] }
-	| { type: 'INCREMENT_LOOP'; sessionId: string; newTotalTasks: number };
+	| { type: 'INCREMENT_LOOP'; sessionId: string; newTotalTasks: number }
+	| {
+			type: 'SET_SUBAGENT_ACTIVE';
+			sessionId: string;
+			payload: { subagentType: string; startTime: number };
+	  }
+	| { type: 'CLEAR_SUBAGENT_ACTIVE'; sessionId: string }
+	// Document polling actions (Option D - Progress Enhancement)
+	| {
+			type: 'SET_POLLING_STATE';
+			sessionId: string;
+			payload: { enabled: boolean; intervalMs: number };
+	  }
+	| { type: 'UPDATE_POLL_TIME'; sessionId: string; payload: { lastPollTime: number } };
 
 /**
  * Batch state reducer
@@ -293,6 +309,10 @@ export function batchReducer(state: BatchState, action: BatchAction): BatchState
 					errorPaused: false,
 					errorDocumentIndex: undefined,
 					errorTaskDescription: undefined,
+					// Document polling state (Option D - Progress Enhancement)
+					pollingEnabled: payload.pollingEnabled ?? true,
+					pollIntervalMs: payload.pollIntervalMs,
+					lastPollTime: undefined,
 				},
 			};
 		}
@@ -559,6 +579,68 @@ export function batchReducer(state: BatchState, action: BatchAction): BatchState
 					totalTasksAcrossAllDocs: newTotalTasks + currentState.completedTasksAcrossAllDocs,
 					totalTasks: newTotalTasks + currentState.completedTasks,
 					processingState,
+				},
+			};
+		}
+
+		case 'SET_SUBAGENT_ACTIVE': {
+			const { sessionId, payload } = action;
+			const currentState = state[sessionId];
+			if (!currentState) return state;
+
+			return {
+				...state,
+				[sessionId]: {
+					...currentState,
+					subagentActive: true,
+					subagentType: payload.subagentType,
+					subagentStartTime: payload.startTime,
+				},
+			};
+		}
+
+		case 'CLEAR_SUBAGENT_ACTIVE': {
+			const { sessionId } = action;
+			const currentState = state[sessionId];
+			if (!currentState) return state;
+
+			return {
+				...state,
+				[sessionId]: {
+					...currentState,
+					subagentActive: false,
+					subagentType: undefined,
+					subagentStartTime: undefined,
+				},
+			};
+		}
+
+		// Document polling actions (Option D - Progress Enhancement)
+		case 'SET_POLLING_STATE': {
+			const { sessionId, payload } = action;
+			const currentState = state[sessionId];
+			if (!currentState) return state;
+
+			return {
+				...state,
+				[sessionId]: {
+					...currentState,
+					pollingEnabled: payload.enabled,
+					pollIntervalMs: payload.intervalMs,
+				},
+			};
+		}
+
+		case 'UPDATE_POLL_TIME': {
+			const { sessionId, payload } = action;
+			const currentState = state[sessionId];
+			if (!currentState) return state;
+
+			return {
+				...state,
+				[sessionId]: {
+					...currentState,
+					lastPollTime: payload.lastPollTime,
 				},
 			};
 		}

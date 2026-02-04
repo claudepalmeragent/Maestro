@@ -263,6 +263,10 @@ export interface BatchRunConfig {
 	loopEnabled: boolean; // Loop back to first doc when done
 	maxLoops?: number | null; // Max loop iterations (null/undefined = infinite)
 	worktree?: WorktreeConfig; // Optional worktree configuration
+	/** Enable document polling during task execution (default: true) */
+	enablePolling?: boolean;
+	/** Polling interval in milliseconds (default: 10000 local, 15000 SSH) */
+	pollingIntervalMs?: number;
 }
 
 // Import BatchProcessingState for state machine integration
@@ -323,6 +327,16 @@ export interface BatchRunState {
 	errorPaused?: boolean; // True if batch is paused waiting for error resolution
 	errorDocumentIndex?: number; // Which document had the error (for skip functionality)
 	errorTaskDescription?: string; // Description of the task that failed (for UI display)
+
+	// Subagent tracking state (Option B - Progress Enhancement)
+	subagentActive?: boolean; // True when a Task tool invocation is detected
+	subagentType?: string; // Type of subagent: Explore, Plan, general-purpose, Bash, etc.
+	subagentStartTime?: number; // Timestamp when subagent was detected
+
+	// Document polling state (Option D - Progress Enhancement)
+	pollingEnabled?: boolean; // Whether document polling is active
+	lastPollTime?: number; // Timestamp of last document poll
+	pollIntervalMs?: number; // Polling interval (default 15000 for SSH, 10000 for local)
 }
 
 // Persistent global statistics (survives app restarts)

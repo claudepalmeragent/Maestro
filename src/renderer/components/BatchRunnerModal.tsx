@@ -125,6 +125,9 @@ export function BatchRunnerModal(props: BatchRunnerModalProps) {
 	const [loopEnabled, setLoopEnabled] = useState(false);
 	const [maxLoops, setMaxLoops] = useState<number | null>(null); // null = infinite
 
+	// Polling state (Option D - Progress Enhancement)
+	const [enablePolling, setEnablePolling] = useState(true); // Default to enabled
+
 	// Prompt state
 	const [prompt, setPrompt] = useState(initialPrompt || DEFAULT_BATCH_PROMPT);
 	const [variablesExpanded, setVariablesExpanded] = useState(false);
@@ -307,6 +310,7 @@ export function BatchRunnerModal(props: BatchRunnerModalProps) {
 			prompt,
 			loopEnabled,
 			maxLoops: loopEnabled ? maxLoops : null,
+			enablePolling,
 		};
 
 		console.log('[BatchRunnerModal] handleGo - calling onGo with config:', config);
@@ -696,15 +700,36 @@ export function BatchRunnerModal(props: BatchRunnerModalProps) {
 					className="p-4 border-t flex items-center justify-between shrink-0"
 					style={{ borderColor: theme.colors.border }}
 				>
-					{/* Left side: Hint */}
-					<div className="flex items-center gap-2 text-xs" style={{ color: theme.colors.textDim }}>
-						<span
-							className="px-1.5 py-0.5 rounded border text-[10px] font-mono"
-							style={{ borderColor: theme.colors.border, backgroundColor: theme.colors.bgActivity }}
+					{/* Left side: Hint and Polling Toggle */}
+					<div className="flex items-center gap-4 text-xs" style={{ color: theme.colors.textDim }}>
+						<div className="flex items-center gap-2">
+							<span
+								className="px-1.5 py-0.5 rounded border text-[10px] font-mono"
+								style={{
+									borderColor: theme.colors.border,
+									backgroundColor: theme.colors.bgActivity,
+								}}
+							>
+								{isMacPlatform() ? '⌘' : 'Ctrl'} + Drag
+							</span>
+							<span>to copy document</span>
+						</div>
+						{/* Polling Toggle */}
+						<label
+							className="flex items-center gap-2 cursor-pointer"
+							title="Poll document for progress updates during long-running tasks"
 						>
-							{isMacPlatform() ? '⌘' : 'Ctrl'} + Drag
-						</span>
-						<span>to copy document</span>
+							<input
+								type="checkbox"
+								checked={enablePolling}
+								onChange={(e) => setEnablePolling(e.target.checked)}
+								className="w-3.5 h-3.5 rounded border cursor-pointer accent-current"
+								style={{ accentColor: theme.colors.accent }}
+							/>
+							<span style={{ color: enablePolling ? theme.colors.textMain : theme.colors.textDim }}>
+								Poll for progress
+							</span>
+						</label>
 					</div>
 
 					{/* Right side: Buttons */}

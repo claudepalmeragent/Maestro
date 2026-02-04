@@ -681,6 +681,22 @@ export const RightPanel = memo(
 								</span>
 							)}
 						</div>
+
+						{/* Subagent indicator - shows when a subagent is working */}
+						{currentSessionBatchState.subagentActive && (
+							<div className="mt-2">
+								<span
+									className="text-[10px] px-1.5 py-0.5 rounded whitespace-nowrap"
+									style={{
+										backgroundColor: 'rgba(168, 85, 247, 0.2)',
+										color: 'rgb(216, 180, 254)',
+									}}
+								>
+									<span className="animate-pulse mr-1">●</span>
+									Subagent: {currentSessionBatchState.subagentType || 'unknown'}
+								</span>
+							</div>
+						)}
 					</div>
 				)}
 			</div>

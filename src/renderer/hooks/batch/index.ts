@@ -26,6 +26,14 @@ export type {
 export { useTimeTracking } from './useTimeTracking';
 export type { UseTimeTrackingOptions, UseTimeTrackingReturn } from './useTimeTracking';
 
+// Document polling hook for progress detection during long tasks
+export {
+	useDocumentPolling,
+	DEFAULT_LOCAL_POLL_INTERVAL_MS,
+	DEFAULT_SSH_POLL_INTERVAL_MS,
+} from './useDocumentPolling';
+export type { UseDocumentPollingProps, UseDocumentPollingReturn } from './useDocumentPolling';
+
 // Document processing hook
 export { useDocumentProcessor } from './useDocumentProcessor';
 export type {

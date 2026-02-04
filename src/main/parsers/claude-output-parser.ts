@@ -38,6 +38,19 @@ interface ClaudeContentBlock {
 }
 
 /**
+ * Parsed Task tool invocation details
+ * Extracted from tool_use blocks with name === 'Task'
+ */
+export interface TaskToolInvocation {
+	/** The subagent type (e.g., 'Explore', 'Plan', 'general-purpose', 'Bash') */
+	subagentType: string;
+	/** The task description/prompt given to the subagent */
+	taskDescription?: string;
+	/** The tool invocation ID */
+	toolId?: string;
+}
+
+/**
  * Raw message structure from Claude Code stream-json output
  */
 interface ClaudeRawMessage {
@@ -139,6 +152,7 @@ export class ClaudeOutputParser implements AgentOutputParser {
 			const text = this.extractTextFromMessage(msg);
 			const thinkingText = this.extractThinkingFromMessage(msg);
 			const toolUseBlocks = this.extractToolUseBlocks(msg);
+			const taskToolInvocation = this.detectTaskToolInvocation(msg);
 
 			// For thinking content, prioritize thinking blocks over text blocks
 			// This ensures extended thinking (Claude 3.7+, Claude 4+) content streams properly
@@ -151,6 +165,7 @@ export class ClaudeOutputParser implements AgentOutputParser {
 				sessionId: msg.session_id,
 				isPartial: true,
 				toolUseBlocks: toolUseBlocks.length > 0 ? toolUseBlocks : undefined,
+				taskToolInvocation: taskToolInvocation || undefined,
 				raw: msg,
 			};
 		}
@@ -201,6 +216,37 @@ export class ClaudeOutputParser implements AgentOutputParser {
 				id: block.id,
 				input: block.input,
 			}));
+	}
+
+	/**
+	 * Detect Task tool invocations in a Claude assistant message.
+	 * Task tool spawns subagents for complex operations.
+	 *
+	 * @returns TaskToolInvocation if Task tool is being invoked, null otherwise
+	 */
+	detectTaskToolInvocation(msg: ClaudeRawMessage): TaskToolInvocation | null {
+		if (!msg.message?.content || typeof msg.message.content === 'string') {
+			return null;
+		}
+
+		const taskBlock = msg.message.content.find(
+			(block) => block.type === 'tool_use' && block.name === 'Task'
+		);
+
+		if (!taskBlock || !taskBlock.input) {
+			return null;
+		}
+
+		// Extract subagent_type from the Task tool input
+		const input = taskBlock.input as Record<string, unknown>;
+		const subagentType = (input.subagent_type as string) || 'general-purpose';
+		const taskDescription = input.prompt as string | undefined;
+
+		return {
+			subagentType,
+			taskDescription: taskDescription?.slice(0, 100), // Truncate for display
+			toolId: taskBlock.id,
+		};
 	}
 
 	/**

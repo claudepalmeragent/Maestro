@@ -3250,6 +3250,48 @@ function MaestroConsoleInner() {
 			}
 		);
 
+		// Handle Task tool invocation events for subagent detection (Progress Enhancement)
+		// Updates batch state to show "Subagent working..." indicator during Auto Run
+		const unsubscribeTaskToolInvocation = window.maestro.process.onTaskToolInvocation?.(
+			(
+				sessionId: string,
+				taskEvent: {
+					subagentType: string;
+					taskDescription?: string;
+					toolId?: string;
+					timestamp: number;
+				}
+			) => {
+				// Parse sessionId to get actual session ID (format: {id}-ai-{tabId})
+				const aiTabMatch = sessionId.match(/^(.+)-ai-(.+)$/);
+				if (!aiTabMatch) return; // Only handle AI tab messages
+
+				const actualSessionId = aiTabMatch[1];
+
+				// Update batch state with subagent info
+				if (setSubagentActiveRef.current) {
+					setSubagentActiveRef.current(actualSessionId, taskEvent.subagentType);
+				}
+			}
+		);
+
+		// Handle subagent clear events (result received, subagent task completed)
+		// Clears the "Subagent working..." indicator when the agent finishes
+		const unsubscribeSubagentClear = window.maestro.process.onSubagentClear?.(
+			(sessionId: string) => {
+				// Parse sessionId to get actual session ID (format: {id}-ai-{tabId})
+				const aiTabMatch = sessionId.match(/^(.+)-ai-(.+)$/);
+				if (!aiTabMatch) return; // Only handle AI tab messages
+
+				const actualSessionId = aiTabMatch[1];
+
+				// Clear subagent state in batch
+				if (clearSubagentActiveRef.current) {
+					clearSubagentActiveRef.current(actualSessionId);
+				}
+			}
+		);
+
 		// Cleanup listeners on unmount
 		return () => {
 			unsubscribeData();
@@ -3263,6 +3305,8 @@ function MaestroConsoleInner() {
 			unsubscribeThinkingChunk?.();
 			unsubscribeSshRemote?.();
 			unsubscribeToolExecution?.();
+			unsubscribeTaskToolInvocation?.();
+			unsubscribeSubagentClear?.();
 			// Cancel any pending thinking chunk RAF and clear buffer (Phase 6.4)
 			if (thinkingChunkRafIdRef.current !== null) {
 				cancelAnimationFrame(thinkingChunkRafIdRef.current);
@@ -3467,6 +3511,13 @@ function MaestroConsoleInner() {
 		| null
 	>(null);
 	const getBatchStateRef = useRef<((sessionId: string) => BatchRunState) | null>(null);
+
+	// Refs for subagent tracking (Progress Enhancement)
+	// These are populated after useBatchProcessor is called and used in the task tool invocation handler
+	const setSubagentActiveRef = useRef<((sessionId: string, subagentType: string) => void) | null>(
+		null
+	);
+	const clearSubagentActiveRef = useRef<((sessionId: string) => void) | null>(null);
 
 	// Refs for throttled thinking chunk updates (Phase 6.4)
 	// Buffer chunks per session+tab and use requestAnimationFrame to batch UI updates
@@ -5733,6 +5784,9 @@ You are taking over this conversation. Based on the context above, provide a bri
 		skipCurrentDocument,
 		resumeAfterError,
 		abortBatchOnError,
+		// Subagent tracking (Progress Enhancement)
+		setSubagentActive,
+		clearSubagentActive,
 	} = useBatchProcessor({
 		sessions,
 		groups,
@@ -6040,6 +6094,11 @@ You are taking over this conversation. Based on the context above, provide a bri
 	// These are used by the agent error handler which runs in a useEffect with empty deps
 	pauseBatchOnErrorRef.current = pauseBatchOnError;
 	getBatchStateRef.current = getBatchState;
+
+	// Update refs for subagent tracking (Progress Enhancement)
+	// These are used by the task tool invocation handler which runs in a useEffect with empty deps
+	setSubagentActiveRef.current = setSubagentActive;
+	clearSubagentActiveRef.current = clearSubagentActive;
 
 	// Get batch state for the current session - used for locking the AutoRun editor
 	// This is session-specific so users can edit docs in other sessions while one runs

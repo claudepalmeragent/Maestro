@@ -133,6 +133,16 @@ export interface ParsedEvent {
 	}>;
 
 	/**
+	 * Task tool invocation details if detected
+	 * Used to track when subagents are spawned during Auto Run execution
+	 */
+	taskToolInvocation?: {
+		subagentType: string;
+		taskDescription?: string;
+		toolId?: string;
+	};
+
+	/**
 	 * Original event data for debugging
 	 * Preserved unchanged from agent output
 	 * Optional - primarily used for debugging and not read in production

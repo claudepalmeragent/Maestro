@@ -295,6 +295,16 @@ export class StdoutHandler {
 			}
 		}
 
+		// Handle Task tool invocation (subagent detection for Auto Run progress)
+		if (event.taskToolInvocation) {
+			this.emitter.emit('task-tool-invocation', sessionId, {
+				subagentType: event.taskToolInvocation.subagentType,
+				taskDescription: event.taskToolInvocation.taskDescription,
+				toolId: event.taskToolInvocation.toolId,
+				timestamp: Date.now(),
+			});
+		}
+
 		// Skip processing error events further - they're handled by agent-error emission
 		if (event.type === 'error') {
 			return;
@@ -304,6 +314,9 @@ export class StdoutHandler {
 		if (outputParser.isResultMessage(event) && !managedProcess.resultEmitted) {
 			managedProcess.resultEmitted = true;
 			const resultText = event.text || managedProcess.streamedText || '';
+
+			// Clear subagent state on result (subagent task completed)
+			this.emitter.emit('subagent-clear', sessionId);
 
 			// Log synopsis result processing (for debugging empty synopsis issue)
 			if (sessionId.includes('-synopsis-')) {

@@ -276,6 +276,23 @@ const AutoRunPill = memo(
 						</span>
 					</div>
 
+					{/* Subagent indicator - shows when a subagent is working */}
+					{autoRunState.subagentActive && (
+						<>
+							<div className="w-px h-4 shrink-0" style={{ backgroundColor: theme.colors.border }} />
+							<div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 text-xs">
+								<span className="animate-pulse">●</span>
+								<span>Subagent: {autoRunState.subagentType || 'unknown'}</span>
+								{autoRunState.subagentStartTime && (
+									<ElapsedTimeDisplay
+										startTime={autoRunState.subagentStartTime}
+										textColor="inherit"
+									/>
+								)}
+							</div>
+						</>
+					)}
+
 					{/* Divider */}
 					<div className="w-px h-4 shrink-0" style={{ backgroundColor: theme.colors.border }} />
 
@@ -378,7 +395,8 @@ function ThinkingStatusPillInner({
 
 	// Estimate tokens from bytes when actual token count isn't available yet
 	// (Claude Code only reports token counts in the final 'result' message, not during streaming)
-	const estimatedTokens = primaryBytes > 0 ? Math.floor(primaryBytes / BYTES_PER_TOKEN_ESTIMATE) : 0;
+	const estimatedTokens =
+		primaryBytes > 0 ? Math.floor(primaryBytes / BYTES_PER_TOKEN_ESTIMATE) : 0;
 	const displayTokens = primaryTokens > 0 ? primaryTokens : estimatedTokens;
 	const isEstimated = primaryTokens === 0 && displayTokens > 0;
 
@@ -599,7 +617,11 @@ export const ThinkingStatusPill = memo(ThinkingStatusPillInner, (prevProps, next
 			prevAutoRun?.completedTasks !== nextAutoRun?.completedTasks ||
 			prevAutoRun?.totalTasks !== nextAutoRun?.totalTasks ||
 			prevAutoRun?.isStopping !== nextAutoRun?.isStopping ||
-			prevAutoRun?.startTime !== nextAutoRun?.startTime
+			prevAutoRun?.startTime !== nextAutoRun?.startTime ||
+			// Subagent tracking state
+			prevAutoRun?.subagentActive !== nextAutoRun?.subagentActive ||
+			prevAutoRun?.subagentType !== nextAutoRun?.subagentType ||
+			prevAutoRun?.subagentStartTime !== nextAutoRun?.subagentStartTime
 		) {
 			return false;
 		}
