@@ -756,7 +756,7 @@ export function BatchRunnerModal(props: BatchRunnerModalProps) {
 										}}
 										className="w-20 px-2 py-0.5 text-xs rounded border text-center"
 										style={{
-											backgroundColor: theme.colors.bgInput,
+											backgroundColor: theme.colors.bgActivity,
 											borderColor: theme.colors.border,
 											color: theme.colors.textMain,
 										}}
