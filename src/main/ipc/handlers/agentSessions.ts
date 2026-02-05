@@ -567,19 +567,35 @@ export function registerAgentSessionsHandlers(deps?: AgentSessionsHandlerDepende
 			): Promise<{
 				inputTokens: number;
 				outputTokens: number;
+				cacheReadTokens: number;
+				cacheCreationTokens: number;
 				cost: number;
 				subagentCount: number;
 			}> => {
 				const storage = getSessionStorage(agentId);
 				if (!storage) {
 					logger.debug(`No session storage available for agent: ${agentId}`, LOG_CONTEXT);
-					return { inputTokens: 0, outputTokens: 0, cost: 0, subagentCount: 0 };
+					return {
+						inputTokens: 0,
+						outputTokens: 0,
+						cacheReadTokens: 0,
+						cacheCreationTokens: 0,
+						cost: 0,
+						subagentCount: 0,
+					};
 				}
 
 				// Check if storage supports subagent listing
 				if (typeof (storage as any).listSubagentsForSession !== 'function') {
 					logger.debug(`Storage for ${agentId} does not support subagent listing`, LOG_CONTEXT);
-					return { inputTokens: 0, outputTokens: 0, cost: 0, subagentCount: 0 };
+					return {
+						inputTokens: 0,
+						outputTokens: 0,
+						cacheReadTokens: 0,
+						cacheCreationTokens: 0,
+						cost: 0,
+						subagentCount: 0,
+					};
 				}
 
 				// Get SSH config if provided
@@ -591,7 +607,7 @@ export function registerAgentSessionsHandlers(deps?: AgentSessionsHandlerDepende
 					sshConfig
 				);
 
-				// Aggregate stats from all subagents
+				// Aggregate stats from all subagents (include ALL token types for accurate totals)
 				const result = {
 					inputTokens: subagents.reduce(
 						(sum: number, s: { inputTokens?: number }) => sum + (s.inputTokens || 0),
@@ -599,6 +615,15 @@ export function registerAgentSessionsHandlers(deps?: AgentSessionsHandlerDepende
 					),
 					outputTokens: subagents.reduce(
 						(sum: number, s: { outputTokens?: number }) => sum + (s.outputTokens || 0),
+						0
+					),
+					cacheReadTokens: subagents.reduce(
+						(sum: number, s: { cacheReadTokens?: number }) => sum + (s.cacheReadTokens || 0),
+						0
+					),
+					cacheCreationTokens: subagents.reduce(
+						(sum: number, s: { cacheCreationTokens?: number }) =>
+							sum + (s.cacheCreationTokens || 0),
 						0
 					),
 					cost: subagents.reduce(
@@ -609,7 +634,7 @@ export function registerAgentSessionsHandlers(deps?: AgentSessionsHandlerDepende
 				};
 
 				logger.debug(
-					`Got subagent stats for session ${sessionId}: ${result.subagentCount} subagents, ${result.outputTokens} output tokens`,
+					`Got subagent stats for session ${sessionId}: ${result.subagentCount} subagents, ${result.inputTokens + result.outputTokens + result.cacheReadTokens + result.cacheCreationTokens} total tokens`,
 					LOG_CONTEXT
 				);
 

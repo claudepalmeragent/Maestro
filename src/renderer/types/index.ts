@@ -351,6 +351,8 @@ export interface BatchRunState {
 	// Subagent token tracking (Throughput Status Pill - Phase 3)
 	subagentInputTokens?: number; // Input tokens from all subagents
 	subagentOutputTokens?: number; // Output tokens from all subagents
+	subagentCacheReadTokens?: number; // Cache read tokens from all subagents
+	subagentCacheCreationTokens?: number; // Cache creation tokens from all subagents
 	subagentCost?: number; // Cost from all subagents
 	lastSubagentPollTime?: number; // Timestamp of last subagent poll
 }

@@ -397,6 +397,8 @@ export function createAgentSessionsApi() {
 		): Promise<{
 			inputTokens: number;
 			outputTokens: number;
+			cacheReadTokens: number;
+			cacheCreationTokens: number;
 			cost: number;
 			subagentCount: number;
 		}> =>

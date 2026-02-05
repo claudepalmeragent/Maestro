@@ -510,7 +510,13 @@ export function useBatchProcessor({
 	// Callback for subagent stats updates (Phase 3)
 	// This is called by useSubagentStatsPoller when new subagent token stats are available
 	const handleSubagentStats = useCallback(
-		(stats: { inputTokens: number; outputTokens: number; cost: number }) => {
+		(stats: {
+			inputTokens: number;
+			outputTokens: number;
+			cacheReadTokens: number;
+			cacheCreationTokens: number;
+			cost: number;
+		}) => {
 			// Get the first active batch session to update
 			const activeSessionId = Object.entries(batchRunStatesRef.current).find(
 				([, state]) => state.isRunning

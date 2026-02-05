@@ -697,12 +697,19 @@ export const RightPanel = memo(
 							)}
 
 						{/* Subagent token breakdown (Phase 3) */}
-						{(currentSessionBatchState.subagentOutputTokens ?? 0) > 0 && (
+						{/* Include ALL token types: input, output, cache read, cache creation */}
+						{(currentSessionBatchState.subagentInputTokens ?? 0) +
+							(currentSessionBatchState.subagentOutputTokens ?? 0) +
+							(currentSessionBatchState.subagentCacheReadTokens ?? 0) +
+							(currentSessionBatchState.subagentCacheCreationTokens ?? 0) >
+							0 && (
 							<p className="text-[10px] mt-0.5" style={{ color: theme.colors.textDim }}>
 								↳ Subagents:{' '}
 								{formatTokensCompact(
 									(currentSessionBatchState.subagentInputTokens ?? 0) +
-										(currentSessionBatchState.subagentOutputTokens ?? 0)
+										(currentSessionBatchState.subagentOutputTokens ?? 0) +
+										(currentSessionBatchState.subagentCacheReadTokens ?? 0) +
+										(currentSessionBatchState.subagentCacheCreationTokens ?? 0)
 								)}
 								{(currentSessionBatchState.subagentCost ?? 0) > 0 && (
 									<span> (${(currentSessionBatchState.subagentCost ?? 0).toFixed(4)})</span>

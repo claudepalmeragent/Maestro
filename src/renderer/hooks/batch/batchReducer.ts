@@ -254,7 +254,13 @@ export type BatchAction =
 	| {
 			type: 'UPDATE_SUBAGENT_TOKENS';
 			sessionId: string;
-			payload: { inputTokens: number; outputTokens: number; cost: number };
+			payload: {
+				inputTokens: number;
+				outputTokens: number;
+				cacheReadTokens: number;
+				cacheCreationTokens: number;
+				cost: number;
+			};
 	  };
 
 /**
@@ -743,6 +749,8 @@ export function batchReducer(state: BatchState, action: BatchAction): BatchState
 					...currentState,
 					subagentInputTokens: payload.inputTokens,
 					subagentOutputTokens: payload.outputTokens,
+					subagentCacheReadTokens: payload.cacheReadTokens,
+					subagentCacheCreationTokens: payload.cacheCreationTokens,
 					subagentCost: payload.cost,
 					lastSubagentPollTime: Date.now(),
 				},
