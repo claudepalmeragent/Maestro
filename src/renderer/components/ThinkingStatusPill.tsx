@@ -343,14 +343,21 @@ const AutoRunPill = memo(
 									{formatTokensCompact(cumulativeTokens + displayTokens)}
 								</span>
 								{/* Subagent tokens (Phase 3) - Only show if subagents have been used */}
-								{(autoRunState.subagentOutputTokens ?? 0) > 0 && (
+								{(autoRunState.subagentInputTokens ?? 0) +
+									(autoRunState.subagentOutputTokens ?? 0) >
+									0 && (
 									<span
 										className="font-mono text-xs"
 										style={{ color: theme.colors.textMain, opacity: 0.7 }}
 										title="Tokens consumed by subagents (Explore, Plan, Bash, etc.)"
 									>
 										{' '}
-										(+{formatTokensCompact(autoRunState.subagentOutputTokens ?? 0)} sub)
+										(+
+										{formatTokensCompact(
+											(autoRunState.subagentInputTokens ?? 0) +
+												(autoRunState.subagentOutputTokens ?? 0)
+										)}{' '}
+										subagents)
 									</span>
 								)}
 							</div>
