@@ -134,12 +134,15 @@ function parseSessionContent(
 		const previewMessage = firstAssistantMessage || firstUserMessage;
 
 		// Fast regex-based token extraction
+		// IMPORTANT: Use negative lookbehind to avoid double-counting cache tokens
 		let totalInputTokens = 0;
 		let totalOutputTokens = 0;
 		let totalCacheReadTokens = 0;
 		let totalCacheCreationTokens = 0;
 
-		const inputMatches = content.matchAll(/"input_tokens"\s*:\s*(\d+)/g);
+		const inputMatches = content.matchAll(
+			/(?<!cache_read_|cache_creation_)"input_tokens"\s*:\s*(\d+)/g
+		);
 		for (const m of inputMatches) totalInputTokens += parseInt(m[1], 10);
 
 		const outputMatches = content.matchAll(/"output_tokens"\s*:\s*(\d+)/g);
@@ -288,7 +291,10 @@ async function computeAggregatedStats(
 				}
 
 				// Fast regex-based extraction
-				const inputMatches = content.matchAll(/"input_tokens"\s*:\s*(\d+)/g);
+				// IMPORTANT: Use negative lookbehind to avoid double-counting cache tokens
+				const inputMatches = content.matchAll(
+					/(?<!cache_read_|cache_creation_)"input_tokens"\s*:\s*(\d+)/g
+				);
 				for (const m of inputMatches) subagentInputTokens += parseInt(m[1], 10);
 
 				const outputMatches = content.matchAll(/"output_tokens"\s*:\s*(\d+)/g);
@@ -410,13 +416,16 @@ function parsePartialSessionContent(
 		const previewMessage = firstAssistantMessage || firstUserMessage;
 
 		// Extract token counts from head (partial - won't have full totals for large files)
+		// IMPORTANT: Use negative lookbehind to avoid double-counting cache tokens
 		let totalInputTokens = 0;
 		let totalOutputTokens = 0;
 		let totalCacheReadTokens = 0;
 		let totalCacheCreationTokens = 0;
 
 		const combinedContent = head + '\n' + tail;
-		const inputMatches = combinedContent.matchAll(/"input_tokens"\s*:\s*(\d+)/g);
+		const inputMatches = combinedContent.matchAll(
+			/(?<!cache_read_|cache_creation_)"input_tokens"\s*:\s*(\d+)/g
+		);
 		for (const m of inputMatches) totalInputTokens += parseInt(m[1], 10);
 
 		const outputMatches = combinedContent.matchAll(/"output_tokens"\s*:\s*(\d+)/g);
@@ -656,12 +665,17 @@ function parseSubagentContent(
 		const previewMessage = firstAssistantMessage || firstUserMessage;
 
 		// Extract token counts using regex (fast)
+		// IMPORTANT: Use negative lookbehind to avoid double-counting cache tokens
+		// e.g., "cache_read_input_tokens" should NOT match the "input_tokens" regex
 		let totalInputTokens = 0;
 		let totalOutputTokens = 0;
 		let totalCacheReadTokens = 0;
 		let totalCacheCreationTokens = 0;
 
-		const inputMatches = content.matchAll(/"input_tokens"\s*:\s*(\d+)/g);
+		// Match "input_tokens" but NOT "cache_read_input_tokens" or "cache_creation_input_tokens"
+		const inputMatches = content.matchAll(
+			/(?<!cache_read_|cache_creation_)"input_tokens"\s*:\s*(\d+)/g
+		);
 		for (const m of inputMatches) totalInputTokens += parseInt(m[1], 10);
 
 		const outputMatches = content.matchAll(/"output_tokens"\s*:\s*(\d+)/g);

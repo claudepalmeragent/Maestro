@@ -118,7 +118,11 @@ function parseClaudeSessionContent(
 	let cacheReadTokens = 0;
 	let cacheCreationTokens = 0;
 
-	const inputMatches = content.matchAll(/"input_tokens"\s*:\s*(\d+)/g);
+	// IMPORTANT: Use negative lookbehind to avoid double-counting cache tokens
+	// e.g., "cache_read_input_tokens" should NOT match the "input_tokens" regex
+	const inputMatches = content.matchAll(
+		/(?<!cache_read_|cache_creation_)"input_tokens"\s*:\s*(\d+)/g
+	);
 	for (const m of inputMatches) inputTokens += parseInt(m[1], 10);
 
 	const outputMatches = content.matchAll(/"output_tokens"\s*:\s*(\d+)/g);
