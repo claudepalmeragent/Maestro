@@ -343,11 +343,9 @@ const AutoRunPill = memo(
 									{formatTokensCompact(cumulativeTokens + displayTokens)}
 								</span>
 								{/* Subagent tokens (Phase 3) - Only show if subagents have been used */}
-								{/* Include ALL token types: input, output, cache read, cache creation */}
+								{/* Show input + output tokens only (cache tokens inflate numbers without adding insight) */}
 								{(autoRunState.subagentInputTokens ?? 0) +
-									(autoRunState.subagentOutputTokens ?? 0) +
-									(autoRunState.subagentCacheReadTokens ?? 0) +
-									(autoRunState.subagentCacheCreationTokens ?? 0) >
+									(autoRunState.subagentOutputTokens ?? 0) >
 									0 && (
 									<span
 										className="font-mono text-xs"
@@ -358,9 +356,7 @@ const AutoRunPill = memo(
 										(+
 										{formatTokensCompact(
 											(autoRunState.subagentInputTokens ?? 0) +
-												(autoRunState.subagentOutputTokens ?? 0) +
-												(autoRunState.subagentCacheReadTokens ?? 0) +
-												(autoRunState.subagentCacheCreationTokens ?? 0)
+												(autoRunState.subagentOutputTokens ?? 0)
 										)}{' '}
 										subagents)
 									</span>
