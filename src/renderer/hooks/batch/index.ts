@@ -120,6 +120,10 @@ export type {
 export { useMarketplace } from './useMarketplace';
 export type { UseMarketplaceReturn } from './useMarketplace';
 
+// Subagent stats polling hook (Phase 3: Auto Run Throughput)
+export { useSubagentStatsPoller } from './useSubagentStatsPoller';
+export type { SubagentStatsPollerOptions, SubagentStats } from './useSubagentStatsPoller';
+
 // Inline wizard for creating/iterating Auto Run documents
 export { useInlineWizard } from '../useInlineWizard';
 export type {

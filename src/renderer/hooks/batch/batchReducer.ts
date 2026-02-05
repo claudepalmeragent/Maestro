@@ -250,6 +250,11 @@ export type BatchAction =
 			type: 'ACCUMULATE_TASK_USAGE';
 			sessionId: string;
 			payload: { inputTokens: number; outputTokens: number; cost: number };
+	  }
+	| {
+			type: 'UPDATE_SUBAGENT_TOKENS';
+			sessionId: string;
+			payload: { inputTokens: number; outputTokens: number; cost: number };
 	  };
 
 /**
@@ -329,6 +334,11 @@ export function batchReducer(state: BatchState, action: BatchAction): BatchState
 					cumulativeInputTokens: 0,
 					cumulativeOutputTokens: 0,
 					cumulativeCost: 0,
+					// Initialize subagent tracking (Phase 3)
+					subagentInputTokens: 0,
+					subagentOutputTokens: 0,
+					subagentCost: 0,
+					lastSubagentPollTime: undefined,
 				},
 			};
 		}
@@ -718,6 +728,23 @@ export function batchReducer(state: BatchState, action: BatchAction): BatchState
 					cumulativeInputTokens: (currentState.cumulativeInputTokens || 0) + payload.inputTokens,
 					cumulativeOutputTokens: (currentState.cumulativeOutputTokens || 0) + payload.outputTokens,
 					cumulativeCost: (currentState.cumulativeCost || 0) + payload.cost,
+				},
+			};
+		}
+
+		case 'UPDATE_SUBAGENT_TOKENS': {
+			const { sessionId, payload } = action;
+			const currentState = state[sessionId];
+			if (!currentState) return state;
+
+			return {
+				...state,
+				[sessionId]: {
+					...currentState,
+					subagentInputTokens: payload.inputTokens,
+					subagentOutputTokens: payload.outputTokens,
+					subagentCost: payload.cost,
+					lastSubagentPollTime: Date.now(),
 				},
 			};
 		}
