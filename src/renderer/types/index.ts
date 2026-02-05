@@ -337,6 +337,16 @@ export interface BatchRunState {
 	pollingEnabled?: boolean; // Whether document polling is active
 	lastPollTime?: number; // Timestamp of last document poll
 	pollIntervalMs?: number; // Polling interval (default 15000 for SSH, 10000 for local)
+
+	// Token tracking for current task (Throughput Status Pill - Phase 1)
+	currentTaskBytes?: number; // Bytes received in current task (for token estimation)
+	currentTaskTokens?: number; // Actual tokens from onUsage event
+	currentTaskStartTime?: number; // Start time for throughput calculation
+
+	// Cumulative token tracking across all tasks (Throughput Status Pill - Phase 2)
+	cumulativeInputTokens?: number; // Total input tokens across all tasks
+	cumulativeOutputTokens?: number; // Total output tokens across all tasks
+	cumulativeCost?: number; // Total cost in USD across all tasks
 }
 
 // Persistent global statistics (survives app restarts)
