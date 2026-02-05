@@ -16,6 +16,7 @@ import { AutoRun, AutoRunHandle } from './AutoRun';
 import type { DocumentTaskCount } from './AutoRunDocumentSelector';
 import { AutoRunExpandedModal } from './AutoRunExpandedModal';
 import { formatShortcutKeys } from '../utils/shortcutFormatter';
+import { formatTokensCompact } from '../utils/formatters';
 
 export interface RightPanelHandle {
 	refreshHistoryPanel: () => void;
@@ -681,6 +682,19 @@ export const RightPanel = memo(
 								</span>
 							)}
 						</div>
+
+						{/* Cumulative token usage (Throughput Status Pill - Phase 2) */}
+						{currentSessionBatchState.cumulativeOutputTokens &&
+							currentSessionBatchState.cumulativeOutputTokens > 0 && (
+								<div className="mt-1 text-[10px]" style={{ color: theme.colors.textDim }}>
+									Tokens used:{' '}
+									{formatTokensCompact(currentSessionBatchState.cumulativeOutputTokens)}
+									{currentSessionBatchState.cumulativeCost &&
+										currentSessionBatchState.cumulativeCost > 0 && (
+											<span> (${currentSessionBatchState.cumulativeCost.toFixed(4)})</span>
+										)}
+								</div>
+							)}
 
 						{/* Subagent indicator - shows when a subagent is working */}
 						{currentSessionBatchState.subagentActive && (

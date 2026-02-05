@@ -1058,6 +1058,38 @@ export function useBatchProcessor({
 						// This handles: template substitution, document expansion, agent spawning,
 						// session registration, re-reading document, and synopsis generation
 						try {
+							// Reset task metrics before starting (Throughput Status Pill)
+							dispatch({ type: 'RESET_TASK_METRICS', sessionId });
+
+							// Create wrapped onSpawnAgent that captures real-time token updates
+							// The batch session ID pattern is: ${sessionId}-batch-${timestamp}
+							const batchSessionPrefix = `${sessionId}-batch-`;
+							let dataUnsubscribe: (() => void) | null = null;
+							let usageUnsubscribe: (() => void) | null = null;
+
+							// Set up listeners before spawning
+							dataUnsubscribe = window.maestro.process.onData((sid: string, data: string) => {
+								if (sid.startsWith(batchSessionPrefix)) {
+									dispatch({
+										type: 'UPDATE_TASK_BYTES',
+										sessionId,
+										payload: { bytes: data.length },
+									});
+								}
+							});
+
+							usageUnsubscribe = window.maestro.process.onUsage(
+								(sid: string, usageStats: UsageStats) => {
+									if (sid.startsWith(batchSessionPrefix)) {
+										dispatch({
+											type: 'UPDATE_TASK_TOKENS',
+											sessionId,
+											payload: { tokens: usageStats.outputTokens },
+										});
+									}
+								}
+							);
+
 							const taskResult = await documentProcessor.processTask(
 								{
 									folderPath,
@@ -1077,6 +1109,10 @@ export function useBatchProcessor({
 									onSpawnAgent,
 								}
 							);
+
+							// Clean up listeners after task completes
+							if (dataUnsubscribe) dataUnsubscribe();
+							if (usageUnsubscribe) usageUnsubscribe();
 
 							// Track agent session IDs
 							if (taskResult.agentSessionId) {
@@ -1142,6 +1178,17 @@ export function useBatchProcessor({
 								totalInputTokens += usageStats.inputTokens || 0;
 								totalOutputTokens += usageStats.outputTokens || 0;
 								totalCost += usageStats.totalCostUsd || 0;
+
+								// Update BatchRunState with cumulative tokens (Throughput Status Pill - Phase 2)
+								dispatch({
+									type: 'ACCUMULATE_TASK_USAGE',
+									sessionId,
+									payload: {
+										inputTokens: usageStats.inputTokens || 0,
+										outputTokens: usageStats.outputTokens || 0,
+										cost: usageStats.totalCostUsd || 0,
+									},
+								});
 							}
 
 							// Track non-reset document completions for loop exit logic

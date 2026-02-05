@@ -80,11 +80,13 @@ const ThroughputDisplay = memo(
 		startTime,
 		textColor,
 		accentColor,
+		showPlaceholder = false,
 	}: {
 		tokens: number;
 		startTime: number;
 		textColor: string;
 		accentColor: string;
+		showPlaceholder?: boolean;
 	}) => {
 		const [throughput, setThroughput] = useState<number>(0);
 
@@ -102,6 +104,15 @@ const ThroughputDisplay = memo(
 			const interval = setInterval(updateThroughput, 500);
 			return () => clearInterval(interval);
 		}, [tokens, startTime]);
+
+		// Show placeholder if requested and no throughput yet
+		if (showPlaceholder && throughput === 0) {
+			return (
+				<span className="font-mono text-xs" style={{ color: textColor, opacity: 0.4 }}>
+					— tok/s
+				</span>
+			);
+		}
 
 		if (throughput === 0) return null;
 
@@ -232,6 +243,22 @@ const AutoRunPill = memo(
 		const startTime = autoRunState.startTime || Date.now();
 		const { completedTasks, totalTasks, isStopping } = autoRunState;
 
+		// Token statistics for current task (Throughput Status Pill)
+		const currentBytes = autoRunState.currentTaskBytes || 0;
+		const currentTokens = autoRunState.currentTaskTokens || 0;
+		const taskStartTime = autoRunState.currentTaskStartTime || startTime;
+
+		// Estimate tokens from bytes when actual count unavailable
+		const estimatedTokens =
+			currentBytes > 0 ? Math.floor(currentBytes / BYTES_PER_TOKEN_ESTIMATE) : 0;
+		const displayTokens = currentTokens > 0 ? currentTokens : estimatedTokens;
+		const isEstimated = currentTokens === 0 && displayTokens > 0;
+		const isWaiting = displayTokens === 0;
+
+		// Cumulative tokens across all tasks
+		const cumulativeTokens = autoRunState.cumulativeOutputTokens || 0;
+		const showCumulative = cumulativeTokens > 0;
+
 		return (
 			<div className="relative flex justify-center pb-2 -mt-2">
 				<div
@@ -275,6 +302,49 @@ const AutoRunPill = memo(
 							{completedTasks}/{totalTasks}
 						</span>
 					</div>
+
+					{/* Divider */}
+					<div className="w-px h-4 shrink-0" style={{ backgroundColor: theme.colors.border }} />
+
+					{/* Token statistics for current task */}
+					<div
+						className="flex items-center gap-1 shrink-0 text-xs"
+						style={{
+							color: isWaiting ? theme.colors.textDim : theme.colors.textMain,
+							opacity: isWaiting ? 0.4 : 1,
+						}}
+						title={isWaiting ? 'Token statistics will appear when data arrives' : undefined}
+					>
+						<span style={{ color: theme.colors.textDim }}>Tokens{isEstimated ? '~' : ''}:</span>
+						<span className="font-medium">
+							{isWaiting ? '—' : formatTokensCompact(displayTokens)}
+						</span>
+						<span style={{ color: theme.colors.border }}>|</span>
+						<ThroughputDisplay
+							tokens={displayTokens}
+							startTime={taskStartTime}
+							textColor={theme.colors.textDim}
+							accentColor={theme.colors.accent}
+							showPlaceholder={isWaiting}
+						/>
+					</div>
+
+					{/* Cumulative tokens - only show after first task completes */}
+					{showCumulative && (
+						<>
+							<div className="w-px h-4 shrink-0" style={{ backgroundColor: theme.colors.border }} />
+							<div
+								className="flex items-center gap-1 shrink-0 text-xs"
+								style={{ color: theme.colors.textDim }}
+								title="Total tokens consumed across all tasks in this Auto Run"
+							>
+								<span>Total:</span>
+								<span className="font-medium" style={{ color: theme.colors.textMain }}>
+									{formatTokensCompact(cumulativeTokens + displayTokens)}
+								</span>
+							</div>
+						</>
+					)}
 
 					{/* Subagent indicator - shows when a subagent is working */}
 					{autoRunState.subagentActive && (
@@ -621,7 +691,14 @@ export const ThinkingStatusPill = memo(ThinkingStatusPillInner, (prevProps, next
 			// Subagent tracking state
 			prevAutoRun?.subagentActive !== nextAutoRun?.subagentActive ||
 			prevAutoRun?.subagentType !== nextAutoRun?.subagentType ||
-			prevAutoRun?.subagentStartTime !== nextAutoRun?.subagentStartTime
+			prevAutoRun?.subagentStartTime !== nextAutoRun?.subagentStartTime ||
+			// Token tracking state (Throughput Status Pill)
+			prevAutoRun?.currentTaskBytes !== nextAutoRun?.currentTaskBytes ||
+			prevAutoRun?.currentTaskTokens !== nextAutoRun?.currentTaskTokens ||
+			prevAutoRun?.currentTaskStartTime !== nextAutoRun?.currentTaskStartTime ||
+			prevAutoRun?.cumulativeInputTokens !== nextAutoRun?.cumulativeInputTokens ||
+			prevAutoRun?.cumulativeOutputTokens !== nextAutoRun?.cumulativeOutputTokens ||
+			prevAutoRun?.cumulativeCost !== nextAutoRun?.cumulativeCost
 		) {
 			return false;
 		}

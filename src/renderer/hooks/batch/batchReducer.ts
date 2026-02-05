@@ -241,7 +241,16 @@ export type BatchAction =
 			sessionId: string;
 			payload: { enabled: boolean; intervalMs: number };
 	  }
-	| { type: 'UPDATE_POLL_TIME'; sessionId: string; payload: { lastPollTime: number } };
+	| { type: 'UPDATE_POLL_TIME'; sessionId: string; payload: { lastPollTime: number } }
+	// Token tracking actions (Throughput Status Pill)
+	| { type: 'UPDATE_TASK_BYTES'; sessionId: string; payload: { bytes: number } }
+	| { type: 'UPDATE_TASK_TOKENS'; sessionId: string; payload: { tokens: number } }
+	| { type: 'RESET_TASK_METRICS'; sessionId: string }
+	| {
+			type: 'ACCUMULATE_TASK_USAGE';
+			sessionId: string;
+			payload: { inputTokens: number; outputTokens: number; cost: number };
+	  };
 
 /**
  * Batch state reducer
@@ -313,6 +322,13 @@ export function batchReducer(state: BatchState, action: BatchAction): BatchState
 					pollingEnabled: payload.pollingEnabled ?? true,
 					pollIntervalMs: payload.pollIntervalMs,
 					lastPollTime: undefined,
+					// Token tracking - reset on start (Throughput Status Pill)
+					currentTaskBytes: 0,
+					currentTaskTokens: 0,
+					currentTaskStartTime: payload.startTime,
+					cumulativeInputTokens: 0,
+					cumulativeOutputTokens: 0,
+					cumulativeCost: 0,
 				},
 			};
 		}
@@ -641,6 +657,67 @@ export function batchReducer(state: BatchState, action: BatchAction): BatchState
 				[sessionId]: {
 					...currentState,
 					lastPollTime: payload.lastPollTime,
+				},
+			};
+		}
+
+		// Token tracking actions (Throughput Status Pill)
+		case 'UPDATE_TASK_BYTES': {
+			const { sessionId, payload } = action;
+			const currentState = state[sessionId];
+			if (!currentState) return state;
+
+			return {
+				...state,
+				[sessionId]: {
+					...currentState,
+					currentTaskBytes: (currentState.currentTaskBytes || 0) + payload.bytes,
+				},
+			};
+		}
+
+		case 'UPDATE_TASK_TOKENS': {
+			const { sessionId, payload } = action;
+			const currentState = state[sessionId];
+			if (!currentState) return state;
+
+			return {
+				...state,
+				[sessionId]: {
+					...currentState,
+					currentTaskTokens: (currentState.currentTaskTokens || 0) + payload.tokens,
+				},
+			};
+		}
+
+		case 'RESET_TASK_METRICS': {
+			const { sessionId } = action;
+			const currentState = state[sessionId];
+			if (!currentState) return state;
+
+			return {
+				...state,
+				[sessionId]: {
+					...currentState,
+					currentTaskBytes: 0,
+					currentTaskTokens: 0,
+					currentTaskStartTime: Date.now(),
+				},
+			};
+		}
+
+		case 'ACCUMULATE_TASK_USAGE': {
+			const { sessionId, payload } = action;
+			const currentState = state[sessionId];
+			if (!currentState) return state;
+
+			return {
+				...state,
+				[sessionId]: {
+					...currentState,
+					cumulativeInputTokens: (currentState.cumulativeInputTokens || 0) + payload.inputTokens,
+					cumulativeOutputTokens: (currentState.cumulativeOutputTokens || 0) + payload.outputTokens,
+					cumulativeCost: (currentState.cumulativeCost || 0) + payload.cost,
 				},
 			};
 		}
