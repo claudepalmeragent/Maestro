@@ -342,6 +342,17 @@ const AutoRunPill = memo(
 								<span className="font-medium" style={{ color: theme.colors.textMain }}>
 									{formatTokensCompact(cumulativeTokens + displayTokens)}
 								</span>
+								{/* Subagent tokens (Phase 3) - Only show if subagents have been used */}
+								{(autoRunState.subagentOutputTokens ?? 0) > 0 && (
+									<span
+										className="font-mono text-xs"
+										style={{ color: theme.colors.textMain, opacity: 0.7 }}
+										title="Tokens consumed by subagents (Explore, Plan, Bash, etc.)"
+									>
+										{' '}
+										(+{formatTokensCompact(autoRunState.subagentOutputTokens ?? 0)} sub)
+									</span>
+								)}
 							</div>
 						</>
 					)}
@@ -698,7 +709,10 @@ export const ThinkingStatusPill = memo(ThinkingStatusPillInner, (prevProps, next
 			prevAutoRun?.currentTaskStartTime !== nextAutoRun?.currentTaskStartTime ||
 			prevAutoRun?.cumulativeInputTokens !== nextAutoRun?.cumulativeInputTokens ||
 			prevAutoRun?.cumulativeOutputTokens !== nextAutoRun?.cumulativeOutputTokens ||
-			prevAutoRun?.cumulativeCost !== nextAutoRun?.cumulativeCost
+			prevAutoRun?.cumulativeCost !== nextAutoRun?.cumulativeCost ||
+			// Phase 3: Subagent token tracking
+			prevAutoRun?.subagentInputTokens !== nextAutoRun?.subagentInputTokens ||
+			prevAutoRun?.subagentOutputTokens !== nextAutoRun?.subagentOutputTokens
 		) {
 			return false;
 		}

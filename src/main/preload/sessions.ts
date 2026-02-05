@@ -384,6 +384,29 @@ export function createAgentSessionsApi() {
 				options,
 				sshRemoteId
 			),
+
+		/**
+		 * Get aggregated subagent stats for a session (Phase 3 - Throughput Status Pill)
+		 * Returns token counts and costs from all subagents
+		 */
+		getSubagentStats: (
+			agentId: string,
+			projectPath: string,
+			sessionId: string,
+			sshRemoteId?: string
+		): Promise<{
+			inputTokens: number;
+			outputTokens: number;
+			cost: number;
+			subagentCount: number;
+		}> =>
+			ipcRenderer.invoke(
+				'agentSessions:getSubagentStats',
+				agentId,
+				projectPath,
+				sessionId,
+				sshRemoteId
+			),
 	};
 }
 

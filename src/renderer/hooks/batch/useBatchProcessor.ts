@@ -24,6 +24,7 @@ import { useTimeTracking } from './useTimeTracking';
 import { useWorktreeManager } from './useWorktreeManager';
 import { useDocumentProcessor } from './useDocumentProcessor';
 import { useDocumentPolling } from './useDocumentPolling';
+import { useSubagentStatsPoller } from './useSubagentStatsPoller';
 
 // Debounce delay for batch state updates (Quick Win 1)
 const BATCH_STATE_DEBOUNCE_MS = 200;
@@ -505,6 +506,69 @@ export function useBatchProcessor({
 
 	// Use extracted document processor hook for document processing
 	const documentProcessor = useDocumentProcessor();
+
+	// Callback for subagent stats updates (Phase 3)
+	// This is called by useSubagentStatsPoller when new subagent token stats are available
+	const handleSubagentStats = useCallback(
+		(stats: { inputTokens: number; outputTokens: number; cost: number }) => {
+			// Get the first active batch session to update
+			const activeSessionId = Object.entries(batchRunStatesRef.current).find(
+				([, state]) => state.isRunning
+			)?.[0];
+			if (activeSessionId) {
+				dispatch({
+					type: 'UPDATE_SUBAGENT_TOKENS',
+					sessionId: activeSessionId,
+					payload: stats,
+				});
+			}
+		},
+		[]
+	);
+
+	// Compute subagent polling parameters from first active batch session (Phase 3)
+	// We need to poll subagent stats during Auto Run to show token usage from spawned subagents
+	const subagentPollingParams = useMemo(() => {
+		// Find the first active batch session
+		const activeEntry = Object.entries(batchRunStates).find(([, state]) => state.isRunning);
+		if (!activeEntry) {
+			return {
+				agentId: 'claude-code',
+				projectPath: '',
+				sessionIds: [] as string[],
+				isRunning: false,
+				sshRemoteId: undefined,
+			};
+		}
+
+		const [maestroSessionId, batchState] = activeEntry;
+		// Find the corresponding session from the sessions prop
+		const session = sessions.find((s) => s.id === maestroSessionId);
+
+		// Get ALL agent session IDs to poll for cumulative subagent stats across all tasks
+		const agentSessionIds = batchState.sessionIds || [];
+
+		return {
+			agentId: session?.toolType || 'claude-code',
+			projectPath: session?.cwd || '',
+			sessionIds: agentSessionIds,
+			isRunning: batchState.isRunning && !batchState.isPaused,
+			sshRemoteId: session?.sshRemoteId || session?.sessionSshRemoteConfig?.remoteId,
+		};
+	}, [batchRunStates, sessions]);
+
+	// Poll for subagent stats during Auto Run (Phase 3)
+	// This periodically checks for token usage from spawned subagents (Explore, Plan, Bash, etc.)
+	// Polls ALL session IDs to get cumulative subagent stats across all tasks in the batch
+	useSubagentStatsPoller({
+		agentId: subagentPollingParams.agentId,
+		projectPath: subagentPollingParams.projectPath,
+		sessionIds: subagentPollingParams.sessionIds,
+		isRunning: subagentPollingParams.isRunning,
+		pollIntervalMs: 5000, // Poll every 5 seconds
+		sshRemoteId: subagentPollingParams.sshRemoteId,
+		onStats: handleSubagentStats,
+	});
 
 	// Helper to get batch state for a session
 	// Note: This reads from React state (not the ref) because consumers need React

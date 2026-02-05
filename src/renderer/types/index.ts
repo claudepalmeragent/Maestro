@@ -347,6 +347,12 @@ export interface BatchRunState {
 	cumulativeInputTokens?: number; // Total input tokens across all tasks
 	cumulativeOutputTokens?: number; // Total output tokens across all tasks
 	cumulativeCost?: number; // Total cost in USD across all tasks
+
+	// Subagent token tracking (Throughput Status Pill - Phase 3)
+	subagentInputTokens?: number; // Input tokens from all subagents
+	subagentOutputTokens?: number; // Output tokens from all subagents
+	subagentCost?: number; // Cost from all subagents
+	lastSubagentPollTime?: number; // Timestamp of last subagent poll
 }
 
 // Persistent global statistics (survives app restarts)

@@ -551,6 +551,73 @@ export function registerAgentSessionsHandlers(deps?: AgentSessionsHandlerDepende
 		)
 	);
 
+	// ============ Get Subagent Stats ============
+	// Returns aggregated token statistics from all subagents for a session
+	// Used by useSubagentStatsPoller for real-time throughput display (Phase 3)
+
+	ipcMain.handle(
+		'agentSessions:getSubagentStats',
+		withIpcErrorLogging(
+			handlerOpts('getSubagentStats'),
+			async (
+				agentId: string,
+				projectPath: string,
+				sessionId: string,
+				sshRemoteId?: string
+			): Promise<{
+				inputTokens: number;
+				outputTokens: number;
+				cost: number;
+				subagentCount: number;
+			}> => {
+				const storage = getSessionStorage(agentId);
+				if (!storage) {
+					logger.debug(`No session storage available for agent: ${agentId}`, LOG_CONTEXT);
+					return { inputTokens: 0, outputTokens: 0, cost: 0, subagentCount: 0 };
+				}
+
+				// Check if storage supports subagent listing
+				if (typeof (storage as any).listSubagentsForSession !== 'function') {
+					logger.debug(`Storage for ${agentId} does not support subagent listing`, LOG_CONTEXT);
+					return { inputTokens: 0, outputTokens: 0, cost: 0, subagentCount: 0 };
+				}
+
+				// Get SSH config if provided
+				const sshConfig = sshRemoteId ? getSshRemoteById(sshRemoteId) : undefined;
+
+				const subagents = await (storage as any).listSubagentsForSession(
+					projectPath,
+					sessionId,
+					sshConfig
+				);
+
+				// Aggregate stats from all subagents
+				const result = {
+					inputTokens: subagents.reduce(
+						(sum: number, s: { inputTokens?: number }) => sum + (s.inputTokens || 0),
+						0
+					),
+					outputTokens: subagents.reduce(
+						(sum: number, s: { outputTokens?: number }) => sum + (s.outputTokens || 0),
+						0
+					),
+					cost: subagents.reduce(
+						(sum: number, s: { costUsd?: number }) => sum + (s.costUsd || 0),
+						0
+					),
+					subagentCount: subagents.length,
+				};
+
+				logger.debug(
+					`Got subagent stats for session ${sessionId}: ${result.subagentCount} subagents, ${result.outputTokens} output tokens`,
+					LOG_CONTEXT
+				);
+
+				return result;
+			}
+		)
+	);
+
 	// ============ Get Subagent Messages ============
 
 	ipcMain.handle(
