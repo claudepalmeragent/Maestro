@@ -29,6 +29,8 @@ interface SubagentStatsPollerOptions {
 interface SubagentStats {
 	inputTokens: number;
 	outputTokens: number;
+	cacheReadTokens: number;
+	cacheCreationTokens: number;
 	cost: number;
 	subagentCount: number;
 }
@@ -54,19 +56,35 @@ export function useSubagentStatsPoller({
 				sessionIds.map((sessionId) =>
 					window.maestro.agentSessions
 						.getSubagentStats(agentId, projectPath, sessionId, sshRemoteId)
-						.catch(() => ({ inputTokens: 0, outputTokens: 0, cost: 0, subagentCount: 0 }))
+						.catch(() => ({
+							inputTokens: 0,
+							outputTokens: 0,
+							cacheReadTokens: 0,
+							cacheCreationTokens: 0,
+							cost: 0,
+							subagentCount: 0,
+						}))
 				)
 			);
 
-			// Aggregate stats from all sessions
+			// Aggregate stats from all sessions (include ALL token types)
 			const stats: SubagentStats = allStats.reduce(
 				(acc, s) => ({
 					inputTokens: acc.inputTokens + (s?.inputTokens || 0),
 					outputTokens: acc.outputTokens + (s?.outputTokens || 0),
+					cacheReadTokens: acc.cacheReadTokens + (s?.cacheReadTokens || 0),
+					cacheCreationTokens: acc.cacheCreationTokens + (s?.cacheCreationTokens || 0),
 					cost: acc.cost + (s?.cost || 0),
 					subagentCount: acc.subagentCount + (s?.subagentCount || 0),
 				}),
-				{ inputTokens: 0, outputTokens: 0, cost: 0, subagentCount: 0 }
+				{
+					inputTokens: 0,
+					outputTokens: 0,
+					cacheReadTokens: 0,
+					cacheCreationTokens: 0,
+					cost: 0,
+					subagentCount: 0,
+				}
 			);
 
 			if (stats.subagentCount > 0) {
