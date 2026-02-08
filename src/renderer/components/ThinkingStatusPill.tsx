@@ -521,6 +521,17 @@ function ThinkingStatusPillInner({
 	// Get the write-mode tab to display its info (for tabified sessions)
 	const writeModeTab = getWriteModeTab(primarySession);
 
+	// Get cumulative session usage stats for display
+	const sessionUsage = writeModeTab?.usageStats || primarySession.usageStats;
+	const sessionInputOutput = sessionUsage
+		? (sessionUsage.inputTokens || 0) + (sessionUsage.outputTokens || 0)
+		: 0;
+	const sessionCache = sessionUsage
+		? (sessionUsage.cacheReadInputTokens || 0) + (sessionUsage.cacheCreationInputTokens || 0)
+		: 0;
+	const sessionCost = sessionUsage?.totalCostUsd || 0;
+	const showSessionStats = sessionInputOutput > 0;
+
 	// Use tab's agentSessionId if available, fallback to session's (legacy)
 	const agentSessionId = writeModeTab?.agentSessionId || primarySession.agentSessionId;
 
@@ -575,9 +586,9 @@ function ThinkingStatusPillInner({
 						className="flex items-center gap-1 shrink-0 text-xs"
 						style={{ color: theme.colors.textDim }}
 					>
-						<span>Tokens{isEstimated ? '~' : ''}:</span>
+						<span>Current{isEstimated ? '~' : ''}:</span>
 						<span className="font-medium" style={{ color: theme.colors.textMain }}>
-							{formatTokensCompact(displayTokens)}
+							{formatTokensCompact(displayTokens)} tokens
 						</span>
 						{/* Real-time throughput display */}
 						{(writeModeTab?.thinkingStartTime || primarySession.thinkingStartTime) && (
@@ -602,6 +613,32 @@ function ThinkingStatusPillInner({
 					>
 						<span>Thinking...</span>
 					</div>
+				)}
+
+				{/* Cumulative session stats - show total tokens and cost for this session */}
+				{showSessionStats && (
+					<>
+						<div className="w-px h-4 shrink-0" style={{ backgroundColor: theme.colors.border }} />
+						<div
+							className="flex items-center gap-1 shrink-0 text-xs"
+							style={{ color: theme.colors.textDim }}
+							title={`Session totals:\nInput + Output: ${formatTokensCompact(sessionInputOutput)}\nCache (Read + Write): ${formatTokensCompact(sessionCache)}\nCost: $${sessionCost.toFixed(2)}`}
+						>
+							<span>Session:</span>
+							<span className="font-medium" style={{ color: theme.colors.textMain }}>
+								{formatTokensCompact(sessionInputOutput)}
+							</span>
+							{sessionCache > 0 && (
+								<span
+									className="font-medium"
+									style={{ color: theme.colors.textMain, opacity: 0.7 }}
+								>
+									/{formatTokensCompact(sessionCache)}
+								</span>
+							)}
+							{sessionCost > 0 && <span style={{ opacity: 0.8 }}>(${sessionCost.toFixed(2)})</span>}
+						</div>
+					</>
 				)}
 
 				{/* Elapsed time - prefer write-mode tab's time for accurate parallel tracking */}
@@ -778,7 +815,10 @@ export const ThinkingStatusPill = memo(ThinkingStatusPillInner, (prevProps, next
 			prev.state !== next.state ||
 			prev.thinkingStartTime !== next.thinkingStartTime ||
 			prev.currentCycleTokens !== next.currentCycleTokens ||
-			prev.currentCycleBytes !== next.currentCycleBytes
+			prev.currentCycleBytes !== next.currentCycleBytes ||
+			prev.usageStats?.totalCostUsd !== next.usageStats?.totalCostUsd ||
+			prev.usageStats?.inputTokens !== next.usageStats?.inputTokens ||
+			prev.usageStats?.outputTokens !== next.usageStats?.outputTokens
 		) {
 			return false;
 		}
