@@ -59,6 +59,11 @@ export function getMigrations(): Migration[] {
 			description: 'Add token metrics columns to query_events for throughput tracking',
 			up: (db) => migrateV4(db),
 		},
+		{
+			version: 5,
+			description: 'Add cache token and cost columns to query_events',
+			up: (db) => migrateV5(db),
+		},
 	];
 }
 
@@ -254,4 +259,21 @@ function migrateV4(db: Database.Database): void {
 	db.prepare('ALTER TABLE query_events ADD COLUMN tokens_per_second REAL').run();
 
 	logger.debug('Added token metrics columns to query_events table', LOG_CONTEXT);
+}
+
+/**
+ * Migration v5: Add cache tokens and cost columns
+ * - cache_read_input_tokens: Cache read tokens from prompt caching
+ * - cache_creation_input_tokens: Cache creation tokens from prompt caching
+ * - total_cost_usd: Total cost in USD for the query
+ */
+function migrateV5(db: Database.Database): void {
+	// Add cache token columns
+	db.prepare('ALTER TABLE query_events ADD COLUMN cache_read_input_tokens INTEGER').run();
+	db.prepare('ALTER TABLE query_events ADD COLUMN cache_creation_input_tokens INTEGER').run();
+
+	// Add cost column
+	db.prepare('ALTER TABLE query_events ADD COLUMN total_cost_usd REAL').run();
+
+	logger.debug('Added cache token and cost columns to query_events table', LOG_CONTEXT);
 }

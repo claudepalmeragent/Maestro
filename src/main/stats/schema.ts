@@ -36,6 +36,29 @@ export const CREATE_META_TABLE_SQL = `
 // Query Events (Migration v1)
 // ============================================================================
 
+/**
+ * Query events table schema
+ * Stores individual query/completion events for analytics
+ *
+ * Base columns (v1):
+ * - id: TEXT PRIMARY KEY
+ * - session_id: TEXT NOT NULL
+ * - agent_type: TEXT NOT NULL
+ * - source: TEXT NOT NULL ('user' | 'auto')
+ * - start_time: INTEGER NOT NULL
+ * - duration: INTEGER NOT NULL
+ * - project_path: TEXT (nullable)
+ * - tab_id: TEXT (nullable)
+ *
+ * Added via migrations:
+ * - is_remote: INTEGER (nullable) - SSH session indicator (v2)
+ * - input_tokens: INTEGER (nullable) - Input token count (v4)
+ * - output_tokens: INTEGER (nullable) - Output token count (v4)
+ * - tokens_per_second: REAL (nullable) - Throughput metric (v4)
+ * - cache_read_input_tokens: INTEGER (nullable) - Cache read tokens (v5)
+ * - cache_creation_input_tokens: INTEGER (nullable) - Cache creation tokens (v5)
+ * - total_cost_usd: REAL (nullable) - Cost in USD (v5)
+ */
 export const CREATE_QUERY_EVENTS_SQL = `
   CREATE TABLE IF NOT EXISTS query_events (
     id TEXT PRIMARY KEY,
