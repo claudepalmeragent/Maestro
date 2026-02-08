@@ -24,7 +24,10 @@ export interface StatsAggregation {
 	totalQueries: number;
 	totalDuration: number;
 	avgDuration: number;
-	byAgent: Record<string, { count: number; duration: number; totalOutputTokens: number; avgTokensPerSecond: number }>;
+	byAgent: Record<
+		string,
+		{ count: number; duration: number; totalOutputTokens: number; avgTokensPerSecond: number }
+	>;
 	bySource: { user: number; auto: number };
 	byLocation: { local: number; remote: number };
 	byDay: Array<{
@@ -41,15 +44,38 @@ export interface StatsAggregation {
 	sessionsByDay: Array<{ date: string; count: number }>;
 	avgSessionDuration: number;
 	// Per-provider per-day breakdown for provider comparison and throughput trends
-	byAgentByDay: Record<string, Array<{ date: string; count: number; duration: number; outputTokens: number; avgTokensPerSecond: number }>>;
+	byAgentByDay: Record<
+		string,
+		Array<{
+			date: string;
+			count: number;
+			duration: number;
+			outputTokens: number;
+			avgTokensPerSecond: number;
+		}>
+	>;
 	// Per-session per-day breakdown for agent usage chart and throughput trends
-	bySessionByDay: Record<string, Array<{ date: string; count: number; duration: number; outputTokens: number; avgTokensPerSecond: number }>>;
+	bySessionByDay: Record<
+		string,
+		Array<{
+			date: string;
+			count: number;
+			duration: number;
+			outputTokens: number;
+			avgTokensPerSecond: number;
+		}>
+	>;
 	// Token metrics for throughput statistics
 	totalOutputTokens: number;
 	totalInputTokens: number;
 	avgTokensPerSecond: number;
 	avgOutputTokensPerQuery: number;
 	queriesWithTokenData: number;
+	// Cache token metrics (optional for backwards compatibility)
+	totalCacheReadInputTokens?: number;
+	totalCacheCreationInputTokens?: number;
+	// Cost metrics (optional for backwards compatibility)
+	totalCostUsd?: number;
 }
 
 // Return type for the useStats hook

@@ -18,9 +18,20 @@
  */
 
 import React, { useMemo } from 'react';
-import { MessageSquare, Clock, Timer, Bot, Users, Layers, Zap, FileText } from 'lucide-react';
+import {
+	MessageSquare,
+	Clock,
+	Timer,
+	Bot,
+	Users,
+	Layers,
+	Zap,
+	FileText,
+	DollarSign,
+} from 'lucide-react';
 import type { Theme } from '../../types';
 import type { StatsAggregation } from '../../hooks/useStats';
+import { formatTokensCompact } from '../../utils/formatters';
 
 interface SummaryCardsProps {
 	/** Aggregated stats data from the API */
@@ -76,9 +87,21 @@ interface MetricCardProps {
 	theme: Theme;
 	/** Animation delay index for staggered entrance (0-based) */
 	animationIndex?: number;
+	/** Optional subtitle displayed below the value */
+	subtitle?: string;
+	/** Optional tooltip shown on hover (supports newlines) */
+	tooltip?: string;
 }
 
-function MetricCard({ icon, label, value, theme, animationIndex = 0 }: MetricCardProps) {
+function MetricCard({
+	icon,
+	label,
+	value,
+	theme,
+	animationIndex = 0,
+	subtitle,
+	tooltip,
+}: MetricCardProps) {
 	return (
 		<div
 			className="p-4 rounded-lg flex items-start gap-3 dashboard-card-enter"
@@ -89,6 +112,7 @@ function MetricCard({ icon, label, value, theme, animationIndex = 0 }: MetricCar
 			data-testid="metric-card"
 			role="group"
 			aria-label={`${label}: ${value}`}
+			title={tooltip}
 		>
 			<div
 				className="flex-shrink-0 p-2 rounded-md"
@@ -106,9 +130,14 @@ function MetricCard({ icon, label, value, theme, animationIndex = 0 }: MetricCar
 				>
 					{label}
 				</div>
-				<div className="text-2xl font-bold" style={{ color: theme.colors.textMain }} title={value}>
+				<div className="text-2xl font-bold" style={{ color: theme.colors.textMain }}>
 					{value}
 				</div>
+				{subtitle && (
+					<div className="text-xs mt-1" style={{ color: theme.colors.textDim }}>
+						{subtitle}
+					</div>
+				)}
 			</div>
 		</div>
 	);
@@ -116,39 +145,66 @@ function MetricCard({ icon, label, value, theme, animationIndex = 0 }: MetricCar
 
 export function SummaryCards({ data, theme, columns = 4 }: SummaryCardsProps) {
 	// Calculate derived metrics
-	const { mostActiveAgent, interactiveRatio, throughputDisplay, totalTokensDisplay } = useMemo(
-		() => {
-			// Find most active agent by query count
-			const agents = Object.entries(data.byAgent);
-			const topAgent =
-				agents.length > 0 ? agents.sort((a, b) => b[1].count - a[1].count)[0] : null;
+	const {
+		mostActiveAgent,
+		interactiveRatio,
+		throughputDisplay,
+		totalTokensDisplay,
+		totalTokensSubtitle,
+		totalTokensTooltip,
+		totalCostDisplay,
+	} = useMemo(() => {
+		// Find most active agent by query count
+		const agents = Object.entries(data.byAgent);
+		const topAgent = agents.length > 0 ? agents.sort((a, b) => b[1].count - a[1].count)[0] : null;
 
-			// Calculate interactive percentage
-			const totalBySource = data.bySource.user + data.bySource.auto;
-			const ratio =
-				totalBySource > 0 ? `${Math.round((data.bySource.user / totalBySource) * 100)}%` : 'N/A';
+		// Calculate interactive percentage
+		const totalBySource = data.bySource.user + data.bySource.auto;
+		const ratio =
+			totalBySource > 0 ? `${Math.round((data.bySource.user / totalBySource) * 100)}%` : 'N/A';
 
-			// Format throughput (tokens per second)
-			const throughput =
-				data.avgTokensPerSecond && data.avgTokensPerSecond > 0
-					? `${data.avgTokensPerSecond.toFixed(1)} tok/s`
-					: 'N/A';
+		// Format throughput (tokens per second)
+		const throughput =
+			data.avgTokensPerSecond && data.avgTokensPerSecond > 0
+				? `${data.avgTokensPerSecond.toFixed(1)} tok/s`
+				: 'N/A';
 
-			// Format total output tokens
-			const totalTokens =
-				data.totalOutputTokens && data.totalOutputTokens > 0
-					? formatNumber(data.totalOutputTokens)
-					: 'N/A';
+		// Format total tokens (input + output)
+		const totalInputOutput = (data.totalInputTokens || 0) + (data.totalOutputTokens || 0);
+		const totalTokens = totalInputOutput > 0 ? formatTokensCompact(totalInputOutput) : 'N/A';
 
-			return {
-				mostActiveAgent: topAgent ? topAgent[0] : 'N/A',
-				interactiveRatio: ratio,
-				throughputDisplay: throughput,
-				totalTokensDisplay: totalTokens,
-			};
-		},
-		[data.byAgent, data.bySource, data.avgTokensPerSecond, data.totalOutputTokens]
-	);
+		// Cache tokens for subtitle
+		const cacheRead = data.totalCacheReadInputTokens || 0;
+		const cacheWrite = data.totalCacheCreationInputTokens || 0;
+		const totalCache = cacheRead + cacheWrite;
+		const tokenSubtitle = totalCache > 0 ? `Cache: ${formatTokensCompact(totalCache)}` : undefined;
+
+		// Detailed tooltip for tokens
+		const tokenTooltip = `Input: ${formatTokensCompact(data.totalInputTokens || 0)}\nOutput: ${formatTokensCompact(data.totalOutputTokens || 0)}\nCache Read: ${formatTokensCompact(cacheRead)}\nCache Write: ${formatTokensCompact(cacheWrite)}`;
+
+		// Format total cost
+		const cost = data.totalCostUsd || 0;
+		const costDisplay = `$${cost.toFixed(2)}`;
+
+		return {
+			mostActiveAgent: topAgent ? topAgent[0] : 'N/A',
+			interactiveRatio: ratio,
+			throughputDisplay: throughput,
+			totalTokensDisplay: totalTokens,
+			totalTokensSubtitle: tokenSubtitle,
+			totalTokensTooltip: tokenTooltip,
+			totalCostDisplay: costDisplay,
+		};
+	}, [
+		data.byAgent,
+		data.bySource,
+		data.avgTokensPerSecond,
+		data.totalOutputTokens,
+		data.totalInputTokens,
+		data.totalCacheReadInputTokens,
+		data.totalCacheCreationInputTokens,
+		data.totalCostUsd,
+	]);
 
 	const metrics = [
 		{
@@ -180,6 +236,14 @@ export function SummaryCards({ data, theme, columns = 4 }: SummaryCardsProps) {
 			icon: <FileText className="w-4 h-4" />,
 			label: 'Total Tokens',
 			value: totalTokensDisplay,
+			subtitle: totalTokensSubtitle,
+			tooltip: totalTokensTooltip,
+		},
+		{
+			icon: <DollarSign className="w-4 h-4" />,
+			label: 'Total Cost',
+			value: totalCostDisplay,
+			tooltip: 'Total API cost across all queries in the selected time range',
 		},
 		{
 			icon: <Bot className="w-4 h-4" />,
@@ -211,6 +275,8 @@ export function SummaryCards({ data, theme, columns = 4 }: SummaryCardsProps) {
 					value={metric.value}
 					theme={theme}
 					animationIndex={index}
+					subtitle={metric.subtitle}
+					tooltip={metric.tooltip}
 				/>
 			))}
 		</div>
