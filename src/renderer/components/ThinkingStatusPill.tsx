@@ -332,9 +332,9 @@ const AutoRunPill = memo(
 						}}
 						title={isWaiting ? 'Token statistics will appear when data arrives' : undefined}
 					>
-						<span style={{ color: theme.colors.textDim }}>Tokens{isEstimated ? '~' : ''}:</span>
+						<span style={{ color: theme.colors.textDim }}>Current{isEstimated ? '~' : ''}:</span>
 						<span className="font-medium">
-							{isWaiting ? '—' : formatTokensCompact(displayTokens)}
+							{isWaiting ? '—' : `${formatTokensCompact(displayTokens)} tokens`}
 						</span>
 						<span style={{ color: theme.colors.border }}>|</span>
 						<ThroughputDisplay
