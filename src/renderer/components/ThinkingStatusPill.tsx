@@ -358,10 +358,15 @@ const AutoRunPill = memo(
 								<span>Tokens:</span>
 								<span className="font-medium" style={{ color: theme.colors.textMain }}>
 									{formatTokensCompact(totalInputOutput + displayTokens)}
-									{totalCache > 0 && (
-										<span style={{ opacity: 0.7 }}>/{formatTokensCompact(totalCache)}</span>
-									)}
 								</span>
+								{totalCache > 0 && (
+									<span
+										className="font-medium"
+										style={{ color: theme.colors.textMain, opacity: 0.7 }}
+									>
+										/{formatTokensCompact(totalCache)}
+									</span>
+								)}
 								{/* Agent breakdown */}
 								{agentInputOutput > 0 && (
 									<span style={{ opacity: 0.8 }}>
