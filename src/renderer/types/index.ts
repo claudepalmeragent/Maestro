@@ -346,6 +346,8 @@ export interface BatchRunState {
 	// Cumulative token tracking across all tasks (Throughput Status Pill - Phase 2)
 	cumulativeInputTokens?: number; // Total input tokens across all tasks
 	cumulativeOutputTokens?: number; // Total output tokens across all tasks
+	cumulativeCacheReadTokens?: number; // Total cache read tokens across all tasks (Phase 4)
+	cumulativeCacheCreationTokens?: number; // Total cache creation tokens across all tasks (Phase 4)
 	cumulativeCost?: number; // Total cost in USD across all tasks
 
 	// Subagent token tracking (Throughput Status Pill - Phase 3)

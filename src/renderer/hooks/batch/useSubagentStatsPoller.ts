@@ -69,7 +69,7 @@ export function useSubagentStatsPoller({
 
 			// Aggregate stats from all sessions (include ALL token types)
 			const stats: SubagentStats = allStats.reduce(
-				(acc, s) => ({
+				(acc: SubagentStats, s: SubagentStats) => ({
 					inputTokens: acc.inputTokens + (s?.inputTokens || 0),
 					outputTokens: acc.outputTokens + (s?.outputTokens || 0),
 					cacheReadTokens: acc.cacheReadTokens + (s?.cacheReadTokens || 0),

@@ -558,8 +558,8 @@ export function useBatchProcessor({
 			agentId: session?.toolType || 'claude-code',
 			projectPath: session?.cwd || '',
 			sessionIds: agentSessionIds,
-			isRunning: batchState.isRunning && !batchState.isPaused,
-			sshRemoteId: session?.sshRemoteId || session?.sessionSshRemoteConfig?.remoteId,
+			isRunning: batchState.isRunning && !batchState.errorPaused,
+			sshRemoteId: session?.sshRemoteId || session?.sessionSshRemoteConfig?.remoteId || undefined,
 		};
 	}, [batchRunStates, sessions]);
 
@@ -1249,13 +1249,15 @@ export function useBatchProcessor({
 								totalOutputTokens += usageStats.outputTokens || 0;
 								totalCost += usageStats.totalCostUsd || 0;
 
-								// Update BatchRunState with cumulative tokens (Throughput Status Pill - Phase 2)
+								// Update BatchRunState with cumulative tokens (Throughput Status Pill - Phase 2 & 4)
 								dispatch({
 									type: 'ACCUMULATE_TASK_USAGE',
 									sessionId,
 									payload: {
 										inputTokens: usageStats.inputTokens || 0,
 										outputTokens: usageStats.outputTokens || 0,
+										cacheReadTokens: usageStats.cacheReadInputTokens || 0,
+										cacheCreationTokens: usageStats.cacheCreationInputTokens || 0,
 										cost: usageStats.totalCostUsd || 0,
 									},
 								});

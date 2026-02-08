@@ -255,9 +255,26 @@ const AutoRunPill = memo(
 		const isEstimated = currentTokens === 0 && displayTokens > 0;
 		const isWaiting = displayTokens === 0;
 
-		// Cumulative tokens across all tasks
-		const cumulativeTokens = autoRunState.cumulativeOutputTokens || 0;
-		const showCumulative = cumulativeTokens > 0;
+		// Calculate all token totals for comprehensive display (Phase 4)
+		// Agent tokens
+		const agentInputOutput =
+			(autoRunState.cumulativeInputTokens ?? 0) + (autoRunState.cumulativeOutputTokens ?? 0);
+		const agentCache =
+			(autoRunState.cumulativeCacheReadTokens ?? 0) +
+			(autoRunState.cumulativeCacheCreationTokens ?? 0);
+
+		// Subagent tokens
+		const subagentInputOutput =
+			(autoRunState.subagentInputTokens ?? 0) + (autoRunState.subagentOutputTokens ?? 0);
+		const subagentCache =
+			(autoRunState.subagentCacheReadTokens ?? 0) + (autoRunState.subagentCacheCreationTokens ?? 0);
+
+		// Combined totals
+		const totalInputOutput = agentInputOutput + subagentInputOutput;
+		const totalCache = agentCache + subagentCache;
+
+		// Show cumulative section when any tokens have been accumulated
+		const showCumulative = agentInputOutput > 0;
 
 		return (
 			<div className="relative flex justify-center pb-2 -mt-2">
@@ -329,36 +346,40 @@ const AutoRunPill = memo(
 						/>
 					</div>
 
-					{/* Cumulative tokens - only show after first task completes */}
+					{/* Cumulative tokens - comprehensive format (Phase 4) */}
 					{showCumulative && (
 						<>
 							<div className="w-px h-4 shrink-0" style={{ backgroundColor: theme.colors.border }} />
 							<div
 								className="flex items-center gap-1 shrink-0 text-xs"
 								style={{ color: theme.colors.textDim }}
-								title="Total tokens consumed across all tasks in this Auto Run"
+								title={`Total: ${formatTokensCompact(totalInputOutput)} input+output / ${formatTokensCompact(totalCache)} cache\nAgents: ${formatTokensCompact(agentInputOutput)} / ${formatTokensCompact(agentCache)}\nSubagents: ${formatTokensCompact(subagentInputOutput)} / ${formatTokensCompact(subagentCache)}`}
 							>
-								<span>Total:</span>
+								<span>Tokens:</span>
 								<span className="font-medium" style={{ color: theme.colors.textMain }}>
-									{formatTokensCompact(cumulativeTokens + displayTokens)}
+									{formatTokensCompact(totalInputOutput + displayTokens)}
+									{totalCache > 0 && (
+										<span style={{ opacity: 0.7 }}>/{formatTokensCompact(totalCache)}</span>
+									)}
 								</span>
-								{/* Subagent tokens (Phase 3) - Only show if subagents have been used */}
-								{/* Show input + output tokens only (cache tokens inflate numbers without adding insight) */}
-								{(autoRunState.subagentInputTokens ?? 0) +
-									(autoRunState.subagentOutputTokens ?? 0) >
-									0 && (
-									<span
-										className="font-mono text-xs"
-										style={{ color: theme.colors.textMain, opacity: 0.7 }}
-										title="Tokens consumed by subagents (Explore, Plan, Bash, etc.)"
-									>
-										{' '}
-										(+
-										{formatTokensCompact(
-											(autoRunState.subagentInputTokens ?? 0) +
-												(autoRunState.subagentOutputTokens ?? 0)
-										)}{' '}
-										subagents)
+								{/* Agent breakdown */}
+								{agentInputOutput > 0 && (
+									<span style={{ opacity: 0.8 }}>
+										(Agents: {formatTokensCompact(agentInputOutput + displayTokens)}
+										{agentCache > 0 && (
+											<span style={{ opacity: 0.7 }}>/{formatTokensCompact(agentCache)}</span>
+										)}
+										)
+									</span>
+								)}
+								{/* Subagent breakdown */}
+								{subagentInputOutput > 0 && (
+									<span style={{ opacity: 0.8 }}>
+										(Subagents: {formatTokensCompact(subagentInputOutput)}
+										{subagentCache > 0 && (
+											<span style={{ opacity: 0.7 }}>/{formatTokensCompact(subagentCache)}</span>
+										)}
+										)
 									</span>
 								)}
 							</div>
@@ -717,10 +738,14 @@ export const ThinkingStatusPill = memo(ThinkingStatusPillInner, (prevProps, next
 			prevAutoRun?.currentTaskStartTime !== nextAutoRun?.currentTaskStartTime ||
 			prevAutoRun?.cumulativeInputTokens !== nextAutoRun?.cumulativeInputTokens ||
 			prevAutoRun?.cumulativeOutputTokens !== nextAutoRun?.cumulativeOutputTokens ||
+			prevAutoRun?.cumulativeCacheReadTokens !== nextAutoRun?.cumulativeCacheReadTokens ||
+			prevAutoRun?.cumulativeCacheCreationTokens !== nextAutoRun?.cumulativeCacheCreationTokens ||
 			prevAutoRun?.cumulativeCost !== nextAutoRun?.cumulativeCost ||
 			// Phase 3: Subagent token tracking
 			prevAutoRun?.subagentInputTokens !== nextAutoRun?.subagentInputTokens ||
-			prevAutoRun?.subagentOutputTokens !== nextAutoRun?.subagentOutputTokens
+			prevAutoRun?.subagentOutputTokens !== nextAutoRun?.subagentOutputTokens ||
+			prevAutoRun?.subagentCacheReadTokens !== nextAutoRun?.subagentCacheReadTokens ||
+			prevAutoRun?.subagentCacheCreationTokens !== nextAutoRun?.subagentCacheCreationTokens
 		) {
 			return false;
 		}
