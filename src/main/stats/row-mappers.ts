@@ -30,6 +30,10 @@ export interface QueryEventRow {
 	input_tokens: number | null;
 	output_tokens: number | null;
 	tokens_per_second: number | null;
+	// Cache tokens and cost (v5)
+	cache_read_input_tokens: number | null;
+	cache_creation_input_tokens: number | null;
+	total_cost_usd: number | null;
 }
 
 export interface AutoRunSessionRow {
@@ -93,6 +97,9 @@ export function mapQueryEventRow(row: QueryEventRow): QueryEvent {
 		inputTokens: row.input_tokens ?? undefined,
 		outputTokens: row.output_tokens ?? undefined,
 		tokensPerSecond: row.tokens_per_second ?? undefined,
+		cacheReadInputTokens: row.cache_read_input_tokens ?? undefined,
+		cacheCreationInputTokens: row.cache_creation_input_tokens ?? undefined,
+		totalCostUsd: row.total_cost_usd ?? undefined,
 	};
 }
 

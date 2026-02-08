@@ -24,6 +24,10 @@ export interface QueryEvent {
 	outputTokens?: number;
 	/** Calculated throughput: outputTokens / (duration/1000) */
 	tokensPerSecond?: number;
+	// Cache tokens and cost (added in v5)
+	cacheReadInputTokens?: number;
+	cacheCreationInputTokens?: number;
+	totalCostUsd?: number;
 }
 
 /**
@@ -140,6 +144,10 @@ export interface StatsAggregation {
 	avgOutputTokensPerQuery: number;
 	/** Number of queries that have token data */
 	queriesWithTokenData: number;
+	// Cache tokens and cost aggregates (added in v5)
+	totalCacheReadInputTokens: number;
+	totalCacheCreationInputTokens: number;
+	totalCostUsd: number;
 }
 
 /**
@@ -155,5 +163,6 @@ export interface StatsFilters {
 /**
  * Database schema version for migrations
  * Version 4: Added input_tokens, output_tokens, tokens_per_second columns to query_events
+ * Version 5: Added cache_read_input_tokens, cache_creation_input_tokens, total_cost_usd columns
  */
-export const STATS_DB_VERSION = 4;
+export const STATS_DB_VERSION = 5;

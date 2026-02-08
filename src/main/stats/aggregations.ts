@@ -403,6 +403,9 @@ function queryTokenMetrics(
 	queriesWithTokenData: number;
 	totalInputTokens: number;
 	totalOutputTokens: number;
+	totalCacheReadInputTokens: number;
+	totalCacheCreationInputTokens: number;
+	totalCostUsd: number;
 	avgTokensPerSecond: number;
 	avgOutputTokensPerQuery: number;
 } {
@@ -414,6 +417,9 @@ function queryTokenMetrics(
         COUNT(*) as queries_with_data,
         COALESCE(SUM(input_tokens), 0) as total_input_tokens,
         COALESCE(SUM(output_tokens), 0) as total_output_tokens,
+        COALESCE(SUM(cache_read_input_tokens), 0) as total_cache_read_input_tokens,
+        COALESCE(SUM(cache_creation_input_tokens), 0) as total_cache_creation_input_tokens,
+        COALESCE(SUM(total_cost_usd), 0) as total_cost_usd,
         COALESCE(AVG(tokens_per_second), 0) as avg_tokens_per_second,
         COALESCE(AVG(output_tokens), 0) as avg_output_tokens
       FROM query_events
@@ -424,6 +430,9 @@ function queryTokenMetrics(
 		queries_with_data: number;
 		total_input_tokens: number;
 		total_output_tokens: number;
+		total_cache_read_input_tokens: number;
+		total_cache_creation_input_tokens: number;
+		total_cost_usd: number;
 		avg_tokens_per_second: number;
 		avg_output_tokens: number;
 	};
@@ -432,6 +441,9 @@ function queryTokenMetrics(
 		queriesWithTokenData: result.queries_with_data,
 		totalInputTokens: result.total_input_tokens,
 		totalOutputTokens: result.total_output_tokens,
+		totalCacheReadInputTokens: result.total_cache_read_input_tokens,
+		totalCacheCreationInputTokens: result.total_cache_creation_input_tokens,
+		totalCostUsd: result.total_cost_usd,
 		avgTokensPerSecond: result.avg_tokens_per_second,
 		avgOutputTokensPerQuery: result.avg_output_tokens,
 	};
@@ -493,5 +505,8 @@ export function getAggregatedStats(db: Database.Database, range: StatsTimeRange)
 		avgTokensPerSecond: tokenMetrics.avgTokensPerSecond,
 		avgOutputTokensPerQuery: tokenMetrics.avgOutputTokensPerQuery,
 		queriesWithTokenData: tokenMetrics.queriesWithTokenData,
+		totalCacheReadInputTokens: tokenMetrics.totalCacheReadInputTokens,
+		totalCacheCreationInputTokens: tokenMetrics.totalCacheCreationInputTokens,
+		totalCostUsd: tokenMetrics.totalCostUsd,
 	};
 }

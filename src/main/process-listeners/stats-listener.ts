@@ -39,6 +39,9 @@ async function insertQueryEventWithRetry(
 				inputTokens: queryData.inputTokens,
 				outputTokens: queryData.outputTokens,
 				tokensPerSecond: queryData.tokensPerSecond,
+				cacheReadInputTokens: queryData.cacheReadInputTokens,
+				cacheCreationInputTokens: queryData.cacheCreationInputTokens,
+				totalCostUsd: queryData.totalCostUsd,
 			});
 			return id;
 		} catch (error) {

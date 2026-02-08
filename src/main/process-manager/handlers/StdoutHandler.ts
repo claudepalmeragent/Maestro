@@ -36,6 +36,7 @@ function normalizeCodexUsage(
 		cacheReadInputTokens: usageStats.cacheReadInputTokens,
 		cacheCreationInputTokens: usageStats.cacheCreationInputTokens,
 		reasoningTokens: usageStats.reasoningTokens || 0,
+		totalCostUsd: usageStats.totalCostUsd,
 	};
 
 	const last = managedProcess.lastUsageTotals;

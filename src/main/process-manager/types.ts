@@ -74,6 +74,7 @@ export interface UsageTotals {
 	cacheReadInputTokens: number;
 	cacheCreationInputTokens: number;
 	reasoningTokens: number;
+	totalCostUsd: number;
 }
 
 export interface UsageStats {
@@ -132,6 +133,10 @@ export interface QueryCompleteData {
 	outputTokens?: number;
 	/** Throughput in tokens per second (outputTokens / durationSeconds) */
 	tokensPerSecond?: number;
+	// Cache tokens and cost (for stats persistence)
+	cacheReadInputTokens?: number;
+	cacheCreationInputTokens?: number;
+	totalCostUsd?: number;
 }
 
 // Re-export for backwards compatibility
