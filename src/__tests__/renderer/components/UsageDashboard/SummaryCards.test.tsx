@@ -246,6 +246,46 @@ describe('SummaryCards', () => {
 			// 50K cache read + 10K cache write = 60K cache tokens
 			expect(screen.getByText('Cache: 60.0K')).toBeInTheDocument();
 		});
+
+		it('renders Total Tokens tooltip with detailed breakdown (Input/Output/Cache Read/Cache Write)', () => {
+			render(<SummaryCards data={mockData} theme={theme} />);
+
+			// Find the Total Tokens card by its label and check the tooltip
+			const totalTokensCard = screen.getByRole('group', { name: /Total Tokens/i });
+			expect(totalTokensCard).toBeInTheDocument();
+
+			// The tooltip should contain detailed breakdown: Input, Output, Cache Read, Cache Write
+			// mockData has: totalInputTokens: 150000, totalOutputTokens: 75000,
+			// totalCacheReadInputTokens: 50000, totalCacheCreationInputTokens: 10000
+			const expectedTooltip = 'Input: 150.0K\nOutput: 75.0K\nCache Read: 50.0K\nCache Write: 10.0K';
+			expect(totalTokensCard).toHaveAttribute('title', expectedTooltip);
+		});
+
+		it('renders Total Tokens tooltip with zero values when no cache data exists', () => {
+			const dataWithoutCache: StatsAggregation = {
+				...mockData,
+				totalCacheReadInputTokens: 0,
+				totalCacheCreationInputTokens: 0,
+			};
+			render(<SummaryCards data={dataWithoutCache} theme={theme} />);
+
+			const totalTokensCard = screen.getByRole('group', { name: /Total Tokens/i });
+			// When cache values are 0, the tooltip should still show all four values
+			const expectedTooltip = 'Input: 150.0K\nOutput: 75.0K\nCache Read: 0\nCache Write: 0';
+			expect(totalTokensCard).toHaveAttribute('title', expectedTooltip);
+		});
+
+		it('does not render cache subtitle when cache data is zero', () => {
+			const dataWithoutCache: StatsAggregation = {
+				...mockData,
+				totalCacheReadInputTokens: 0,
+				totalCacheCreationInputTokens: 0,
+			};
+			render(<SummaryCards data={dataWithoutCache} theme={theme} />);
+
+			// Subtitle should not appear when cache is 0
+			expect(screen.queryByText(/Cache:/i)).not.toBeInTheDocument();
+		});
 	});
 
 	describe('Number Formatting', () => {
@@ -478,6 +518,71 @@ describe('SummaryCards', () => {
 			// Values should have title for full value on hover
 			const valueElements = container.querySelectorAll('[title]');
 			expect(valueElements.length).toBeGreaterThan(0);
+		});
+	});
+
+	describe('Total Cost Card (Task 5)', () => {
+		it('displays cost in $X.XX format', () => {
+			render(<SummaryCards data={mockData} theme={theme} />);
+
+			// Verify "Total Cost" label exists
+			expect(screen.getByText('Total Cost')).toBeInTheDocument();
+			// Verify the cost value in $X.XX format ($1.23 from mockData.totalCostUsd)
+			expect(screen.getByText('$1.23')).toBeInTheDocument();
+		});
+
+		it('displays $0.00 when cost is zero or undefined', () => {
+			const dataWithZeroCost: StatsAggregation = {
+				...mockData,
+				totalCostUsd: 0,
+			};
+			render(<SummaryCards data={dataWithZeroCost} theme={theme} />);
+
+			expect(screen.getByText('$0.00')).toBeInTheDocument();
+		});
+
+		it('displays cost with proper precision for large amounts', () => {
+			render(<SummaryCards data={largeNumbersData} theme={theme} />);
+
+			// largeNumbersData.totalCostUsd = 1500.5
+			expect(screen.getByText('$1500.50')).toBeInTheDocument();
+		});
+
+		it('renders dollar sign icon in Total Cost card', () => {
+			render(<SummaryCards data={mockData} theme={theme} />);
+
+			// Find the Total Cost card by its aria-label
+			const totalCostCard = screen.getByRole('group', { name: /Total Cost/i });
+			expect(totalCostCard).toBeInTheDocument();
+
+			// The card should contain an SVG icon (the DollarSign icon from lucide-react)
+			const svgIcon = totalCostCard.querySelector('svg');
+			expect(svgIcon).toBeInTheDocument();
+			// Verify it has the expected sizing classes used by lucide icons
+			expect(svgIcon).toHaveClass('w-4', 'h-4');
+		});
+
+		it('renders tooltip explaining the Total Cost metric', () => {
+			render(<SummaryCards data={mockData} theme={theme} />);
+
+			// Find the Total Cost card and verify its tooltip
+			const totalCostCard = screen.getByRole('group', { name: /Total Cost/i });
+			expect(totalCostCard).toBeInTheDocument();
+
+			// The tooltip should explain what the metric represents
+			const expectedTooltip = 'Total API cost across all queries in the selected time range';
+			expect(totalCostCard).toHaveAttribute('title', expectedTooltip);
+		});
+
+		it('handles undefined totalCostUsd gracefully', () => {
+			const dataWithoutCost: StatsAggregation = {
+				...emptyData,
+				// totalCostUsd is not set (undefined)
+			};
+			render(<SummaryCards data={dataWithoutCost} theme={theme} />);
+
+			// Should default to $0.00 when undefined
+			expect(screen.getByText('$0.00')).toBeInTheDocument();
 		});
 	});
 });

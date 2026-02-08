@@ -316,7 +316,7 @@ describe('Chart Accessibility - SummaryCards', () => {
 	it('each metric card has role="group"', () => {
 		render(<SummaryCards data={mockStatsData} theme={mockTheme} />);
 		const groups = screen.getAllByRole('group');
-		expect(groups).toHaveLength(8); // 8 metric cards
+		expect(groups).toHaveLength(9); // 9 metric cards (including Total Cost)
 	});
 
 	it('metric cards have descriptive aria-labels', () => {
@@ -330,6 +330,7 @@ describe('Chart Accessibility - SummaryCards', () => {
 			/Avg Duration/i,
 			/Avg Throughput/i,
 			/Total Tokens/i,
+			/Total Cost/i,
 			/Top Agent/i,
 			/Interactive %/i,
 		];

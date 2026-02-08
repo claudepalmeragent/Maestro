@@ -117,25 +117,29 @@ describe('ThinkingStatusPill', () => {
 		it('displays tokens under 1000 as-is', () => {
 			const session = createThinkingSession({ currentCycleTokens: 500 });
 			render(<ThinkingStatusPill thinkingSessions={[session]} theme={mockTheme} />);
-			expect(screen.getByText('500')).toBeInTheDocument();
+			// Token count now displayed as "X tokens" in combined format
+			expect(screen.getByText('500 tokens')).toBeInTheDocument();
 		});
 
 		it('displays tokens at exactly 1000 in K notation', () => {
 			const session = createThinkingSession({ currentCycleTokens: 1000 });
 			render(<ThinkingStatusPill thinkingSessions={[session]} theme={mockTheme} />);
-			expect(screen.getByText('1.0K')).toBeInTheDocument();
+			// Token count now displayed as "X tokens" in combined format
+			expect(screen.getByText('1.0K tokens')).toBeInTheDocument();
 		});
 
 		it('displays tokens over 1000 in K notation with decimal', () => {
 			const session = createThinkingSession({ currentCycleTokens: 2500 });
 			render(<ThinkingStatusPill thinkingSessions={[session]} theme={mockTheme} />);
-			expect(screen.getByText('2.5K')).toBeInTheDocument();
+			// Token count now displayed as "X tokens" in combined format
+			expect(screen.getByText('2.5K tokens')).toBeInTheDocument();
 		});
 
 		it('displays large tokens correctly', () => {
 			const session = createThinkingSession({ currentCycleTokens: 15700 });
 			render(<ThinkingStatusPill thinkingSessions={[session]} theme={mockTheme} />);
-			expect(screen.getByText('15.7K')).toBeInTheDocument();
+			// Token count now displayed as "X tokens" in combined format
+			expect(screen.getByText('15.7K tokens')).toBeInTheDocument();
 		});
 
 		it('shows "Thinking..." when tokens are 0', () => {
@@ -280,10 +284,11 @@ describe('ThinkingStatusPill', () => {
 			expect(indicator).toBeInTheDocument();
 		});
 
-		it('shows Tokens label', () => {
+		it('shows Current label with tokens', () => {
 			const session = createThinkingSession({ currentCycleTokens: 100 });
 			render(<ThinkingStatusPill thinkingSessions={[session]} theme={mockTheme} />);
-			expect(screen.getByText('Tokens:')).toBeInTheDocument();
+			// Label changed from "Tokens:" to "Current:" to distinguish from cumulative Session stats
+			expect(screen.getByText('Current:')).toBeInTheDocument();
 		});
 
 		it('shows Elapsed label with time', () => {
@@ -878,7 +883,8 @@ describe('ThinkingStatusPill', () => {
 				<ThinkingStatusPill thinkingSessions={[session]} theme={mockTheme} />
 			);
 
-			expect(screen.getByText('500')).toBeInTheDocument();
+			// Token count now displayed as "X tokens" in combined format
+			expect(screen.getByText('500 tokens')).toBeInTheDocument();
 
 			rerender(
 				<ThinkingStatusPill
@@ -887,7 +893,8 @@ describe('ThinkingStatusPill', () => {
 				/>
 			);
 
-			expect(screen.getByText('1.5K')).toBeInTheDocument();
+			// Token count now displayed as "X tokens" in combined format
+			expect(screen.getByText('1.5K tokens')).toBeInTheDocument();
 		});
 
 		it('re-renders when theme changes', () => {
@@ -934,6 +941,250 @@ describe('ThinkingStatusPill', () => {
 
 			// After rerender, should show custom name from namedSessions
 			expect(screen.getByText('Custom Name')).toBeInTheDocument();
+		});
+	});
+
+	describe('cumulative session stats display (Yellow Pill)', () => {
+		/**
+		 * Tests for Task 2: Yellow Agent Session Pill
+		 * Verifies the cumulative session stats format: Session: X/Y ($Z.ZZ)
+		 * - X = total input + output tokens (compact format like "1.2K")
+		 * - Y = total cache tokens (compact format)
+		 * - Z.ZZ = total cost in USD
+		 */
+
+		it('displays session stats with input/output tokens and cost', () => {
+			const session = createThinkingSession({
+				usageStats: {
+					inputTokens: 1000,
+					outputTokens: 200,
+					cacheReadInputTokens: 0,
+					cacheCreationInputTokens: 0,
+					totalCostUsd: 0.42,
+					contextWindow: 200000,
+				},
+			});
+			render(<ThinkingStatusPill thinkingSessions={[session]} theme={mockTheme} />);
+
+			// Should show "Session:" label
+			expect(screen.getByText('Session:')).toBeInTheDocument();
+			// Should show input+output tokens (1000+200=1200) in compact format
+			expect(screen.getByText('1.2K')).toBeInTheDocument();
+			// Should show cost in $X.XX format
+			expect(screen.getByText('($0.42)')).toBeInTheDocument();
+		});
+
+		it('displays cache tokens when present', () => {
+			const session = createThinkingSession({
+				usageStats: {
+					inputTokens: 45000,
+					outputTokens: 600,
+					cacheReadInputTokens: 10000,
+					cacheCreationInputTokens: 2300,
+					totalCostUsd: 1.23,
+					contextWindow: 200000,
+				},
+			});
+			render(<ThinkingStatusPill thinkingSessions={[session]} theme={mockTheme} />);
+
+			// Should show "Session:" label
+			expect(screen.getByText('Session:')).toBeInTheDocument();
+			// Should show input+output tokens (45000+600=45600) in compact format
+			expect(screen.getByText('45.6K')).toBeInTheDocument();
+			// Should show cache tokens (10000+2300=12300) in compact format after slash
+			expect(screen.getByText('/12.3K')).toBeInTheDocument();
+			// Should show cost
+			expect(screen.getByText('($1.23)')).toBeInTheDocument();
+		});
+
+		it('does not display session stats when no usage data', () => {
+			const session = createThinkingSession({
+				usageStats: undefined,
+			});
+			render(<ThinkingStatusPill thinkingSessions={[session]} theme={mockTheme} />);
+
+			// Should not show Session: label when no usage data
+			expect(screen.queryByText('Session:')).not.toBeInTheDocument();
+		});
+
+		it('does not display session stats when input/output tokens are 0', () => {
+			const session = createThinkingSession({
+				usageStats: {
+					inputTokens: 0,
+					outputTokens: 0,
+					cacheReadInputTokens: 0,
+					cacheCreationInputTokens: 0,
+					totalCostUsd: 0,
+					contextWindow: 200000,
+				},
+			});
+			render(<ThinkingStatusPill thinkingSessions={[session]} theme={mockTheme} />);
+
+			// Should not show Session: label when no tokens consumed
+			expect(screen.queryByText('Session:')).not.toBeInTheDocument();
+		});
+
+		it('omits cache tokens when they are 0', () => {
+			const session = createThinkingSession({
+				usageStats: {
+					inputTokens: 5000,
+					outputTokens: 500,
+					cacheReadInputTokens: 0,
+					cacheCreationInputTokens: 0,
+					totalCostUsd: 0.25,
+					contextWindow: 200000,
+				},
+			});
+			render(<ThinkingStatusPill thinkingSessions={[session]} theme={mockTheme} />);
+
+			// Should show "Session:" label
+			expect(screen.getByText('Session:')).toBeInTheDocument();
+			// Should show input+output tokens
+			expect(screen.getByText('5.5K')).toBeInTheDocument();
+			// Should NOT show cache tokens (slash format) when cache is 0
+			expect(screen.queryByText(/^\/\d/)).not.toBeInTheDocument();
+			// Should show cost
+			expect(screen.getByText('($0.25)')).toBeInTheDocument();
+		});
+
+		it('omits cost when it is 0', () => {
+			const session = createThinkingSession({
+				usageStats: {
+					inputTokens: 1000,
+					outputTokens: 500,
+					cacheReadInputTokens: 500,
+					cacheCreationInputTokens: 0,
+					totalCostUsd: 0,
+					contextWindow: 200000,
+				},
+			});
+			render(<ThinkingStatusPill thinkingSessions={[session]} theme={mockTheme} />);
+
+			// Should show "Session:" label
+			expect(screen.getByText('Session:')).toBeInTheDocument();
+			// Should show tokens
+			expect(screen.getByText('1.5K')).toBeInTheDocument();
+			// Should NOT show cost parentheses when cost is 0
+			expect(screen.queryByText(/\(\$0\.00\)/)).not.toBeInTheDocument();
+		});
+
+		it('updates cumulative stats when session stats change', () => {
+			const session = createThinkingSession({
+				usageStats: {
+					inputTokens: 1000,
+					outputTokens: 200,
+					cacheReadInputTokens: 0,
+					cacheCreationInputTokens: 0,
+					totalCostUsd: 0.1,
+					contextWindow: 200000,
+				},
+			});
+			const { rerender } = render(
+				<ThinkingStatusPill thinkingSessions={[session]} theme={mockTheme} />
+			);
+
+			// Initial state
+			expect(screen.getByText('1.2K')).toBeInTheDocument();
+			expect(screen.getByText('($0.10)')).toBeInTheDocument();
+
+			// After another message, stats should update
+			const updatedSession = {
+				...session,
+				usageStats: {
+					inputTokens: 5000,
+					outputTokens: 1000,
+					cacheReadInputTokens: 2000,
+					cacheCreationInputTokens: 500,
+					totalCostUsd: 0.55,
+					contextWindow: 200000,
+				},
+			};
+			rerender(<ThinkingStatusPill thinkingSessions={[updatedSession]} theme={mockTheme} />);
+
+			// Should show updated cumulative totals
+			expect(screen.getByText('6.0K')).toBeInTheDocument(); // 5000+1000
+			expect(screen.getByText('/2.5K')).toBeInTheDocument(); // 2000+500 cache
+			expect(screen.getByText('($0.55)')).toBeInTheDocument();
+		});
+
+		it('shows tooltip with detailed breakdown', () => {
+			const session = createThinkingSession({
+				usageStats: {
+					inputTokens: 10000,
+					outputTokens: 2000,
+					cacheReadInputTokens: 5000,
+					cacheCreationInputTokens: 1000,
+					totalCostUsd: 0.75,
+					contextWindow: 200000,
+				},
+			});
+			render(<ThinkingStatusPill thinkingSessions={[session]} theme={mockTheme} />);
+
+			// Find the session stats container and verify tooltip content
+			const sessionStatsDiv = screen.getByText('Session:').closest('div');
+			expect(sessionStatsDiv).toHaveAttribute('title', expect.stringContaining('Session totals:'));
+			expect(sessionStatsDiv).toHaveAttribute(
+				'title',
+				expect.stringContaining('Input + Output: 12.0K')
+			);
+			expect(sessionStatsDiv).toHaveAttribute(
+				'title',
+				expect.stringContaining('Cache (Read + Write): 6.0K')
+			);
+			expect(sessionStatsDiv).toHaveAttribute('title', expect.stringContaining('Cost: $0.75'));
+		});
+
+		it('handles large token counts in millions', () => {
+			const session = createThinkingSession({
+				usageStats: {
+					inputTokens: 1500000,
+					outputTokens: 300000,
+					cacheReadInputTokens: 500000,
+					cacheCreationInputTokens: 100000,
+					totalCostUsd: 25.5,
+					contextWindow: 200000,
+				},
+			});
+			render(<ThinkingStatusPill thinkingSessions={[session]} theme={mockTheme} />);
+
+			// Should show in millions format
+			expect(screen.getByText('1.8M')).toBeInTheDocument(); // 1.5M + 0.3M
+			expect(screen.getByText('/600.0K')).toBeInTheDocument(); // 500K + 100K
+			expect(screen.getByText('($25.50)')).toBeInTheDocument();
+		});
+
+		it('uses tab usageStats when available over session usageStats', () => {
+			const tab = createMockAITab({
+				id: 'tab-with-stats',
+				state: 'busy',
+				name: 'Tab With Stats',
+				usageStats: {
+					inputTokens: 3000,
+					outputTokens: 500,
+					cacheReadInputTokens: 1000,
+					cacheCreationInputTokens: 0,
+					totalCostUsd: 0.35,
+					contextWindow: 200000,
+				},
+			});
+			const session = createThinkingSession({
+				aiTabs: [tab],
+				usageStats: {
+					// This should be ignored in favor of tab's usageStats
+					inputTokens: 100,
+					outputTokens: 50,
+					cacheReadInputTokens: 0,
+					cacheCreationInputTokens: 0,
+					totalCostUsd: 0.01,
+					contextWindow: 200000,
+				},
+			});
+			render(<ThinkingStatusPill thinkingSessions={[session]} theme={mockTheme} />);
+
+			// Should show tab's stats, not session's
+			expect(screen.getByText('3.5K')).toBeInTheDocument(); // 3000+500 from tab
+			expect(screen.getByText('/1.0K')).toBeInTheDocument(); // 1000 cache from tab
+			expect(screen.getByText('($0.35)')).toBeInTheDocument();
 		});
 	});
 
@@ -993,7 +1244,8 @@ describe('ThinkingStatusPill', () => {
 		it('handles large token counts', () => {
 			const session = createThinkingSession({ currentCycleTokens: 999999 });
 			render(<ThinkingStatusPill thinkingSessions={[session]} theme={mockTheme} />);
-			expect(screen.getByText('1000.0K')).toBeInTheDocument();
+			// Token count now displayed as "X tokens" in combined format
+			expect(screen.getByText('1000.0K tokens')).toBeInTheDocument();
 		});
 
 		it('handles session with empty aiTabs array', () => {
@@ -1034,14 +1286,444 @@ describe('ThinkingStatusPill', () => {
 				);
 			}
 
-			// Should show final state
-			expect(screen.getByText('900')).toBeInTheDocument();
+			// Should show final state - token count now displayed as "X tokens" in combined format
+			expect(screen.getByText('900 tokens')).toBeInTheDocument();
 		});
 	});
 
 	describe('component display names', () => {
 		it('ThinkingStatusPill has correct displayName', () => {
 			expect(ThinkingStatusPill.displayName).toBe('ThinkingStatusPill');
+		});
+	});
+
+	describe('AutoRun Blue Pill token display (Task 3)', () => {
+		/**
+		 * Tests for Task 3: Test Auto Run Blue Pill
+		 * Verifies:
+		 * - Current~: X tokens (current cycle tokens with estimation)
+		 * - Cumulative stats with agent/subagent breakdown
+		 * - Cache tokens displayed (if any)
+		 * - Stats accumulate correctly across multiple cycles
+		 */
+
+		it('displays "Current~:" with estimated tokens from bytes when no actual token count', () => {
+			const autoRunState: BatchRunState = {
+				isRunning: true,
+				isPaused: false,
+				isStopping: false,
+				currentTaskIndex: 0,
+				totalTasks: 5,
+				completedTasks: 1,
+				startTime: Date.now() - 60000,
+				tasks: [],
+				batchName: 'Test Batch',
+				currentTaskBytes: 3500, // Should estimate ~1000 tokens (3500/3.5)
+				currentTaskTokens: 0, // No actual count yet
+				currentTaskStartTime: Date.now() - 5000,
+			};
+			render(
+				<ThinkingStatusPill thinkingSessions={[]} theme={mockTheme} autoRunState={autoRunState} />
+			);
+
+			// Should show "Current~:" with tilde indicating estimated
+			expect(screen.getByText('Current~:')).toBeInTheDocument();
+			// Should show estimated tokens (3500/3.5 = 1000 = 1.0K)
+			expect(screen.getByText('1.0K tokens')).toBeInTheDocument();
+		});
+
+		it('displays "Current:" without tilde when actual token count is available', () => {
+			const autoRunState: BatchRunState = {
+				isRunning: true,
+				isPaused: false,
+				isStopping: false,
+				currentTaskIndex: 0,
+				totalTasks: 5,
+				completedTasks: 1,
+				startTime: Date.now() - 60000,
+				tasks: [],
+				batchName: 'Test Batch',
+				currentTaskBytes: 3500,
+				currentTaskTokens: 1500, // Actual token count
+				currentTaskStartTime: Date.now() - 5000,
+			};
+			render(
+				<ThinkingStatusPill thinkingSessions={[]} theme={mockTheme} autoRunState={autoRunState} />
+			);
+
+			// Should show "Current:" without tilde (actual count)
+			expect(screen.getByText('Current:')).toBeInTheDocument();
+			// Should show actual token count
+			expect(screen.getByText('1.5K tokens')).toBeInTheDocument();
+		});
+
+		it('displays waiting placeholder when no bytes or tokens available', () => {
+			const autoRunState: BatchRunState = {
+				isRunning: true,
+				isPaused: false,
+				isStopping: false,
+				currentTaskIndex: 0,
+				totalTasks: 5,
+				completedTasks: 0,
+				startTime: Date.now() - 60000,
+				tasks: [],
+				batchName: 'Test Batch',
+				currentTaskBytes: 0,
+				currentTaskTokens: 0,
+				currentTaskStartTime: Date.now(),
+			};
+			render(
+				<ThinkingStatusPill thinkingSessions={[]} theme={mockTheme} autoRunState={autoRunState} />
+			);
+
+			// Should show placeholder dash when waiting
+			expect(screen.getByText('—')).toBeInTheDocument();
+		});
+
+		it('displays cumulative tokens with agent breakdown', () => {
+			const autoRunState: BatchRunState = {
+				isRunning: true,
+				isPaused: false,
+				isStopping: false,
+				currentTaskIndex: 2,
+				totalTasks: 10,
+				completedTasks: 3,
+				startTime: Date.now() - 120000,
+				tasks: [],
+				batchName: 'Test Batch',
+				currentTaskBytes: 0,
+				currentTaskTokens: 500, // Current task tokens
+				currentTaskStartTime: Date.now() - 10000,
+				// Cumulative agent tokens
+				cumulativeInputTokens: 10000,
+				cumulativeOutputTokens: 2000,
+				cumulativeCacheReadTokens: 0,
+				cumulativeCacheCreationTokens: 0,
+			};
+			render(
+				<ThinkingStatusPill thinkingSessions={[]} theme={mockTheme} autoRunState={autoRunState} />
+			);
+
+			// Should show "Tokens:" label for cumulative section
+			expect(screen.getByText('Tokens:')).toBeInTheDocument();
+			// Should show total tokens (input+output+current = 10000+2000+500 = 12.5K)
+			expect(screen.getByText('12.5K')).toBeInTheDocument();
+			// Should show agent breakdown
+			expect(screen.getByText(/\(Agents:/)).toBeInTheDocument();
+		});
+
+		it('displays cache tokens when present', () => {
+			const autoRunState: BatchRunState = {
+				isRunning: true,
+				isPaused: false,
+				isStopping: false,
+				currentTaskIndex: 1,
+				totalTasks: 5,
+				completedTasks: 2,
+				startTime: Date.now() - 60000,
+				tasks: [],
+				batchName: 'Test Batch',
+				currentTaskBytes: 0,
+				currentTaskTokens: 0,
+				currentTaskStartTime: Date.now(),
+				// Cumulative tokens with cache
+				cumulativeInputTokens: 5000,
+				cumulativeOutputTokens: 1000,
+				cumulativeCacheReadTokens: 3000,
+				cumulativeCacheCreationTokens: 500,
+			};
+			render(
+				<ThinkingStatusPill thinkingSessions={[]} theme={mockTheme} autoRunState={autoRunState} />
+			);
+
+			// Should show cache tokens after slash (3000+500 = 3.5K)
+			// Use getAllByText since cache appears in both total and agent breakdown
+			const cacheElements = screen.getAllByText('/3.5K');
+			expect(cacheElements.length).toBeGreaterThan(0);
+		});
+
+		it('hides cache tokens when they are 0', () => {
+			const autoRunState: BatchRunState = {
+				isRunning: true,
+				isPaused: false,
+				isStopping: false,
+				currentTaskIndex: 1,
+				totalTasks: 5,
+				completedTasks: 2,
+				startTime: Date.now() - 60000,
+				tasks: [],
+				batchName: 'Test Batch',
+				currentTaskBytes: 0,
+				currentTaskTokens: 0,
+				currentTaskStartTime: Date.now(),
+				// Cumulative tokens without cache
+				cumulativeInputTokens: 5000,
+				cumulativeOutputTokens: 1000,
+				cumulativeCacheReadTokens: 0,
+				cumulativeCacheCreationTokens: 0,
+			};
+			render(
+				<ThinkingStatusPill thinkingSessions={[]} theme={mockTheme} autoRunState={autoRunState} />
+			);
+
+			// Should NOT show cache tokens when 0
+			expect(screen.queryByText(/^\/\d/)).not.toBeInTheDocument();
+		});
+
+		it('displays subagent token breakdown when subagent tokens present', () => {
+			const autoRunState: BatchRunState = {
+				isRunning: true,
+				isPaused: false,
+				isStopping: false,
+				currentTaskIndex: 1,
+				totalTasks: 5,
+				completedTasks: 2,
+				startTime: Date.now() - 60000,
+				tasks: [],
+				batchName: 'Test Batch',
+				currentTaskBytes: 0,
+				currentTaskTokens: 200,
+				currentTaskStartTime: Date.now() - 5000,
+				// Agent tokens
+				cumulativeInputTokens: 8000,
+				cumulativeOutputTokens: 2000,
+				cumulativeCacheReadTokens: 1000,
+				cumulativeCacheCreationTokens: 500,
+				// Subagent tokens
+				subagentInputTokens: 3000,
+				subagentOutputTokens: 500,
+				subagentCacheReadTokens: 200,
+				subagentCacheCreationTokens: 100,
+			};
+			render(
+				<ThinkingStatusPill thinkingSessions={[]} theme={mockTheme} autoRunState={autoRunState} />
+			);
+
+			// Should show both agent and subagent breakdowns
+			expect(screen.getByText(/\(Agents:/)).toBeInTheDocument();
+			expect(screen.getByText(/\(Subagents:/)).toBeInTheDocument();
+		});
+
+		it('shows comprehensive tooltip with all token details', () => {
+			const autoRunState: BatchRunState = {
+				isRunning: true,
+				isPaused: false,
+				isStopping: false,
+				currentTaskIndex: 1,
+				totalTasks: 5,
+				completedTasks: 2,
+				startTime: Date.now() - 60000,
+				tasks: [],
+				batchName: 'Test Batch',
+				currentTaskBytes: 0,
+				currentTaskTokens: 0,
+				currentTaskStartTime: Date.now(),
+				// Agent tokens
+				cumulativeInputTokens: 10000,
+				cumulativeOutputTokens: 2000,
+				cumulativeCacheReadTokens: 3000,
+				cumulativeCacheCreationTokens: 500,
+				// Subagent tokens
+				subagentInputTokens: 5000,
+				subagentOutputTokens: 1000,
+				subagentCacheReadTokens: 1000,
+				subagentCacheCreationTokens: 200,
+			};
+			render(
+				<ThinkingStatusPill thinkingSessions={[]} theme={mockTheme} autoRunState={autoRunState} />
+			);
+
+			// Find the cumulative tokens section and check its tooltip
+			const tokensLabel = screen.getByText('Tokens:');
+			const tokensSection = tokensLabel.closest('div');
+			expect(tokensSection).toHaveAttribute('title', expect.stringContaining('Total:'));
+			expect(tokensSection).toHaveAttribute('title', expect.stringContaining('Agents:'));
+			expect(tokensSection).toHaveAttribute('title', expect.stringContaining('Subagents:'));
+		});
+
+		it('updates stats when autoRunState changes (simulating multiple cycles)', () => {
+			const initialState: BatchRunState = {
+				isRunning: true,
+				isPaused: false,
+				isStopping: false,
+				currentTaskIndex: 0,
+				totalTasks: 5,
+				completedTasks: 1,
+				startTime: Date.now() - 60000,
+				tasks: [],
+				batchName: 'Test Batch',
+				currentTaskBytes: 0,
+				currentTaskTokens: 1000,
+				currentTaskStartTime: Date.now() - 5000,
+				cumulativeInputTokens: 2000,
+				cumulativeOutputTokens: 500,
+			};
+
+			const { rerender } = render(
+				<ThinkingStatusPill thinkingSessions={[]} theme={mockTheme} autoRunState={initialState} />
+			);
+
+			// Initial state: total = 2000+500+1000 = 3.5K
+			expect(screen.getByText('3.5K')).toBeInTheDocument();
+			expect(screen.getByText('1/5')).toBeInTheDocument();
+
+			// Simulate completing a task and starting another
+			const updatedState: BatchRunState = {
+				...initialState,
+				currentTaskIndex: 1,
+				completedTasks: 2,
+				currentTaskTokens: 500,
+				cumulativeInputTokens: 5000,
+				cumulativeOutputTokens: 1500,
+			};
+
+			rerender(
+				<ThinkingStatusPill thinkingSessions={[]} theme={mockTheme} autoRunState={updatedState} />
+			);
+
+			// Updated state: total = 5000+1500+500 = 7.0K
+			expect(screen.getByText('7.0K')).toBeInTheDocument();
+			expect(screen.getByText('2/5')).toBeInTheDocument();
+		});
+
+		it('does not show cumulative section when no tokens accumulated yet', () => {
+			const autoRunState: BatchRunState = {
+				isRunning: true,
+				isPaused: false,
+				isStopping: false,
+				currentTaskIndex: 0,
+				totalTasks: 5,
+				completedTasks: 0,
+				startTime: Date.now() - 5000,
+				tasks: [],
+				batchName: 'Test Batch',
+				currentTaskBytes: 0,
+				currentTaskTokens: 0,
+				currentTaskStartTime: Date.now(),
+				cumulativeInputTokens: 0,
+				cumulativeOutputTokens: 0,
+			};
+			render(
+				<ThinkingStatusPill thinkingSessions={[]} theme={mockTheme} autoRunState={autoRunState} />
+			);
+
+			// Should NOT show cumulative "Tokens:" section when no tokens accumulated
+			expect(screen.queryByText('Tokens:')).not.toBeInTheDocument();
+		});
+
+		it('displays subagent indicator when subagent is active', () => {
+			const autoRunState: BatchRunState = {
+				isRunning: true,
+				isPaused: false,
+				isStopping: false,
+				currentTaskIndex: 1,
+				totalTasks: 5,
+				completedTasks: 2,
+				startTime: Date.now() - 60000,
+				tasks: [],
+				batchName: 'Test Batch',
+				currentTaskBytes: 0,
+				currentTaskTokens: 0,
+				currentTaskStartTime: Date.now(),
+				subagentActive: true,
+				subagentType: 'Explore',
+				subagentStartTime: Date.now() - 10000,
+			};
+			render(
+				<ThinkingStatusPill thinkingSessions={[]} theme={mockTheme} autoRunState={autoRunState} />
+			);
+
+			// Should show subagent indicator with type
+			expect(screen.getByText(/Subagent:/)).toBeInTheDocument();
+			expect(screen.getByText(/Explore/)).toBeInTheDocument();
+		});
+
+		it('includes current task tokens in cumulative total display', () => {
+			const autoRunState: BatchRunState = {
+				isRunning: true,
+				isPaused: false,
+				isStopping: false,
+				currentTaskIndex: 2,
+				totalTasks: 10,
+				completedTasks: 3,
+				startTime: Date.now() - 120000,
+				tasks: [],
+				batchName: 'Test Batch',
+				currentTaskBytes: 0,
+				currentTaskTokens: 2500, // Current task: 2.5K
+				currentTaskStartTime: Date.now() - 10000,
+				cumulativeInputTokens: 15000, // Cumulative agent: 15K + 5K = 20K
+				cumulativeOutputTokens: 5000,
+			};
+			render(
+				<ThinkingStatusPill thinkingSessions={[]} theme={mockTheme} autoRunState={autoRunState} />
+			);
+
+			// Total should be: cumulative (15K+5K=20K) + current (2.5K) = 22.5K
+			// Get all text content and verify total appears
+			const tokensLabel = screen.getByText('Tokens:');
+			const tokensSection = tokensLabel.closest('div');
+			expect(tokensSection?.textContent).toContain('22.5K');
+		});
+
+		it('displays worktree indicator when worktree is active', () => {
+			const autoRunState: BatchRunState = {
+				isRunning: true,
+				isPaused: false,
+				isStopping: false,
+				currentTaskIndex: 0,
+				totalTasks: 5,
+				completedTasks: 1,
+				startTime: Date.now() - 60000,
+				tasks: [],
+				batchName: 'Test Batch',
+				worktreeActive: true,
+				worktreeBranch: 'feature/test-branch',
+			};
+			render(
+				<ThinkingStatusPill thinkingSessions={[]} theme={mockTheme} autoRunState={autoRunState} />
+			);
+
+			// Should show worktree indicator (GitBranch icon) with tooltip
+			const worktreeIndicator = document.querySelector('[title*="Worktree"]');
+			expect(worktreeIndicator).toBeInTheDocument();
+		});
+
+		it('handles large cumulative token counts correctly', () => {
+			const autoRunState: BatchRunState = {
+				isRunning: true,
+				isPaused: false,
+				isStopping: false,
+				currentTaskIndex: 50,
+				totalTasks: 100,
+				completedTasks: 50,
+				startTime: Date.now() - 3600000,
+				tasks: [],
+				batchName: 'Large Batch',
+				currentTaskBytes: 0,
+				currentTaskTokens: 5000,
+				currentTaskStartTime: Date.now() - 30000,
+				// Large cumulative counts
+				cumulativeInputTokens: 1500000, // 1.5M
+				cumulativeOutputTokens: 300000, // 0.3M
+				cumulativeCacheReadTokens: 500000, // 0.5M
+				cumulativeCacheCreationTokens: 100000, // 0.1M
+				subagentInputTokens: 200000, // 0.2M
+				subagentOutputTokens: 50000, // 0.05M
+			};
+			render(
+				<ThinkingStatusPill thinkingSessions={[]} theme={mockTheme} autoRunState={autoRunState} />
+			);
+
+			// Find cumulative tokens section by "Tokens:" label
+			const tokensLabel = screen.getByText('Tokens:');
+			const tokensSection = tokensLabel.closest('div');
+
+			// Total input+output = 1.5M + 0.3M + 0.2M + 0.05M + 5K = 2.055M
+			// Should display in M format (2.1M after rounding)
+			expect(tokensSection?.textContent).toMatch(/2\.1M/);
+			// Cache = 500K + 100K = 600K
+			expect(tokensSection?.textContent).toMatch(/600\.0K/);
 		});
 	});
 
