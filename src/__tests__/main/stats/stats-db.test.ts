@@ -282,13 +282,13 @@ describe('StatsDB class (mocked)', () => {
 			const db = new StatsDB();
 			db.initialize();
 
-			// Currently we have version 4 migration (v1: initial schema, v2: is_remote column, v3: session_lifecycle table, v4: token metrics)
-			expect(db.getTargetVersion()).toBe(4);
+			// Currently we have version 5 migration (v1: initial schema, v2: is_remote column, v3: session_lifecycle table, v4: token metrics, v5: cache tokens and cost)
+			expect(db.getTargetVersion()).toBe(5);
 		});
 
 		it('should return false from hasPendingMigrations() when up to date', async () => {
 			mockDb.pragma.mockImplementation((sql: string) => {
-				if (sql === 'user_version') return [{ user_version: 4 }];
+				if (sql === 'user_version') return [{ user_version: 5 }];
 				return undefined;
 			});
 
@@ -303,8 +303,8 @@ describe('StatsDB class (mocked)', () => {
 			// This test verifies the hasPendingMigrations() logic
 			// by checking current version < target version
 
-			// Simulate a database that's already at version 4 (target version)
-			let currentVersion = 4;
+			// Simulate a database that's already at version 5 (target version)
+			let currentVersion = 5;
 			mockDb.pragma.mockImplementation((sql: string) => {
 				if (sql === 'user_version') return [{ user_version: currentVersion }];
 				// Handle version updates from migration
@@ -318,9 +318,9 @@ describe('StatsDB class (mocked)', () => {
 			const db = new StatsDB();
 			db.initialize();
 
-			// At version 4, target is 4, so no pending migrations
-			expect(db.getCurrentVersion()).toBe(4);
-			expect(db.getTargetVersion()).toBe(4);
+			// At version 5, target is 5, so no pending migrations
+			expect(db.getCurrentVersion()).toBe(5);
+			expect(db.getTargetVersion()).toBe(5);
 			expect(db.hasPendingMigrations()).toBe(false);
 		});
 
@@ -385,6 +385,149 @@ describe('StatsDB class (mocked)', () => {
 			const history = db.getMigrationHistory();
 			expect(history[0].status).toBe('failed');
 			expect(history[0].errorMessage).toBe('SQLITE_ERROR: duplicate column name');
+		});
+	});
+
+	describe('migration v5 - cache tokens and cost columns (Task 7)', () => {
+		beforeEach(() => {
+			vi.clearAllMocks();
+			mockDb.pragma.mockImplementation((sql: string) => {
+				// Simulate database at version 4 (needs v5 migration)
+				if (sql === 'user_version') return [{ user_version: 4 }];
+				return undefined;
+			});
+			mockDb.prepare.mockReturnValue(mockStatement);
+			mockStatement.run.mockReturnValue({ changes: 1 });
+			mockStatement.get.mockReturnValue(null);
+			mockStatement.all.mockReturnValue([]);
+			mockFsExistsSync.mockReturnValue(true);
+		});
+
+		afterEach(() => {
+			vi.resetModules();
+		});
+
+		it('should run v5 migration adding cache_read_input_tokens column', async () => {
+			const { StatsDB } = await import('../../../main/stats');
+			const db = new StatsDB();
+			db.initialize();
+
+			// Verify ALTER TABLE was called to add cache_read_input_tokens
+			const prepareCalls = mockDb.prepare.mock.calls.map((call) => call[0] as string);
+			expect(prepareCalls.some((sql) => sql.includes('cache_read_input_tokens'))).toBe(true);
+		});
+
+		it('should run v5 migration adding cache_creation_input_tokens column', async () => {
+			const { StatsDB } = await import('../../../main/stats');
+			const db = new StatsDB();
+			db.initialize();
+
+			// Verify ALTER TABLE was called to add cache_creation_input_tokens
+			const prepareCalls = mockDb.prepare.mock.calls.map((call) => call[0] as string);
+			expect(prepareCalls.some((sql) => sql.includes('cache_creation_input_tokens'))).toBe(true);
+		});
+
+		it('should run v5 migration adding total_cost_usd column', async () => {
+			const { StatsDB } = await import('../../../main/stats');
+			const db = new StatsDB();
+			db.initialize();
+
+			// Verify ALTER TABLE was called to add total_cost_usd
+			const prepareCalls = mockDb.prepare.mock.calls.map((call) => call[0] as string);
+			expect(prepareCalls.some((sql) => sql.includes('total_cost_usd'))).toBe(true);
+		});
+
+		it('should insert query event with cache tokens and cost data', async () => {
+			const { StatsDB } = await import('../../../main/stats');
+			const db = new StatsDB();
+			db.initialize();
+
+			const eventId = db.insertQueryEvent({
+				sessionId: 'session-v5-test',
+				agentType: 'claude-code',
+				source: 'user',
+				startTime: Date.now(),
+				duration: 5000,
+				cacheReadInputTokens: 50000,
+				cacheCreationInputTokens: 10000,
+				totalCostUsd: 0.42,
+			});
+
+			expect(eventId).toBeDefined();
+			// Verify the INSERT statement was called with the cache token and cost values
+			const runCalls = mockStatement.run.mock.calls;
+			const insertCall = runCalls.find((call) => call.some((arg) => arg === 'session-v5-test'));
+			expect(insertCall).toBeDefined();
+			// Check that cache tokens and cost are passed (positions: 13=cacheRead, 14=cacheCreation, 15=cost)
+			expect(insertCall).toContain(50000);
+			expect(insertCall).toContain(10000);
+			expect(insertCall).toContain(0.42);
+		});
+
+		it('should retrieve query events with cache tokens and cost data', async () => {
+			mockStatement.all.mockReturnValue([
+				{
+					id: 'event-v5',
+					session_id: 'session-v5',
+					agent_type: 'claude-code',
+					source: 'user',
+					start_time: Date.now(),
+					duration: 5000,
+					project_path: '/test',
+					tab_id: 'tab-1',
+					is_remote: null,
+					input_tokens: 1000,
+					output_tokens: 500,
+					tokens_per_second: 25.0,
+					cache_read_input_tokens: 50000,
+					cache_creation_input_tokens: 10000,
+					total_cost_usd: 0.42,
+				},
+			]);
+
+			const { StatsDB } = await import('../../../main/stats');
+			const db = new StatsDB();
+			db.initialize();
+
+			const events = db.getQueryEvents('day');
+
+			expect(events).toHaveLength(1);
+			expect(events[0].cacheReadInputTokens).toBe(50000);
+			expect(events[0].cacheCreationInputTokens).toBe(10000);
+			expect(events[0].totalCostUsd).toBe(0.42);
+		});
+
+		it('should handle null cache tokens and cost gracefully', async () => {
+			mockStatement.all.mockReturnValue([
+				{
+					id: 'event-v5-null',
+					session_id: 'session-v5-null',
+					agent_type: 'claude-code',
+					source: 'user',
+					start_time: Date.now(),
+					duration: 5000,
+					project_path: '/test',
+					tab_id: 'tab-1',
+					is_remote: null,
+					input_tokens: null,
+					output_tokens: null,
+					tokens_per_second: null,
+					cache_read_input_tokens: null,
+					cache_creation_input_tokens: null,
+					total_cost_usd: null,
+				},
+			]);
+
+			const { StatsDB } = await import('../../../main/stats');
+			const db = new StatsDB();
+			db.initialize();
+
+			const events = db.getQueryEvents('day');
+
+			expect(events).toHaveLength(1);
+			expect(events[0].cacheReadInputTokens).toBeUndefined();
+			expect(events[0].cacheCreationInputTokens).toBeUndefined();
+			expect(events[0].totalCostUsd).toBeUndefined();
 		});
 	});
 

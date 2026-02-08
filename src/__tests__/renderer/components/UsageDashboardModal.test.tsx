@@ -36,6 +36,7 @@ vi.mock('lucide-react', () => {
 		Layers: createIcon('layers', '📚'),
 		Zap: createIcon('zap', '⚡'),
 		FileText: createIcon('file-text', '📄'),
+		DollarSign: createIcon('dollar-sign', '💲'),
 		// AutoRunStats icons
 		Play: createIcon('play', '▶️'),
 		CheckSquare: createIcon('check-square', '✅'),
@@ -1983,6 +1984,526 @@ describe('UsageDashboardModal', () => {
 
 			await waitFor(() => {
 				expect(screen.getAllByRole('tab')[0]).toHaveAttribute('aria-selected', 'true');
+			});
+		});
+	});
+
+	describe('Time Range Filtering - Metrics Update (Task 6)', () => {
+		/**
+		 * Task 6: Test Time Range Filtering
+		 *
+		 * These tests verify that when the time range filter is changed,
+		 * all metrics (including cache tokens and cost) update correctly.
+		 * Tests cover: Today, Last 7 Days (This Week), Last 30 Days (This Month), All Time
+		 */
+
+		// Helper to create complete sample data with token and cost fields for time range tests
+		const createTimeRangeData = (overrides: Record<string, unknown> = {}) => ({
+			...createSampleData(),
+			// Token metrics - need to add these as they're not in base createSampleData
+			totalOutputTokens: 75000,
+			totalInputTokens: 150000,
+			avgTokensPerSecond: 22.5,
+			avgOutputTokensPerQuery: 500,
+			queriesWithTokenData: 150,
+			// Cache token metrics
+			totalCacheReadInputTokens: 15000,
+			totalCacheCreationInputTokens: 3500,
+			// Cost metrics
+			totalCostUsd: 1.25,
+			...overrides,
+		});
+
+		// Helper to create sample data with specific values for each time range
+		const createDataForTimeRange = (timeRange: 'day' | 'week' | 'month' | 'year' | 'all') => {
+			// Each time range returns different values to verify updates
+			switch (timeRange) {
+				case 'day':
+					return createTimeRangeData({
+						totalQueries: 25,
+						totalDuration: 600000, // 10 minutes
+						totalInputTokens: 10000,
+						totalOutputTokens: 5000,
+						totalCacheReadInputTokens: 2000,
+						totalCacheCreationInputTokens: 500,
+						totalCostUsd: 0.15,
+						avgTokensPerSecond: 20,
+						avgOutputTokensPerQuery: 200,
+						queriesWithTokenData: 25,
+						totalSessions: 5,
+						bySource: { user: 20, auto: 5 },
+					});
+				case 'week':
+					return createTimeRangeData({
+						totalQueries: 150,
+						totalDuration: 3600000, // 1 hour
+						totalInputTokens: 75000,
+						totalOutputTokens: 35000,
+						totalCacheReadInputTokens: 15000,
+						totalCacheCreationInputTokens: 3500,
+						totalCostUsd: 1.25,
+						avgTokensPerSecond: 25,
+						avgOutputTokensPerQuery: 233,
+						queriesWithTokenData: 150,
+						totalSessions: 25,
+						bySource: { user: 100, auto: 50 },
+					});
+				case 'month':
+					return createTimeRangeData({
+						totalQueries: 600,
+						totalDuration: 14400000, // 4 hours
+						totalInputTokens: 300000,
+						totalOutputTokens: 150000,
+						totalCacheReadInputTokens: 60000,
+						totalCacheCreationInputTokens: 12000,
+						totalCostUsd: 5.5,
+						avgTokensPerSecond: 30,
+						avgOutputTokensPerQuery: 250,
+						queriesWithTokenData: 600,
+						totalSessions: 100,
+						bySource: { user: 450, auto: 150 },
+					});
+				case 'year':
+					return createTimeRangeData({
+						totalQueries: 5000,
+						totalDuration: 180000000, // 50 hours
+						totalInputTokens: 2500000,
+						totalOutputTokens: 1200000,
+						totalCacheReadInputTokens: 500000,
+						totalCacheCreationInputTokens: 100000,
+						totalCostUsd: 45.75,
+						avgTokensPerSecond: 28,
+						avgOutputTokensPerQuery: 240,
+						queriesWithTokenData: 5000,
+						totalSessions: 800,
+						bySource: { user: 4000, auto: 1000 },
+					});
+				case 'all':
+					return createTimeRangeData({
+						totalQueries: 12000,
+						totalDuration: 432000000, // 120 hours
+						totalInputTokens: 6000000,
+						totalOutputTokens: 3000000,
+						totalCacheReadInputTokens: 1200000,
+						totalCacheCreationInputTokens: 250000,
+						totalCostUsd: 112.5,
+						avgTokensPerSecond: 27,
+						avgOutputTokensPerQuery: 250,
+						queriesWithTokenData: 12000,
+						totalSessions: 2000,
+						bySource: { user: 9000, auto: 3000 },
+					});
+			}
+		};
+
+		it('fetches stats with correct time range when dropdown is changed to "Today"', async () => {
+			const weekData = createDataForTimeRange('week');
+			const dayData = createDataForTimeRange('day');
+
+			mockGetAggregation.mockResolvedValueOnce(weekData).mockResolvedValueOnce(dayData);
+
+			render(<UsageDashboardModal isOpen={true} onClose={onClose} theme={theme} />);
+
+			// Wait for initial load (default is 'week')
+			await waitFor(() => {
+				expect(mockGetAggregation).toHaveBeenCalledWith('week');
+			});
+
+			// Change to 'day' (Today)
+			const select = screen.getByRole('combobox');
+			fireEvent.change(select, { target: { value: 'day' } });
+
+			// Should fetch with 'day' time range
+			await waitFor(() => {
+				expect(mockGetAggregation).toHaveBeenCalledWith('day');
+			});
+		});
+
+		it('fetches stats with correct time range when dropdown is changed to "This Month"', async () => {
+			const weekData = createDataForTimeRange('week');
+			const monthData = createDataForTimeRange('month');
+
+			mockGetAggregation.mockResolvedValueOnce(weekData).mockResolvedValueOnce(monthData);
+
+			render(<UsageDashboardModal isOpen={true} onClose={onClose} theme={theme} />);
+
+			await waitFor(() => {
+				expect(mockGetAggregation).toHaveBeenCalledWith('week');
+			});
+
+			const select = screen.getByRole('combobox');
+			fireEvent.change(select, { target: { value: 'month' } });
+
+			await waitFor(() => {
+				expect(mockGetAggregation).toHaveBeenCalledWith('month');
+			});
+		});
+
+		it('fetches stats with correct time range when dropdown is changed to "All Time"', async () => {
+			const weekData = createDataForTimeRange('week');
+			const allData = createDataForTimeRange('all');
+
+			mockGetAggregation.mockResolvedValueOnce(weekData).mockResolvedValueOnce(allData);
+
+			render(<UsageDashboardModal isOpen={true} onClose={onClose} theme={theme} />);
+
+			await waitFor(() => {
+				expect(mockGetAggregation).toHaveBeenCalledWith('week');
+			});
+
+			const select = screen.getByRole('combobox');
+			fireEvent.change(select, { target: { value: 'all' } });
+
+			await waitFor(() => {
+				expect(mockGetAggregation).toHaveBeenCalledWith('all');
+			});
+		});
+
+		it('updates Total Queries when time range changes', async () => {
+			const weekData = createDataForTimeRange('week');
+			const dayData = createDataForTimeRange('day');
+
+			mockGetAggregation.mockResolvedValueOnce(weekData).mockResolvedValueOnce(dayData);
+
+			render(<UsageDashboardModal isOpen={true} onClose={onClose} theme={theme} />);
+
+			// Wait for week data (150 queries)
+			await waitFor(() => {
+				expect(screen.getAllByText('150').length).toBeGreaterThan(0);
+			});
+
+			// Change to Today
+			const select = screen.getByRole('combobox');
+			fireEvent.change(select, { target: { value: 'day' } });
+
+			// Should now show day data (25 queries)
+			await waitFor(() => {
+				expect(screen.getAllByText('25').length).toBeGreaterThan(0);
+			});
+		});
+
+		it('updates Total Cost when time range changes from week to day', async () => {
+			const weekData = createDataForTimeRange('week');
+			const dayData = createDataForTimeRange('day');
+
+			mockGetAggregation.mockResolvedValueOnce(weekData).mockResolvedValueOnce(dayData);
+
+			render(<UsageDashboardModal isOpen={true} onClose={onClose} theme={theme} />);
+
+			// Wait for week data (cost: $1.25)
+			await waitFor(() => {
+				expect(screen.getByText('$1.25')).toBeInTheDocument();
+			});
+
+			// Change to Today
+			const select = screen.getByRole('combobox');
+			fireEvent.change(select, { target: { value: 'day' } });
+
+			// Should now show day cost ($0.15)
+			await waitFor(() => {
+				expect(screen.getByText('$0.15')).toBeInTheDocument();
+			});
+		});
+
+		it('updates Total Cost when time range changes from week to month', async () => {
+			const weekData = createDataForTimeRange('week');
+			const monthData = createDataForTimeRange('month');
+
+			mockGetAggregation.mockResolvedValueOnce(weekData).mockResolvedValueOnce(monthData);
+
+			render(<UsageDashboardModal isOpen={true} onClose={onClose} theme={theme} />);
+
+			// Wait for week data (cost: $1.25)
+			await waitFor(() => {
+				expect(screen.getByText('$1.25')).toBeInTheDocument();
+			});
+
+			// Change to This Month
+			const select = screen.getByRole('combobox');
+			fireEvent.change(select, { target: { value: 'month' } });
+
+			// Should now show month cost ($5.50)
+			await waitFor(() => {
+				expect(screen.getByText('$5.50')).toBeInTheDocument();
+			});
+		});
+
+		it('updates Total Cost when time range changes to All Time', async () => {
+			const weekData = createDataForTimeRange('week');
+			const allData = createDataForTimeRange('all');
+
+			mockGetAggregation.mockResolvedValueOnce(weekData).mockResolvedValueOnce(allData);
+
+			render(<UsageDashboardModal isOpen={true} onClose={onClose} theme={theme} />);
+
+			// Wait for week data
+			await waitFor(() => {
+				expect(screen.getByText('$1.25')).toBeInTheDocument();
+			});
+
+			// Change to All Time
+			const select = screen.getByRole('combobox');
+			fireEvent.change(select, { target: { value: 'all' } });
+
+			// Should now show all time cost ($112.50)
+			await waitFor(() => {
+				expect(screen.getByText('$112.50')).toBeInTheDocument();
+			});
+		});
+
+		it('updates cache tokens in Total Tokens subtitle when time range changes', async () => {
+			const weekData = createDataForTimeRange('week');
+			const monthData = createDataForTimeRange('month');
+
+			mockGetAggregation.mockResolvedValueOnce(weekData).mockResolvedValueOnce(monthData);
+
+			render(<UsageDashboardModal isOpen={true} onClose={onClose} theme={theme} />);
+
+			// Wait for week cache tokens (15K read + 3.5K write = 18.5K)
+			await waitFor(() => {
+				expect(screen.getByText('Cache: 18.5K')).toBeInTheDocument();
+			});
+
+			// Change to This Month
+			const select = screen.getByRole('combobox');
+			fireEvent.change(select, { target: { value: 'month' } });
+
+			// Should now show month cache tokens (60K read + 12K write = 72K)
+			await waitFor(() => {
+				expect(screen.getByText('Cache: 72.0K')).toBeInTheDocument();
+			});
+		});
+
+		it('updates Total Tokens display when time range changes', async () => {
+			const weekData = createDataForTimeRange('week');
+			const allData = createDataForTimeRange('all');
+
+			mockGetAggregation.mockResolvedValueOnce(weekData).mockResolvedValueOnce(allData);
+
+			render(<UsageDashboardModal isOpen={true} onClose={onClose} theme={theme} />);
+
+			// Wait for week tokens (75K input + 35K output = 110K)
+			await waitFor(() => {
+				expect(screen.getByText('110.0K')).toBeInTheDocument();
+			});
+
+			// Change to All Time
+			const select = screen.getByRole('combobox');
+			fireEvent.change(select, { target: { value: 'all' } });
+
+			// Should now show all time tokens (6M input + 3M output = 9M)
+			await waitFor(() => {
+				expect(screen.getByText('9.0M')).toBeInTheDocument();
+			});
+		});
+
+		it('updates Interactive % when time range changes', async () => {
+			const dayData = createDataForTimeRange('day'); // 20/25 = 80%
+			const allData = createDataForTimeRange('all'); // 9000/12000 = 75%
+
+			mockGetAggregation.mockResolvedValueOnce(dayData).mockResolvedValueOnce(allData);
+
+			render(
+				<UsageDashboardModal isOpen={true} onClose={onClose} theme={theme} defaultTimeRange="day" />
+			);
+
+			// Wait for day data (80% interactive)
+			await waitFor(() => {
+				expect(screen.getByText('80%')).toBeInTheDocument();
+			});
+
+			// Change to All Time
+			const select = screen.getByRole('combobox');
+			fireEvent.change(select, { target: { value: 'all' } });
+
+			// Should now show all time (75% interactive)
+			await waitFor(() => {
+				expect(screen.getByText('75%')).toBeInTheDocument();
+			});
+		});
+
+		it('updates Sessions count when time range changes', async () => {
+			const weekData = createDataForTimeRange('week'); // 25 sessions
+			const yearData = createDataForTimeRange('year'); // 800 sessions
+
+			mockGetAggregation.mockResolvedValueOnce(weekData).mockResolvedValueOnce(yearData);
+
+			render(<UsageDashboardModal isOpen={true} onClose={onClose} theme={theme} />);
+
+			// Wait for week sessions (displayed as '25')
+			await waitFor(() => {
+				// Sessions card shows 25
+				const sessionsLabel = screen.getByText('Sessions');
+				expect(sessionsLabel).toBeInTheDocument();
+				expect(screen.getByText('25')).toBeInTheDocument();
+			});
+
+			// Change to This Year
+			const select = screen.getByRole('combobox');
+			fireEvent.change(select, { target: { value: 'year' } });
+
+			// Should now show year sessions (800)
+			await waitFor(() => {
+				expect(screen.getByText('800')).toBeInTheDocument();
+			});
+		});
+
+		it('footer text updates to reflect selected time range', async () => {
+			const weekData = createDataForTimeRange('week');
+			const monthData = createDataForTimeRange('month');
+
+			mockGetAggregation.mockResolvedValueOnce(weekData).mockResolvedValueOnce(monthData);
+
+			render(<UsageDashboardModal isOpen={true} onClose={onClose} theme={theme} />);
+
+			// Wait for week data - footer should say "this week"
+			await waitFor(() => {
+				expect(screen.getByText('Showing this week data')).toBeInTheDocument();
+			});
+
+			// Change to This Month
+			const select = screen.getByRole('combobox');
+			fireEvent.change(select, { target: { value: 'month' } });
+
+			// Footer should now say "this month"
+			await waitFor(() => {
+				expect(screen.getByText('Showing this month data')).toBeInTheDocument();
+			});
+		});
+
+		it('switching between multiple time ranges updates all metrics correctly', async () => {
+			const dayData = createDataForTimeRange('day');
+			const weekData = createDataForTimeRange('week');
+			const monthData = createDataForTimeRange('month');
+			const allData = createDataForTimeRange('all');
+
+			mockGetAggregation
+				.mockResolvedValueOnce(weekData) // Initial load
+				.mockResolvedValueOnce(dayData) // Switch to day
+				.mockResolvedValueOnce(monthData) // Switch to month
+				.mockResolvedValueOnce(allData); // Switch to all
+
+			render(<UsageDashboardModal isOpen={true} onClose={onClose} theme={theme} />);
+
+			// Verify initial week data
+			await waitFor(() => {
+				expect(screen.getByText('$1.25')).toBeInTheDocument();
+			});
+
+			const select = screen.getByRole('combobox');
+
+			// Switch to Today
+			fireEvent.change(select, { target: { value: 'day' } });
+			await waitFor(() => {
+				expect(screen.getByText('$0.15')).toBeInTheDocument();
+			});
+
+			// Switch to This Month
+			fireEvent.change(select, { target: { value: 'month' } });
+			await waitFor(() => {
+				expect(screen.getByText('$5.50')).toBeInTheDocument();
+			});
+
+			// Switch to All Time
+			fireEvent.change(select, { target: { value: 'all' } });
+			await waitFor(() => {
+				expect(screen.getByText('$112.50')).toBeInTheDocument();
+			});
+
+			// Verify all four time ranges were fetched
+			expect(mockGetAggregation).toHaveBeenCalledTimes(4);
+			expect(mockGetAggregation).toHaveBeenNthCalledWith(1, 'week');
+			expect(mockGetAggregation).toHaveBeenNthCalledWith(2, 'day');
+			expect(mockGetAggregation).toHaveBeenNthCalledWith(3, 'month');
+			expect(mockGetAggregation).toHaveBeenNthCalledWith(4, 'all');
+		});
+
+		it('updates Total Time when time range changes', async () => {
+			const dayData = createDataForTimeRange('day'); // 10 minutes
+			const allData = createDataForTimeRange('all'); // 120 hours
+
+			mockGetAggregation.mockResolvedValueOnce(dayData).mockResolvedValueOnce(allData);
+
+			render(
+				<UsageDashboardModal isOpen={true} onClose={onClose} theme={theme} defaultTimeRange="day" />
+			);
+
+			// Wait for day data (10 minutes = "10m 0s")
+			await waitFor(() => {
+				expect(screen.getByText('10m 0s')).toBeInTheDocument();
+			});
+
+			// Change to All Time
+			const select = screen.getByRole('combobox');
+			fireEvent.change(select, { target: { value: 'all' } });
+
+			// Should now show all time (120 hours = "120h 0m")
+			await waitFor(() => {
+				expect(screen.getByText('120h 0m')).toBeInTheDocument();
+			});
+		});
+
+		it('updates Avg Throughput when time range changes', async () => {
+			const dayData = createDataForTimeRange('day'); // 20 tok/s
+			const monthData = createDataForTimeRange('month'); // 30 tok/s
+
+			mockGetAggregation.mockResolvedValueOnce(dayData).mockResolvedValueOnce(monthData);
+
+			render(
+				<UsageDashboardModal isOpen={true} onClose={onClose} theme={theme} defaultTimeRange="day" />
+			);
+
+			// Wait for day data (20 tok/s)
+			await waitFor(() => {
+				expect(screen.getByText('20.0 tok/s')).toBeInTheDocument();
+			});
+
+			// Change to This Month
+			const select = screen.getByRole('combobox');
+			fireEvent.change(select, { target: { value: 'month' } });
+
+			// Should now show month (30 tok/s)
+			await waitFor(() => {
+				expect(screen.getByText('30.0 tok/s')).toBeInTheDocument();
+			});
+		});
+
+		it('handles empty data for time ranges with no activity', async () => {
+			const weekData = createDataForTimeRange('week');
+			const emptyDayData = {
+				...createSampleData(),
+				totalQueries: 0,
+				totalDuration: 0,
+				totalInputTokens: 0,
+				totalOutputTokens: 0,
+				totalCacheReadInputTokens: 0,
+				totalCacheCreationInputTokens: 0,
+				totalCostUsd: 0,
+				avgTokensPerSecond: 0,
+				avgOutputTokensPerQuery: 0,
+				queriesWithTokenData: 0,
+				totalSessions: 0,
+				byAgent: {},
+				bySource: { user: 0, auto: 0 },
+				byLocation: { local: 0, remote: 0 },
+			};
+
+			mockGetAggregation.mockResolvedValueOnce(weekData).mockResolvedValueOnce(emptyDayData);
+
+			render(<UsageDashboardModal isOpen={true} onClose={onClose} theme={theme} />);
+
+			// Wait for week data
+			await waitFor(() => {
+				expect(screen.getByText('$1.25')).toBeInTheDocument();
+			});
+
+			// Change to Today (with no data)
+			const select = screen.getByRole('combobox');
+			fireEvent.change(select, { target: { value: 'day' } });
+
+			// Should show empty state for no activity
+			await waitFor(() => {
+				expect(screen.getByText('No usage data yet')).toBeInTheDocument();
 			});
 		});
 	});
