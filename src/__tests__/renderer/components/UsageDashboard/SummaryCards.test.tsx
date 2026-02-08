@@ -2,12 +2,12 @@
  * Tests for SummaryCards component
  *
  * Verifies:
- * - Renders all six metric cards correctly
- * - Displays formatted values (numbers, durations)
+ * - Renders all nine metric cards correctly (including Total Cost)
+ * - Displays formatted values (numbers, durations, tokens, cost)
  * - Shows correct icons for each metric
  * - Applies theme colors properly
  * - Handles edge cases (empty data, zero values)
- * - Computes derived metrics correctly (most active agent, interactive ratio)
+ * - Computes derived metrics correctly (most active agent, interactive ratio, cache tokens)
  */
 
 import { describe, it, expect } from 'vitest';
@@ -26,8 +26,13 @@ const mockData: StatsAggregation = {
 	totalDuration: 7200000, // 2 hours in ms
 	avgDuration: 48000, // 48 seconds in ms
 	byAgent: {
-		'claude-code': { count: 100, duration: 5000000 },
-		aider: { count: 50, duration: 2200000 },
+		'claude-code': {
+			count: 100,
+			duration: 5000000,
+			totalOutputTokens: 50000,
+			avgTokensPerSecond: 25,
+		},
+		aider: { count: 50, duration: 2200000, totalOutputTokens: 25000, avgTokensPerSecond: 20 },
 	},
 	bySource: { user: 120, auto: 30 },
 	byLocation: { local: 120, remote: 30 },
@@ -42,6 +47,17 @@ const mockData: StatsAggregation = {
 	avgSessionDuration: 288000,
 	byAgentByDay: {},
 	bySessionByDay: {},
+	// Token metrics
+	totalOutputTokens: 75000,
+	totalInputTokens: 150000,
+	avgTokensPerSecond: 22.5,
+	avgOutputTokensPerQuery: 500,
+	queriesWithTokenData: 150,
+	// Cache tokens (optional)
+	totalCacheReadInputTokens: 50000,
+	totalCacheCreationInputTokens: 10000,
+	// Cost (optional)
+	totalCostUsd: 1.23,
 };
 
 // Empty data for edge case testing
@@ -60,6 +76,11 @@ const emptyData: StatsAggregation = {
 	avgSessionDuration: 0,
 	byAgentByDay: {},
 	bySessionByDay: {},
+	totalOutputTokens: 0,
+	totalInputTokens: 0,
+	avgTokensPerSecond: 0,
+	avgOutputTokensPerQuery: 0,
+	queriesWithTokenData: 0,
 };
 
 // Data with large numbers
@@ -68,8 +89,18 @@ const largeNumbersData: StatsAggregation = {
 	totalDuration: 360000000, // 100 hours
 	avgDuration: 240000, // 4 minutes
 	byAgent: {
-		'claude-code': { count: 1000000, duration: 200000000 },
-		'openai-codex': { count: 500000, duration: 160000000 },
+		'claude-code': {
+			count: 1000000,
+			duration: 200000000,
+			totalOutputTokens: 50000000,
+			avgTokensPerSecond: 30,
+		},
+		'openai-codex': {
+			count: 500000,
+			duration: 160000000,
+			totalOutputTokens: 25000000,
+			avgTokensPerSecond: 25,
+		},
 	},
 	bySource: { user: 1200000, auto: 300000 },
 	byLocation: { local: 1000000, remote: 500000 },
@@ -81,6 +112,12 @@ const largeNumbersData: StatsAggregation = {
 	avgSessionDuration: 7200000,
 	byAgentByDay: {},
 	bySessionByDay: {},
+	totalOutputTokens: 75000000,
+	totalInputTokens: 150000000,
+	avgTokensPerSecond: 27.5,
+	avgOutputTokensPerQuery: 50,
+	queriesWithTokenData: 1500000,
+	totalCostUsd: 1500.5,
 };
 
 // Single agent data
@@ -89,7 +126,7 @@ const singleAgentData: StatsAggregation = {
 	totalDuration: 1800000, // 30 minutes
 	avgDuration: 36000, // 36 seconds
 	byAgent: {
-		terminal: { count: 50, duration: 1800000 },
+		terminal: { count: 50, duration: 1800000, totalOutputTokens: 10000, avgTokensPerSecond: 15 },
 	},
 	bySource: { user: 50, auto: 0 },
 	byLocation: { local: 50, remote: 0 },
@@ -101,6 +138,11 @@ const singleAgentData: StatsAggregation = {
 	avgSessionDuration: 360000,
 	byAgentByDay: {},
 	bySessionByDay: {},
+	totalOutputTokens: 10000,
+	totalInputTokens: 20000,
+	avgTokensPerSecond: 15,
+	avgOutputTokensPerQuery: 200,
+	queriesWithTokenData: 50,
 };
 
 // Only auto queries
@@ -109,7 +151,12 @@ const onlyAutoData: StatsAggregation = {
 	totalDuration: 3600000, // 1 hour
 	avgDuration: 36000,
 	byAgent: {
-		'claude-code': { count: 100, duration: 3600000 },
+		'claude-code': {
+			count: 100,
+			duration: 3600000,
+			totalOutputTokens: 20000,
+			avgTokensPerSecond: 18,
+		},
 	},
 	bySource: { user: 0, auto: 100 },
 	byLocation: { local: 100, remote: 0 },
@@ -121,6 +168,11 @@ const onlyAutoData: StatsAggregation = {
 	avgSessionDuration: 360000,
 	byAgentByDay: {},
 	bySessionByDay: {},
+	totalOutputTokens: 20000,
+	totalInputTokens: 40000,
+	avgTokensPerSecond: 18,
+	avgOutputTokensPerQuery: 200,
+	queriesWithTokenData: 100,
 };
 
 describe('SummaryCards', () => {
@@ -131,11 +183,11 @@ describe('SummaryCards', () => {
 			expect(screen.getByTestId('summary-cards')).toBeInTheDocument();
 		});
 
-		it('renders all eight metric cards', () => {
+		it('renders all nine metric cards', () => {
 			render(<SummaryCards data={mockData} theme={theme} />);
 
 			const cards = screen.getAllByTestId('metric-card');
-			expect(cards).toHaveLength(8);
+			expect(cards).toHaveLength(9);
 		});
 
 		it('renders Total Queries metric', () => {
@@ -171,6 +223,28 @@ describe('SummaryCards', () => {
 
 			expect(screen.getByText('Interactive %')).toBeInTheDocument();
 			expect(screen.getByText('80%')).toBeInTheDocument();
+		});
+
+		it('renders Total Cost metric', () => {
+			render(<SummaryCards data={mockData} theme={theme} />);
+
+			expect(screen.getByText('Total Cost')).toBeInTheDocument();
+			expect(screen.getByText('$1.23')).toBeInTheDocument();
+		});
+
+		it('renders Total Tokens metric with combined input+output', () => {
+			render(<SummaryCards data={mockData} theme={theme} />);
+
+			expect(screen.getByText('Total Tokens')).toBeInTheDocument();
+			// 150K input + 75K output = 225K tokens
+			expect(screen.getByText('225.0K')).toBeInTheDocument();
+		});
+
+		it('renders cache tokens subtitle when cache data exists', () => {
+			render(<SummaryCards data={mockData} theme={theme} />);
+
+			// 50K cache read + 10K cache write = 60K cache tokens
+			expect(screen.getByText('Cache: 60.0K')).toBeInTheDocument();
 		});
 	});
 
@@ -329,9 +403,9 @@ describe('SummaryCards', () => {
 		it('renders SVG icons for each metric', () => {
 			const { container } = render(<SummaryCards data={mockData} theme={theme} />);
 
-			// Each card should have an SVG icon (8 cards)
+			// Each card should have an SVG icon (9 cards)
 			const svgElements = container.querySelectorAll('svg');
-			expect(svgElements.length).toBe(8);
+			expect(svgElements.length).toBe(9);
 		});
 	});
 
