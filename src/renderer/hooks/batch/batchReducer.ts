@@ -249,7 +249,13 @@ export type BatchAction =
 	| {
 			type: 'ACCUMULATE_TASK_USAGE';
 			sessionId: string;
-			payload: { inputTokens: number; outputTokens: number; cost: number };
+			payload: {
+				inputTokens: number;
+				outputTokens: number;
+				cacheReadTokens: number;
+				cacheCreationTokens: number;
+				cost: number;
+			};
 	  }
 	| {
 			type: 'UPDATE_SUBAGENT_TOKENS';
@@ -339,6 +345,8 @@ export function batchReducer(state: BatchState, action: BatchAction): BatchState
 					currentTaskStartTime: payload.startTime,
 					cumulativeInputTokens: 0,
 					cumulativeOutputTokens: 0,
+					cumulativeCacheReadTokens: 0,
+					cumulativeCacheCreationTokens: 0,
 					cumulativeCost: 0,
 					// Initialize subagent tracking (Phase 3)
 					subagentInputTokens: 0,
@@ -733,6 +741,10 @@ export function batchReducer(state: BatchState, action: BatchAction): BatchState
 					...currentState,
 					cumulativeInputTokens: (currentState.cumulativeInputTokens || 0) + payload.inputTokens,
 					cumulativeOutputTokens: (currentState.cumulativeOutputTokens || 0) + payload.outputTokens,
+					cumulativeCacheReadTokens:
+						(currentState.cumulativeCacheReadTokens || 0) + payload.cacheReadTokens,
+					cumulativeCacheCreationTokens:
+						(currentState.cumulativeCacheCreationTokens || 0) + payload.cacheCreationTokens,
 					cumulativeCost: (currentState.cumulativeCost || 0) + payload.cost,
 				},
 			};

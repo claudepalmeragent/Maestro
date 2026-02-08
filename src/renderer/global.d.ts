@@ -922,6 +922,19 @@ interface MaestroAPI {
 			options?: { offset?: number; limit?: number },
 			sshRemoteId?: string
 		) => Promise<SessionMessagesResult>;
+		getSubagentStats: (
+			agentId: string,
+			projectPath: string,
+			sessionId: string,
+			sshRemoteId?: string
+		) => Promise<{
+			inputTokens: number;
+			outputTokens: number;
+			cacheReadTokens: number;
+			cacheCreationTokens: number;
+			cost: number;
+			subagentCount: number;
+		}>;
 	};
 	dialog: {
 		selectFolder: () => Promise<string | null>;
