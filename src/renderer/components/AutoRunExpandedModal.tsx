@@ -18,6 +18,7 @@ import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 import { AutoRun, AutoRunHandle } from './AutoRun';
 import type { DocumentTaskCount } from './AutoRunDocumentSelector';
 import { formatShortcutKeys } from '../utils/shortcutFormatter';
+import { BatchRunStats } from './BatchRunStats';
 
 interface AutoRunExpandedModalProps {
 	theme: Theme;
@@ -437,6 +438,41 @@ export function AutoRunExpandedModal({
 						{...autoRunProps}
 					/>
 				</div>
+
+				{/* Batch Run Stats Bar - shown during active run */}
+				{batchRunState?.isRunning && (
+					<div
+						className="flex-shrink-0 px-4 py-2 border-t flex items-center justify-between"
+						style={{
+							backgroundColor: theme.colors.bgActivity,
+							borderColor: theme.colors.border,
+						}}
+					>
+						{/* Progress info */}
+						<span className="text-xs" style={{ color: theme.colors.textDim }}>
+							{batchRunState.isStopping
+								? 'Stopping after current task...'
+								: batchRunState.totalTasksAcrossAllDocs > 0
+									? `${batchRunState.completedTasksAcrossAllDocs} of ${batchRunState.totalTasksAcrossAllDocs} tasks`
+									: `${batchRunState.completedTasks} of ${batchRunState.totalTasks} tasks`}
+							{batchRunState.loopEnabled && (
+								<span
+									className="ml-2 px-1.5 py-0.5 rounded"
+									style={{
+										backgroundColor: theme.colors.accent + '20',
+										color: theme.colors.accent,
+									}}
+								>
+									Loop {batchRunState.loopIteration + 1}
+									{batchRunState.maxLoops ? ` of ${batchRunState.maxLoops}` : ''}
+								</span>
+							)}
+						</span>
+
+						{/* Token stats - compact mode */}
+						<BatchRunStats batchRunState={batchRunState} theme={theme} compact />
+					</div>
+				)}
 			</div>
 		</div>,
 		document.body

@@ -14,6 +14,7 @@ import { ipcRenderer } from 'electron';
  */
 export interface QueryEvent {
 	sessionId: string;
+	agentId?: string; // Stable Maestro agent ID (no batch/ai/synopsis suffixes)
 	agentType: string;
 	source: 'user' | 'auto';
 	startTime: number;
@@ -27,6 +28,10 @@ export interface QueryEvent {
 	outputTokens?: number;
 	/** Calculated throughput: outputTokens / (duration/1000) */
 	tokensPerSecond?: number;
+	// Cache and cost metrics (v5)
+	cacheReadInputTokens?: number;
+	cacheCreationInputTokens?: number;
+	totalCostUsd?: number;
 }
 
 /**
@@ -119,6 +124,17 @@ export interface StatsAggregation {
 			avgTokensPerSecond: number;
 		}>
 	>;
+	/** Aggregation by Maestro agent ID (not fragmented session IDs) - for proper agent attribution in charts */
+	byAgentIdByDay: Record<
+		string,
+		Array<{
+			date: string;
+			count: number;
+			duration: number;
+			outputTokens: number;
+			avgTokensPerSecond: number;
+		}>
+	>;
 	/** Total output tokens generated across all queries */
 	totalOutputTokens: number;
 	/** Total input tokens sent across all queries */
@@ -129,6 +145,10 @@ export interface StatsAggregation {
 	avgOutputTokensPerQuery: number;
 	/** Number of queries that have token data */
 	queriesWithTokenData: number;
+	// Cache tokens and cost aggregates (added in v5)
+	totalCacheReadInputTokens: number;
+	totalCacheCreationInputTokens: number;
+	totalCostUsd: number;
 }
 
 /**

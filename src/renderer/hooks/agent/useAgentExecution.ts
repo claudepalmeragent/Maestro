@@ -235,9 +235,15 @@ export function useAgentExecution(deps: UseAgentExecutionDeps): UseAgentExecutio
 								// Record query stats for Auto Run queries
 								const queryDuration = Date.now() - queryStartTime;
 								const activeTab = getActiveTab(session);
+								// Calculate tokens per second if we have output tokens and duration
+								const tokensPerSecond =
+									taskUsageStats?.outputTokens && queryDuration > 0
+										? taskUsageStats.outputTokens / (queryDuration / 1000)
+										: undefined;
 								window.maestro.stats
 									.recordQuery({
 										sessionId: sessionId, // Use the original session ID, not the batch ID
+										agentId: sessionId, // Stable Maestro agent ID for proper attribution
 										agentType: session.toolType,
 										source: 'auto', // Auto Run queries are always 'auto'
 										startTime: queryStartTime,
@@ -245,6 +251,14 @@ export function useAgentExecution(deps: UseAgentExecutionDeps): UseAgentExecutio
 										projectPath: effectiveCwd,
 										tabId: activeTab?.id,
 										isRemote: session.sessionSshRemoteConfig?.enabled ?? false,
+										// Token metrics for throughput tracking
+										inputTokens: taskUsageStats?.inputTokens,
+										outputTokens: taskUsageStats?.outputTokens,
+										tokensPerSecond,
+										// Cache and cost metrics (v5)
+										cacheReadInputTokens: taskUsageStats?.cacheReadInputTokens,
+										cacheCreationInputTokens: taskUsageStats?.cacheCreationInputTokens,
+										totalCostUsd: taskUsageStats?.totalCostUsd,
 									})
 									.catch((err) => {
 										// Don't fail the batch flow if stats recording fails
