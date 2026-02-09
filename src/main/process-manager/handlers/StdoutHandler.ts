@@ -228,11 +228,26 @@ export class StdoutHandler {
 		const usage = outputParser.extractUsage(event);
 		if (usage) {
 			const usageStats = this.buildUsageStats(managedProcess, usage);
-			// Normalize Codex usage (cumulative -> delta)
-			const normalizedUsageStats =
-				managedProcess.toolType === 'codex'
-					? normalizeCodexUsage(managedProcess, usageStats)
-					: usageStats;
+
+			// For Codex: Convert cumulative -> delta (also sets lastUsageTotals internally)
+			// For all other agents: Set lastUsageTotals directly (for ExitHandler to use)
+			let normalizedUsageStats: typeof usageStats;
+			if (managedProcess.toolType === 'codex') {
+				normalizedUsageStats = normalizeCodexUsage(managedProcess, usageStats);
+			} else {
+				// Store totals for non-Codex agents (Claude, OpenCode, etc.)
+				// This is needed by ExitHandler to emit cache tokens and cost in query-complete
+				managedProcess.lastUsageTotals = {
+					inputTokens: usageStats.inputTokens,
+					outputTokens: usageStats.outputTokens,
+					cacheReadInputTokens: usageStats.cacheReadInputTokens,
+					cacheCreationInputTokens: usageStats.cacheCreationInputTokens,
+					reasoningTokens: usageStats.reasoningTokens || 0,
+					totalCostUsd: usageStats.totalCostUsd,
+				};
+				normalizedUsageStats = usageStats;
+			}
+
 			this.emitter.emit('usage', sessionId, normalizedUsageStats);
 		}
 
