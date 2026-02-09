@@ -15,10 +15,11 @@ interface StdoutHandlerDependencies {
 }
 
 /**
- * Normalize Codex usage stats to handle cumulative vs delta usage reporting.
- * Codex reports cumulative usage, so we need to track the last totals and compute deltas.
+ * Normalize usage stats to handle cumulative vs delta usage reporting.
+ * Both Codex and Claude Code report cumulative usage, so we need to track the last totals and compute deltas.
+ * The function auto-detects whether values are cumulative (monotonically increasing) or already deltas.
  */
-function normalizeCodexUsage(
+function normalizeCumulativeUsage(
 	managedProcess: ManagedProcess,
 	usageStats: {
 		inputTokens: number;
@@ -229,24 +230,11 @@ export class StdoutHandler {
 		if (usage) {
 			const usageStats = this.buildUsageStats(managedProcess, usage);
 
-			// For Codex: Convert cumulative -> delta (also sets lastUsageTotals internally)
-			// For all other agents: Set lastUsageTotals directly (for ExitHandler to use)
-			let normalizedUsageStats: typeof usageStats;
-			if (managedProcess.toolType === 'codex') {
-				normalizedUsageStats = normalizeCodexUsage(managedProcess, usageStats);
-			} else {
-				// Store totals for non-Codex agents (Claude, OpenCode, etc.)
-				// This is needed by ExitHandler to emit cache tokens and cost in query-complete
-				managedProcess.lastUsageTotals = {
-					inputTokens: usageStats.inputTokens,
-					outputTokens: usageStats.outputTokens,
-					cacheReadInputTokens: usageStats.cacheReadInputTokens,
-					cacheCreationInputTokens: usageStats.cacheCreationInputTokens,
-					reasoningTokens: usageStats.reasoningTokens || 0,
-					totalCostUsd: usageStats.totalCostUsd,
-				};
-				normalizedUsageStats = usageStats;
-			}
+			// Convert cumulative -> delta for all agents that report cumulative usage
+			// Both Codex and Claude Code report cumulative totals, not per-request deltas
+			// The normalization function auto-detects and handles both cases
+			// Also sets lastUsageTotals internally (needed by ExitHandler for query-complete)
+			const normalizedUsageStats = normalizeCumulativeUsage(managedProcess, usageStats);
 
 			this.emitter.emit('usage', sessionId, normalizedUsageStats);
 		}

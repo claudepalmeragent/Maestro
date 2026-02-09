@@ -453,13 +453,19 @@ export function useBatchedSessionUpdates(
 								return {
 									...tab,
 									usageStats: {
-										inputTokens: tabUsageDelta.inputTokens, // Current (not accumulated)
-										cacheReadInputTokens: tabUsageDelta.cacheReadInputTokens,
-										cacheCreationInputTokens: tabUsageDelta.cacheCreationInputTokens,
+										// Add accumulated delta to existing tab stats
+										// This ensures cumulative session tokens only increase
+										inputTokens: (existing?.inputTokens || 0) + tabUsageDelta.inputTokens,
+										outputTokens: (existing?.outputTokens || 0) + tabUsageDelta.outputTokens,
+										cacheReadInputTokens:
+											(existing?.cacheReadInputTokens || 0) + tabUsageDelta.cacheReadInputTokens,
+										cacheCreationInputTokens:
+											(existing?.cacheCreationInputTokens || 0) +
+											tabUsageDelta.cacheCreationInputTokens,
 										contextWindow: tabUsageDelta.contextWindow,
-										outputTokens: tabUsageDelta.outputTokens, // Current (not accumulated)
 										totalCostUsd: (existing?.totalCostUsd || 0) + tabUsageDelta.totalCostUsd,
-										reasoningTokens: tabUsageDelta.reasoningTokens,
+										reasoningTokens:
+											(existing?.reasoningTokens || 0) + (tabUsageDelta.reasoningTokens || 0),
 									},
 								};
 							}),
@@ -636,30 +642,18 @@ export function useBatchedSessionUpdates(
 
 			const existing = acc.usageDeltas.get(tabId);
 			if (existing) {
-				// For tab-level: inputTokens etc. are current (not accumulated), but outputTokens and cost are accumulated
-				if (tabId !== null) {
-					acc.usageDeltas.set(tabId, {
-						inputTokens: usage.inputTokens,
-						cacheReadInputTokens: usage.cacheReadInputTokens,
-						cacheCreationInputTokens: usage.cacheCreationInputTokens,
-						contextWindow: usage.contextWindow,
-						outputTokens: usage.outputTokens,
-						totalCostUsd: existing.totalCostUsd + usage.totalCostUsd,
-						reasoningTokens: usage.reasoningTokens,
-					});
-				} else {
-					// Session-level: all values are accumulated
-					acc.usageDeltas.set(tabId, {
-						inputTokens: existing.inputTokens + usage.inputTokens,
-						outputTokens: existing.outputTokens + usage.outputTokens,
-						cacheReadInputTokens: existing.cacheReadInputTokens + usage.cacheReadInputTokens,
-						cacheCreationInputTokens:
-							existing.cacheCreationInputTokens + usage.cacheCreationInputTokens,
-						totalCostUsd: existing.totalCostUsd + usage.totalCostUsd,
-						reasoningTokens: (existing.reasoningTokens || 0) + (usage.reasoningTokens || 0),
-						contextWindow: usage.contextWindow,
-					});
-				}
+				// Both tab-level and session-level: all values are accumulated
+				// This ensures "Session Tokens" display always increases, never decreases after context compaction
+				acc.usageDeltas.set(tabId, {
+					inputTokens: existing.inputTokens + usage.inputTokens,
+					outputTokens: existing.outputTokens + usage.outputTokens,
+					cacheReadInputTokens: existing.cacheReadInputTokens + usage.cacheReadInputTokens,
+					cacheCreationInputTokens:
+						existing.cacheCreationInputTokens + usage.cacheCreationInputTokens,
+					totalCostUsd: existing.totalCostUsd + usage.totalCostUsd,
+					reasoningTokens: (existing.reasoningTokens || 0) + (usage.reasoningTokens || 0),
+					contextWindow: usage.contextWindow, // Context window is always current, not accumulated
+				});
 			} else {
 				acc.usageDeltas.set(tabId, { ...usage });
 			}
