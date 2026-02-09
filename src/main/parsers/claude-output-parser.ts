@@ -82,6 +82,12 @@ export class ClaudeOutputParser implements AgentOutputParser {
 	readonly agentId: ToolType = 'claude-code';
 
 	/**
+	 * The detected model ID from modelUsage in result messages.
+	 * Set when parsing result messages that contain modelUsage data.
+	 */
+	private detectedModel: string | null = null;
+
+	/**
 	 * Parse a single JSON line from Claude Code output
 	 *
 	 * Claude Code message types:
@@ -131,10 +137,20 @@ export class ClaudeOutputParser implements AgentOutputParser {
 				resultText = this.extractTextFromMessage(msg);
 			}
 
+			// Extract model from modelUsage object keys
+			// modelUsage looks like: { "claude-opus-4-5-20251101": { inputTokens: 1000, ... } }
+			if (msg.modelUsage) {
+				const modelKeys = Object.keys(msg.modelUsage);
+				if (modelKeys.length > 0) {
+					this.detectedModel = modelKeys[0];
+				}
+			}
+
 			const event: ParsedEvent = {
 				type: 'result',
 				text: resultText,
 				sessionId: msg.session_id,
+				detectedModel: this.detectedModel || undefined,
 				raw: msg,
 			};
 
@@ -172,10 +188,19 @@ export class ClaudeOutputParser implements AgentOutputParser {
 
 		// Handle messages with only usage stats (no content type)
 		if (msg.modelUsage || msg.usage || msg.total_cost_usd !== undefined) {
+			// Extract model from modelUsage object keys
+			if (msg.modelUsage) {
+				const modelKeys = Object.keys(msg.modelUsage);
+				if (modelKeys.length > 0) {
+					this.detectedModel = modelKeys[0];
+				}
+			}
+
 			const usage = this.extractUsageFromRaw(msg);
 			return {
 				type: 'usage',
 				sessionId: msg.session_id,
+				detectedModel: this.detectedModel || undefined,
 				usage: usage || undefined,
 				raw: msg,
 			};
@@ -354,6 +379,16 @@ export class ClaudeOutputParser implements AgentOutputParser {
 	 */
 	extractSlashCommands(event: ParsedEvent): string[] | null {
 		return event.slashCommands || null;
+	}
+
+	/**
+	 * Get the detected model ID from previous parsing.
+	 * Model is detected from modelUsage in result messages.
+	 *
+	 * @returns The detected model ID, or null if not yet detected
+	 */
+	getDetectedModel(): string | null {
+		return this.detectedModel;
 	}
 
 	/**

@@ -244,6 +244,8 @@ export class StdoutHandler {
 					cacheCreationInputTokens: usageStats.cacheCreationInputTokens,
 					reasoningTokens: usageStats.reasoningTokens || 0,
 					totalCostUsd: usageStats.totalCostUsd,
+					// Capture detected model from the event if available
+					detectedModel: event.detectedModel,
 				};
 				normalizedUsageStats = usageStats;
 			}

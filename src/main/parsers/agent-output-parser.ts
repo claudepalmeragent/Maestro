@@ -143,6 +143,12 @@ export interface ParsedEvent {
 	};
 
 	/**
+	 * Detected model ID from usage statistics
+	 * Extracted from modelUsage object keys in result/usage messages
+	 */
+	detectedModel?: string;
+
+	/**
 	 * Original event data for debugging
 	 * Preserved unchanged from agent output
 	 * Optional - primarily used for debugging and not read in production

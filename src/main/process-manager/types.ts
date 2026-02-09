@@ -75,6 +75,8 @@ export interface UsageTotals {
 	cacheCreationInputTokens: number;
 	reasoningTokens: number;
 	totalCostUsd: number;
+	/** Detected model ID from modelUsage */
+	detectedModel?: string;
 }
 
 export interface UsageStats {
@@ -138,6 +140,10 @@ export interface QueryCompleteData {
 	cacheReadInputTokens?: number;
 	cacheCreationInputTokens?: number;
 	totalCostUsd?: number;
+	/** Detected model ID from modelUsage (e.g., 'claude-opus-4-5-20251101') */
+	detectedModel?: string;
+	/** Billing mode used for cost calculation ('api' or 'max') */
+	billingMode?: 'api' | 'max';
 }
 
 // Re-export for backwards compatibility
