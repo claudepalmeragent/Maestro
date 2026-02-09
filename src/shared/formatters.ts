@@ -11,7 +11,8 @@
  * - formatActiveTime: Duration display (1D, 2H 30M, <1M)
  * - formatElapsedTime: Precise elapsed time (1h 10m, 30s, 500ms)
  * - formatElapsedTimeColon: Timer-style elapsed time (mm:ss or hh:mm:ss)
- * - formatCost: USD currency display ($1.23, <$0.01)
+ * - formatCost: USD currency display ($1.23, <$0.01) with optional billing mode suffix
+ * - getCostTooltip: Get tooltip text for cost based on billing mode
  * - estimateTokenCount: Estimate token count from text (~4 chars/token)
  * - truncatePath: Truncate file paths for display (.../<parent>/<current>)
  * - truncateCommand: Truncate command text for display with ellipsis
@@ -153,17 +154,54 @@ export function formatElapsedTime(ms: number): string {
 	return `${hours}h ${remainingMinutes}m`;
 }
 
+/** Billing mode for cost display */
+export type BillingModeDisplay = 'api' | 'max' | 'auto' | undefined;
+
 /**
  * Format cost as USD with appropriate precision.
  * Shows "<$0.01" for very small amounts.
+ * When billingMode is 'max', optionally appends "(incl. in Max sub.)".
  *
  * @param cost - The cost in USD
- * @returns Formatted string (e.g., "$1.23", "<$0.01", "$0.00")
+ * @param billingMode - Optional billing mode ('api' | 'max' | 'auto')
+ * @param showMaxSuffix - Whether to show "(incl. in Max sub.)" for Max mode (default: false)
+ * @returns Formatted string (e.g., "$1.23", "<$0.01", "$0.00", "$1.23 (incl. in Max sub.)")
  */
-export function formatCost(cost: number): string {
-	if (cost === 0) return '$0.00';
-	if (cost < 0.01) return '<$0.01';
-	return '$' + cost.toFixed(2);
+export function formatCost(
+	cost: number,
+	billingMode?: BillingModeDisplay,
+	showMaxSuffix: boolean = false
+): string {
+	let formatted: string;
+	if (cost === 0) {
+		formatted = '$0.00';
+	} else if (cost < 0.01) {
+		formatted = '<$0.01';
+	} else {
+		formatted = '$' + cost.toFixed(2);
+	}
+
+	if (showMaxSuffix && billingMode === 'max') {
+		return `${formatted} (incl. in Max sub.)`;
+	}
+	return formatted;
+}
+
+/**
+ * Get tooltip text for cost display based on billing mode.
+ * Useful for narrow spaces where the full suffix doesn't fit.
+ *
+ * @param billingMode - The billing mode ('api' | 'max' | 'auto')
+ * @returns Tooltip text or undefined if no tooltip needed
+ */
+export function getCostTooltip(billingMode?: BillingModeDisplay): string | undefined {
+	if (billingMode === 'max') {
+		return 'Included in Max subscription';
+	}
+	if (billingMode === 'api') {
+		return 'API charges';
+	}
+	return undefined;
 }
 
 /**

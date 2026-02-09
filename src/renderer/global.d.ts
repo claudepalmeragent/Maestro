@@ -247,6 +247,13 @@ interface MaestroAPI {
 		removeSession: (folderId: string, sessionId: string) => Promise<boolean>;
 		assignGroup: (folderId: string | null, groupId: string) => Promise<boolean>;
 		reorder: (orderedIds: string[]) => Promise<boolean>;
+		// Pricing configuration
+		getPricingConfig: (folderId: string) => Promise<{ billingMode: 'api' | 'max' } | null>;
+		setPricingConfig: (
+			folderId: string,
+			config: { billingMode: 'api' | 'max' }
+		) => Promise<boolean>;
+		applyPricingToAllAgents: (folderId: string, billingMode: 'api' | 'max') => Promise<number>;
 	};
 	process: {
 		spawn: (config: ProcessConfig) => Promise<{ pid: number; success: boolean }>;
@@ -697,6 +704,24 @@ interface MaestroAPI {
 			cwd: string,
 			customPath?: string
 		) => Promise<string[] | null>;
+		// Pricing/billing configuration
+		detectAuth: (agentId: string) => Promise<{
+			billingMode: 'api' | 'max';
+			subscriptionType?: 'max' | 'pro' | 'free';
+			rateLimitTier?: string;
+			source: 'oauth' | 'api_key' | 'default';
+			detectedAt: number;
+		}>;
+		getPricingConfig: (agentId: string) => Promise<{
+			billingMode: 'auto' | 'max' | 'api';
+			pricingModel: 'auto' | string;
+			detectedModel?: string;
+			detectedAt?: number;
+		}>;
+		setPricingConfig: (
+			agentId: string,
+			config: { billingMode?: 'auto' | 'max' | 'api'; pricingModel?: 'auto' | string }
+		) => Promise<boolean>;
 	};
 	// Agent Sessions API - all methods accept optional sshRemoteId for SSH remote session storage access
 	agentSessions: {

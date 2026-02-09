@@ -53,6 +53,7 @@ import { SessionItem } from './SessionItem';
 import { GroupChatList } from './GroupChatList';
 import { ProjectFolderHeader } from './sidebar/ProjectFolderHeader';
 import { ProjectFolderModal } from './modals/ProjectFolderModal';
+import { ProjectFolderSettingsModal } from './modals/ProjectFolderSettingsModal';
 import { useLiveOverlay, useClickOutside } from '../hooks';
 import { useGitFileStatus } from '../contexts/GitStatusContext';
 import { useProjectFoldersContext } from '../contexts/ProjectFoldersContext';
@@ -435,6 +436,7 @@ interface ProjectFolderContextMenuProps {
 	folder: ProjectFolder;
 	onRename: () => void;
 	onEdit: () => void;
+	onSettings: () => void;
 	onDelete: () => void;
 	onDismiss: () => void;
 }
@@ -446,6 +448,7 @@ function ProjectFolderContextMenu({
 	folder: _folder,
 	onRename,
 	onEdit,
+	onSettings,
 	onDelete,
 	onDismiss,
 }: ProjectFolderContextMenuProps) {
@@ -511,6 +514,19 @@ function ProjectFolderContextMenu({
 			>
 				<Settings className="w-3.5 h-3.5" />
 				Edit Folder...
+			</button>
+
+			{/* Folder Settings (opens pricing/billing modal) */}
+			<button
+				onClick={() => {
+					onSettings();
+					onDismiss();
+				}}
+				className="w-full text-left px-3 py-1.5 text-xs hover:bg-white/5 transition-colors flex items-center gap-2"
+				style={{ color: theme.colors.textMain }}
+			>
+				<Settings className="w-3.5 h-3.5" />
+				Folder Settings...
 			</button>
 
 			{/* Delete */}
@@ -1280,6 +1296,11 @@ function SessionListInner(props: SessionListProps) {
 	// Project folder modal state (for create/edit with color picker)
 	const [showProjectFolderModal, setShowProjectFolderModal] = useState(false);
 	const [editingProjectFolder, setEditingProjectFolder] = useState<ProjectFolder | undefined>(
+		undefined
+	);
+	// Project folder settings modal state (for billing configuration)
+	const [showProjectFolderSettingsModal, setShowProjectFolderSettingsModal] = useState(false);
+	const [settingsProjectFolder, setSettingsProjectFolder] = useState<ProjectFolder | undefined>(
 		undefined
 	);
 
@@ -3630,6 +3651,10 @@ function SessionListInner(props: SessionListProps) {
 							onEdit={() => {
 								handleEditProjectFolder(folder);
 							}}
+							onSettings={() => {
+								setSettingsProjectFolder(folder);
+								setShowProjectFolderSettingsModal(true);
+							}}
 							onDelete={() => {
 								deleteProjectFolder(folder.id);
 							}}
@@ -3648,6 +3673,22 @@ function SessionListInner(props: SessionListProps) {
 					}}
 					onSave={handleSaveProjectFolder}
 					existingFolder={editingProjectFolder}
+				/>
+			)}
+
+			{/* Project Folder Settings Modal (Billing Configuration) */}
+			{showProjectFolderSettingsModal && settingsProjectFolder && (
+				<ProjectFolderSettingsModal
+					theme={theme}
+					folder={settingsProjectFolder}
+					sessions={sessions}
+					onClose={() => {
+						setShowProjectFolderSettingsModal(false);
+						setSettingsProjectFolder(undefined);
+					}}
+					onSave={() => {
+						// Refresh will happen through normal state management
+					}}
 				/>
 			)}
 		</div>
