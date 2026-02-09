@@ -240,6 +240,12 @@ const AutoRunPill = memo(
 		autoRunState: BatchRunState;
 		onStop?: () => void;
 	}) => {
+		// DEBUG: Log EVERY render with unique marker
+		console.error('🔵 [AUTORUN-PILL-XYZZY] Rendering AutoRunPill', {
+			currentTaskBytes: autoRunState.currentTaskBytes,
+			currentTaskTokens: autoRunState.currentTaskTokens,
+		});
+
 		const startTime = autoRunState.startTime || Date.now();
 		const { completedTasks, totalTasks, isStopping } = autoRunState;
 
@@ -255,17 +261,14 @@ const AutoRunPill = memo(
 		const isEstimated = currentTokens === 0 && displayTokens > 0;
 		const isWaiting = displayTokens === 0;
 
-		// DEBUG: Track where the 338 tokens comes from
-		if (displayTokens === 338) {
-			console.warn('[AutoRunPill DEBUG] 338 tokens detected!', {
-				currentBytes,
-				currentTokens,
-				estimatedTokens,
-				displayTokens,
-				isEstimated,
-				autoRunStateKeys: Object.keys(autoRunState),
-			});
-		}
+		// DEBUG: Log token calculation
+		console.error('🔵 [AUTORUN-PILL-XYZZY] Token calculation:', {
+			currentBytes,
+			currentTokens,
+			estimatedTokens,
+			displayTokens,
+			willShow: isWaiting ? '—' : `${formatTokensCompact(displayTokens)} tokens`,
+		});
 
 		// Calculate all token totals for comprehensive display (Phase 4)
 		// Agent tokens
@@ -346,14 +349,7 @@ const AutoRunPill = memo(
 					>
 						<span style={{ color: theme.colors.textDim }}>Current{isEstimated ? '~' : ''}:</span>
 						<span className="font-medium">
-							{(() => {
-								console.log('[AutoRunPill RENDER] Token display:', {
-									displayTokens,
-									isWaiting,
-									formatted: formatTokensCompact(displayTokens),
-								});
-								return isWaiting ? '—' : `${formatTokensCompact(displayTokens)} tokens`;
-							})()}
+							{isWaiting ? '—' : `${formatTokensCompact(displayTokens)} tokens`}
 						</span>
 						<span style={{ color: theme.colors.border }}>|</span>
 						<ThroughputDisplay
@@ -505,6 +501,13 @@ function ThinkingStatusPillInner({
 }: ThinkingStatusPillProps) {
 	const [isExpanded, setIsExpanded] = useState(false);
 
+	// DEBUG: Log every render with unique marker
+	console.error('🟡 [YELLOW-PILL-XYZZY] Rendering ThinkingStatusPillInner', {
+		autoRunActive: autoRunState?.isRunning,
+		thinkingSessionsCount: thinkingSessions.length,
+		activeSessionId,
+	});
+
 	// If AutoRun is active for the current session, show the AutoRun pill instead
 	if (autoRunState?.isRunning) {
 		return <AutoRunPill theme={theme} autoRunState={autoRunState} onStop={onStopAutoRun} />;
@@ -534,18 +537,15 @@ function ThinkingStatusPillInner({
 	const displayTokens = primaryTokens > 0 ? primaryTokens : estimatedTokens;
 	const isEstimated = primaryTokens === 0 && displayTokens > 0;
 
-	// DEBUG: Track where the 338 tokens comes from in yellow pill
-	if (displayTokens === 338) {
-		console.warn('[YellowPill DEBUG] 338 tokens detected!', {
-			primaryBytes,
-			primaryTokens,
-			estimatedTokens,
-			displayTokens,
-			isEstimated,
-			sessionId: primarySession.id,
-			sessionName: primarySession.name,
-		});
-	}
+	// DEBUG: Log token calculation for yellow pill
+	console.error('🟡 [YELLOW-PILL-XYZZY] Token calculation:', {
+		primaryBytes,
+		primaryTokens,
+		estimatedTokens,
+		displayTokens,
+		isEstimated,
+		willShow: `${formatTokensCompact(displayTokens)} tokens`,
+	});
 
 	// Get display components - show more on larger screens
 	const maestroSessionName = primarySession.name;
@@ -620,14 +620,7 @@ function ThinkingStatusPillInner({
 					>
 						<span>Current{isEstimated ? '~' : ''}:</span>
 						<span className="font-medium" style={{ color: theme.colors.textMain }}>
-							{(() => {
-								console.log('[YellowPill RENDER] Token display:', {
-									displayTokens,
-									isEstimated,
-									formatted: formatTokensCompact(displayTokens),
-								});
-								return `${formatTokensCompact(displayTokens)} tokens`;
-							})()}
+							{`${formatTokensCompact(displayTokens)} tokens`}
 						</span>
 						{/* Real-time throughput display */}
 						{(writeModeTab?.thinkingStartTime || primarySession.thinkingStartTime) && (
