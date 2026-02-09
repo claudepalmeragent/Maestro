@@ -103,6 +103,7 @@ export function setupStatsListener(
 					agentType: queryData.agentType,
 					source: queryData.source,
 					duration: queryData.duration,
+					detectedModel: queryData.detectedModel,
 				});
 				// Broadcast stats update to renderer for real-time dashboard refresh
 				safeSend('stats:updated');

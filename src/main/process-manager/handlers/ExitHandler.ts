@@ -178,6 +178,7 @@ export class ExitHandler {
 			const cacheReadInputTokens = managedProcess.lastUsageTotals?.cacheReadInputTokens;
 			const cacheCreationInputTokens = managedProcess.lastUsageTotals?.cacheCreationInputTokens;
 			const totalCostUsd = managedProcess.lastUsageTotals?.totalCostUsd;
+			const detectedModel = managedProcess.lastUsageTotals?.detectedModel;
 			const tokensPerSecond =
 				outputTokens && durationSeconds > 0 ? outputTokens / durationSeconds : undefined;
 
@@ -196,6 +197,7 @@ export class ExitHandler {
 				cacheReadInputTokens,
 				cacheCreationInputTokens,
 				totalCostUsd,
+				detectedModel,
 			});
 			logger.debug('[ProcessManager] Query complete event emitted', 'ProcessManager', {
 				sessionId,
