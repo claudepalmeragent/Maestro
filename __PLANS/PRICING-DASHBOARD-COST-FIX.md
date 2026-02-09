@@ -553,12 +553,71 @@ WHERE ...
 4. Add anomaly display
 5. Export audit reports
 
-### Phase 6: Update Display Components (2-3 hours)
+### Phase 6: Update Display Components (4-5 hours)
 
-1. Update `SummaryCards` to show both costs
-2. Add savings indicator for Max users
-3. Add tooltips showing Anthropic vs Maestro
-4. Add "(incl. in Max sub.)" annotations
+#### 6.1 Update SummaryCards
+- Show both Anthropic and Maestro costs
+- Add savings indicator for Max users
+- Add tooltips showing cost breakdown
+
+#### 6.2 Create New Cost Graphs
+
+**Add dedicated Cost graphs to BOTH Overview and Agents tabs:**
+
+```tsx
+<CostGraph
+  title="Cost Over Time"
+  data={costData}
+  dataSource={dataSource}  // 'local' | 'anthropic'
+  onToggleSource={setDataSource}
+/>
+```
+
+**Graph Features:**
+- Line chart showing cost trends
+- Daily/Weekly/Monthly granularity
+- Per-model breakdown option
+- Stacked area for token type costs (input/output/cache)
+
+#### 6.3 Data Source Toggle
+
+Add toggle switch on each cost-related graph:
+
+```tsx
+<GraphHeader>
+  <Title>Cost Over Time</Title>
+  <DataSourceToggle
+    value={dataSource}
+    onChange={setDataSource}
+    options={[
+      { value: 'local', label: 'Local Data' },
+      { value: 'anthropic', label: 'Anthropic Data' },
+    ]}
+  />
+</GraphHeader>
+```
+
+**Toggle Behavior:**
+- `Local Data`: Shows `maestro_cost_usd` (billing-mode adjusted)
+- `Anthropic Data`: Shows `anthropic_cost_usd` (raw API pricing)
+- Toggle persists per-graph (user preference)
+- Both views always available for comparison
+
+#### 6.4 Graphs to Add/Update
+
+| Tab | Graph | Data Source Toggle |
+|-----|-------|-------------------|
+| Overview | Cost Over Time (NEW) | ✓ Yes |
+| Overview | Cost by Model (NEW) | ✓ Yes |
+| Agents | Agent Cost Comparison (NEW) | ✓ Yes |
+| Agents | Agent Cost Over Time (NEW) | ✓ Yes |
+| Existing | SummaryCards | Shows both inline |
+
+#### 6.5 Cost Annotations
+
+- Add "(incl. in Max sub.)" for Max billing mode costs
+- Show cache savings: "Cache savings: $X.XX"
+- Tooltip with full breakdown on hover
 
 ### Phase 7: Historical Data Reconstruction (4-6 hours)
 
@@ -793,6 +852,8 @@ Add to Usage Dashboard:
 
 ## Files to Modify/Create
 
+### Phase 1-3: Core Infrastructure
+
 | File | Action | Phase |
 |------|--------|-------|
 | `src/main/stats/schema.ts` | Add new columns, create audit table | 1 |
@@ -800,15 +861,39 @@ Add to Usage Dashboard:
 | `src/main/stats/query-events.ts` | Update INSERT for dual storage | 2 |
 | `src/main/process-listeners/stats-listener.ts` | Calculate both cost sources | 2 |
 | `src/main/stats/aggregations.ts` | Query both cost columns | 3 |
-| `src/main/services/anthropic-audit-service.ts` | CREATE - Audit service | 4 |
-| `src/main/ipc/handlers/audit.ts` | CREATE - Audit IPC handlers | 4 |
-| `src/renderer/components/UsageDashboard/AuditPanel.tsx` | CREATE - Audit UI | 5 |
-| `src/renderer/components/UsageDashboard/SummaryCards.tsx` | Show dual costs | 6 |
 | `src/main/process-manager/handlers/ExitHandler.ts` | Pass model info | 2 |
+
+### Phase 4-5: Audit System
+
+| File | Action | Phase |
+|------|--------|-------|
+| `src/main/services/anthropic-audit-service.ts` | CREATE - ccusage integration | 4 |
+| `src/main/services/audit-scheduler.ts` | CREATE - Scheduled audit runner | 4 |
+| `src/main/ipc/handlers/audit.ts` | CREATE - Audit IPC handlers | 4 |
 | `src/preload/index.ts` | Expose audit IPC | 4 |
-| `src/main/services/historical-reconstruction-service.ts` | CREATE - JSONL parser & reconstruction | 7 |
-| `src/main/utils/jsonl-parser.ts` | CREATE - Parse Claude Code JSONL files | 7 |
-| `src/main/ipc/handlers/reconstruction.ts` | CREATE - Reconstruction IPC handlers | 7 |
+| `src/renderer/components/settings/AuditsSettingsTab.tsx` | CREATE - Settings tab | 5 |
+| `src/renderer/components/UsageDashboard/AuditReportPanel.tsx` | CREATE - Report with checkboxes | 5 |
+| `src/renderer/components/UsageDashboard/AuditHistoryTable.tsx` | CREATE - Audit history | 5 |
+
+### Phase 6: Display & Graphs
+
+| File | Action | Phase |
+|------|--------|-------|
+| `src/renderer/components/UsageDashboard/SummaryCards.tsx` | Show dual costs | 6 |
+| `src/renderer/components/ui/DataSourceToggle.tsx` | CREATE - Local/Anthropic toggle | 6 |
+| `src/renderer/components/UsageDashboard/CostOverTimeGraph.tsx` | CREATE - Cost line chart | 6 |
+| `src/renderer/components/UsageDashboard/CostByModelGraph.tsx` | CREATE - Cost by model chart | 6 |
+| `src/renderer/components/UsageDashboard/AgentCostGraph.tsx` | CREATE - Agent comparison | 6 |
+| `src/renderer/components/UsageDashboard/OverviewTab.tsx` | Add cost graphs | 6 |
+| `src/renderer/components/UsageDashboard/AgentsTab.tsx` | Add cost graphs | 6 |
+
+### Phase 7: Historical Reconstruction
+
+| File | Action | Phase |
+|------|--------|-------|
+| `src/main/utils/jsonl-parser.ts` | CREATE - Parse Claude Code JSONL | 7 |
+| `src/main/services/historical-reconstruction-service.ts` | CREATE - Reconstruction logic | 7 |
+| `src/main/ipc/handlers/reconstruction.ts` | CREATE - Reconstruction IPC | 7 |
 | `src/renderer/components/UsageDashboard/ReconstructionPanel.tsx` | CREATE - Reconstruction UI | 7 |
 
 ---
@@ -936,14 +1021,34 @@ try {
 | Phase 2: Dual-Source Storage | 4-5 hours | Phase 1 |
 | Phase 3: Update Aggregations | 2-3 hours | Phase 2 |
 | Phase 4: Audit Service (ccusage) | 4-5 hours | Phase 1 |
-| Phase 5: Audit UI | 3-4 hours | Phase 4 |
-| Phase 6: Display Updates | 2-3 hours | Phase 3 |
+| Phase 5: Audit UI (Settings Tab + Reports) | 4-5 hours | Phase 4 |
+| Phase 6: Display Updates (Graphs + Toggle) | 4-5 hours | Phase 3 |
 | Phase 7: Historical Reconstruction | 4-6 hours | Phase 2, 4 |
 | Testing & Verification | 3-4 hours | All |
 
-**Total: 26-36 hours** (spread across multiple sessions)
+**Total: 29-40 hours** (spread across multiple sessions)
 
-### Phase 7 Breakdown
+### Phase 5 Breakdown (Audit UI)
+
+| Sub-task | Effort |
+|----------|--------|
+| Audits tab in Settings modal | 1-2 hours |
+| Scheduled audit configuration | 1-2 hours |
+| Audit report with checkboxes | 1-2 hours |
+| Auto-correct workflow | 1-2 hours |
+
+### Phase 6 Breakdown (Display Updates)
+
+| Sub-task | Effort |
+|----------|--------|
+| SummaryCards dual-cost display | 1 hour |
+| CostGraph component | 1-2 hours |
+| DataSourceToggle component | 0.5-1 hour |
+| Add graphs to Overview tab | 1 hour |
+| Add graphs to Agents tab | 1 hour |
+| Cost annotations & tooltips | 0.5-1 hour |
+
+### Phase 7 Breakdown (Reconstruction)
 
 | Sub-task | Effort |
 |----------|--------|
@@ -951,36 +1056,208 @@ try {
 | Reconstruction service | 2-3 hours |
 | IPC handlers | 0.5-1 hour |
 | Reconstruction UI | 1-2 hours |
-| SSH remote support | 1-2 hours |
+| SSH remote support (multi-VM) | 1-2 hours |
 
 ---
 
-## Open Questions
+## Resolved Design Decisions
 
-1. **Audit frequency?**
-   - Manual only (user triggers)
-   - Daily automatic
-   - On-demand + scheduled
+### 1. Audit Frequency → **On-Demand + Scheduled**
 
-2. **SSH remote handling?**
-   - Run ccusage/reconstruction remotely via SSH
-   - Pull JSONL files locally via rsync, then process
-   - Combination: ccusage remote, JSONL local
+**Implementation:**
+- Add **Audits tab** in App Settings modal
+- **Scheduled Audits section:**
+  - Daily audit (runs at configurable time)
+  - Weekly audit (runs on configurable day)
+  - Monthly audit (runs on 1st of month)
+- **Run Audit Now** button for immediate audit
 
-3. **What to do when discrepancy found?**
-   - Just report (recommended for audit)
-   - Auto-correct Maestro values (for reconstruction)
-   - Flag for manual review
+```tsx
+<AuditsSettingsTab>
+  <Section title="Scheduled Audits">
+    <ScheduleOption
+      label="Daily"
+      enabled={dailyEnabled}
+      time={dailyTime}
+    />
+    <ScheduleOption
+      label="Weekly"
+      enabled={weeklyEnabled}
+      day={weeklyDay}
+    />
+    <ScheduleOption
+      label="Monthly"
+      enabled={monthlyEnabled}
+    />
+  </Section>
 
-4. **Historical reconstruction scope?**
-   - ~~All historical data~~ → **YES - reconstruct everything**
-   - ~~Last 30 days only~~
-   - ~~No migration (new data only)~~
+  <Section title="Manual Audit">
+    <DateRangePicker />
+    <Button>Run Audit Now</Button>
+  </Section>
 
-5. **Session ID mapping?**
-   - Claude Code uses UUIDs in JSONL
-   - Maestro may have different session IDs
-   - Need mapping strategy (by timestamp range? by project?)
+  <Section title="Audit History">
+    <AuditHistoryTable />
+  </Section>
+</AuditsSettingsTab>
+```
+
+### 2. SSH Remote Handling → **Combination Approach**
+
+**User Topology:**
+- Fleet of 8 micro-VM Linux containers
+- Each VM has: Claude Code instance + Maestro Agent
+- Host machine: Maestro app with central stats.db
+
+**Implementation Strategy:**
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  HOST (Maestro App)                                                  │
+│  ┌─────────────────────────────────────────────────────────────────┐│
+│  │ stats.db (central database)                                      ││
+│  │                                                                  ││
+│  │ For each Agent VM:                                               ││
+│  │   1. SSH → Run ccusage remotely → Get daily/weekly summary       ││
+│  │   2. SSH → Process JSONL files remotely → Generate reconstruction││
+│  │   3. Pull reconstruction data to Host                            ││
+│  │   4. Merge into central stats.db                                 ││
+│  └─────────────────────────────────────────────────────────────────┘│
+└─────────────────────────────────────────────────────────────────────┘
+         │
+         ├──── SSH ────→ [Agent VM 1] ~/.claude/projects/*.jsonl
+         ├──── SSH ────→ [Agent VM 2] ~/.claude/projects/*.jsonl
+         ├──── SSH ────→ [Agent VM 3] ~/.claude/projects/*.jsonl
+         │      ...
+         └──── SSH ────→ [Agent VM 8] ~/.claude/projects/*.jsonl
+```
+
+**Step-by-Step Process:**
+
+1. **Run ccusage remotely** (for daily summary - light operation)
+   ```bash
+   ssh user@vm1 "npx ccusage@latest daily --json --since 20260201"
+   ```
+
+2. **Process JSONL files remotely** (for query-level reconstruction)
+   ```bash
+   ssh user@vm1 "node /path/to/process-jsonl.js" > vm1-reconstruction.json
+   ```
+
+3. **Pull reconstruction data to Host**
+   - Each VM generates a reconstruction JSON file
+   - Host pulls/receives these files
+
+4. **Merge into central stats.db**
+   - Maestro app processes all reconstruction files
+   - Inserts/updates query_events table
+   - Marks records with source VM identifier
+
+**Alternative: Direct SSH Processing**
+- Maestro can also read remote JSONL files directly via SSH
+- Uses existing `AgentSessionStorage` with `SshRemoteConfig`
+- Already implemented in `claude-session-storage.ts`
+
+### 3. Discrepancy Handling → **Multi-Stage Workflow**
+
+**Stage 1: Full Report Generation**
+- Create comprehensive report showing ALL entries
+- Include BOTH matching AND discrepancies
+- Flag severity levels: Match ✓, Minor Δ, Major ⚠, Missing ✗
+
+```tsx
+<AuditReport>
+  <ReportHeader>
+    <Stat label="Total Entries" value={1234} />
+    <Stat label="Matches" value={1200} status="success" />
+    <Stat label="Minor Discrepancies" value={30} status="warning" />
+    <Stat label="Major Discrepancies" value={4} status="error" />
+  </ReportHeader>
+
+  <ReportTable>
+    {entries.map(entry => (
+      <ReportRow
+        key={entry.id}
+        status={entry.status}
+        anthropic={entry.anthropic}
+        maestro={entry.maestro}
+        difference={entry.diff}
+        checkbox={entry.status !== 'match'}
+      />
+    ))}
+  </ReportTable>
+</AuditReport>
+```
+
+**Stage 2: Selective Auto-Correction**
+- Checkboxes on each discrepancy row
+- "Select All Discrepancies" button
+- "Auto-Correct Selected" button
+- Confirmation dialog before applying changes
+
+```tsx
+<AuditActions>
+  <Button onClick={selectAllDiscrepancies}>
+    Select All Discrepancies ({discrepancyCount})
+  </Button>
+  <Button
+    onClick={autoCorrectSelected}
+    disabled={selectedCount === 0}
+    variant="primary"
+  >
+    Auto-Correct Selected ({selectedCount})
+  </Button>
+</AuditActions>
+```
+
+### 4. Historical Reconstruction Scope → **All Historical Data**
+
+Reconstruct EVERYTHING available:
+- All JSONL files in `~/.claude/projects/`
+- All dates from earliest record to present
+- Both local and remote agents
+- No date cutoff
+
+### 5. Session ID Mapping → **Already Solved!**
+
+**Investigation Finding:** Maestro ALREADY maintains session ID mapping!
+
+**Key Discovery:**
+- `AITab.agentSessionId` stores Claude Code's session UUID
+- This maps directly to JSONL filename: `<agentSessionId>.jsonl`
+- The origins store tracks: `projectPath + agentSessionId → metadata`
+
+**Mapping Architecture:**
+```typescript
+// In AITab (renderer/types/index.ts)
+interface AITab {
+  id: string;                    // Maestro's internal tab ID
+  agentSessionId: string | null; // Claude Code's session UUID ← THIS IS THE KEY!
+  // ...
+}
+
+// JSONL file location:
+// ~/.claude/projects/<encoded-path>/<agentSessionId>.jsonl
+```
+
+**How it works:**
+1. Claude Code emits `session_id` in init messages
+2. StdoutHandler captures and emits 'session-id' event
+3. Renderer stores in `AITab.agentSessionId`
+4. Origins store persists the mapping
+
+**For Reconstruction:**
+- Query `query_events` by `session_id`
+- Match to JSONL files by `agentSessionId`
+- The mapping is already built into Maestro's architecture!
+
+**Relevant Files:**
+| File | Purpose |
+|------|---------|
+| `src/main/parsers/claude-output-parser.ts` | Parses session_id from Claude output |
+| `src/main/process-listeners/session-id-listener.ts` | Routes session ID events |
+| `src/renderer/App.tsx` (lines 2563-2640) | Captures agentSessionId in AITab |
+| `src/main/storage/claude-session-storage.ts` | SSH-aware session file access |
 
 ---
 
