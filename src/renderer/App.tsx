@@ -1814,6 +1814,20 @@ function MaestroConsoleInner() {
 			batchedUpdater.markDelivered(actualSessionId, targetTabId);
 			batchedUpdater.updateCycleBytes(actualSessionId, data.length);
 
+			// DEBUG: Track byte accumulation to find source of 338 tokens
+			const session = sessionsRef.current.find((s) => s.id === actualSessionId);
+			const currentBytes = (session?.currentCycleBytes || 0) + data.length;
+			if (currentBytes >= 1150 && currentBytes <= 1220) {
+				console.error('🔴 [338-DEBUG] Bytes approaching 338 token range:', {
+					sessionId: actualSessionId,
+					dataLength: data.length,
+					previousBytes: session?.currentCycleBytes || 0,
+					newTotal: currentBytes,
+					estimatedTokens: Math.floor(currentBytes / 3.5),
+					dataPreview: data.substring(0, 300),
+				});
+			}
+
 			// Clear error state if session had an error but is now receiving successful data
 			// This indicates the user fixed the issue (e.g., re-authenticated) and the agent is working
 			const sessionForErrorCheck = sessionsRef.current.find((s) => s.id === actualSessionId);
