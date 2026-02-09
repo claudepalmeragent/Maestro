@@ -282,13 +282,13 @@ describe('StatsDB class (mocked)', () => {
 			const db = new StatsDB();
 			db.initialize();
 
-			// Currently we have version 5 migration (v1: initial schema, v2: is_remote column, v3: session_lifecycle table, v4: token metrics, v5: cache tokens and cost)
-			expect(db.getTargetVersion()).toBe(5);
+			// Currently we have version 6 migration (v1: initial schema, v2: is_remote column, v3: session_lifecycle table, v4: token metrics, v5: cache tokens and cost, v6: agent_id column)
+			expect(db.getTargetVersion()).toBe(6);
 		});
 
 		it('should return false from hasPendingMigrations() when up to date', async () => {
 			mockDb.pragma.mockImplementation((sql: string) => {
-				if (sql === 'user_version') return [{ user_version: 5 }];
+				if (sql === 'user_version') return [{ user_version: 6 }];
 				return undefined;
 			});
 
@@ -303,8 +303,8 @@ describe('StatsDB class (mocked)', () => {
 			// This test verifies the hasPendingMigrations() logic
 			// by checking current version < target version
 
-			// Simulate a database that's already at version 5 (target version)
-			let currentVersion = 5;
+			// Simulate a database that's already at version 6 (target version)
+			let currentVersion = 6;
 			mockDb.pragma.mockImplementation((sql: string) => {
 				if (sql === 'user_version') return [{ user_version: currentVersion }];
 				// Handle version updates from migration
@@ -318,9 +318,9 @@ describe('StatsDB class (mocked)', () => {
 			const db = new StatsDB();
 			db.initialize();
 
-			// At version 5, target is 5, so no pending migrations
-			expect(db.getCurrentVersion()).toBe(5);
-			expect(db.getTargetVersion()).toBe(5);
+			// At version 6, target is 6, so no pending migrations
+			expect(db.getCurrentVersion()).toBe(6);
+			expect(db.getTargetVersion()).toBe(6);
 			expect(db.hasPendingMigrations()).toBe(false);
 		});
 
@@ -528,6 +528,169 @@ describe('StatsDB class (mocked)', () => {
 			expect(events[0].cacheReadInputTokens).toBeUndefined();
 			expect(events[0].cacheCreationInputTokens).toBeUndefined();
 			expect(events[0].totalCostUsd).toBeUndefined();
+		});
+	});
+
+	describe('migration v6 - agent_id column and backfill (Task 7.3)', () => {
+		beforeEach(() => {
+			vi.clearAllMocks();
+			mockDb.pragma.mockImplementation((sql: string) => {
+				// Simulate database at version 5 (needs v6 migration)
+				if (sql === 'user_version') return [{ user_version: 5 }];
+				return undefined;
+			});
+			mockDb.prepare.mockReturnValue(mockStatement);
+			mockStatement.run.mockReturnValue({ changes: 1 });
+			mockStatement.get.mockReturnValue(null);
+			mockStatement.all.mockReturnValue([]);
+			mockFsExistsSync.mockReturnValue(true);
+		});
+
+		afterEach(() => {
+			vi.resetModules();
+		});
+
+		it('should run v6 migration adding agent_id column', async () => {
+			const { StatsDB } = await import('../../../main/stats');
+			const db = new StatsDB();
+			db.initialize();
+
+			// Verify ALTER TABLE was called to add agent_id
+			const prepareCalls = mockDb.prepare.mock.calls.map((call) => call[0] as string);
+			expect(prepareCalls.some((sql) => sql.includes('ADD COLUMN agent_id TEXT'))).toBe(true);
+		});
+
+		it('should create index on agent_id column', async () => {
+			const { StatsDB } = await import('../../../main/stats');
+			const db = new StatsDB();
+			db.initialize();
+
+			// Verify CREATE INDEX was called for agent_id
+			const prepareCalls = mockDb.prepare.mock.calls.map((call) => call[0] as string);
+			expect(prepareCalls.some((sql) => sql.includes('idx_query_events_agent_id'))).toBe(true);
+		});
+
+		it('should run backfill UPDATE to extract agent_id from session_id', async () => {
+			const { StatsDB } = await import('../../../main/stats');
+			const db = new StatsDB();
+			db.initialize();
+
+			// Verify UPDATE statement with CASE expressions for backfill was called
+			const prepareCalls = mockDb.prepare.mock.calls.map((call) => call[0] as string);
+			const backfillSql = prepareCalls.find(
+				(sql) => sql.includes('UPDATE query_events') && sql.includes('SET agent_id')
+			);
+			expect(backfillSql).toBeDefined();
+
+			// Verify all suffix patterns are handled
+			expect(backfillSql).toContain('-batch-');
+			expect(backfillSql).toContain('-ai-');
+			expect(backfillSql).toContain('-synopsis-');
+		});
+
+		it('should insert query event with agentId field', async () => {
+			mockDb.pragma.mockImplementation((sql: string) => {
+				if (sql === 'user_version') return [{ user_version: 6 }];
+				return undefined;
+			});
+
+			const { StatsDB } = await import('../../../main/stats');
+			const db = new StatsDB();
+			db.initialize();
+
+			const eventId = db.insertQueryEvent({
+				sessionId: 'base-agent-id-batch-001',
+				agentId: 'base-agent-id',
+				agentType: 'claude-code',
+				source: 'user',
+				startTime: Date.now(),
+				duration: 5000,
+			});
+
+			expect(eventId).toBeDefined();
+			// Verify the INSERT statement was called with agentId
+			const runCalls = mockStatement.run.mock.calls;
+			const insertCall = runCalls.find((call) =>
+				call.some((arg) => arg === 'base-agent-id-batch-001')
+			);
+			expect(insertCall).toBeDefined();
+			// agent_id is at position 2 (after id and session_id)
+			expect(insertCall![2]).toBe('base-agent-id');
+		});
+
+		it('should retrieve query events with agentId field', async () => {
+			mockDb.pragma.mockImplementation((sql: string) => {
+				if (sql === 'user_version') return [{ user_version: 6 }];
+				return undefined;
+			});
+
+			mockStatement.all.mockReturnValue([
+				{
+					id: 'event-v6',
+					session_id: 'agent-uuid-batch-001',
+					agent_id: 'agent-uuid',
+					agent_type: 'claude-code',
+					source: 'user',
+					start_time: Date.now(),
+					duration: 5000,
+					project_path: '/test',
+					tab_id: 'tab-1',
+					is_remote: null,
+					input_tokens: 1000,
+					output_tokens: 500,
+					tokens_per_second: 25.0,
+					cache_read_input_tokens: null,
+					cache_creation_input_tokens: null,
+					total_cost_usd: null,
+				},
+			]);
+
+			const { StatsDB } = await import('../../../main/stats');
+			const db = new StatsDB();
+			db.initialize();
+
+			const events = db.getQueryEvents('day');
+
+			expect(events).toHaveLength(1);
+			expect(events[0].sessionId).toBe('agent-uuid-batch-001');
+			expect(events[0].agentId).toBe('agent-uuid');
+		});
+
+		it('should handle null agentId gracefully for pre-migration records', async () => {
+			mockDb.pragma.mockImplementation((sql: string) => {
+				if (sql === 'user_version') return [{ user_version: 6 }];
+				return undefined;
+			});
+
+			mockStatement.all.mockReturnValue([
+				{
+					id: 'event-v6-null',
+					session_id: 'old-session-id',
+					agent_id: null,
+					agent_type: 'claude-code',
+					source: 'user',
+					start_time: Date.now(),
+					duration: 5000,
+					project_path: '/test',
+					tab_id: 'tab-1',
+					is_remote: null,
+					input_tokens: null,
+					output_tokens: null,
+					tokens_per_second: null,
+					cache_read_input_tokens: null,
+					cache_creation_input_tokens: null,
+					total_cost_usd: null,
+				},
+			]);
+
+			const { StatsDB } = await import('../../../main/stats');
+			const db = new StatsDB();
+			db.initialize();
+
+			const events = db.getQueryEvents('day');
+
+			expect(events).toHaveLength(1);
+			expect(events[0].agentId).toBeUndefined();
 		});
 	});
 
