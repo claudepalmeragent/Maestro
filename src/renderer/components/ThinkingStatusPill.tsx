@@ -624,15 +624,12 @@ function ThinkingStatusPillInner({
 							style={{ color: theme.colors.textDim }}
 							title={`Session totals:\nInput + Output: ${formatTokensCompact(sessionInputOutput)}\nCache (Read + Write): ${formatTokensCompact(sessionCache)}\nCost: $${sessionCost.toFixed(2)}`}
 						>
-							<span>Session:</span>
+							<span>Session Tokens:</span>
 							<span className="font-medium" style={{ color: theme.colors.textMain }}>
 								{formatTokensCompact(sessionInputOutput)}
 							</span>
 							{sessionCache > 0 && (
-								<span
-									className="font-medium"
-									style={{ color: theme.colors.textMain, opacity: 0.7 }}
-								>
+								<span className="font-medium" style={{ color: theme.colors.textMain }}>
 									/{formatTokensCompact(sessionCache)}
 								</span>
 							)}
