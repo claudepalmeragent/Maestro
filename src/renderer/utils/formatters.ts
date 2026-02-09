@@ -12,4 +12,6 @@ export {
 	formatActiveTime,
 	formatElapsedTime,
 	formatCost,
+	getCostTooltip,
 } from '../../shared/formatters';
+export type { BillingModeDisplay } from '../../shared/formatters';

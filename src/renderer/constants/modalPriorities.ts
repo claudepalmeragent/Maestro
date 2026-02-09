@@ -53,6 +53,9 @@ export const MODAL_PRIORITIES = {
 	/** Create new group modal */
 	CREATE_GROUP: 800,
 
+	/** Project folder settings modal (billing configuration) */
+	PROJECT_FOLDER_SETTINGS: 795,
+
 	/** Delete group chat confirmation */
 	DELETE_GROUP_CHAT: 660,
 

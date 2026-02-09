@@ -13,6 +13,7 @@ import {
 	formatElapsedTime,
 	formatElapsedTimeColon,
 	formatCost,
+	getCostTooltip,
 	estimateTokenCount,
 	truncatePath,
 	truncateCommand,
@@ -264,6 +265,51 @@ describe('shared/formatters', () => {
 			expect(formatCost(1.234)).toBe('$1.23');
 			expect(formatCost(1.235)).toBe('$1.24'); // rounds up
 			expect(formatCost(1.999)).toBe('$2.00');
+		});
+
+		it('should append Max subscription suffix when billingMode is max and showMaxSuffix is true', () => {
+			expect(formatCost(1.23, 'max', true)).toBe('$1.23 (incl. in Max sub.)');
+			expect(formatCost(0, 'max', true)).toBe('$0.00 (incl. in Max sub.)');
+			expect(formatCost(0.001, 'max', true)).toBe('<$0.01 (incl. in Max sub.)');
+		});
+
+		it('should not append suffix when billingMode is max but showMaxSuffix is false', () => {
+			expect(formatCost(1.23, 'max', false)).toBe('$1.23');
+			expect(formatCost(1.23, 'max')).toBe('$1.23');
+		});
+
+		it('should not append suffix when billingMode is api', () => {
+			expect(formatCost(1.23, 'api', true)).toBe('$1.23');
+			expect(formatCost(1.23, 'api', false)).toBe('$1.23');
+		});
+
+		it('should not append suffix when billingMode is auto', () => {
+			expect(formatCost(1.23, 'auto', true)).toBe('$1.23');
+		});
+
+		it('should not append suffix when billingMode is undefined', () => {
+			expect(formatCost(1.23, undefined, true)).toBe('$1.23');
+		});
+	});
+
+	// ==========================================================================
+	// getCostTooltip tests
+	// ==========================================================================
+	describe('getCostTooltip', () => {
+		it('should return Max subscription text for max billing mode', () => {
+			expect(getCostTooltip('max')).toBe('Included in Max subscription');
+		});
+
+		it('should return API charges text for api billing mode', () => {
+			expect(getCostTooltip('api')).toBe('API charges');
+		});
+
+		it('should return undefined for auto billing mode', () => {
+			expect(getCostTooltip('auto')).toBeUndefined();
+		});
+
+		it('should return undefined when billing mode is undefined', () => {
+			expect(getCostTooltip(undefined)).toBeUndefined();
 		});
 	});
 
