@@ -16,29 +16,7 @@ import { AutoRun, AutoRunHandle } from './AutoRun';
 import type { DocumentTaskCount } from './AutoRunDocumentSelector';
 import { AutoRunExpandedModal } from './AutoRunExpandedModal';
 import { formatShortcutKeys } from '../utils/shortcutFormatter';
-import { formatTokensCompact } from '../utils/formatters';
-
-/**
- * Calculate cost breakdown for token display (Phase 4)
- * Uses Claude Sonnet 4 pricing: $3/MTok input, $15/MTok output, $0.30/MTok cache read, $3.75/MTok cache write
- */
-function calculateTokenCost(
-	inputTokens: number,
-	outputTokens: number,
-	cacheReadTokens: number,
-	cacheCreationTokens: number
-): { inputOutputCost: number; cacheCost: number; totalCost: number } {
-	const inputCost = (inputTokens / 1_000_000) * 3;
-	const outputCost = (outputTokens / 1_000_000) * 15;
-	const cacheReadCost = (cacheReadTokens / 1_000_000) * 0.3;
-	const cacheWriteCost = (cacheCreationTokens / 1_000_000) * 3.75;
-
-	return {
-		inputOutputCost: inputCost + outputCost,
-		cacheCost: cacheReadCost + cacheWriteCost,
-		totalCost: inputCost + outputCost + cacheReadCost + cacheWriteCost,
-	};
-}
+import { BatchRunStats } from './BatchRunStats';
 
 export interface RightPanelHandle {
 	refreshHistoryPanel: () => void;
@@ -705,103 +683,10 @@ export const RightPanel = memo(
 							)}
 						</div>
 
-						{/* Comprehensive token breakdown (Phase 4) */}
-						{(() => {
-							// Calculate token totals
-							const agentInput = currentSessionBatchState.cumulativeInputTokens ?? 0;
-							const agentOutput = currentSessionBatchState.cumulativeOutputTokens ?? 0;
-							const agentCacheRead = currentSessionBatchState.cumulativeCacheReadTokens ?? 0;
-							const agentCacheWrite = currentSessionBatchState.cumulativeCacheCreationTokens ?? 0;
-							const agentInputOutput = agentInput + agentOutput;
-							const agentCache = agentCacheRead + agentCacheWrite;
-
-							const subagentInput = currentSessionBatchState.subagentInputTokens ?? 0;
-							const subagentOutput = currentSessionBatchState.subagentOutputTokens ?? 0;
-							const subagentCacheRead = currentSessionBatchState.subagentCacheReadTokens ?? 0;
-							const subagentCacheWrite = currentSessionBatchState.subagentCacheCreationTokens ?? 0;
-							const subagentInputOutput = subagentInput + subagentOutput;
-							const subagentCache = subagentCacheRead + subagentCacheWrite;
-
-							const totalInputOutput = agentInputOutput + subagentInputOutput;
-							const totalCache = agentCache + subagentCache;
-
-							// Calculate costs
-							const agentCosts = calculateTokenCost(
-								agentInput,
-								agentOutput,
-								agentCacheRead,
-								agentCacheWrite
-							);
-							const subagentCosts = calculateTokenCost(
-								subagentInput,
-								subagentOutput,
-								subagentCacheRead,
-								subagentCacheWrite
-							);
-							const totalCost = agentCosts.totalCost + subagentCosts.totalCost;
-							const totalCacheCost = agentCosts.cacheCost + subagentCosts.cacheCost;
-
-							// Don't show anything if no tokens used
-							if (totalInputOutput === 0) return null;
-
-							return (
-								<div className="mt-2 text-[10px]" style={{ color: theme.colors.textDim }}>
-									{/* Total */}
-									<div>
-										<span style={{ color: theme.colors.textMain }}>
-											Total Tokens used: {formatTokensCompact(totalInputOutput)}
-										</span>
-										{totalCost > 0 && <span> (${totalCost.toFixed(2)})</span>}
-									</div>
-									{totalCache > 0 && (
-										<div className="ml-2 opacity-80">
-											↳ Cache Read + Write: {formatTokensCompact(totalCache)}
-											{totalCacheCost > 0 && <span> (${totalCacheCost.toFixed(2)})</span>}
-										</div>
-									)}
-
-									{/* Agent breakdown - only show if there are agent tokens */}
-									{agentInputOutput > 0 && (
-										<>
-											<div className="mt-1">
-												Agent Tokens: {formatTokensCompact(agentInputOutput)}
-												{agentCosts.totalCost > 0 && (
-													<span> (${agentCosts.totalCost.toFixed(2)})</span>
-												)}
-											</div>
-											{agentCache > 0 && (
-												<div className="ml-2 opacity-80">
-													↳ Cache Read + Write: {formatTokensCompact(agentCache)}
-													{agentCosts.cacheCost > 0 && (
-														<span> (${agentCosts.cacheCost.toFixed(2)})</span>
-													)}
-												</div>
-											)}
-										</>
-									)}
-
-									{/* Subagent breakdown - only show if there are subagent tokens */}
-									{subagentInputOutput > 0 && (
-										<>
-											<div className="mt-1">
-												Subagent Tokens: {formatTokensCompact(subagentInputOutput)}
-												{subagentCosts.totalCost > 0 && (
-													<span> (${subagentCosts.totalCost.toFixed(2)})</span>
-												)}
-											</div>
-											{subagentCache > 0 && (
-												<div className="ml-2 opacity-80">
-													↳ Cache Read + Write: {formatTokensCompact(subagentCache)}
-													{subagentCosts.cacheCost > 0 && (
-														<span> (${subagentCosts.cacheCost.toFixed(2)})</span>
-													)}
-												</div>
-											)}
-										</>
-									)}
-								</div>
-							);
-						})()}
+						{/* Comprehensive token breakdown */}
+						<div className="mt-2">
+							<BatchRunStats batchRunState={currentSessionBatchState} theme={theme} />
+						</div>
 
 						{/* Subagent indicator - shows when a subagent is working */}
 						{currentSessionBatchState.subagentActive && (

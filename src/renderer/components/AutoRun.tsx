@@ -1331,36 +1331,40 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
 	// Uses shared utility from markdownConfig.ts
 	const proseStyles = useMemo(() => generateAutoRunProseStyles(theme), [theme]);
 
-	// Parse task counts from saved content only (not live during editing)
-	// Updates on: document load, save, and external file changes
+	// Parse task counts from content
+	// During batch runs: use localContent for real-time updates as tasks complete
+	// Otherwise: use savedContent to avoid confusion with unsaved edits
 	const taskCounts = useMemo(() => {
+		const contentToCount = batchRunState?.isRunning ? localContent : savedContent;
 		const completedRegex = /^[\s]*[-*]\s*\[x\]/gim;
 		const uncheckedRegex = /^[\s]*[-*]\s*\[\s\]/gim;
-		const completedMatches = savedContent.match(completedRegex) || [];
-		const uncheckedMatches = savedContent.match(uncheckedRegex) || [];
+		const completedMatches = contentToCount.match(completedRegex) || [];
+		const uncheckedMatches = contentToCount.match(uncheckedRegex) || [];
 		const completed = completedMatches.length;
 		const total = completed + uncheckedMatches.length;
 		return { completed, total };
-	}, [savedContent]);
+	}, [savedContent, localContent, batchRunState?.isRunning]);
 
-	// Token counting based on saved content only (not live during editing)
-	// Updates on: document load, save, and external file changes
+	// Token counting based on content
+	// During batch runs: use localContent for real-time updates
+	// Otherwise: use savedContent to avoid confusion with unsaved edits
 	useEffect(() => {
-		if (!savedContent) {
+		const contentToCount = batchRunState?.isRunning ? localContent : savedContent;
+		if (!contentToCount) {
 			setTokenCount(null);
 			return;
 		}
 
 		getEncoder()
 			.then((encoder) => {
-				const tokens = encoder.encode(savedContent);
+				const tokens = encoder.encode(contentToCount);
 				setTokenCount(tokens.length);
 			})
 			.catch((err) => {
 				console.error('Failed to count tokens:', err);
 				setTokenCount(null);
 			});
-	}, [savedContent]);
+	}, [savedContent, localContent, batchRunState?.isRunning]);
 
 	// Callback for when a search match is rendered (used for scrolling to current match)
 	const handleMatchRendered = useCallback(

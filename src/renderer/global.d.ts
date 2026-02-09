@@ -2198,6 +2198,7 @@ interface MaestroAPI {
 		// Record a query event (interactive conversation turn)
 		recordQuery: (event: {
 			sessionId: string;
+			agentId?: string; // Stable Maestro agent ID (no batch/ai/synopsis suffixes)
 			agentType: string;
 			source: 'user' | 'auto';
 			startTime: number;
@@ -2211,6 +2212,10 @@ interface MaestroAPI {
 			outputTokens?: number;
 			/** Calculated throughput: outputTokens / (duration/1000) */
 			tokensPerSecond?: number;
+			// Cache and cost metrics (v5)
+			cacheReadInputTokens?: number;
+			cacheCreationInputTokens?: number;
+			totalCostUsd?: number;
 		}) => Promise<string>;
 		// Start an Auto Run session (returns session ID)
 		startAutoRun: (session: {
@@ -2326,6 +2331,17 @@ interface MaestroAPI {
 					avgTokensPerSecond: number;
 				}>
 			>;
+			/** Aggregation by Maestro agent ID (not fragmented session IDs) - for proper agent attribution in charts */
+			byAgentIdByDay: Record<
+				string,
+				Array<{
+					date: string;
+					count: number;
+					duration: number;
+					outputTokens: number;
+					avgTokensPerSecond: number;
+				}>
+			>;
 			/** Total output tokens generated across all queries */
 			totalOutputTokens: number;
 			/** Total input tokens sent across all queries */
@@ -2336,6 +2352,10 @@ interface MaestroAPI {
 			avgOutputTokensPerQuery: number;
 			/** Number of queries that have token data */
 			queriesWithTokenData: number;
+			// Cache tokens and cost aggregates (added in v5)
+			totalCacheReadInputTokens?: number;
+			totalCacheCreationInputTokens?: number;
+			totalCostUsd?: number;
 		}>;
 		// Export query events to CSV
 		exportCsv: (range: 'day' | 'week' | 'month' | 'year' | 'all') => Promise<string>;

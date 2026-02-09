@@ -65,62 +65,8 @@ type SectionId =
 // Performance metrics instance for dashboard
 const perfMetrics = getRendererPerfMetrics('UsageDashboard');
 
-// Stats time range type matching the backend API
-type StatsTimeRange = 'day' | 'week' | 'month' | 'year' | 'all';
-
-// Aggregation data shape from the stats API
-interface StatsAggregation {
-	totalQueries: number;
-	totalDuration: number;
-	avgDuration: number;
-	byAgent: Record<
-		string,
-		{ count: number; duration: number; totalOutputTokens: number; avgTokensPerSecond: number }
-	>;
-	bySource: { user: number; auto: number };
-	byLocation: { local: number; remote: number };
-	byDay: Array<{
-		date: string;
-		count: number;
-		duration: number;
-		outputTokens?: number;
-		avgTokensPerSecond?: number;
-	}>;
-	byHour: Array<{ hour: number; count: number; duration: number }>;
-	// Session lifecycle stats
-	totalSessions: number;
-	sessionsByAgent: Record<string, number>;
-	sessionsByDay: Array<{ date: string; count: number }>;
-	avgSessionDuration: number;
-	// Per-provider per-day breakdown for provider comparison and throughput trends
-	byAgentByDay: Record<
-		string,
-		Array<{
-			date: string;
-			count: number;
-			duration: number;
-			outputTokens: number;
-			avgTokensPerSecond: number;
-		}>
-	>;
-	// Per-session per-day breakdown for agent usage chart and throughput trends
-	bySessionByDay: Record<
-		string,
-		Array<{
-			date: string;
-			count: number;
-			duration: number;
-			outputTokens: number;
-			avgTokensPerSecond: number;
-		}>
-	>;
-	// Token metrics for throughput statistics
-	totalOutputTokens: number;
-	totalInputTokens: number;
-	avgTokensPerSecond: number;
-	avgOutputTokensPerQuery: number;
-	queriesWithTokenData: number;
-}
+// Import types from the shared stats hook
+import { type StatsAggregation, type StatsTimeRange } from '../../hooks/useStats';
 
 // View mode options for the dashboard
 type ViewMode = 'overview' | 'agents' | 'activity' | 'autorun';

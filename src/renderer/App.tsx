@@ -1936,6 +1936,10 @@ function MaestroConsoleInner() {
 					// Token metrics for throughput tracking
 					inputTokens?: number;
 					outputTokens?: number;
+					// Cache and cost metrics (v5)
+					cacheReadInputTokens?: number;
+					cacheCreationInputTokens?: number;
+					totalCostUsd?: number;
 				} | null = null;
 				let queuedItemToProcess: {
 					sessionId: string;
@@ -2079,6 +2083,10 @@ function MaestroConsoleInner() {
 							// Token metrics for throughput tracking
 							inputTokens: tabUsageStats?.inputTokens,
 							outputTokens: tabUsageStats?.outputTokens,
+							// Cache and cost metrics (v5)
+							cacheReadInputTokens: tabUsageStats?.cacheReadInputTokens,
+							cacheCreationInputTokens: tabUsageStats?.cacheCreationInputTokens,
+							totalCostUsd: tabUsageStats?.totalCostUsd,
 						};
 
 						// Check if synopsis should be triggered:
@@ -2381,6 +2389,7 @@ function MaestroConsoleInner() {
 					window.maestro.stats
 						.recordQuery({
 							sessionId: sessionIdForStats,
+							agentId: sessionIdForStats, // Stable Maestro agent ID for proper attribution
 							agentType: toastData.agentType,
 							source: isAutoRunQuery ? 'auto' : 'user',
 							startTime: toastData.startTime,
@@ -2392,6 +2401,10 @@ function MaestroConsoleInner() {
 							inputTokens: toastData.inputTokens,
 							outputTokens: toastData.outputTokens,
 							tokensPerSecond,
+							// Cache and cost metrics (v5)
+							cacheReadInputTokens: toastData.cacheReadInputTokens,
+							cacheCreationInputTokens: toastData.cacheCreationInputTokens,
+							totalCostUsd: toastData.totalCostUsd,
 						})
 						.catch((err) => {
 							// Don't fail the completion flow if stats recording fails
@@ -2732,6 +2745,12 @@ function MaestroConsoleInner() {
 
 		// Handle usage statistics from AI responses (BATCHED for performance)
 		const unsubscribeUsage = window.maestro.process.onUsage((sessionId: string, usageStats) => {
+			// Batch session usage is handled by useBatchProcessor, not here
+			// Format: {sessionId}-batch-{timestamp}
+			if (sessionId.includes('-batch-')) {
+				return;
+			}
+
 			// Parse sessionId to get actual session ID and tab ID (handles -ai-tabId and legacy -ai suffix)
 			let actualSessionId: string;
 			let tabId: string | null = null;
