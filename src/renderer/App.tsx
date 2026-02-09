@@ -1809,16 +1809,17 @@ function MaestroConsoleInner() {
 				return;
 			}
 
+			// Filter out bash warnings (setlocale, etc.) that appear via SSH before AI response
+			// These are shell noise, not useful content - skip them entirely
+			const isBashWarning = data.startsWith('bash: warning:') || data.includes('\rbash: warning:');
+			if (isBashWarning) {
+				return;
+			}
+
 			// Batch the log append, delivery mark, unread mark, and byte tracking
 			batchedUpdater.appendLog(actualSessionId, targetTabId, true, data);
 			batchedUpdater.markDelivered(actualSessionId, targetTabId);
-
-			// Only count bytes for token estimation if it's actual AI content, not shell noise
-			// Filter out bash warnings (setlocale, etc.) that appear before AI response starts
-			const isBashWarning = data.startsWith('bash: warning:') || data.includes('\rbash: warning:');
-			if (!isBashWarning) {
-				batchedUpdater.updateCycleBytes(actualSessionId, data.length);
-			}
+			batchedUpdater.updateCycleBytes(actualSessionId, data.length);
 
 			// Clear error state if session had an error but is now receiving successful data
 			// This indicates the user fixed the issue (e.g., re-authenticated) and the agent is working
