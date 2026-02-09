@@ -122,29 +122,52 @@ grep -r "currentCycleTokens" src/renderer/
 # - types/index.ts (type definition)
 ```
 
-### Fix #2: Show True Cumulative Session Tokens
+### Fix #2: Add Per-Tab Cumulative Stats (High-Water Mark)
 
-**Scope:** Data source change in `ThinkingStatusPill.tsx`
+**Scope:** Add new field to track per-tab cumulative usage that never decreases.
 
-**Root Cause Discovery:** The yellow pill was using **tab-level** usage stats (which get REPLACED on each response, reflecting current context window) instead of **session-level** stats (which ACCUMULATE correctly).
+**User Requirement:** User has ~12 tabs open per Agent and needs per-tab cumulative totals, not session-wide totals.
 
+**Approach:** Add `cumulativeUsageStats` field to `AITab` that only ever increases (high-water mark pattern).
+
+**Changes Required:**
+
+1. **Type definition** (`types/index.ts`):
 ```typescript
-// CURRENT (line 525) - uses tab stats that get replaced
-const sessionUsage = writeModeTab?.usageStats || primarySession.usageStats;
-
-// FIX - use session-level stats that accumulate
-const sessionUsage = primarySession.usageStats;
+// Add to AITab interface
+cumulativeUsageStats?: UsageStats; // Cumulative totals (never decreases, persisted)
 ```
 
-**Why this works:**
-- `primarySession.usageStats` already accumulates correctly (see `useBatchedSessionUpdates.ts` lines 429-440)
-- Tab-level stats are designed for context window tracking (shown at top of app)
-- Session-level stats are designed for cumulative totals (what user wants in pill)
+2. **Accumulator logic** (`useBatchedSessionUpdates.ts`):
+```typescript
+// When applying tab usage, also update cumulative with accumulated values
+const existingCumulative = tab.cumulativeUsageStats;
+return {
+    ...tab,
+    usageStats: { ... },  // Existing logic unchanged
+    cumulativeUsageStats: {
+        inputTokens: (existingCumulative?.inputTokens || 0) + tabUsageDelta.inputTokens,
+        outputTokens: (existingCumulative?.outputTokens || 0) + tabUsageDelta.outputTokens,
+        cacheReadInputTokens: (existingCumulative?.cacheReadInputTokens || 0) + tabUsageDelta.cacheReadInputTokens,
+        cacheCreationInputTokens: (existingCumulative?.cacheCreationInputTokens || 0) + tabUsageDelta.cacheCreationInputTokens,
+        totalCostUsd: (existingCumulative?.totalCostUsd || 0) + tabUsageDelta.totalCostUsd,
+        reasoningTokens: (existingCumulative?.reasoningTokens || 0) + (tabUsageDelta.reasoningTokens || 0),
+        contextWindow: tabUsageDelta.contextWindow,
+    },
+};
+```
 
-**Why it's safe:**
-- Context window info is already displayed at top of app
-- This just changes which pre-existing data source the pill displays
-- No calculation logic changes
+3. **Display** (`ThinkingStatusPill.tsx`):
+```typescript
+// Use per-tab cumulative stats
+const sessionUsage = writeModeTab?.cumulativeUsageStats || primarySession.usageStats;
+```
+
+**Why this is safe:**
+- **Existing `tab.usageStats`**: UNCHANGED - still shows current context window (used by other parts of app)
+- **New `tab.cumulativeUsageStats`**: Purely additive field, only used for pill display
+- **Persisted**: Will survive app restarts (not in the runtime-only exclusion list)
+- **No changes to**: StdoutHandler, App.tsx, parsers, cost calculations, context tracking
 
 ---
 
@@ -152,8 +175,9 @@ const sessionUsage = primarySession.usageStats;
 
 | File | Change Type | Risk Level |
 |------|-------------|------------|
-| `src/renderer/hooks/session/useBatchedSessionUpdates.ts` | Replace accumulation with latest value | LOW |
-| `src/renderer/components/ThinkingStatusPill.tsx` | Use session-level stats instead of tab-level | LOW |
+| `src/renderer/hooks/session/useBatchedSessionUpdates.ts` | Replace accumulation with latest value + add cumulative tracking | LOW |
+| `src/renderer/components/ThinkingStatusPill.tsx` | Use per-tab cumulative stats | LOW |
+| `src/renderer/types/index.ts` | Add `cumulativeUsageStats` to `AITab` interface | NONE |
 
 **Files NOT to change:**
 - `src/main/process-manager/handlers/StdoutHandler.ts` - Core data pipeline
@@ -223,17 +247,17 @@ if (acc.cycleTokensDelta !== undefined) {
 
 **Location:** `/app/Maestro/src/renderer/components/ThinkingStatusPill.tsx`
 
-#### Change 2: Use session-level cumulative stats (~line 525)
+#### Change 2: Use per-tab cumulative stats (~line 525)
 
 ```typescript
 // BEFORE - uses tab stats (replaced on each response, can decrease)
 const sessionUsage = writeModeTab?.usageStats || primarySession.usageStats;
 
-// AFTER - uses session stats (accumulated, never decreases)
-const sessionUsage = primarySession.usageStats;
+// AFTER - uses per-tab cumulative stats (accumulated per-tab, never decreases)
+const sessionUsage = writeModeTab?.cumulativeUsageStats || primarySession.usageStats;
 ```
 
-This single line change makes "Session Tokens" show the true cumulative total.
+This uses the new per-tab cumulative field, falling back to session-level for tabs without cumulative data yet.
 
 ---
 
@@ -314,8 +338,9 @@ The changes are isolated to display-only data paths. The `currentCycleTokens` fi
 ## Final Approach (Approved)
 
 1. **"Current" tokens:** Show latest response tokens (not accumulated within cycle)
-2. **"Session Tokens":** Show true cumulative from `primarySession.usageStats` (never decreases)
+2. **"Session Tokens":** Show per-tab cumulative from `writeModeTab?.cumulativeUsageStats` (never decreases)
 3. **Context window info:** Already displayed at top of app, no duplication needed
+4. **Per-tab granularity:** Each tab tracks its own cumulative totals (user has ~12 tabs per Agent)
 
 ---
 
