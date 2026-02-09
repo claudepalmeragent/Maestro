@@ -527,6 +527,19 @@ function ThinkingStatusPillInner({
 	const displayTokens = primaryTokens > 0 ? primaryTokens : estimatedTokens;
 	const isEstimated = primaryTokens === 0 && displayTokens > 0;
 
+	// DEBUG: Track where the 338 tokens comes from in yellow pill
+	if (displayTokens === 338) {
+		console.warn('[YellowPill DEBUG] 338 tokens detected!', {
+			primaryBytes,
+			primaryTokens,
+			estimatedTokens,
+			displayTokens,
+			isEstimated,
+			sessionId: primarySession.id,
+			sessionName: primarySession.name,
+		});
+	}
+
 	// Get display components - show more on larger screens
 	const maestroSessionName = primarySession.name;
 
