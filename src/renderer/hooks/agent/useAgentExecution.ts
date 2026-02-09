@@ -48,7 +48,11 @@ export interface UseAgentExecutionReturn {
 	spawnAgentForSession: (
 		sessionId: string,
 		prompt: string,
-		cwdOverride?: string
+		cwdOverride?: string,
+		callbacks?: {
+			onData?: (bytes: number) => void;
+			onUsage?: (tokens: number) => void;
+		}
 	) => Promise<AgentSpawnResult>;
 	/** Spawn an agent with a prompt for the active session */
 	spawnAgentWithPrompt: (prompt: string) => Promise<AgentSpawnResult>;
@@ -158,9 +162,18 @@ export function useAgentExecution(deps: UseAgentExecutionDeps): UseAgentExecutio
 	 * @param sessionId - The session ID to spawn the agent for
 	 * @param prompt - The prompt to send to the agent
 	 * @param cwdOverride - Optional override for working directory (e.g., for worktree mode)
+	 * @param callbacks - Optional callbacks for real-time token tracking (used by Auto Run)
 	 */
 	const spawnAgentForSession = useCallback(
-		async (sessionId: string, prompt: string, cwdOverride?: string): Promise<AgentSpawnResult> => {
+		async (
+			sessionId: string,
+			prompt: string,
+			cwdOverride?: string,
+			callbacks?: {
+				onData?: (bytes: number) => void;
+				onUsage?: (tokens: number) => void;
+			}
+		): Promise<AgentSpawnResult> => {
 			// Use sessionsRef to get latest sessions (fixes stale closure when called right after session creation)
 			const session = sessionsRef.current.find((s) => s.id === sessionId);
 			if (!session) return { success: false };
@@ -204,6 +217,8 @@ export function useAgentExecution(deps: UseAgentExecutionDeps): UseAgentExecutio
 						window.maestro.process.onData((sid: string, data: string) => {
 							if (sid === targetSessionId) {
 								responseText += data;
+								// Call optional callback for real-time byte tracking (Auto Run)
+								callbacks?.onData?.(data.length);
 							}
 						})
 					);
@@ -222,6 +237,8 @@ export function useAgentExecution(deps: UseAgentExecutionDeps): UseAgentExecutio
 							if (sid === targetSessionId) {
 								// Accumulate usage stats for this task (there may be multiple usage events per task)
 								taskUsageStats = accumulateUsageStats(taskUsageStats, usageStats);
+								// Call optional callback for real-time token tracking (Auto Run)
+								callbacks?.onUsage?.(usageStats.outputTokens);
 							}
 						})
 					);

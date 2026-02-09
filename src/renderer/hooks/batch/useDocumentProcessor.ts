@@ -164,13 +164,24 @@ export interface DocumentProcessorCallbacks {
 	onSpawnAgent: (
 		sessionId: string,
 		prompt: string,
-		cwdOverride?: string
+		cwdOverride?: string,
+		callbacks?: {
+			onData?: (bytes: number) => void;
+			onUsage?: (tokens: number) => void;
+		}
 	) => Promise<{
 		success: boolean;
 		response?: string;
 		agentSessionId?: string;
 		usageStats?: UsageStats;
 	}>;
+	/**
+	 * Optional callbacks for real-time token tracking (used by Auto Run)
+	 */
+	tokenCallbacks?: {
+		onData?: (bytes: number) => void;
+		onUsage?: (tokens: number) => void;
+	};
 }
 
 /**
@@ -328,10 +339,12 @@ export function useDocumentProcessor(): UseDocumentProcessorReturn {
 			const taskStartTime = Date.now();
 
 			// Spawn agent with the prompt, using effective cwd (may be worktree path)
+			// Pass token callbacks for real-time tracking with exact session ID matching
 			const result = await callbacks.onSpawnAgent(
 				session.id,
 				finalPrompt,
-				effectiveCwd !== session.cwd ? effectiveCwd : undefined
+				effectiveCwd !== session.cwd ? effectiveCwd : undefined,
+				callbacks.tokenCallbacks
 			);
 
 			// Capture elapsed time
