@@ -396,6 +396,74 @@ function queryBySessionByDay(
 	return result;
 }
 
+/**
+ * Query stats aggregated by Maestro agent ID (not fragmented session IDs).
+ * Uses COALESCE to fall back to session_id for records without agent_id.
+ */
+function queryByAgentIdByDay(
+	db: Database.Database,
+	startTime: number
+): Record<
+	string,
+	Array<{
+		date: string;
+		count: number;
+		duration: number;
+		outputTokens: number;
+		avgTokensPerSecond: number;
+	}>
+> {
+	const perfStart = perfMetrics.start();
+	const rows = db
+		.prepare(
+			`
+      SELECT COALESCE(agent_id, session_id) as agent_id,
+             date(start_time / 1000, 'unixepoch', 'localtime') as date,
+             COUNT(*) as count,
+             SUM(duration) as duration,
+             COALESCE(SUM(output_tokens), 0) as output_tokens,
+             COALESCE(AVG(tokens_per_second), 0) as avg_tokens_per_second
+      FROM query_events
+      WHERE start_time >= ?
+      GROUP BY COALESCE(agent_id, session_id), date(start_time / 1000, 'unixepoch', 'localtime')
+      ORDER BY agent_id, date ASC
+    `
+		)
+		.all(startTime) as Array<{
+		agent_id: string;
+		date: string;
+		count: number;
+		duration: number;
+		output_tokens: number;
+		avg_tokens_per_second: number;
+	}>;
+
+	const result: Record<
+		string,
+		Array<{
+			date: string;
+			count: number;
+			duration: number;
+			outputTokens: number;
+			avgTokensPerSecond: number;
+		}>
+	> = {};
+	for (const row of rows) {
+		if (!result[row.agent_id]) {
+			result[row.agent_id] = [];
+		}
+		result[row.agent_id].push({
+			date: row.date,
+			count: row.count,
+			duration: row.duration,
+			outputTokens: row.output_tokens,
+			avgTokensPerSecond: row.avg_tokens_per_second,
+		});
+	}
+	perfMetrics.end(perfStart, 'getAggregatedStats:byAgentIdByDay');
+	return result;
+}
+
 function queryTokenMetrics(
 	db: Database.Database,
 	startTime: number
@@ -472,6 +540,7 @@ export function getAggregatedStats(db: Database.Database, range: StatsTimeRange)
 	const byHour = queryByHour(db, startTime);
 	const sessionStats = querySessionStats(db, startTime);
 	const bySessionByDay = queryBySessionByDay(db, startTime);
+	const byAgentIdByDay = queryByAgentIdByDay(db, startTime);
 	const tokenMetrics = queryTokenMetrics(db, startTime);
 
 	const totalDuration = perfMetrics.end(perfStart, 'getAggregatedStats:total', {
@@ -500,6 +569,7 @@ export function getAggregatedStats(db: Database.Database, range: StatsTimeRange)
 		...sessionStats,
 		byAgentByDay,
 		bySessionByDay,
+		byAgentIdByDay,
 		totalOutputTokens: tokenMetrics.totalOutputTokens,
 		totalInputTokens: tokenMetrics.totalInputTokens,
 		avgTokensPerSecond: tokenMetrics.avgTokensPerSecond,

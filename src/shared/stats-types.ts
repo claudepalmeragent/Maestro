@@ -10,6 +10,7 @@
 export interface QueryEvent {
 	id: string;
 	sessionId: string;
+	agentId?: string; // Maestro agent ID (stable identifier, no batch/ai/synopsis suffixes)
 	agentType: string;
 	source: 'user' | 'auto';
 	startTime: number;
@@ -134,6 +135,17 @@ export interface StatsAggregation {
 			avgTokensPerSecond: number;
 		}>
 	>;
+	/** Aggregation by Maestro agent ID (not fragmented session IDs) - for proper agent attribution in charts */
+	byAgentIdByDay: Record<
+		string,
+		Array<{
+			date: string;
+			count: number;
+			duration: number;
+			outputTokens: number;
+			avgTokensPerSecond: number;
+		}>
+	>;
 	/** Total output tokens generated across all queries */
 	totalOutputTokens: number;
 	/** Total input tokens sent across all queries */
@@ -164,5 +176,6 @@ export interface StatsFilters {
  * Database schema version for migrations
  * Version 4: Added input_tokens, output_tokens, tokens_per_second columns to query_events
  * Version 5: Added cache_read_input_tokens, cache_creation_input_tokens, total_cost_usd columns
+ * Version 6: Added agent_id column for proper Maestro agent attribution
  */
-export const STATS_DB_VERSION = 5;
+export const STATS_DB_VERSION = 6;

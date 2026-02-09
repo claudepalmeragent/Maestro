@@ -15,10 +15,10 @@ const stmtCache = new StatementCache();
 
 const INSERT_SQL = `
   INSERT INTO query_events
-  (id, session_id, agent_type, source, start_time, duration, project_path, tab_id,
+  (id, session_id, agent_id, agent_type, source, start_time, duration, project_path, tab_id,
    is_remote, input_tokens, output_tokens, tokens_per_second,
    cache_read_input_tokens, cache_creation_input_tokens, total_cost_usd)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `;
 
 /**
@@ -31,6 +31,7 @@ export function insertQueryEvent(db: Database.Database, event: Omit<QueryEvent, 
 	stmt.run(
 		id,
 		event.sessionId,
+		event.agentId ?? null,
 		event.agentType,
 		event.source,
 		event.startTime,

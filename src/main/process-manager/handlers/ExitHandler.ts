@@ -30,6 +30,21 @@ export class ExitHandler {
 	}
 
 	/**
+	 * Extract the base Maestro agent ID from a session ID.
+	 * Strips batch/ai/synopsis suffixes to get the stable agent identifier.
+	 */
+	private extractBaseAgentId(sessionId: string): string {
+		const suffixPatterns = ['-batch-', '-ai-', '-synopsis-'];
+		for (const pattern of suffixPatterns) {
+			const idx = sessionId.indexOf(pattern);
+			if (idx !== -1) {
+				return sessionId.substring(0, idx);
+			}
+		}
+		return sessionId;
+	}
+
+	/**
 	 * Handle process exit event
 	 */
 	handleExit(sessionId: string, code: number): void {
@@ -168,6 +183,7 @@ export class ExitHandler {
 
 			this.emitter.emit('query-complete', sessionId, {
 				sessionId,
+				agentId: this.extractBaseAgentId(sessionId),
 				agentType: toolType,
 				source: managedProcess.querySource,
 				startTime: managedProcess.startTime,

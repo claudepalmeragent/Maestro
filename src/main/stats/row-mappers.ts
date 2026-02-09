@@ -20,6 +20,7 @@ import type { MigrationRecord } from './types';
 export interface QueryEventRow {
 	id: string;
 	session_id: string;
+	agent_id: string | null; // Maestro agent ID (stable identifier)
 	agent_type: string;
 	source: 'user' | 'auto';
 	start_time: number;
@@ -87,6 +88,7 @@ export function mapQueryEventRow(row: QueryEventRow): QueryEvent {
 	return {
 		id: row.id,
 		sessionId: row.session_id,
+		agentId: row.agent_id ?? undefined,
 		agentType: row.agent_type,
 		source: row.source,
 		startTime: row.start_time,
