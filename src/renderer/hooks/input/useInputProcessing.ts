@@ -602,6 +602,7 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 						busySource: currentMode,
 						thinkingStartTime: Date.now(),
 						currentCycleTokens: 0,
+						currentCycleBytes: 0, // Reset bytes too - was causing stale "338 tokens" display
 						// Context usage is now exclusively updated from agent-reported usage stats
 						// Remove artificial +5 increment that was causing erroneous 100% detection
 						shellCwd: newShellCwd,

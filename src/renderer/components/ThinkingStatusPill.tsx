@@ -240,12 +240,6 @@ const AutoRunPill = memo(
 		autoRunState: BatchRunState;
 		onStop?: () => void;
 	}) => {
-		// DEBUG: Log EVERY render with unique marker
-		console.error('🔵 [AUTORUN-PILL-XYZZY] Rendering AutoRunPill', {
-			currentTaskBytes: autoRunState.currentTaskBytes,
-			currentTaskTokens: autoRunState.currentTaskTokens,
-		});
-
 		const startTime = autoRunState.startTime || Date.now();
 		const { completedTasks, totalTasks, isStopping } = autoRunState;
 
@@ -260,15 +254,6 @@ const AutoRunPill = memo(
 		const displayTokens = currentTokens > 0 ? currentTokens : estimatedTokens;
 		const isEstimated = currentTokens === 0 && displayTokens > 0;
 		const isWaiting = displayTokens === 0;
-
-		// DEBUG: Log token calculation
-		console.error('🔵 [AUTORUN-PILL-XYZZY] Token calculation:', {
-			currentBytes,
-			currentTokens,
-			estimatedTokens,
-			displayTokens,
-			willShow: isWaiting ? '—' : `${formatTokensCompact(displayTokens)} tokens`,
-		});
 
 		// Calculate all token totals for comprehensive display (Phase 4)
 		// Agent tokens
@@ -501,13 +486,6 @@ function ThinkingStatusPillInner({
 }: ThinkingStatusPillProps) {
 	const [isExpanded, setIsExpanded] = useState(false);
 
-	// DEBUG: Log every render with unique marker
-	console.error('🟡 [YELLOW-PILL-XYZZY] Rendering ThinkingStatusPillInner', {
-		autoRunActive: autoRunState?.isRunning,
-		thinkingSessionsCount: thinkingSessions.length,
-		activeSessionId,
-	});
-
 	// If AutoRun is active for the current session, show the AutoRun pill instead
 	if (autoRunState?.isRunning) {
 		return <AutoRunPill theme={theme} autoRunState={autoRunState} onStop={onStopAutoRun} />;
@@ -536,16 +514,6 @@ function ThinkingStatusPillInner({
 		primaryBytes > 0 ? Math.floor(primaryBytes / BYTES_PER_TOKEN_ESTIMATE) : 0;
 	const displayTokens = primaryTokens > 0 ? primaryTokens : estimatedTokens;
 	const isEstimated = primaryTokens === 0 && displayTokens > 0;
-
-	// DEBUG: Log token calculation for yellow pill
-	console.error('🟡 [YELLOW-PILL-XYZZY] Token calculation:', {
-		primaryBytes,
-		primaryTokens,
-		estimatedTokens,
-		displayTokens,
-		isEstimated,
-		willShow: `${formatTokensCompact(displayTokens)} tokens`,
-	});
 
 	// Get display components - show more on larger screens
 	const maestroSessionName = primarySession.name;
