@@ -174,9 +174,70 @@ No duplicate/incorrect processing
 
 ---
 
+---
+
+## Part C: AutoRun Token Display Fix (Session ID Matching)
+
+**Commit:** `b0fe1c94` (fix(autorun): Fix token display using exact session ID matching)
+
+### Problem
+
+The AutoRun blue pill was showing a stuck "338 tokens" value at the START of each task, then flashing the real value at the end before resetting. Investigation revealed:
+
+1. The `338` value was consistent across all tasks (suspicious)
+2. 338 tokens ≈ 1183 bytes at 3.5 bytes/token estimation
+3. The tilde (~) indicated it was estimated from bytes, not actual token count
+4. The value appeared at task START, not during processing
+
+### Root Cause
+
+In `useBatchProcessor.ts`, listeners used **prefix-matching** to filter batch session events:
+
+```typescript
+// OLD (buggy) - matched ANY batch session for this Maestro session
+if (sid.startsWith(batchSessionPrefix)) {
+    dispatch({ type: 'UPDATE_TASK_BYTES', ... });
+}
+```
+
+The prefix pattern `${sessionId}-batch-` matched ALL batch sessions:
+- Task 1 session: `session123-batch-1700000001000`
+- Task 2 session: `session123-batch-1700000002000`
+- Both matched prefix: `session123-batch-`
+
+When Task 1's result arrived late (after Task 2's listener was set up), it was counted toward Task 2, causing the phantom "338 tokens" at task start.
+
+### Solution
+
+Moved the data/usage listeners INTO `spawnAgentForSession` where **exact session ID matching** (`===`) is used:
+
+1. **`src/renderer/hooks/agent/useAgentExecution.ts`**
+   - Added optional `callbacks` parameter: `{ onData?: (bytes: number) => void; onUsage?: (tokens: number) => void }`
+   - Callbacks are called from existing exact-match listeners (`sid === targetSessionId`)
+
+2. **`src/renderer/hooks/batch/useDocumentProcessor.ts`**
+   - Updated `DocumentProcessorCallbacks` interface with `tokenCallbacks` field
+   - Passes callbacks through to `onSpawnAgent`
+
+3. **`src/renderer/hooks/batch/useBatchProcessor.ts`**
+   - Removed prefix-matching listeners
+   - Now provides callback functions that dispatch to reducer
+   - Callbacks are invoked with exact session ID matching from inside `spawnAgentForSession`
+
+### Files Changed
+
+| File | Changes |
+|------|---------|
+| `useAgentExecution.ts` | +21 lines - Added callbacks param, wired to existing listeners |
+| `useBatchProcessor.ts` | -12 lines - Replaced listeners with callback approach |
+| `useDocumentProcessor.ts` | +17 lines - Updated interface, pass callbacks through |
+
+---
+
 ## Related Documents
 
 | Document | Location |
 |----------|----------|
 | Part A Summary | `__PLANS/__ARCHIVE/IMPLEMENTATION-SUMMARY-2026-02-09.md` |
-| Test Document | `/app/__AUTORUN/TEST-STATS-DB-FIX.md` |
+| Part B Summary | This document (sections above) |
+| Test Document | `/app/_AUTORUN/TEST-BATCH-STATS-DISPLAY.md` |
