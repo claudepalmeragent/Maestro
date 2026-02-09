@@ -346,7 +346,14 @@ const AutoRunPill = memo(
 					>
 						<span style={{ color: theme.colors.textDim }}>Current{isEstimated ? '~' : ''}:</span>
 						<span className="font-medium">
-							{isWaiting ? '—' : `${formatTokensCompact(displayTokens)} tokens`}
+							{(() => {
+								console.log('[AutoRunPill RENDER] Token display:', {
+									displayTokens,
+									isWaiting,
+									formatted: formatTokensCompact(displayTokens),
+								});
+								return isWaiting ? '—' : `${formatTokensCompact(displayTokens)} tokens`;
+							})()}
 						</span>
 						<span style={{ color: theme.colors.border }}>|</span>
 						<ThroughputDisplay
