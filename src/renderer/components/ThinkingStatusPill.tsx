@@ -255,6 +255,18 @@ const AutoRunPill = memo(
 		const isEstimated = currentTokens === 0 && displayTokens > 0;
 		const isWaiting = displayTokens === 0;
 
+		// DEBUG: Track where the 338 tokens comes from
+		if (displayTokens === 338) {
+			console.warn('[AutoRunPill DEBUG] 338 tokens detected!', {
+				currentBytes,
+				currentTokens,
+				estimatedTokens,
+				displayTokens,
+				isEstimated,
+				autoRunStateKeys: Object.keys(autoRunState),
+			});
+		}
+
 		// Calculate all token totals for comprehensive display (Phase 4)
 		// Agent tokens
 		const agentInputOutput =
