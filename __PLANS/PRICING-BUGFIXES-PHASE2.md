@@ -1,7 +1,8 @@
 # Pricing Enhancement - Phase 2 Bugfixes
 
 **Created:** 2026-02-09
-**Status:** Investigation Complete - Ready for Implementation
+**Updated:** 2026-02-09
+**Status:** ✅ Issues #2 and #3 COMPLETED - Issue #5 has separate plan
 **Priority:** High
 
 ---
@@ -13,10 +14,10 @@ After initial testing of the Claude API Pricing Enhancement (Phase 1), the follo
 | Issue | Description | Severity | Status |
 |-------|-------------|----------|--------|
 | #1 | Agent Settings Detection | ✅ Working | No fix needed |
-| #2 | Folder Settings Toggle Shows Blank | Minor | Ready to fix |
-| #3 | Folder Settings Shows "API Key" instead of "Max" | Critical | Ready to fix |
+| #2 | Folder Settings Toggle Shows Blank | Minor | ✅ **FIXED** |
+| #3 | Folder Settings Shows "API Key" instead of "Max" | Critical | ✅ **FIXED** |
 | #4 | Which is correct? | #1 correct, #3 bug | Analysis complete |
-| #5 | Usage Dashboard Still Uses API Pricing | Critical | Separate plan |
+| #5 | Usage Dashboard Still Uses API Pricing | Critical | Separate plan (COST-FIX-01 through 07) |
 
 ---
 
@@ -163,5 +164,21 @@ console.log(`[FolderSettings] Detected auth for ${session.name}:`, auth);
 
 ## Auto Run Documents
 
-- `__AUTORUN/PRICING-FIX-02-FOLDER-TOGGLE.md` - Fix for project toggle blank state
-- `__AUTORUN/PRICING-FIX-03-FOLDER-DETECTION.md` - Fix for detection showing API instead of Max
+### Completed (Archived)
+
+- `__AUTORUN/__ARCHIVE/PRICING-FIX-02-FOLDER-TOGGLE.md` - ✅ Fix for project toggle blank state
+- `__AUTORUN/__ARCHIVE/PRICING-FIX-03-FOLDER-DETECTION.md` - ✅ Fix for detection showing API instead of Max
+
+### Issue #5 - Usage Dashboard Cost Fix (7 Phases)
+
+See `/app/Maestro/__PLANS/PRICING-DASHBOARD-COST-FIX.md` for full details.
+
+| Phase | Auto Run Document | Description |
+|-------|-------------------|-------------|
+| 1 | `__AUTORUN/COST-FIX-01-SCHEMA-UPDATE.md` | Database schema changes |
+| 2 | `__AUTORUN/COST-FIX-02-DUAL-SOURCE-STORAGE.md` | Store both Anthropic and Maestro costs |
+| 3 | `__AUTORUN/COST-FIX-03-UPDATE-AGGREGATIONS.md` | Update SQL queries for dual columns |
+| 4 | `__AUTORUN/COST-FIX-04-AUDIT-SERVICE.md` | ccusage integration + scheduled audits |
+| 5 | `__AUTORUN/COST-FIX-05-AUDIT-UI.md` | Audit settings tab + report UI |
+| 6 | `__AUTORUN/COST-FIX-06-DISPLAY-GRAPHS.md` | Cost graphs with Local/Anthropic toggle |
+| 7 | `__AUTORUN/COST-FIX-07-RECONSTRUCTION.md` | JSONL parser + historical reconstruction |

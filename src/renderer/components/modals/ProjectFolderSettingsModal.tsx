@@ -61,7 +61,9 @@ function isClaudeAgent(session: Session): boolean {
 }
 
 /**
- * Calculate the project-level billing state from all agents
+ * Calculate the project-level billing state from all agents.
+ * Returns 'mixed' if agents have different explicit billing modes.
+ * If all agents are 'auto', uses detected billing mode if all match.
  */
 function calculateProjectBillingState(agents: AgentRowData[]): ProjectBillingState {
 	const claudeAgents = agents.filter((a) => a.isClaude);
@@ -74,8 +76,25 @@ function calculateProjectBillingState(agents: AgentRowData[]): ProjectBillingSta
 	// If all agents have the same explicit mode, return that mode
 	if (modes.size === 1) {
 		const mode = [...modes][0];
-		// If all are 'auto', treat as mixed since we don't know the resolved value
-		return mode === 'auto' ? 'mixed' : (mode as ClaudeBillingMode);
+
+		if (mode === 'auto') {
+			// All agents are 'auto' - check if all detected billing modes match
+			const detectedModes = new Set(
+				claudeAgents
+					.map((a) => a.detectedAuth?.billingMode)
+					.filter((m): m is ClaudeBillingMode => m !== undefined)
+			);
+
+			// If all detected modes match, use that mode for the project toggle
+			if (detectedModes.size === 1) {
+				return [...detectedModes][0];
+			}
+
+			// No detected modes or they differ - show mixed
+			return 'mixed';
+		}
+
+		return mode as ClaudeBillingMode;
 	}
 
 	return 'mixed';
@@ -238,12 +257,24 @@ export function ProjectFolderSettingsModal({
 
 				if (isClaude) {
 					try {
+						// Extract SSH remote ID from session config (if SSH is enabled)
+						const sshRemoteId = session.sessionSshRemoteConfig?.enabled
+							? (session.sessionSshRemoteConfig.remoteId ?? undefined)
+							: undefined;
+
 						const [pricingConfig, auth] = await Promise.all([
 							window.maestro.agents.getPricingConfig(session.toolType),
-							window.maestro.agents.detectAuth(session.toolType),
+							window.maestro.agents.detectAuth(session.toolType, sshRemoteId),
 						]);
 						billingMode = pricingConfig?.billingMode || 'auto';
 						detectedAuth = auth;
+
+						// Debug logging (can be removed after verification)
+						console.log(`[FolderSettings] Agent "${session.name}" detection:`, {
+							sshRemoteId,
+							detectedAuth: auth,
+							billingMode,
+						});
 					} catch (err) {
 						console.error(`Failed to load pricing config for ${session.id}:`, err);
 					}

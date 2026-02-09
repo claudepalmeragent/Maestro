@@ -264,6 +264,100 @@ describe('ProjectFolderSettingsModal', () => {
 				expect(screen.getByText('No Claude agents in this folder.')).toBeInTheDocument();
 			});
 		});
+
+		it('should show Max when all agents are auto and all detected as max', async () => {
+			// All agents are 'auto' mode, all detected as 'max'
+			mockGetPricingConfig.mockResolvedValue({ billingMode: 'auto', pricingModel: 'auto' });
+			mockDetectAuth.mockResolvedValue({
+				billingMode: 'max',
+				source: 'oauth',
+				detectedAt: Date.now(),
+			});
+
+			renderWithProvider(
+				<ProjectFolderSettingsModal
+					theme={createMockTheme()}
+					folder={createMockFolder()}
+					sessions={[
+						createMockSession({ id: 'session-1', name: 'Agent 1' }),
+						createMockSession({ id: 'session-2', name: 'Agent 2' }),
+					]}
+					onClose={vi.fn()}
+					onSave={vi.fn()}
+				/>
+			);
+
+			await waitFor(() => {
+				// Should NOT show mixed state warning because all detected modes are the same
+				expect(screen.queryByText(/Agents have different billing modes/)).not.toBeInTheDocument();
+				// Should show the agents loaded
+				expect(screen.getByText('Agent 1')).toBeInTheDocument();
+			});
+		});
+
+		it('should show API when all agents are auto and all detected as api', async () => {
+			// All agents are 'auto' mode, all detected as 'api'
+			mockGetPricingConfig.mockResolvedValue({ billingMode: 'auto', pricingModel: 'auto' });
+			mockDetectAuth.mockResolvedValue({
+				billingMode: 'api',
+				source: 'api-key',
+				detectedAt: Date.now(),
+			});
+
+			renderWithProvider(
+				<ProjectFolderSettingsModal
+					theme={createMockTheme()}
+					folder={createMockFolder()}
+					sessions={[
+						createMockSession({ id: 'session-1', name: 'Agent 1' }),
+						createMockSession({ id: 'session-2', name: 'Agent 2' }),
+					]}
+					onClose={vi.fn()}
+					onSave={vi.fn()}
+				/>
+			);
+
+			await waitFor(() => {
+				// Should NOT show mixed state warning because all detected modes are the same
+				expect(screen.queryByText(/Agents have different billing modes/)).not.toBeInTheDocument();
+				// Should show the agents loaded
+				expect(screen.getByText('Agent 1')).toBeInTheDocument();
+			});
+		});
+
+		it('should show mixed when agents are auto but have different detected modes', async () => {
+			// All agents are 'auto' mode, but detected modes differ
+			mockGetPricingConfig.mockResolvedValue({ billingMode: 'auto', pricingModel: 'auto' });
+			mockDetectAuth
+				.mockResolvedValueOnce({
+					billingMode: 'max',
+					source: 'oauth',
+					detectedAt: Date.now(),
+				})
+				.mockResolvedValueOnce({
+					billingMode: 'api',
+					source: 'api-key',
+					detectedAt: Date.now(),
+				});
+
+			renderWithProvider(
+				<ProjectFolderSettingsModal
+					theme={createMockTheme()}
+					folder={createMockFolder()}
+					sessions={[
+						createMockSession({ id: 'session-1', name: 'Agent 1' }),
+						createMockSession({ id: 'session-2', name: 'Agent 2' }),
+					]}
+					onClose={vi.fn()}
+					onSave={vi.fn()}
+				/>
+			);
+
+			await waitFor(() => {
+				// Should show mixed state warning because detected modes differ
+				expect(screen.getByText(/Agents have different billing modes/)).toBeInTheDocument();
+			});
+		});
 	});
 
 	describe('Agent Table', () => {
@@ -485,6 +579,157 @@ describe('ProjectFolderSettingsModal', () => {
 
 			fireEvent.click(screen.getByText('Cancel'));
 			expect(onClose).toHaveBeenCalled();
+		});
+	});
+
+	describe('SSH Remote Auth Detection', () => {
+		it('should pass SSH remote ID to detectAuth when session has SSH config enabled', async () => {
+			const sessionWithSsh = createMockSession({
+				name: 'SSH Agent',
+				sessionSshRemoteConfig: {
+					enabled: true,
+					remoteId: 'ssh-remote-1',
+				},
+			});
+
+			renderWithProvider(
+				<ProjectFolderSettingsModal
+					theme={createMockTheme()}
+					folder={createMockFolder()}
+					sessions={[sessionWithSsh]}
+					onClose={vi.fn()}
+					onSave={vi.fn()}
+				/>
+			);
+
+			await waitFor(() => {
+				expect(screen.getByText('SSH Agent')).toBeInTheDocument();
+			});
+
+			// Verify detectAuth was called with SSH remote ID
+			expect(mockDetectAuth).toHaveBeenCalledWith('claude-code', 'ssh-remote-1');
+		});
+
+		it('should pass undefined to detectAuth when session has SSH config disabled', async () => {
+			const sessionWithSshDisabled = createMockSession({
+				name: 'Local Agent',
+				sessionSshRemoteConfig: {
+					enabled: false,
+					remoteId: 'ssh-remote-1',
+				},
+			});
+
+			renderWithProvider(
+				<ProjectFolderSettingsModal
+					theme={createMockTheme()}
+					folder={createMockFolder()}
+					sessions={[sessionWithSshDisabled]}
+					onClose={vi.fn()}
+					onSave={vi.fn()}
+				/>
+			);
+
+			await waitFor(() => {
+				expect(screen.getByText('Local Agent')).toBeInTheDocument();
+			});
+
+			// Verify detectAuth was called without SSH remote ID (undefined)
+			expect(mockDetectAuth).toHaveBeenCalledWith('claude-code', undefined);
+		});
+
+		it('should pass undefined to detectAuth when session has no SSH config', async () => {
+			const sessionWithoutSsh = createMockSession({
+				name: 'Plain Agent',
+			});
+
+			renderWithProvider(
+				<ProjectFolderSettingsModal
+					theme={createMockTheme()}
+					folder={createMockFolder()}
+					sessions={[sessionWithoutSsh]}
+					onClose={vi.fn()}
+					onSave={vi.fn()}
+				/>
+			);
+
+			await waitFor(() => {
+				expect(screen.getByText('Plain Agent')).toBeInTheDocument();
+			});
+
+			// Verify detectAuth was called without SSH remote ID
+			expect(mockDetectAuth).toHaveBeenCalledWith('claude-code', undefined);
+		});
+
+		it('should correctly show OAuth (Max) for SSH remote agents with Max subscription', async () => {
+			mockDetectAuth.mockResolvedValue({
+				billingMode: 'max',
+				source: 'oauth',
+				detectedAt: Date.now(),
+			});
+
+			const sessionWithSsh = createMockSession({
+				name: 'SSH Max Agent',
+				sessionSshRemoteConfig: {
+					enabled: true,
+					remoteId: 'ssh-remote-1',
+				},
+			});
+
+			renderWithProvider(
+				<ProjectFolderSettingsModal
+					theme={createMockTheme()}
+					folder={createMockFolder()}
+					sessions={[sessionWithSsh]}
+					onClose={vi.fn()}
+					onSave={vi.fn()}
+				/>
+			);
+
+			await waitFor(() => {
+				expect(screen.getByText('OAuth (Max)')).toBeInTheDocument();
+			});
+		});
+
+		it('should handle mixed local and SSH agents correctly', async () => {
+			// Local agent detected as max, SSH agent detected as max
+			mockDetectAuth.mockResolvedValue({
+				billingMode: 'max',
+				source: 'oauth',
+				detectedAt: Date.now(),
+			});
+
+			const localAgent = createMockSession({
+				id: 'local-1',
+				name: 'Local Agent',
+			});
+
+			const sshAgent = createMockSession({
+				id: 'ssh-1',
+				name: 'SSH Agent',
+				sessionSshRemoteConfig: {
+					enabled: true,
+					remoteId: 'ssh-remote-1',
+				},
+			});
+
+			renderWithProvider(
+				<ProjectFolderSettingsModal
+					theme={createMockTheme()}
+					folder={createMockFolder()}
+					sessions={[localAgent, sshAgent]}
+					onClose={vi.fn()}
+					onSave={vi.fn()}
+				/>
+			);
+
+			await waitFor(() => {
+				expect(screen.getByText('Local Agent')).toBeInTheDocument();
+				expect(screen.getByText('SSH Agent')).toBeInTheDocument();
+			});
+
+			// Verify detectAuth was called correctly for each agent
+			expect(mockDetectAuth).toHaveBeenCalledWith('claude-code', undefined); // local
+			expect(mockDetectAuth).toHaveBeenCalledWith('claude-code', 'ssh-remote-1'); // ssh
 		});
 	});
 });
