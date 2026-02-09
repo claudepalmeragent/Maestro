@@ -234,10 +234,73 @@ Moved the data/usage listeners INTO `spawnAgentForSession` where **exact session
 
 ---
 
+## Part D: "338 Tokens" Stuck Display - Bash Warning Fix
+
+**Commit:** `0323fd78` (fix: Filter out bash warnings entirely from AI output)
+
+### Problem
+
+Both the yellow pill (Agent Sessions) and blue pill (AutoRun) were showing "338 tokens" at the start of every session, before any AI response arrived. The value would persist until real AI data overwrote it.
+
+### Investigation
+
+Debug logging revealed the source:
+
+```
+[338-DEBUG] Bytes approaching 338 token range {
+  dataLength: 1184,
+  previousBytes: 0,
+  newTotal: 1184,
+  estimatedTokens: 338,
+  dataPreview: 'bash: warning: setlocale: LC_CTYPE: cannot change locale (en_US.UTF-8): No such file or directory\rbash: warning: setlocale: LC_CTYPE: cannot change locale (en_US.UTF-8): No such file or directory...'
+}
+```
+
+### Root Cause
+
+**Bash locale warnings** from the SSH connection were being emitted before Claude's response and counted as AI output:
+
+```
+bash: warning: setlocale: LC_CTYPE: cannot change locale (en_US.UTF-8): No such file or directory
+bash: warning: setlocale: LC_COLLATE: cannot change locale (en_US.UTF-8): No such file or directory
+```
+
+These warnings totaled **1184 bytes**, which at 3.5 bytes/token = **338 tokens** exactly.
+
+### Solution
+
+Filter out bash warnings entirely in the `onData` handler - they're shell noise, not AI content:
+
+**`src/renderer/App.tsx`**
+```typescript
+// Filter out bash warnings (setlocale, etc.) that appear via SSH before AI response
+// These are shell noise, not useful content - skip them entirely
+const isBashWarning = data.startsWith('bash: warning:') || data.includes('\rbash: warning:');
+if (isBashWarning) {
+    return;
+}
+```
+
+### Result
+
+- Pill now shows "Thinking..." until real AI data arrives
+- No more phantom "338 tokens" display
+- Bash warnings are completely filtered from conversation log
+
+### Files Changed
+
+| File | Changes |
+|------|---------|
+| `App.tsx` | +6 lines - Early return for bash warning data |
+
+---
+
 ## Related Documents
 
 | Document | Location |
 |----------|----------|
 | Part A Summary | `__PLANS/__ARCHIVE/IMPLEMENTATION-SUMMARY-2026-02-09.md` |
 | Part B Summary | This document (sections above) |
+| Part C Summary | This document (Session ID Matching section) |
+| Part D Summary | This document (Bash Warning Fix section) |
 | Test Document | `/app/_AUTORUN/TEST-BATCH-STATS-DISPLAY.md` |
