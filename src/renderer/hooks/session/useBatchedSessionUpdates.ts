@@ -506,11 +506,12 @@ export function useBatchedSessionUpdates(
 					};
 				}
 
-				// Apply cycle tokens
+				// Apply cycle tokens - use latest value, not accumulated
+				// "Current" should show tokens from most recent response, not sum of all responses
 				if (acc.cycleTokensDelta !== undefined) {
 					updatedSession = {
 						...updatedSession,
-						currentCycleTokens: (updatedSession.currentCycleTokens || 0) + acc.cycleTokensDelta,
+						currentCycleTokens: acc.cycleTokensDelta,
 					};
 				}
 
@@ -716,7 +717,8 @@ export function useBatchedSessionUpdates(
 	const updateCycleTokens = useCallback(
 		(sessionId: string, tokens: number) => {
 			const acc = getAccumulator(sessionId);
-			acc.cycleTokensDelta = (acc.cycleTokensDelta || 0) + tokens;
+			// Use latest token count, not accumulated - "Current" shows most recent response
+			acc.cycleTokensDelta = tokens;
 			acc.changedFields.add('cycleMetrics');
 			hasPendingRef.current = true;
 		},

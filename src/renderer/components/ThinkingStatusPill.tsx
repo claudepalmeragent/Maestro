@@ -522,7 +522,9 @@ function ThinkingStatusPillInner({
 	const writeModeTab = getWriteModeTab(primarySession);
 
 	// Get cumulative session usage stats for display
-	const sessionUsage = writeModeTab?.usageStats || primarySession.usageStats;
+	// Use session-level stats (accumulated, never decreases) not tab-level (reflects current context)
+	// Context window info is already shown at top of app
+	const sessionUsage = primarySession.usageStats;
 	const sessionInputOutput = sessionUsage
 		? (sessionUsage.inputTokens || 0) + (sessionUsage.outputTokens || 0)
 		: 0;
