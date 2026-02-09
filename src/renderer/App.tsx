@@ -1818,7 +1818,7 @@ function MaestroConsoleInner() {
 			const session = sessionsRef.current.find((s) => s.id === actualSessionId);
 			const currentBytes = (session?.currentCycleBytes || 0) + data.length;
 			if (currentBytes >= 1150 && currentBytes <= 1220) {
-				console.error('🔴 [338-DEBUG] Bytes approaching 338 token range:', {
+				window.maestro.logger.log('warn', '[338-DEBUG] Bytes approaching 338 token range', 'App', {
 					sessionId: actualSessionId,
 					dataLength: data.length,
 					previousBytes: session?.currentCycleBytes || 0,
