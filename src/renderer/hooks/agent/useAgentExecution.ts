@@ -217,13 +217,6 @@ export function useAgentExecution(deps: UseAgentExecutionDeps): UseAgentExecutio
 						window.maestro.process.onData((sid: string, data: string) => {
 							if (sid === targetSessionId) {
 								responseText += data;
-								// DEBUG: Log data events to find source of 338 tokens
-								console.log('[spawnAgentForSession DEBUG] onData received:', {
-									sessionId: sid,
-									dataLength: data.length,
-									totalResponseLength: responseText.length,
-									dataPreview: data.substring(0, 200),
-								});
 								// Call optional callback for real-time byte tracking (Auto Run)
 								callbacks?.onData?.(data.length);
 							}

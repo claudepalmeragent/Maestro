@@ -692,17 +692,6 @@ export function batchReducer(state: BatchState, action: BatchAction): BatchState
 			if (!currentState) return state;
 
 			const newBytes = (currentState.currentTaskBytes || 0) + payload.bytes;
-			// DEBUG: Track byte accumulation to find source of 338 tokens (1183-1186 bytes)
-			if (newBytes >= 1180 && newBytes <= 1190) {
-				console.warn('[batchReducer DEBUG] Bytes in 338-token range!', {
-					sessionId,
-					previousBytes: currentState.currentTaskBytes || 0,
-					addedBytes: payload.bytes,
-					newTotal: newBytes,
-					estimatedTokens: Math.floor(newBytes / 3.5),
-				});
-				console.trace('[batchReducer DEBUG] Stack trace for 338 tokens:');
-			}
 
 			return {
 				...state,
