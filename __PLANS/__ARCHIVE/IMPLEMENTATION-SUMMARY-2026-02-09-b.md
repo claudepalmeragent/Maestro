@@ -295,6 +295,98 @@ if (isBashWarning) {
 
 ---
 
+## Part E: Token Display Improvements (Cumulative Normalization & UI)
+
+**Commit:** `4fd009f0` (fix(stats): Normalize cumulative usage for all agents and improve token display)
+
+### Problems
+
+1. **"Current" tokens accumulating across rounds**: The yellow pill's "Current" token count was accumulating within a session instead of showing only the latest thinking cycle's tokens.
+
+2. **"Session" tokens decreasing on context compaction**: When Claude Code compacts context, the session token totals would decrease, confusing users.
+
+3. **Cache tokens not bold**: The cache token value in the pill had `opacity: 0.7`, making it appear less prominent than input+output tokens.
+
+4. **"Session" label ambiguous**: With the pill now showing "Thinking..." initially, the bare "Session:" label was unclear.
+
+### Root Cause
+
+**Issue 1 - Current tokens accumulating:**
+
+Claude Code reports **cumulative** usage totals (like Codex), not per-request deltas. The `normalizeCumulativeUsage` function was only applied to Codex:
+
+```typescript
+// OLD - Only Codex normalized
+if (managedProcess.toolType === 'codex') {
+    normalizedUsageStats = normalizeCodexUsage(managedProcess, usageStats);
+} else {
+    normalizedUsageStats = usageStats;  // Claude passed through raw!
+}
+```
+
+When Claude reports usage (100, 200, 300...), these cumulative values were being added to `currentCycleTokens`, causing: 100 + 200 + 300 = 600 instead of just showing the delta.
+
+**Issue 2 - Session tokens decreasing:**
+
+Tab-level usage stats were being **replaced** instead of **accumulated** in `useBatchedSessionUpdates.ts`:
+
+```typescript
+// OLD - Replacement, not accumulation
+usageStats: {
+    inputTokens: tabUsageDelta.inputTokens,  // Current (not accumulated)
+    outputTokens: tabUsageDelta.outputTokens, // Current (not accumulated)
+    ...
+}
+```
+
+When context compacts, Claude's reported input tokens decrease, causing the displayed total to decrease.
+
+### Solution
+
+**Fix 1 - Apply normalization to all agents:**
+
+Renamed `normalizeCodexUsage` → `normalizeCumulativeUsage` and applied to all agents:
+
+```typescript
+// NEW - All agents normalized
+const normalizedUsageStats = normalizeCumulativeUsage(managedProcess, usageStats);
+```
+
+The function auto-detects cumulative vs delta reporting via monotonicity check.
+
+**Fix 2 - Accumulate all usage stats:**
+
+Changed tab-level accumulator to add deltas to existing values:
+
+```typescript
+// NEW - Accumulate, never replace
+usageStats: {
+    inputTokens: (existing?.inputTokens || 0) + tabUsageDelta.inputTokens,
+    outputTokens: (existing?.outputTokens || 0) + tabUsageDelta.outputTokens,
+    ...
+}
+```
+
+**Fix 3 & 4 - UI improvements:**
+
+```tsx
+// Label change
+<span>Session Tokens:</span>  // Was "Session:"
+
+// Cache token styling - remove opacity
+style={{ color: theme.colors.textMain }}  // Was opacity: 0.7
+```
+
+### Files Changed
+
+| File | Changes |
+|------|---------|
+| `StdoutHandler.ts` | Renamed function, apply to all agents |
+| `useBatchedSessionUpdates.ts` | Tab-level accumulation matches session-level |
+| `ThinkingStatusPill.tsx` | Label + styling updates |
+
+---
+
 ## Related Documents
 
 | Document | Location |
@@ -303,4 +395,5 @@ if (isBashWarning) {
 | Part B Summary | This document (sections above) |
 | Part C Summary | This document (Session ID Matching section) |
 | Part D Summary | This document (Bash Warning Fix section) |
+| Part E Summary | This document (Token Display Improvements section) |
 | Test Document | `/app/_AUTORUN/TEST-BATCH-STATS-DISPLAY.md` |
