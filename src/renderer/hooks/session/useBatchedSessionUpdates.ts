@@ -450,8 +450,10 @@ export function useBatchedSessionUpdates(
 								if (!tabUsageDelta) return tab;
 
 								const existing = tab.usageStats;
+								const existingCumulative = tab.cumulativeUsageStats;
 								return {
 									...tab,
+									// Current context window state (replaced each response)
 									usageStats: {
 										inputTokens: tabUsageDelta.inputTokens, // Current (not accumulated)
 										cacheReadInputTokens: tabUsageDelta.cacheReadInputTokens,
@@ -460,6 +462,24 @@ export function useBatchedSessionUpdates(
 										outputTokens: tabUsageDelta.outputTokens, // Current (not accumulated)
 										totalCostUsd: (existing?.totalCostUsd || 0) + tabUsageDelta.totalCostUsd,
 										reasoningTokens: tabUsageDelta.reasoningTokens,
+									},
+									// Cumulative totals for pill display (never decreases)
+									cumulativeUsageStats: {
+										inputTokens: (existingCumulative?.inputTokens || 0) + tabUsageDelta.inputTokens,
+										outputTokens:
+											(existingCumulative?.outputTokens || 0) + tabUsageDelta.outputTokens,
+										cacheReadInputTokens:
+											(existingCumulative?.cacheReadInputTokens || 0) +
+											tabUsageDelta.cacheReadInputTokens,
+										cacheCreationInputTokens:
+											(existingCumulative?.cacheCreationInputTokens || 0) +
+											tabUsageDelta.cacheCreationInputTokens,
+										totalCostUsd:
+											(existingCumulative?.totalCostUsd || 0) + tabUsageDelta.totalCostUsd,
+										reasoningTokens:
+											(existingCumulative?.reasoningTokens || 0) +
+											(tabUsageDelta.reasoningTokens || 0),
+										contextWindow: tabUsageDelta.contextWindow,
 									},
 								};
 							}),

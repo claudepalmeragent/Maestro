@@ -477,7 +477,8 @@ export interface AITab {
 	agentError?: AgentError; // Tab-specific agent error (shown in banner)
 	inputValue: string; // Pending input text for this tab
 	stagedImages: string[]; // Staged images (base64) for this tab
-	usageStats?: UsageStats; // Token usage for this tab
+	usageStats?: UsageStats; // Token usage for this tab (current context window state)
+	cumulativeUsageStats?: UsageStats; // Cumulative token usage (never decreases, for pill display)
 	createdAt: number; // Timestamp for ordering
 	state: 'idle' | 'busy'; // Tab-level state for write-mode tracking
 	readOnlyMode?: boolean; // When true, agent operates in plan/read-only mode

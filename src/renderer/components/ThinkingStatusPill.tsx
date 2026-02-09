@@ -521,10 +521,10 @@ function ThinkingStatusPillInner({
 	// Get the write-mode tab to display its info (for tabified sessions)
 	const writeModeTab = getWriteModeTab(primarySession);
 
-	// Get cumulative session usage stats for display
-	// Use session-level stats (accumulated, never decreases) not tab-level (reflects current context)
+	// Get cumulative usage stats for display (per-tab, never decreases)
+	// Use tab's cumulativeUsageStats which accumulates over time, falling back to session-level
 	// Context window info is already shown at top of app
-	const sessionUsage = primarySession.usageStats;
+	const sessionUsage = writeModeTab?.cumulativeUsageStats || primarySession.usageStats;
 	const sessionInputOutput = sessionUsage
 		? (sessionUsage.inputTokens || 0) + (sessionUsage.outputTokens || 0)
 		: 0;
