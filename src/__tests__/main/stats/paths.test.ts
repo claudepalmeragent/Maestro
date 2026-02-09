@@ -714,10 +714,11 @@ describe('File path normalization in database (forward slashes consistently)', (
 			});
 
 			// Verify that the statement was called with normalized path
-			// insertQueryEvent now has 12 parameters: id, sessionId, agentType, source, startTime, duration, projectPath, tabId, isRemote, inputTokens, outputTokens, tokensPerSecond
+			// insertQueryEvent now has 16 parameters: id, sessionId, agentId, agentType, source, startTime, duration, projectPath, tabId, isRemote, inputTokens, outputTokens, tokensPerSecond, cacheReadInputTokens, cacheCreationInputTokens, totalCostUsd
 			expect(mockStatement.run).toHaveBeenCalledWith(
 				expect.any(String), // id
 				'session-1',
+				null, // agentId (undefined → null)
 				'claude-code',
 				'user',
 				expect.any(Number), // startTime
@@ -727,7 +728,10 @@ describe('File path normalization in database (forward slashes consistently)', (
 				null, // isRemote (undefined → null)
 				null, // inputTokens (undefined → null)
 				null, // outputTokens (undefined → null)
-				null // tokensPerSecond (undefined → null)
+				null, // tokensPerSecond (undefined → null)
+				null, // cacheReadInputTokens (undefined → null)
+				null, // cacheCreationInputTokens (undefined → null)
+				null // totalCostUsd (undefined → null)
 			);
 		});
 
@@ -746,10 +750,11 @@ describe('File path normalization in database (forward slashes consistently)', (
 				tabId: 'tab-1',
 			});
 
-			// insertQueryEvent now has 12 parameters including token fields
+			// insertQueryEvent now has 16 parameters including token and cost fields
 			expect(mockStatement.run).toHaveBeenCalledWith(
 				expect.any(String),
 				'session-1',
+				null, // agentId (undefined → null)
 				'claude-code',
 				'user',
 				expect.any(Number),
@@ -759,7 +764,10 @@ describe('File path normalization in database (forward slashes consistently)', (
 				null, // isRemote (undefined → null)
 				null, // inputTokens (undefined → null)
 				null, // outputTokens (undefined → null)
-				null // tokensPerSecond (undefined → null)
+				null, // tokensPerSecond (undefined → null)
+				null, // cacheReadInputTokens (undefined → null)
+				null, // cacheCreationInputTokens (undefined → null)
+				null // totalCostUsd (undefined → null)
 			);
 		});
 
@@ -777,10 +785,11 @@ describe('File path normalization in database (forward slashes consistently)', (
 				// projectPath is undefined
 			});
 
-			// insertQueryEvent now has 12 parameters including token fields
+			// insertQueryEvent now has 16 parameters including token and cost fields
 			expect(mockStatement.run).toHaveBeenCalledWith(
 				expect.any(String),
 				'session-1',
+				null, // agentId (undefined → null)
 				'claude-code',
 				'user',
 				expect.any(Number),
@@ -790,7 +799,10 @@ describe('File path normalization in database (forward slashes consistently)', (
 				null, // isRemote undefined → null
 				null, // inputTokens (undefined → null)
 				null, // outputTokens (undefined → null)
-				null // tokensPerSecond (undefined → null)
+				null, // tokensPerSecond (undefined → null)
+				null, // cacheReadInputTokens (undefined → null)
+				null, // cacheCreationInputTokens (undefined → null)
+				null // totalCostUsd (undefined → null)
 			);
 		});
 	});
