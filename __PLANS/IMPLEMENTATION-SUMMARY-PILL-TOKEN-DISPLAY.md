@@ -1,7 +1,9 @@
 # Implementation Summary: Pill Token Display Fixes
 
 **Date:** 2026-02-09
-**Commit:** `038750b3`
+**Commits:**
+- `038750b3` - fix(pills): Show latest response tokens and cumulative session totals
+- `5280dec9` - fix(pills): Add per-tab cumulative token tracking for Session Tokens display
 **Plan:** `PILL-TOKEN-DISPLAY-FIX-PLAN.md`
 
 ---
@@ -11,7 +13,7 @@
 Fixed two display issues in the yellow (Agent Session) and blue (AutoRun) thinking status pills:
 
 1. **"Current" tokens** - Now shows latest response tokens instead of accumulated total
-2. **"Session Tokens"** - Now shows true cumulative totals that never decrease
+2. **"Session Tokens"** - Now shows per-tab cumulative totals that never decrease
 
 ---
 
@@ -39,18 +41,38 @@ currentCycleTokens: acc.cycleTokensDelta,
 
 **Why:** Multiple API responses within a thinking cycle were being summed. Now shows only the latest.
 
-### File 2: `src/renderer/components/ThinkingStatusPill.tsx`
+**Change 1c - Per-tab cumulative tracking (line ~466):**
+```typescript
+// NEW - alongside existing usageStats
+cumulativeUsageStats: {
+    inputTokens: (existingCumulative?.inputTokens || 0) + tabUsageDelta.inputTokens,
+    outputTokens: (existingCumulative?.outputTokens || 0) + tabUsageDelta.outputTokens,
+    // ... same for cache tokens, cost, reasoning
+},
+```
 
-**Change 2 - Data source (line ~525):**
+**Why:** Users have ~12 tabs per Agent and need per-tab cumulative totals, not session-wide.
+
+### File 2: `src/renderer/types/index.ts`
+
+**Change 2 - Add type field:**
+```typescript
+// In AITab interface
+cumulativeUsageStats?: UsageStats; // Cumulative token usage (never decreases, for pill display)
+```
+
+### File 3: `src/renderer/components/ThinkingStatusPill.tsx`
+
+**Change 3 - Data source (line ~525):**
 ```typescript
 // BEFORE
 const sessionUsage = writeModeTab?.usageStats || primarySession.usageStats;
 
 // AFTER
-const sessionUsage = primarySession.usageStats;
+const sessionUsage = writeModeTab?.cumulativeUsageStats || primarySession.usageStats;
 ```
 
-**Why:** Tab-level stats get replaced on each response (reflecting current context window). Session-level stats accumulate correctly and never decrease.
+**Why:** Use per-tab cumulative stats (never decreases), falling back to session-level for tabs without cumulative data yet.
 
 ---
 
@@ -61,7 +83,12 @@ const sessionUsage = primarySession.usageStats;
 - Cost calculations - Use separate `totalCostUsd` tracking
 - Context window display at top of app - Uses different data source
 - Global stats in green pill - Uses `globalStats`, not session stats
-- Any persistent data storage
+- Existing `tab.usageStats` - Still shows current context window (used by other parts of app)
+
+## Persistence
+
+- `cumulativeUsageStats` **persists across app restarts** (not in runtime-only exclusion list)
+- Existing tabs will start accumulating from 0 after upgrade (no migration needed)
 
 ---
 
@@ -88,8 +115,9 @@ ThinkingStatusPill
 | System | Purpose | Accumulation | Used For |
 |--------|---------|--------------|----------|
 | `currentCycleTokens` | Latest response | Replace | "Current" display |
-| `session.usageStats` | Cumulative totals | Add | "Session Tokens" display |
+| `tab.cumulativeUsageStats` | Per-tab cumulative | Add | "Session Tokens" display (NEW) |
 | `tab.usageStats` | Current context | Replace | Context window (top of app) |
+| `session.usageStats` | Session-wide cumulative | Add | Fallback if no tab cumulative |
 | `globalStats` | All sessions | Add | Green pill at top |
 
 ---
