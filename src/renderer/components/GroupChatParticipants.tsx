@@ -34,6 +34,8 @@ interface GroupChatParticipantsProps {
 	moderatorState: SessionState;
 	/** Moderator usage stats (context, cost, tokens) */
 	moderatorUsage?: { contextUsage: number; totalCost: number; tokenCount: number } | null;
+	/** Whether this is a Max subscriber (affects cost display) */
+	isMaxSubscriber?: boolean;
 }
 
 export function GroupChatParticipants({
@@ -51,6 +53,7 @@ export function GroupChatParticipants({
 	moderatorAgentSessionId,
 	moderatorState,
 	moderatorUsage,
+	isMaxSubscriber,
 }: GroupChatParticipantsProps): JSX.Element | null {
 	// Generate consistent colors for all participants (including "Moderator" for the moderator card)
 	const participantColors = useMemo(() => {
@@ -153,6 +156,7 @@ export function GroupChatParticipants({
 					participant={moderatorParticipant}
 					state={moderatorState}
 					color={participantColors['Moderator']}
+					isMaxSubscriber={isMaxSubscriber}
 				/>
 
 				{/* Separator between moderator and participants */}
@@ -177,6 +181,7 @@ export function GroupChatParticipants({
 							color={participantColors[participant.name]}
 							groupChatId={groupChatId}
 							onContextReset={handleContextReset}
+							isMaxSubscriber={isMaxSubscriber}
 						/>
 					))
 				)}

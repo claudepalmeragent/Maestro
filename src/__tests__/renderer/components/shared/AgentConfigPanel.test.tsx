@@ -37,6 +37,11 @@ vi.mock('lucide-react', () => ({
 			▼
 		</span>
 	),
+	AlertTriangle: ({ className }: { className?: string }) => (
+		<span data-testid="alert-triangle-icon" className={className}>
+			⚠
+		</span>
+	),
 }));
 
 // =============================================================================
@@ -54,6 +59,7 @@ function createMockTheme(): Theme {
 			textMain: '#ffffff',
 			textDim: '#888888',
 			accent: '#6366f1',
+			accentDim: '#4f46e5',
 			border: '#333333',
 			success: '#22c55e',
 			error: '#ef4444',
@@ -241,6 +247,267 @@ describe('AgentConfigPanel', () => {
 			render(<AgentConfigPanel {...createDefaultProps()} />);
 
 			expect(screen.getByText('Environment Variables (optional)')).toBeInTheDocument();
+		});
+	});
+
+	describe('Billing mode section (Claude agents only)', () => {
+		it('should show billing mode section for Claude Code agent with onBillingModeChange', () => {
+			render(
+				<AgentConfigPanel
+					{...createDefaultProps({
+						agent: createMockAgent({ id: 'claude-code' }),
+						onBillingModeChange: vi.fn(),
+					})}
+				/>
+			);
+
+			expect(screen.getByText('Billing Mode')).toBeInTheDocument();
+			expect(screen.getByText('Auto')).toBeInTheDocument();
+			expect(screen.getByText('Max')).toBeInTheDocument();
+			expect(screen.getByText('API')).toBeInTheDocument();
+		});
+
+		it('should NOT show billing mode section for non-Claude agents', () => {
+			render(
+				<AgentConfigPanel
+					{...createDefaultProps({
+						agent: createMockAgent({ id: 'opencode' }),
+						onBillingModeChange: vi.fn(),
+					})}
+				/>
+			);
+
+			expect(screen.queryByText('Billing Mode')).not.toBeInTheDocument();
+		});
+
+		it('should NOT show billing mode section without onBillingModeChange handler', () => {
+			render(
+				<AgentConfigPanel
+					{...createDefaultProps({
+						agent: createMockAgent({ id: 'claude-code' }),
+						// No onBillingModeChange
+					})}
+				/>
+			);
+
+			expect(screen.queryByText('Billing Mode')).not.toBeInTheDocument();
+		});
+
+		it('should show detected mode indicator when in Auto mode', () => {
+			render(
+				<AgentConfigPanel
+					{...createDefaultProps({
+						agent: createMockAgent({ id: 'claude-code' }),
+						onBillingModeChange: vi.fn(),
+						pricingConfig: { billingMode: 'auto', pricingModel: 'auto' },
+						detectedAuth: { billingMode: 'max', source: 'oauth', detectedAt: Date.now() },
+					})}
+				/>
+			);
+
+			expect(screen.getByText('Detected: Max')).toBeInTheDocument();
+		});
+
+		it('should show folder inheritance indicator when Auto mode and folder has config', () => {
+			render(
+				<AgentConfigPanel
+					{...createDefaultProps({
+						agent: createMockAgent({ id: 'claude-code' }),
+						onBillingModeChange: vi.fn(),
+						pricingConfig: { billingMode: 'auto', pricingModel: 'auto' },
+						folderPricingConfig: { billingMode: 'max' },
+					})}
+				/>
+			);
+
+			expect(screen.getByText(/Inheriting.*Max.*from project folder/)).toBeInTheDocument();
+		});
+
+		it('should NOT show folder inheritance indicator when not in Auto mode', () => {
+			render(
+				<AgentConfigPanel
+					{...createDefaultProps({
+						agent: createMockAgent({ id: 'claude-code' }),
+						onBillingModeChange: vi.fn(),
+						pricingConfig: { billingMode: 'api', pricingModel: 'auto' },
+						folderPricingConfig: { billingMode: 'max' },
+					})}
+				/>
+			);
+
+			expect(screen.queryByText(/Inheriting/)).not.toBeInTheDocument();
+		});
+
+		it('should show mismatch warning when selection differs from detected', () => {
+			render(
+				<AgentConfigPanel
+					{...createDefaultProps({
+						agent: createMockAgent({ id: 'claude-code' }),
+						onBillingModeChange: vi.fn(),
+						pricingConfig: { billingMode: 'api', pricingModel: 'auto' },
+						detectedAuth: { billingMode: 'max', source: 'oauth', detectedAt: Date.now() },
+					})}
+				/>
+			);
+
+			expect(
+				screen.getByText(/logged in with Claude Max but selected API pricing/)
+			).toBeInTheDocument();
+			expect(screen.getByTestId('alert-triangle-icon')).toBeInTheDocument();
+		});
+
+		it('should show correct warning when Max is selected but API key is used', () => {
+			render(
+				<AgentConfigPanel
+					{...createDefaultProps({
+						agent: createMockAgent({ id: 'claude-code' }),
+						onBillingModeChange: vi.fn(),
+						pricingConfig: { billingMode: 'max', pricingModel: 'auto' },
+						detectedAuth: { billingMode: 'api', source: 'api_key', detectedAt: Date.now() },
+					})}
+				/>
+			);
+
+			expect(screen.getByText(/using an API key but selected Max pricing/)).toBeInTheDocument();
+		});
+
+		it('should NOT show mismatch warning when in Auto mode', () => {
+			render(
+				<AgentConfigPanel
+					{...createDefaultProps({
+						agent: createMockAgent({ id: 'claude-code' }),
+						onBillingModeChange: vi.fn(),
+						pricingConfig: { billingMode: 'auto', pricingModel: 'auto' },
+						detectedAuth: { billingMode: 'max', source: 'oauth', detectedAt: Date.now() },
+					})}
+				/>
+			);
+
+			expect(screen.queryByText(/logged in with Claude Max/)).not.toBeInTheDocument();
+			expect(screen.queryByText(/using an API key/)).not.toBeInTheDocument();
+		});
+
+		it('should NOT show mismatch warning when selection matches detected', () => {
+			render(
+				<AgentConfigPanel
+					{...createDefaultProps({
+						agent: createMockAgent({ id: 'claude-code' }),
+						onBillingModeChange: vi.fn(),
+						pricingConfig: { billingMode: 'max', pricingModel: 'auto' },
+						detectedAuth: { billingMode: 'max', source: 'oauth', detectedAt: Date.now() },
+					})}
+				/>
+			);
+
+			expect(screen.queryByText(/logged in with Claude Max/)).not.toBeInTheDocument();
+			expect(screen.queryByText(/using an API key/)).not.toBeInTheDocument();
+		});
+
+		it('should show help text for billing modes', () => {
+			render(
+				<AgentConfigPanel
+					{...createDefaultProps({
+						agent: createMockAgent({ id: 'claude-code' }),
+						onBillingModeChange: vi.fn(),
+					})}
+				/>
+			);
+
+			expect(screen.getByText(/Max: Cache tokens are free/)).toBeInTheDocument();
+			expect(screen.getByText(/API: All tokens charged at model rates/)).toBeInTheDocument();
+		});
+	});
+
+	describe('Pricing model section (Claude agents only)', () => {
+		it('should show pricing model section for Claude Code agent with onPricingModelChange', () => {
+			render(
+				<AgentConfigPanel
+					{...createDefaultProps({
+						agent: createMockAgent({ id: 'claude-code' }),
+						onPricingModelChange: vi.fn(),
+					})}
+				/>
+			);
+
+			expect(screen.getByText('Pricing Model')).toBeInTheDocument();
+			expect(screen.getByText('Auto-detect')).toBeInTheDocument();
+		});
+
+		it('should NOT show pricing model section for non-Claude agents', () => {
+			render(
+				<AgentConfigPanel
+					{...createDefaultProps({
+						agent: createMockAgent({ id: 'opencode' }),
+						onPricingModelChange: vi.fn(),
+					})}
+				/>
+			);
+
+			expect(screen.queryByText('Pricing Model')).not.toBeInTheDocument();
+		});
+
+		it('should NOT show pricing model section without onPricingModelChange handler', () => {
+			render(
+				<AgentConfigPanel
+					{...createDefaultProps({
+						agent: createMockAgent({ id: 'claude-code' }),
+						// No onPricingModelChange
+					})}
+				/>
+			);
+
+			expect(screen.queryByText('Pricing Model')).not.toBeInTheDocument();
+		});
+
+		it('should show detected model indicator when in Auto mode', () => {
+			render(
+				<AgentConfigPanel
+					{...createDefaultProps({
+						agent: createMockAgent({ id: 'claude-code' }),
+						onPricingModelChange: vi.fn(),
+						pricingConfig: {
+							billingMode: 'auto',
+							pricingModel: 'auto',
+							detectedModel: 'claude-opus-4-5-20251101',
+						},
+					})}
+				/>
+			);
+
+			expect(screen.getByText('Detected: Opus 4.5')).toBeInTheDocument();
+		});
+
+		it('should NOT show detected model indicator when model is manually set', () => {
+			render(
+				<AgentConfigPanel
+					{...createDefaultProps({
+						agent: createMockAgent({ id: 'claude-code' }),
+						onPricingModelChange: vi.fn(),
+						pricingConfig: {
+							billingMode: 'auto',
+							pricingModel: 'claude-sonnet-4-20250514',
+							detectedModel: 'claude-opus-4-5-20251101',
+						},
+					})}
+				/>
+			);
+
+			expect(screen.queryByText(/Detected:/)).not.toBeInTheDocument();
+		});
+
+		it('should show help text for pricing model', () => {
+			render(
+				<AgentConfigPanel
+					{...createDefaultProps({
+						agent: createMockAgent({ id: 'claude-code' }),
+						onPricingModelChange: vi.fn(),
+					})}
+				/>
+			);
+
+			expect(
+				screen.getByText(/Override the detected model for cost calculations/)
+			).toBeInTheDocument();
 		});
 	});
 });

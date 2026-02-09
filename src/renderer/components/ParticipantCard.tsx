@@ -18,6 +18,8 @@ interface ParticipantCardProps {
 	color?: string;
 	groupChatId?: string;
 	onContextReset?: (participantName: string) => void;
+	/** Whether this is a Max subscriber (affects cost display tooltip) */
+	isMaxSubscriber?: boolean;
 }
 
 /**
@@ -38,6 +40,7 @@ export function ParticipantCard({
 	color,
 	groupChatId,
 	onContextReset,
+	isMaxSubscriber,
 }: ParticipantCardProps): JSX.Element {
 	const [copied, setCopied] = useState(false);
 	const [isResetting, setIsResetting] = useState(false);
@@ -200,7 +203,7 @@ export function ParticipantCard({
 							backgroundColor: `${theme.colors.success}20`,
 							color: theme.colors.success,
 						}}
-						title="Total cost"
+						title={isMaxSubscriber ? 'Included in Max subscription' : 'Total cost'}
 					>
 						<DollarSign className="w-3 h-3" />
 						{formatCost(participant.totalCost).slice(1)}

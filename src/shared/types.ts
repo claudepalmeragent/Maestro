@@ -62,6 +62,9 @@ export interface ProjectFolder {
 
 	/** Last modified timestamp */
 	updatedAt: number;
+
+	/** Optional pricing configuration for all agents in this folder */
+	pricingConfig?: ProjectFolderPricingConfig;
 }
 
 // Simplified session interface for CLI (subset of full Session)
@@ -435,4 +438,55 @@ export interface GlobalAgentStats {
 	isComplete: boolean;
 	/** Per-provider breakdown */
 	byProvider: Record<string, ProviderStats>;
+}
+
+// ============================================================================
+// Claude Authentication Detection Types
+// ============================================================================
+
+/**
+ * Billing mode for Claude API usage
+ * - 'api': Standard API billing (pay per token)
+ * - 'max': Claude Max subscription (cache tokens are free)
+ */
+export type ClaudeBillingMode = 'api' | 'max';
+
+/**
+ * All supported Claude model identifiers for pricing calculations
+ */
+export type ClaudeModelId =
+	| 'claude-opus-4-6-20260115'
+	| 'claude-opus-4-5-20251101'
+	| 'claude-opus-4-1-20250319'
+	| 'claude-opus-4-20250514'
+	| 'claude-sonnet-4-5-20250929'
+	| 'claude-sonnet-4-20250514'
+	| 'claude-haiku-4-5-20251001'
+	| 'claude-haiku-3-5-20241022'
+	| 'claude-3-haiku-20240307';
+
+/**
+ * Project folder-level pricing configuration.
+ * Default billing mode for all agents within a project folder.
+ */
+export interface ProjectFolderPricingConfig {
+	/** Default billing mode for all agents in this folder */
+	billingMode: ClaudeBillingMode;
+}
+
+/**
+ * Detected authentication information from Claude credentials.
+ * Used to determine billing mode and subscription status.
+ */
+export interface DetectedAuth {
+	/** Billing mode: 'max' for Max subscribers (cache tokens free), 'api' for standard billing */
+	billingMode: ClaudeBillingMode;
+	/** Subscription type from OAuth credentials */
+	subscriptionType?: 'max' | 'pro' | 'free';
+	/** Rate limit tier from OAuth credentials */
+	rateLimitTier?: string;
+	/** Source of the detection */
+	source: 'oauth' | 'api_key' | 'default';
+	/** Timestamp when detection was performed */
+	detectedAt: number;
 }

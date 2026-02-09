@@ -7,7 +7,13 @@ import { useListNavigation } from '../hooks';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 import { getContextColor } from '../utils/theme';
 import { formatShortcutKeys } from '../utils/shortcutFormatter';
-import { formatTokensCompact, formatRelativeTime, formatCost } from '../utils/formatters';
+import {
+	formatTokensCompact,
+	formatRelativeTime,
+	formatCost,
+	getCostTooltip,
+} from '../utils/formatters';
+import { useBillingMode } from '../hooks';
 import { calculateContextTokens } from '../utils/contextUsage';
 
 /** Named session from the store (not currently open) */
@@ -171,6 +177,9 @@ export function TabSwitcherModal({
 	const [viewMode, setViewMode] = useState<ViewMode>('open');
 	const [namedSessions, setNamedSessions] = useState<NamedSession[]>([]);
 	const [namedSessionsLoaded, setNamedSessionsLoaded] = useState(false);
+
+	// Get billing mode for cost display
+	const { resolvedBillingMode, isMaxSubscriber } = useBillingMode(agentId);
 	const inputRef = useRef<HTMLInputElement>(null);
 	const selectedItemRef = useRef<HTMLButtonElement>(null);
 	const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -667,7 +676,9 @@ export function TabSwitcherModal({
 														)}{' '}
 														tokens
 													</span>
-													<span>{formatCost(cost)}</span>
+													<span title={getCostTooltip(resolvedBillingMode)}>
+														{formatCost(cost, resolvedBillingMode, isMaxSubscriber)}
+													</span>
 												</>
 											)}
 											{(() => {

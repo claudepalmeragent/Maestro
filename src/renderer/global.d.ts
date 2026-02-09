@@ -705,22 +705,23 @@ interface MaestroAPI {
 			customPath?: string
 		) => Promise<string[] | null>;
 		// Pricing/billing configuration
-		detectAuth: (agentId: string) => Promise<{
+		detectAuth: (
+			agentId: string,
+			sshRemoteId?: string
+		) => Promise<{
 			billingMode: 'api' | 'max';
 			subscriptionType?: 'max' | 'pro' | 'free';
 			rateLimitTier?: string;
 			source: 'oauth' | 'api_key' | 'default';
 			detectedAt: number;
 		}>;
-		getPricingConfig: (agentId: string) => Promise<{
-			billingMode: 'auto' | 'max' | 'api';
-			pricingModel: 'auto' | string;
-			detectedModel?: string;
-			detectedAt?: number;
-		}>;
+		invalidateAuthCache: (sshRemoteId?: string) => Promise<boolean>;
+		getPricingConfig: (
+			agentId: string
+		) => Promise<import('../main/stores/types').AgentPricingConfig>;
 		setPricingConfig: (
 			agentId: string,
-			config: { billingMode?: 'auto' | 'max' | 'api'; pricingModel?: 'auto' | string }
+			config: Partial<import('../main/stores/types').AgentPricingConfig>
 		) => Promise<boolean>;
 	};
 	// Agent Sessions API - all methods accept optional sshRemoteId for SSH remote session storage access

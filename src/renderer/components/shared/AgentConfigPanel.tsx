@@ -11,11 +11,16 @@
  * - Environment variables (key-value pairs)
  * - Built-in environment variables (MAESTRO_SESSION_RESUMED)
  * - Agent-specific config options (contextWindow, model, etc.)
+ * - Billing mode toggle (for Claude agents only)
  */
 
 import { useState, useRef, useMemo, useEffect } from 'react';
-import { RefreshCw, Plus, Trash2, HelpCircle, ChevronDown } from 'lucide-react';
+import { RefreshCw, Plus, Trash2, HelpCircle, ChevronDown, AlertTriangle } from 'lucide-react';
 import type { Theme, AgentConfig, AgentConfigOption } from '../../types';
+import type { DetectedAuth, ProjectFolderPricingConfig } from '../../../shared/types';
+import type { AgentPricingConfig } from '../../../main/stores/types';
+import { BillingModeToggle, type BillingModeValue } from '../ui/BillingModeToggle';
+import { PricingModelDropdown, type PricingModelValue } from '../ui/PricingModelDropdown';
 
 // Counter for generating stable IDs for env vars
 let envVarIdCounter = 0;
@@ -258,6 +263,18 @@ export interface AgentConfigPanelProps {
 	compact?: boolean;
 	// Show built-in environment variables section
 	showBuiltInEnvVars?: boolean;
+	// Pricing configuration (for Claude agents only)
+	pricingConfig?: AgentPricingConfig | null;
+	detectedAuth?: DetectedAuth | null;
+	onBillingModeChange?: (mode: BillingModeValue) => void;
+	onPricingModelChange?: (model: PricingModelValue) => void;
+	// Project folder pricing config (for inheritance indicator)
+	folderPricingConfig?: ProjectFolderPricingConfig | null;
+	// SSH Remote detection (for auth detection from remote hosts)
+	sshRemoteId?: string | null;
+	sshRemoteName?: string;
+	onRefreshRemoteAuth?: () => void;
+	refreshingRemoteAuth?: boolean;
 }
 
 export function AgentConfigPanel({
@@ -287,11 +304,39 @@ export function AgentConfigPanel({
 	refreshingAgent = false,
 	compact = false,
 	showBuiltInEnvVars = false,
+	pricingConfig,
+	detectedAuth,
+	onBillingModeChange,
+	onPricingModelChange,
+	folderPricingConfig,
+	sshRemoteId,
+	sshRemoteName,
+	onRefreshRemoteAuth,
+	refreshingRemoteAuth = false,
 }: AgentConfigPanelProps): JSX.Element {
 	const padding = compact ? 'p-2' : 'p-3';
 	const spacing = compact ? 'space-y-2' : 'space-y-3';
 	// Track which built-in env var tooltip is showing
 	const [showingTooltip, setShowingTooltip] = useState<string | null>(null);
+
+	// Determine if this is a Claude agent (show pricing section)
+	const isClaude = agent.id === 'claude-code' || agent.id === 'claude';
+
+	// Check for billing mode mismatch warning
+	const showMismatchWarning = useMemo(() => {
+		if (!pricingConfig || !detectedAuth) return false;
+		if (pricingConfig.billingMode === 'auto') return false;
+		return pricingConfig.billingMode !== detectedAuth.billingMode;
+	}, [pricingConfig, detectedAuth]);
+
+	// Get mismatch warning message
+	const getMismatchWarningMessage = (): string => {
+		if (!pricingConfig || !detectedAuth) return '';
+		if (pricingConfig.billingMode === 'api') {
+			return "You're logged in with Claude Max but selected API pricing. Cache token costs may be overstated.";
+		}
+		return "You're using an API key but selected Max pricing. Cache tokens will show $0 but may actually incur charges.";
+	};
 
 	// Track stable IDs for env var entries to prevent focus loss when keys change
 	// Only key edits are deferred to blur - value edits update immediately
@@ -557,6 +602,103 @@ export function AgentConfigPanel({
 					Environment variables passed to all calls to this agent
 				</p>
 			</div>
+
+			{/* Billing Mode section (Claude agents only) */}
+			{isClaude && onBillingModeChange && (
+				<div
+					className={`${padding} rounded border`}
+					style={{ borderColor: theme.colors.border, backgroundColor: theme.colors.bgMain }}
+				>
+					<label
+						className="block text-xs font-medium mb-2 flex items-center justify-between"
+						style={{ color: theme.colors.textDim }}
+					>
+						<span>Billing Mode</span>
+						{/* Refresh button for remote auth detection */}
+						{sshRemoteId && onRefreshRemoteAuth && (
+							<button
+								onClick={onRefreshRemoteAuth}
+								className="p-1 rounded hover:bg-white/10 transition-colors flex items-center gap-1"
+								title="Re-detect authentication from remote"
+								style={{ color: theme.colors.textDim }}
+								disabled={refreshingRemoteAuth}
+							>
+								<RefreshCw className={`w-3 h-3 ${refreshingRemoteAuth ? 'animate-spin' : ''}`} />
+								<span className="text-xs">Refresh</span>
+							</button>
+						)}
+					</label>
+					<BillingModeToggle
+						theme={theme}
+						value={pricingConfig?.billingMode || 'auto'}
+						detectedMode={detectedAuth?.billingMode}
+						onChange={onBillingModeChange}
+						showDetected
+					/>
+					{/* SSH Remote indicator */}
+					{sshRemoteId && (
+						<p
+							className="text-xs mt-2 px-2 py-1 rounded flex items-center gap-1"
+							style={{ color: theme.colors.textDim, backgroundColor: theme.colors.bgActivity }}
+						>
+							<span>Detected from remote{sshRemoteName ? `: ${sshRemoteName}` : ''}</span>
+						</p>
+					)}
+					{/* Project folder inheritance indicator */}
+					{pricingConfig?.billingMode === 'auto' && folderPricingConfig && (
+						<p
+							className="text-xs mt-2 px-2 py-1 rounded"
+							style={{ color: theme.colors.textDim, backgroundColor: theme.colors.bgActivity }}
+						>
+							Inheriting &quot;{folderPricingConfig.billingMode === 'max' ? 'Max' : 'API'}&quot;
+							from project folder.
+						</p>
+					)}
+					{/* Mismatch warning */}
+					{showMismatchWarning && (
+						<div
+							className="flex items-start gap-2 mt-2 p-2 rounded"
+							style={{
+								backgroundColor: `${theme.colors.warning}20`,
+								borderLeft: `3px solid ${theme.colors.warning}`,
+							}}
+						>
+							<AlertTriangle
+								className="w-4 h-4 flex-shrink-0 mt-0.5"
+								style={{ color: theme.colors.warning }}
+							/>
+							<span className="text-xs" style={{ color: theme.colors.textMain }}>
+								{getMismatchWarningMessage()}
+							</span>
+						</div>
+					)}
+					<p className="text-xs opacity-50 mt-2">
+						Max: Cache tokens are free (subscription). API: All tokens charged at model rates.
+					</p>
+				</div>
+			)}
+
+			{/* Pricing Model section (Claude agents only) */}
+			{isClaude && onPricingModelChange && (
+				<div
+					className={`${padding} rounded border`}
+					style={{ borderColor: theme.colors.border, backgroundColor: theme.colors.bgMain }}
+				>
+					<label className="block text-xs font-medium mb-2" style={{ color: theme.colors.textDim }}>
+						Pricing Model
+					</label>
+					<PricingModelDropdown
+						theme={theme}
+						value={pricingConfig?.pricingModel || 'auto'}
+						detectedModel={pricingConfig?.detectedModel}
+						onChange={onPricingModelChange}
+						showDetected
+					/>
+					<p className="text-xs opacity-50 mt-2">
+						Override the detected model for cost calculations. Use Auto to detect from agent output.
+					</p>
+				</div>
+			)}
 
 			{/* Agent-specific configuration options (contextWindow, model, etc.) */}
 			{agent.configOptions &&

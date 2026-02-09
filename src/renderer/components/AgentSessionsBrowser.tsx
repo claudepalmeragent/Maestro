@@ -31,7 +31,14 @@ import { SessionActivityGraph, type ActivityEntry } from './SessionActivityGraph
 import { SessionListItem } from './SessionListItem';
 import { SubagentListItem } from './SubagentListItem';
 import { ToolCallCard, getToolName } from './ToolCallCard';
-import { formatSize, formatNumber, formatTokens, formatRelativeTime } from '../utils/formatters';
+import {
+	formatSize,
+	formatNumber,
+	formatTokens,
+	formatRelativeTime,
+	formatCost,
+	getCostTooltip,
+} from '../utils/formatters';
 import {
 	useSessionViewer,
 	useSessionPagination,
@@ -39,6 +46,7 @@ import {
 	useClickOutside,
 	useSubagentLoader,
 	useSubagentViewer,
+	useBillingMode,
 	type ClaudeSession,
 } from '../hooks';
 
@@ -167,6 +175,9 @@ export function AgentSessionsBrowser({
 		projectPath: projectPathForSessions,
 		sshRemoteId,
 	});
+
+	// Billing mode hook for cost display (shows "(incl. in Max sub.)" for Max subscribers)
+	const { resolvedBillingMode, isMaxSubscriber } = useBillingMode(agentId, sshRemoteId);
 
 	const [search, setSearch] = useState('');
 	const [searchMode, setSearchMode] = useState<SearchMode>('all');
@@ -773,10 +784,11 @@ export function AgentSessionsBrowser({
 					isSelected={Boolean(viewingSubagent && viewingSubagent.agentId === sa.agentId)}
 					onClick={() => handleViewSubagent(sa)}
 					onResume={() => handleResumeSubagent(sa)}
+					isMaxSubscriber={isMaxSubscriber}
 				/>
 			));
 		},
-		[theme, viewingSubagent, handleViewSubagent, handleResumeSubagent]
+		[theme, viewingSubagent, handleViewSubagent, handleResumeSubagent, isMaxSubscriber]
 	);
 
 	// Activity entries for the graph - cached in state to prevent re-renders during pagination
@@ -1191,8 +1203,9 @@ export function AgentSessionsBrowser({
 								<span
 									className="text-lg font-mono font-semibold"
 									style={{ color: theme.colors.success }}
+									title={getCostTooltip(resolvedBillingMode)}
 								>
-									${(viewingSession.costUsd ?? 0).toFixed(2)}
+									{formatCost(viewingSession.costUsd ?? 0, resolvedBillingMode, isMaxSubscriber)}
 								</span>
 							</div>
 
@@ -1306,24 +1319,40 @@ export function AgentSessionsBrowser({
 								</span>
 							</div>
 							{viewingSession.cacheReadTokens > 0 && (
-								<div className="flex items-center gap-2">
+								<div
+									className="flex items-center gap-2"
+									title={isMaxSubscriber ? 'Free for Max subscribers' : undefined}
+								>
 									<Database className="w-3 h-3" style={{ color: theme.colors.success }} />
 									<span className="text-xs" style={{ color: theme.colors.textDim }}>
 										Cache Read:{' '}
 										<span className="font-mono font-medium" style={{ color: theme.colors.success }}>
 											{formatNumber(viewingSession.cacheReadTokens)}
 										</span>
+										{isMaxSubscriber && (
+											<span className="ml-1 text-[10px]" style={{ color: theme.colors.textDim }}>
+												($0.00)
+											</span>
+										)}
 									</span>
 								</div>
 							)}
 							{viewingSession.cacheCreationTokens > 0 && (
-								<div className="flex items-center gap-2">
+								<div
+									className="flex items-center gap-2"
+									title={isMaxSubscriber ? 'Free for Max subscribers' : undefined}
+								>
 									<Hash className="w-3 h-3" style={{ color: theme.colors.warning }} />
 									<span className="text-xs" style={{ color: theme.colors.textDim }}>
 										Cache Write:{' '}
 										<span className="font-mono font-medium" style={{ color: theme.colors.warning }}>
 											{formatNumber(viewingSession.cacheCreationTokens)}
 										</span>
+										{isMaxSubscriber && (
+											<span className="ml-1 text-[10px]" style={{ color: theme.colors.textDim }}>
+												($0.00)
+											</span>
+										)}
 									</span>
 								</div>
 							)}
@@ -1774,6 +1803,7 @@ export function AgentSessionsBrowser({
 												isExpanded={isExpanded}
 												hasSubagents={hasSubagents}
 												isLoadingSubagents={isLoadingSessionSubagents}
+												isMaxSubscriber={isMaxSubscriber}
 											/>
 
 											{/* Subagent rows when expanded */}

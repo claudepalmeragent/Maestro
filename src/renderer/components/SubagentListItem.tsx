@@ -20,6 +20,8 @@ interface SubagentListItemProps {
 	isSelected: boolean;
 	onClick: () => void;
 	onResume?: () => void;
+	/** Whether this is a Max subscriber (affects cost display tooltip) */
+	isMaxSubscriber?: boolean;
 }
 
 /**
@@ -72,6 +74,7 @@ export function SubagentListItem({
 	isSelected,
 	onClick,
 	onResume,
+	isMaxSubscriber,
 }: SubagentListItemProps) {
 	const handleResumeClick = (e: React.MouseEvent) => {
 		e.stopPropagation();
@@ -170,7 +173,10 @@ export function SubagentListItem({
 				</span>
 
 				{/* Cost */}
-				<span style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+				<span
+					style={{ display: 'flex', alignItems: 'center', gap: '3px' }}
+					title={isMaxSubscriber ? 'Included in Max subscription' : 'API charges'}
+				>
 					<DollarSign size={11} />
 					{subagent.costUsd.toFixed(2)}
 				</span>

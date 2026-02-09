@@ -136,6 +136,13 @@ describe('agents IPC handlers', () => {
 				'agents:getAllCustomEnvVars',
 				'agents:getModels',
 				'agents:discoverSlashCommands',
+				// Auth detection handlers (Phase 6 - SSH Remote Support)
+				'agents:detectAuth',
+				'agents:invalidateAuthCache',
+				// Pricing configuration handlers
+				'agents:getPricingConfig',
+				'agents:setPricingConfig',
+				'agents:updateDetectedModel',
 			];
 
 			for (const channel of expectedChannels) {

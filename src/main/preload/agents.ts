@@ -9,6 +9,12 @@
  */
 
 import { ipcRenderer } from 'electron';
+import type { DetectedAuth } from '../../shared/types';
+import type { AgentPricingConfig } from '../stores/types';
+
+// Re-export types for consumers
+export type { DetectedAuth } from '../../shared/types';
+export type { AgentPricingConfig } from '../stores/types';
 
 /**
  * Capability flags that determine what features are available for each agent.
@@ -180,6 +186,46 @@ export function createAgentsApi() {
 			customPath?: string
 		): Promise<string[] | null> =>
 			ipcRenderer.invoke('agents:discoverSlashCommands', agentId, cwd, customPath),
+
+		/**
+		 * Detect authentication type for an agent.
+		 * Determines billing mode (max vs api) by reading Claude credentials.
+		 * Supports both local and SSH remote detection.
+		 *
+		 * @param agentId The agent ID
+		 * @param sshRemoteId Optional SSH remote ID. If provided, credentials are
+		 *                    read from the remote host via SSH.
+		 */
+		detectAuth: (agentId: string, sshRemoteId?: string): Promise<DetectedAuth> =>
+			ipcRenderer.invoke('agents:detectAuth', agentId, sshRemoteId),
+
+		/**
+		 * Invalidate cached remote authentication.
+		 * Call this to force re-detection from the remote host on next detectAuth call.
+		 *
+		 * @param sshRemoteId Optional SSH remote ID. If provided, only that remote's
+		 *                    cache is cleared. If not provided, all cached results are cleared.
+		 */
+		invalidateAuthCache: (sshRemoteId?: string): Promise<boolean> =>
+			ipcRenderer.invoke('agents:invalidateAuthCache', sshRemoteId),
+
+		/**
+		 * Get pricing configuration for an agent
+		 */
+		getPricingConfig: (agentId: string): Promise<AgentPricingConfig> =>
+			ipcRenderer.invoke('agents:getPricingConfig', agentId),
+
+		/**
+		 * Set pricing configuration for an agent
+		 */
+		setPricingConfig: (agentId: string, config: Partial<AgentPricingConfig>): Promise<boolean> =>
+			ipcRenderer.invoke('agents:setPricingConfig', agentId, config),
+
+		/**
+		 * Update detected model for an agent (called when model is detected from output)
+		 */
+		updateDetectedModel: (agentId: string, modelId: string): Promise<boolean> =>
+			ipcRenderer.invoke('agents:updateDetectedModel', agentId, modelId),
 	};
 }
 

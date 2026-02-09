@@ -12,6 +12,12 @@ import { buildSshCommand, RemoteCommandOptions } from '../../utils/ssh-command-b
 import { stripAnsi } from '../../utils/stripAnsi';
 import { SshRemoteConfig } from '../../../shared/types';
 import { MaestroSettings } from './persistence';
+import {
+	detectLocalAuth,
+	detectRemoteAuthCached,
+	invalidateRemoteAuthCache,
+} from '../../utils/claude-auth-detector';
+import type { AgentPricingConfig } from '../../stores/types';
 
 const LOG_CONTEXT = '[AgentDetector]';
 const CONFIG_LOG_CONTEXT = '[AgentConfig]';
@@ -651,6 +657,110 @@ export function registerAgentsHandlers(deps: AgentsHandlerDependencies): void {
 					});
 					return null;
 				}
+			}
+		)
+	);
+
+	// Detect authentication type for an agent
+	// Supports both local and SSH remote detection (Phase 6)
+	ipcMain.handle(
+		'agents:detectAuth',
+		withIpcErrorLogging(
+			handlerOpts('detectAuth'),
+			async (_agentId: string, sshRemoteId?: string) => {
+				// If SSH remote ID provided, detect auth from remote host
+				if (sshRemoteId) {
+					const sshConfig = getSshRemoteById(settingsStore, sshRemoteId);
+					if (!sshConfig) {
+						logger.warn(
+							`${LOG_CONTEXT} SSH remote not found for auth detection: ${sshRemoteId}`,
+							LOG_CONTEXT
+						);
+						// Return default auth when remote not found
+						return {
+							billingMode: 'api',
+							source: 'default',
+							detectedAt: Date.now(),
+						};
+					}
+					logger.debug(`Detecting auth from SSH remote: ${sshConfig.host}`, LOG_CONTEXT);
+					return await detectRemoteAuthCached(sshRemoteId, sshConfig);
+				}
+
+				// Local detection
+				logger.debug(`Detecting auth locally`, LOG_CONTEXT);
+				return await detectLocalAuth();
+			}
+		)
+	);
+
+	// Invalidate remote auth cache
+	// Allows manual refresh of remote auth detection
+	ipcMain.handle(
+		'agents:invalidateAuthCache',
+		withIpcErrorLogging(handlerOpts('invalidateAuthCache'), async (sshRemoteId?: string) => {
+			invalidateRemoteAuthCache(sshRemoteId);
+			return true;
+		})
+	);
+
+	// ============================================================================
+	// Pricing Configuration Handlers
+	// ============================================================================
+
+	// Get pricing configuration for an agent
+	ipcMain.handle(
+		'agents:getPricingConfig',
+		withIpcErrorLogging(
+			handlerOpts('getPricingConfig', CONFIG_LOG_CONTEXT),
+			async (agentId: string): Promise<AgentPricingConfig> => {
+				const allConfigs = agentConfigsStore.get('configs', {});
+				const config = allConfigs[agentId]?.pricingConfig as AgentPricingConfig | undefined;
+				if (config && config.billingMode && config.pricingModel) {
+					return config;
+				}
+				return { billingMode: 'auto', pricingModel: 'auto' };
+			}
+		)
+	);
+
+	// Set pricing configuration for an agent
+	ipcMain.handle(
+		'agents:setPricingConfig',
+		withIpcErrorLogging(
+			handlerOpts('setPricingConfig', CONFIG_LOG_CONTEXT),
+			async (agentId: string, config: Partial<AgentPricingConfig>): Promise<boolean> => {
+				const allConfigs = agentConfigsStore.get('configs', {});
+				if (!allConfigs[agentId]) {
+					allConfigs[agentId] = {};
+				}
+				const current = allConfigs[agentId].pricingConfig || {};
+				allConfigs[agentId].pricingConfig = { ...current, ...config };
+				agentConfigsStore.set('configs', allConfigs);
+				logger.info(`Updated pricing config for agent: ${agentId}`, CONFIG_LOG_CONTEXT, config);
+				return true;
+			}
+		)
+	);
+
+	// Update detected model for an agent (called when model is detected from output)
+	ipcMain.handle(
+		'agents:updateDetectedModel',
+		withIpcErrorLogging(
+			handlerOpts('updateDetectedModel', CONFIG_LOG_CONTEXT),
+			async (agentId: string, modelId: string): Promise<boolean> => {
+				const allConfigs = agentConfigsStore.get('configs', {});
+				if (!allConfigs[agentId]) {
+					allConfigs[agentId] = {};
+				}
+				if (!allConfigs[agentId].pricingConfig) {
+					allConfigs[agentId].pricingConfig = { billingMode: 'auto', pricingModel: 'auto' };
+				}
+				allConfigs[agentId].pricingConfig.detectedModel = modelId;
+				allConfigs[agentId].pricingConfig.detectedAt = Date.now();
+				agentConfigsStore.set('configs', allConfigs);
+				logger.debug(`Updated detected model for agent ${agentId}: ${modelId}`, CONFIG_LOG_CONTEXT);
+				return true;
 			}
 		)
 	);
