@@ -418,6 +418,8 @@ export type {
 	AgentCapabilities,
 	AgentConfig,
 	AgentRefreshResult,
+	DetectedAuth,
+	AgentPricingConfig,
 } from './agents';
 export type {
 	// From projectFolders

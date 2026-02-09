@@ -55,6 +55,8 @@ interface GroupChatRightPanelProps {
 	onJumpToMessage?: (timestamp: number) => void;
 	/** Callback when participant colors are computed (for sharing with other components) */
 	onColorsComputed?: (colors: Record<string, string>) => void;
+	/** Whether this is a Max subscriber (affects cost display) */
+	isMaxSubscriber?: boolean;
 }
 
 export function GroupChatRightPanel({
@@ -78,6 +80,7 @@ export function GroupChatRightPanel({
 	onTabChange,
 	onJumpToMessage,
 	onColorsComputed,
+	isMaxSubscriber,
 }: GroupChatRightPanelProps): JSX.Element | null {
 	// Color preferences state
 	const [colorPreferences, setColorPreferences] = useState<Record<string, number>>({});
@@ -304,6 +307,7 @@ export function GroupChatRightPanel({
 						participant={moderatorParticipant}
 						state={moderatorState}
 						color={participantColors['Moderator']}
+						isMaxSubscriber={isMaxSubscriber}
 					/>
 
 					{/* Separator between moderator and participants */}
@@ -332,6 +336,7 @@ export function GroupChatRightPanel({
 									color={participantColors[participant.name]}
 									groupChatId={groupChatId}
 									onContextReset={handleContextReset}
+									isMaxSubscriber={isMaxSubscriber}
 								/>
 							);
 						})

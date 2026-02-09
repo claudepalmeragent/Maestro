@@ -1,13 +1,16 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Folder, RefreshCw, ChevronRight, AlertTriangle, Copy, Check, X } from 'lucide-react';
 import type { AgentConfig, Session, ToolType } from '../types';
-import type { SshRemoteConfig, AgentSshRemoteConfig } from '../../shared/types';
+import type { SshRemoteConfig, AgentSshRemoteConfig, DetectedAuth } from '../../shared/types';
+import type { AgentPricingConfig } from '../../main/stores/types';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 import { validateNewSession, validateEditSession } from '../utils/sessionValidation';
 import { FormInput } from './ui/FormInput';
 import { Modal, ModalFooter } from './ui/Modal';
 import { AgentConfigPanel } from './shared/AgentConfigPanel';
 import { SshRemoteSelector } from './shared/SshRemoteSelector';
+import type { BillingModeValue } from './ui/BillingModeToggle';
+import type { PricingModelValue } from './ui/PricingModelDropdown';
 
 // Maximum character length for nudge message
 const NUDGE_MESSAGE_MAX_LENGTH = 1000;
@@ -241,15 +244,15 @@ export function NewInstanceModal({
 			if (sshRemoteId) {
 				const connectionErrors = detectedAgents
 					.filter((a: AgentConfig) => !a.hidden)
-					 
+
 					.filter((a: any) => a.error)
-					 
+
 					.map((a: any) => a.error);
 				const allHaveErrors =
 					connectionErrors.length > 0 &&
 					detectedAgents
 						.filter((a: AgentConfig) => !a.hidden)
-						 
+
 						.every((a: any) => a.error || !a.available);
 
 				if (allHaveErrors && connectionErrors.length > 0) {
@@ -633,7 +636,6 @@ export function NewInstanceModal({
 
 		// Re-run agent detection with the new SSH remote ID
 		loadAgents(undefined, currentSshRemoteId ?? undefined);
-		 
 	}, [isOpen, currentSshRemoteId]);
 
 	if (!isOpen) return null;
@@ -1203,6 +1205,10 @@ export function EditAgentModal({
 		isDirectory: boolean;
 		error?: string;
 	}>({ checking: false, valid: false, isDirectory: false });
+	// Pricing configuration (for Claude agents only)
+	const [pricingConfig, setPricingConfig] = useState<AgentPricingConfig | null>(null);
+	const [detectedAuth, setDetectedAuth] = useState<DetectedAuth | null>(null);
+	const [refreshingRemoteAuth, setRefreshingRemoteAuth] = useState(false);
 
 	const nameInputRef = useRef<HTMLInputElement>(null);
 
@@ -1217,6 +1223,28 @@ export function EditAgentModal({
 			console.error('Failed to copy session ID:', err);
 		}
 	}, [session]);
+
+	// Refresh remote auth detection (invalidate cache and re-detect)
+	const handleRefreshRemoteAuth = useCallback(async () => {
+		if (!session) return;
+		const sshRemoteId = sshRemoteConfig?.enabled
+			? (sshRemoteConfig.remoteId ?? undefined)
+			: undefined;
+		if (!sshRemoteId) return;
+
+		setRefreshingRemoteAuth(true);
+		try {
+			// Invalidate the cache first
+			await window.maestro.agents.invalidateAuthCache(sshRemoteId);
+			// Then re-detect
+			const auth = await window.maestro.agents.detectAuth(session.toolType, sshRemoteId);
+			setDetectedAuth(auth);
+		} catch (err) {
+			console.error('Failed to refresh remote auth:', err);
+		} finally {
+			setRefreshingRemoteAuth(false);
+		}
+	}, [session, sshRemoteConfig]);
 
 	// Load agent info, config, custom settings, and models when modal opens
 	useEffect(() => {
@@ -1272,6 +1300,29 @@ export function EditAgentModal({
 			setCustomArgs(session.customArgs ?? '');
 			setCustomEnvVars(session.customEnvVars ?? {});
 			setCustomModel(session.customModel ?? '');
+
+			// Load pricing configuration (for Claude agents only)
+			const isClaude = session.toolType === 'claude-code' || session.toolType === 'claude';
+			if (isClaude) {
+				// Fetch pricing config and detected auth in parallel
+				// Pass SSH remote ID if this session uses SSH remote execution
+				const sshRemoteId = session.sessionSshRemoteConfig?.enabled
+					? (session.sessionSshRemoteConfig.remoteId ?? undefined)
+					: undefined;
+				Promise.all([
+					window.maestro.agents.getPricingConfig(session.toolType),
+					window.maestro.agents.detectAuth(session.toolType, sshRemoteId),
+				])
+					.then(([pConfig, dAuth]) => {
+						setPricingConfig(pConfig);
+						setDetectedAuth(dAuth);
+					})
+					.catch((err) => console.error('Failed to load pricing config:', err));
+			} else {
+				// Reset pricing state for non-Claude agents
+				setPricingConfig(null);
+				setDetectedAuth(null);
+			}
 		}
 	}, [isOpen, session]);
 
@@ -1448,6 +1499,34 @@ export function EditAgentModal({
 			setRefreshingAgent(false);
 		}
 	}, [session]);
+
+	// Handle billing mode change (for Claude agents only)
+	const handleBillingModeChange = useCallback(
+		async (mode: BillingModeValue) => {
+			if (!session) return;
+			try {
+				await window.maestro.agents.setPricingConfig(session.toolType, { billingMode: mode });
+				setPricingConfig((prev) => (prev ? { ...prev, billingMode: mode } : null));
+			} catch (err) {
+				console.error('Failed to update billing mode:', err);
+			}
+		},
+		[session]
+	);
+
+	// Handle pricing model change (for Claude agents only)
+	const handlePricingModelChange = useCallback(
+		async (model: PricingModelValue) => {
+			if (!session) return;
+			try {
+				await window.maestro.agents.setPricingConfig(session.toolType, { pricingModel: model });
+				setPricingConfig((prev) => (prev ? { ...prev, pricingModel: model } : null));
+			} catch (err) {
+				console.error('Failed to update pricing model:', err);
+			}
+		},
+		[session]
+	);
 
 	// Check if form is valid for submission
 	const isFormValid = useMemo(() => {
@@ -1731,6 +1810,18 @@ export function EditAgentModal({
 								onRefreshAgent={handleRefreshAgent}
 								refreshingAgent={refreshingAgent}
 								showBuiltInEnvVars
+								pricingConfig={pricingConfig}
+								detectedAuth={detectedAuth}
+								onBillingModeChange={handleBillingModeChange}
+								onPricingModelChange={handlePricingModelChange}
+								sshRemoteId={sshRemoteConfig?.enabled ? sshRemoteConfig.remoteId : undefined}
+								sshRemoteName={
+									sshRemoteConfig?.enabled
+										? sshRemotes.find((r) => r.id === sshRemoteConfig.remoteId)?.name
+										: undefined
+								}
+								onRefreshRemoteAuth={handleRefreshRemoteAuth}
+								refreshingRemoteAuth={refreshingRemoteAuth}
 							/>
 						</div>
 					)}

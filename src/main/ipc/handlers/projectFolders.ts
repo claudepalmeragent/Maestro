@@ -11,8 +11,17 @@
 import { ipcMain } from 'electron';
 import { v4 as uuidv4 } from 'uuid';
 import { logger } from '../../utils/logger';
-import { getProjectFoldersStore, getGroupsStore, getSessionsStore } from '../../stores/getters';
-import type { ProjectFolder } from '../../../shared/types';
+import {
+	getProjectFoldersStore,
+	getGroupsStore,
+	getSessionsStore,
+	getAgentConfigsStore,
+} from '../../stores/getters';
+import type {
+	ProjectFolder,
+	ProjectFolderPricingConfig,
+	ClaudeBillingMode,
+} from '../../../shared/types';
 
 /**
  * Register all project folder-related IPC handlers.
@@ -291,4 +300,87 @@ export function registerProjectFoldersHandlers(): void {
 
 		return true;
 	});
+
+	// ============================================================================
+	// Pricing Configuration Operations
+	// ============================================================================
+
+	/**
+	 * Get pricing configuration for a project folder
+	 */
+	ipcMain.handle('projectFolders:getPricingConfig', async (_, folderId: string) => {
+		const store = getProjectFoldersStore();
+		const folders = store.get('folders', []);
+		const folder = folders.find((f) => f.id === folderId);
+		return folder?.pricingConfig || null;
+	});
+
+	/**
+	 * Set pricing configuration for a project folder
+	 */
+	ipcMain.handle(
+		'projectFolders:setPricingConfig',
+		async (_, folderId: string, config: ProjectFolderPricingConfig) => {
+			const store = getProjectFoldersStore();
+			const folders = store.get('folders', []);
+			const index = folders.findIndex((f) => f.id === folderId);
+
+			if (index === -1) {
+				logger.warn(`Project folder not found for pricing config: ${folderId}`, 'ProjectFolders');
+				return false;
+			}
+
+			folders[index] = {
+				...folders[index],
+				pricingConfig: config,
+				updatedAt: Date.now(),
+			};
+			store.set('folders', folders);
+
+			logger.info(`Updated pricing config for folder: ${folderId}`, 'ProjectFolders', config);
+			return true;
+		}
+	);
+
+	/**
+	 * Apply a billing mode to all agents in a project folder
+	 * Gets all sessions in the folder and updates each agent's pricing config
+	 */
+	ipcMain.handle(
+		'projectFolders:applyPricingToAllAgents',
+		async (_, folderId: string, billingMode: ClaudeBillingMode) => {
+			const sessionsStore = getSessionsStore();
+			const agentConfigsStore = getAgentConfigsStore();
+
+			// Get all sessions in this folder
+			const sessions = sessionsStore.get('sessions', []);
+			const folderSessions = sessions.filter(
+				(s) => s.projectFolderIds && s.projectFolderIds.includes(folderId)
+			);
+
+			// Update each session's agent pricing config
+			const allConfigs = agentConfigsStore.get('configs', {});
+			let updatedCount = 0;
+
+			for (const session of folderSessions) {
+				const agentId = session.id;
+				if (!allConfigs[agentId]) {
+					allConfigs[agentId] = {};
+				}
+				if (!allConfigs[agentId].pricingConfig) {
+					allConfigs[agentId].pricingConfig = { billingMode: 'auto', pricingModel: 'auto' };
+				}
+				allConfigs[agentId].pricingConfig.billingMode = billingMode;
+				updatedCount++;
+			}
+
+			agentConfigsStore.set('configs', allConfigs);
+
+			logger.info(
+				`Applied billing mode ${billingMode} to ${updatedCount} agents in folder ${folderId}`,
+				'ProjectFolders'
+			);
+			return updatedCount;
+		}
+	);
 }

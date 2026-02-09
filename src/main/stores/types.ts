@@ -5,7 +5,13 @@
  * These types are used across the main process for type-safe store access.
  */
 
-import type { SshRemoteConfig, Group, ProjectFolder } from '../../shared/types';
+import type {
+	SshRemoteConfig,
+	Group,
+	ProjectFolder,
+	ClaudeModelId,
+	ClaudeBillingMode,
+} from '../../shared/types';
 
 // ============================================================================
 // Stored Session Type (minimal interface for main process storage)
@@ -94,6 +100,36 @@ export interface ProjectFoldersData {
 // ============================================================================
 // Agent Configs Store
 // ============================================================================
+
+/**
+ * Agent-level pricing configuration.
+ * Stored per-agent in AgentConfigsData.configs[agentId].pricingConfig
+ */
+export interface AgentPricingConfig {
+	/** User-selected billing mode, or 'auto' for auto-detection */
+	billingMode: 'auto' | ClaudeBillingMode;
+
+	/** User-selected model for pricing, or 'auto' for auto-detection */
+	pricingModel: 'auto' | ClaudeModelId;
+
+	/** Last detected model from agent output */
+	detectedModel?: ClaudeModelId;
+
+	/** Last detected billing mode from credentials */
+	detectedBillingMode?: ClaudeBillingMode;
+
+	/** Timestamp of last detection */
+	detectedAt?: number;
+}
+
+/**
+ * Project folder-level pricing configuration.
+ * Default billing mode for all agents within a project folder.
+ */
+export interface ProjectFolderPricingConfig {
+	/** Default billing mode for all agents in this folder */
+	billingMode: ClaudeBillingMode;
+}
 
 export interface AgentConfigsData {
 	configs: Record<string, Record<string, any>>; // agentId -> config key-value pairs

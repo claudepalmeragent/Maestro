@@ -92,6 +92,8 @@ export interface SessionListItemProps {
 	hasSubagents?: boolean;
 	/** Whether subagents are currently loading */
 	isLoadingSubagents?: boolean;
+	/** Whether this is a Max subscriber (for cost display tooltip) */
+	isMaxSubscriber?: boolean;
 }
 
 /**
@@ -121,6 +123,7 @@ export function SessionListItem({
 	isExpanded,
 	hasSubagents,
 	isLoadingSubagents,
+	isMaxSubscriber,
 }: SessionListItemProps) {
 	const isSelected = index === selectedIndex;
 	const isRenaming = renamingSessionId === session.sessionId;
@@ -321,6 +324,7 @@ export function SessionListItem({
 						<span
 							className="flex items-center gap-1 font-mono"
 							style={{ color: theme.colors.success }}
+							title={isMaxSubscriber ? 'Included in Max subscription' : 'API charges'}
 						>
 							<DollarSign className="w-3 h-3" />
 							{(displayCost ?? 0).toFixed(2)}

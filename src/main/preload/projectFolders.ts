@@ -9,7 +9,11 @@
  */
 
 import { ipcRenderer } from 'electron';
-import type { ProjectFolder } from '../../shared/types';
+import type {
+	ProjectFolder,
+	ProjectFolderPricingConfig,
+	ClaudeBillingMode,
+} from '../../shared/types';
 
 /**
  * Creates the Project Folders API object
@@ -75,6 +79,25 @@ export function createProjectFoldersApi() {
 		 */
 		reorder: (orderedIds: string[]): Promise<boolean> =>
 			ipcRenderer.invoke('projectFolders:reorder', orderedIds),
+
+		/**
+		 * Get pricing configuration for a project folder
+		 */
+		getPricingConfig: (folderId: string): Promise<ProjectFolderPricingConfig | null> =>
+			ipcRenderer.invoke('projectFolders:getPricingConfig', folderId),
+
+		/**
+		 * Set pricing configuration for a project folder
+		 */
+		setPricingConfig: (folderId: string, config: ProjectFolderPricingConfig): Promise<boolean> =>
+			ipcRenderer.invoke('projectFolders:setPricingConfig', folderId, config),
+
+		/**
+		 * Apply a billing mode to all agents in a project folder
+		 * Returns the count of agents updated
+		 */
+		applyPricingToAllAgents: (folderId: string, billingMode: ClaudeBillingMode): Promise<number> =>
+			ipcRenderer.invoke('projectFolders:applyPricingToAllAgents', folderId, billingMode),
 	};
 }
 

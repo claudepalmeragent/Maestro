@@ -97,3 +97,7 @@ export { useSubagentLoader } from './useSubagentLoader';
 
 // Subagent message viewing
 export { useSubagentViewer } from './useSubagentViewer';
+
+// Billing mode for cost display
+export { useBillingMode, resolveBillingModeSync } from './useBillingMode';
+export type { UseBillingModeResult, BillingModeValue } from './useBillingMode';
