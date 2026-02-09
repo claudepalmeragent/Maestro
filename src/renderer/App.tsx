@@ -1812,20 +1812,12 @@ function MaestroConsoleInner() {
 			// Batch the log append, delivery mark, unread mark, and byte tracking
 			batchedUpdater.appendLog(actualSessionId, targetTabId, true, data);
 			batchedUpdater.markDelivered(actualSessionId, targetTabId);
-			batchedUpdater.updateCycleBytes(actualSessionId, data.length);
 
-			// DEBUG: Track byte accumulation to find source of 338 tokens
-			const debugSession = sessionsRef.current.find((s) => s.id === actualSessionId);
-			const currentBytes = (debugSession?.currentCycleBytes || 0) + data.length;
-			if (currentBytes >= 1150 && currentBytes <= 1220) {
-				window.maestro.logger.log('warn', '[338-DEBUG] Bytes approaching 338 token range', 'App', {
-					sessionId: actualSessionId,
-					dataLength: data.length,
-					previousBytes: debugSession?.currentCycleBytes || 0,
-					newTotal: currentBytes,
-					estimatedTokens: Math.floor(currentBytes / 3.5),
-					dataPreview: data.substring(0, 300),
-				});
+			// Only count bytes for token estimation if it's actual AI content, not shell noise
+			// Filter out bash warnings (setlocale, etc.) that appear before AI response starts
+			const isBashWarning = data.startsWith('bash: warning:') || data.includes('\rbash: warning:');
+			if (!isBashWarning) {
+				batchedUpdater.updateCycleBytes(actualSessionId, data.length);
 			}
 
 			// Clear error state if session had an error but is now receiving successful data
