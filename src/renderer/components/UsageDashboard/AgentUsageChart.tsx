@@ -138,30 +138,21 @@ function getAgentColor(index: number, colorBlindMode: boolean): string {
 }
 
 /**
- * Extract a display name from a session ID
- * Session IDs are in format: "sessionId-ai-tabId" or similar
- * Returns the first 8 chars of the session UUID or the name if found
+ * Extract a display name from an agent ID
+ * Uses exact matching to find sessions - no more startsWith() which caused false positives
+ * Returns the session name if found, or first 8 chars of the UUID as fallback
  */
-function getSessionDisplayName(sessionId: string, sessions?: Session[]): string {
-	// Try to find the session by ID to get its name
+function getAgentDisplayName(agentId: string, sessions?: Session[]): string {
 	if (sessions) {
-		// Session IDs in stats may include tab suffixes like "-ai-tabId"
-		// Try to match the base session ID
-		const session = sessions.find((s) => sessionId.startsWith(s.id));
+		// Exact match - no more startsWith() which caused false positives
+		const session = sessions.find((s) => s.id === agentId);
 		if (session?.name) {
 			return session.name;
 		}
 	}
 
-	// Fallback: extract the UUID part and show first 8 chars
-	// Format is typically "uuid-ai-tabId" or just "uuid"
-	const parts = sessionId.split('-');
-	if (parts.length >= 5) {
-		// UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-		// Take first segment
-		return parts[0].substring(0, 8).toUpperCase();
-	}
-	return sessionId.substring(0, 8).toUpperCase();
+	// Fallback to truncated UUID
+	return agentId.substring(0, 8).toUpperCase();
 }
 
 export function AgentUsageChart({
@@ -184,30 +175,30 @@ export function AgentUsageChart({
 
 	// Get list of agents and their data (limited to top 10 by total queries)
 	const { agents, chartData, allDates, agentDisplayNames } = useMemo(() => {
-		const bySessionByDay = data.bySessionByDay || {};
+		const byAgentIdByDay = data.byAgentIdByDay || {};
 
-		// Calculate total queries per session to rank them
-		const sessionTotals: Array<{ sessionId: string; totalQueries: number }> = [];
-		for (const sessionId of Object.keys(bySessionByDay)) {
-			const totalQueries = bySessionByDay[sessionId].reduce((sum, day) => sum + day.count, 0);
-			sessionTotals.push({ sessionId, totalQueries });
+		// Calculate total queries per agent to rank them
+		const agentTotals: Array<{ agentId: string; totalQueries: number }> = [];
+		for (const agentId of Object.keys(byAgentIdByDay)) {
+			const totalQueries = byAgentIdByDay[agentId].reduce((sum, day) => sum + day.count, 0);
+			agentTotals.push({ agentId, totalQueries });
 		}
 
 		// Sort by total queries descending and take top 10
-		sessionTotals.sort((a, b) => b.totalQueries - a.totalQueries);
-		const topSessions = sessionTotals.slice(0, 10);
-		const agentList = topSessions.map((s) => s.sessionId);
+		agentTotals.sort((a, b) => b.totalQueries - a.totalQueries);
+		const topAgents = agentTotals.slice(0, 10);
+		const agentList = topAgents.map((s) => s.agentId);
 
 		// Build display name map
 		const displayNames: Record<string, string> = {};
-		for (const sessionId of agentList) {
-			displayNames[sessionId] = getSessionDisplayName(sessionId, sessions);
+		for (const agentId of agentList) {
+			displayNames[agentId] = getAgentDisplayName(agentId, sessions);
 		}
 
 		// Collect all unique dates from selected agents
 		const dateSet = new Set<string>();
-		for (const sessionId of agentList) {
-			for (const day of bySessionByDay[sessionId]) {
+		for (const agentId of agentList) {
+			for (const day of byAgentIdByDay[agentId]) {
 				dateSet.add(day.date);
 			}
 		}
@@ -215,13 +206,13 @@ export function AgentUsageChart({
 
 		// Build per-agent arrays aligned to all dates
 		const agentData: Record<string, AgentDayData[]> = {};
-		for (const sessionId of agentList) {
+		for (const agentId of agentList) {
 			const dayMap = new Map<string, { count: number; duration: number }>();
-			for (const day of bySessionByDay[sessionId]) {
+			for (const day of byAgentIdByDay[agentId]) {
 				dayMap.set(day.date, { count: day.count, duration: day.duration });
 			}
 
-			agentData[sessionId] = sortedDates.map((date) => ({
+			agentData[agentId] = sortedDates.map((date) => ({
 				date,
 				formattedDate: format(parseISO(date), 'EEEE, MMM d, yyyy'),
 				count: dayMap.get(date)?.count || 0,
@@ -232,10 +223,10 @@ export function AgentUsageChart({
 		// Build combined day data for tooltips
 		const combinedData: DayData[] = sortedDates.map((date) => {
 			const agents: Record<string, { count: number; duration: number }> = {};
-			for (const sessionId of agentList) {
-				const dayData = agentData[sessionId].find((d) => d.date === date);
+			for (const agentId of agentList) {
+				const dayData = agentData[agentId].find((d) => d.date === date);
 				if (dayData) {
-					agents[sessionId] = { count: dayData.count, duration: dayData.duration };
+					agents[agentId] = { count: dayData.count, duration: dayData.duration };
 				}
 			}
 			return {
@@ -251,7 +242,7 @@ export function AgentUsageChart({
 			allDates: combinedData,
 			agentDisplayNames: displayNames,
 		};
-	}, [data.bySessionByDay, sessions]);
+	}, [data.byAgentIdByDay, sessions]);
 
 	// Calculate scales
 	const { xScale, yScale, yTicks } = useMemo(() => {

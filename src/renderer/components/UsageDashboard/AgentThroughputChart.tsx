@@ -103,30 +103,21 @@ function getAgentColor(index: number, colorBlindMode: boolean): string {
 }
 
 /**
- * Extract a display name from a session ID
- * Session IDs are in format: "sessionId-ai-tabId" or similar
- * Returns the session name if found, or first 8 chars of the UUID
+ * Extract a display name from an agent ID
+ * Uses exact matching to find sessions - no more startsWith() which caused false positives
+ * Returns the session name if found, or first 8 chars of the UUID as fallback
  */
-function getSessionDisplayName(sessionId: string, sessions?: Session[]): string {
-	// Try to find the session by ID to get its name
+function getAgentDisplayName(agentId: string, sessions?: Session[]): string {
 	if (sessions) {
-		// Session IDs in stats may include tab suffixes like "-ai-tabId"
-		// Try to match the base session ID
-		const session = sessions.find((s) => sessionId.startsWith(s.id));
+		// Exact match - no more startsWith() which caused false positives
+		const session = sessions.find((s) => s.id === agentId);
 		if (session?.name) {
 			return session.name;
 		}
 	}
 
-	// Fallback: extract the UUID part and show first 8 chars
-	// Format is typically "uuid-ai-tabId" or just "uuid"
-	const parts = sessionId.split('-');
-	if (parts.length >= 5) {
-		// UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-		// Take first segment
-		return parts[0].substring(0, 8).toUpperCase();
-	}
-	return sessionId.substring(0, 8).toUpperCase();
+	// Fallback to truncated UUID
+	return agentId.substring(0, 8).toUpperCase();
 }
 
 export function AgentThroughputChart({
@@ -136,9 +127,7 @@ export function AgentThroughputChart({
 	colorBlindMode = false,
 	sessions,
 }: AgentThroughputChartProps) {
-	const [hoveredDay, setHoveredDay] = useState<{ dayIndex: number; sessionId?: string } | null>(
-		null
-	);
+	const [hoveredDay, setHoveredDay] = useState<{ dayIndex: number; agentId?: string } | null>(null);
 	const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(null);
 
 	// Chart dimensions
@@ -148,15 +137,14 @@ export function AgentThroughputChart({
 	const innerWidth = chartWidth - padding.left - padding.right;
 	const innerHeight = chartHeight - padding.top - padding.bottom;
 
-	// Process bySessionByDay data for the chart
-	const { sessionIds, chartData, allDates, sessionDisplayNames } = useMemo(() => {
-		const bySessionByDay = data.bySessionByDay || {};
+	// Process byAgentIdByDay data for the chart
+	const { agentIds, chartData, allDates, agentDisplayNames } = useMemo(() => {
+		const byAgentIdByDay = data.byAgentIdByDay || {};
 
-		// Calculate total queries per session to rank them (include all sessions, even without throughput data)
-		const sessionTotals: Array<{ sessionId: string; avgThroughput: number; totalQueries: number }> =
-			[];
-		for (const sessionId of Object.keys(bySessionByDay)) {
-			const days = bySessionByDay[sessionId];
+		// Calculate total queries per agent to rank them (include all agents, even without throughput data)
+		const agentTotals: Array<{ agentId: string; avgThroughput: number; totalQueries: number }> = [];
+		for (const agentId of Object.keys(byAgentIdByDay)) {
+			const days = byAgentIdByDay[agentId];
 			// Calculate weighted average throughput (by query count per day)
 			let totalWeightedThroughput = 0;
 			let totalQueries = 0;
@@ -170,37 +158,37 @@ export function AgentThroughputChart({
 			}
 			const avgThroughput =
 				queriesWithThroughput > 0 ? totalWeightedThroughput / queriesWithThroughput : 0;
-			sessionTotals.push({ sessionId, avgThroughput, totalQueries });
+			agentTotals.push({ agentId, avgThroughput, totalQueries });
 		}
 
-		// Sort by total queries descending and take top 10 (include ALL sessions, even without throughput data)
-		sessionTotals.sort((a, b) => b.totalQueries - a.totalQueries);
-		const topSessions = sessionTotals.slice(0, 10);
-		const sessionIdList = topSessions.map((s) => s.sessionId);
+		// Sort by total queries descending and take top 10 (include ALL agents, even without throughput data)
+		agentTotals.sort((a, b) => b.totalQueries - a.totalQueries);
+		const topAgents = agentTotals.slice(0, 10);
+		const agentIdList = topAgents.map((s) => s.agentId);
 
 		// Build display name map
 		const displayNames: Record<string, string> = {};
-		for (const sessionId of sessionIdList) {
-			displayNames[sessionId] = getSessionDisplayName(sessionId, sessions);
+		for (const agentId of agentIdList) {
+			displayNames[agentId] = getAgentDisplayName(agentId, sessions);
 		}
 
-		// Collect all unique dates from selected sessions
+		// Collect all unique dates from selected agents
 		const dateSet = new Set<string>();
-		for (const sessionId of sessionIdList) {
-			for (const day of bySessionByDay[sessionId]) {
+		for (const agentId of agentIdList) {
+			for (const day of byAgentIdByDay[agentId]) {
 				dateSet.add(day.date);
 			}
 		}
 		const sortedDates = Array.from(dateSet).sort();
 
-		// Build per-session arrays aligned to all dates
-		const sessionData: Record<string, SessionDayData[]> = {};
-		for (const sessionId of sessionIdList) {
+		// Build per-agent arrays aligned to all dates
+		const agentData: Record<string, SessionDayData[]> = {};
+		for (const agentId of agentIdList) {
 			const dayMap = new Map<
 				string,
 				{ avgTokensPerSecond: number; outputTokens: number; count: number }
 			>();
-			for (const day of bySessionByDay[sessionId]) {
+			for (const day of byAgentIdByDay[agentId]) {
 				dayMap.set(day.date, {
 					avgTokensPerSecond: day.avgTokensPerSecond || 0,
 					outputTokens: day.outputTokens || 0,
@@ -208,7 +196,7 @@ export function AgentThroughputChart({
 				});
 			}
 
-			sessionData[sessionId] = sortedDates.map((date) => ({
+			agentData[agentId] = sortedDates.map((date) => ({
 				date,
 				formattedDate: format(parseISO(date), 'EEEE, MMM d, yyyy'),
 				avgTokensPerSecond: dayMap.get(date)?.avgTokensPerSecond || 0,
@@ -217,21 +205,21 @@ export function AgentThroughputChart({
 			}));
 		}
 
-		// Build combined day data for tooltips (include all sessions, even with zero throughput)
+		// Build combined day data for tooltips (include all agents, even with zero throughput)
 		interface CombinedDayData {
 			date: string;
 			formattedDate: string;
-			sessions: Record<string, { avgTokensPerSecond: number; outputTokens: number; count: number }>;
+			agents: Record<string, { avgTokensPerSecond: number; outputTokens: number; count: number }>;
 		}
 		const combinedData: CombinedDayData[] = sortedDates.map((date) => {
-			const sessionsOnDay: Record<
+			const agentsOnDay: Record<
 				string,
 				{ avgTokensPerSecond: number; outputTokens: number; count: number }
 			> = {};
-			for (const sessionId of sessionIdList) {
-				const dayData = sessionData[sessionId].find((d) => d.date === date);
+			for (const agentId of agentIdList) {
+				const dayData = agentData[agentId].find((d) => d.date === date);
 				if (dayData) {
-					sessionsOnDay[sessionId] = {
+					agentsOnDay[agentId] = {
 						avgTokensPerSecond: dayData.avgTokensPerSecond,
 						outputTokens: dayData.outputTokens,
 						count: dayData.count,
@@ -241,17 +229,17 @@ export function AgentThroughputChart({
 			return {
 				date,
 				formattedDate: format(parseISO(date), 'EEEE, MMM d, yyyy'),
-				sessions: sessionsOnDay,
+				agents: agentsOnDay,
 			};
 		});
 
 		return {
-			sessionIds: sessionIdList,
-			chartData: sessionData,
+			agentIds: agentIdList,
+			chartData: agentData,
 			allDates: combinedData,
-			sessionDisplayNames: displayNames,
+			agentDisplayNames: displayNames,
 		};
-	}, [data.bySessionByDay, sessions]);
+	}, [data.byAgentIdByDay, sessions]);
 
 	// Calculate scales
 	const { xScale, yScale, yTicks } = useMemo(() => {
@@ -263,11 +251,11 @@ export function AgentThroughputChart({
 			};
 		}
 
-		// Find max throughput across all sessions
+		// Find max throughput across all agents
 		let maxValue = 1;
-		for (const sessionId of sessionIds) {
-			const sessionMax = Math.max(...chartData[sessionId].map((d) => d.avgTokensPerSecond));
-			maxValue = Math.max(maxValue, sessionMax);
+		for (const agentId of agentIds) {
+			const agentMax = Math.max(...chartData[agentId].map((d) => d.avgTokensPerSecond));
+			maxValue = Math.max(maxValue, agentMax);
 		}
 
 		// Add 10% padding
@@ -287,17 +275,17 @@ export function AgentThroughputChart({
 		);
 
 		return { xScale: xScaleFn, yScale: yScaleFn, yTicks: yTicksArr };
-	}, [allDates, sessionIds, chartData, chartHeight, innerWidth, innerHeight, padding]);
+	}, [allDates, agentIds, chartData, chartHeight, innerWidth, innerHeight, padding]);
 
-	// Generate line paths for each session (include all points, even zeros)
+	// Generate line paths for each agent (include all points, even zeros)
 	const linePaths = useMemo(() => {
 		const paths: Record<string, string> = {};
-		for (const sessionId of sessionIds) {
-			const sessionDays = chartData[sessionId];
-			if (sessionDays.length === 0) continue;
+		for (const agentId of agentIds) {
+			const agentDays = chartData[agentId];
+			if (agentDays.length === 0) continue;
 
 			// Include all points in the line path (zeros will appear at y=0)
-			paths[sessionId] = sessionDays
+			paths[agentId] = agentDays
 				.map((day, idx) => {
 					const x = xScale(idx);
 					const y = yScale(day.avgTokensPerSecond);
@@ -306,12 +294,12 @@ export function AgentThroughputChart({
 				.join(' ');
 		}
 		return paths;
-	}, [sessionIds, chartData, xScale, yScale]);
+	}, [agentIds, chartData, xScale, yScale]);
 
 	// Handle mouse events
 	const handleMouseEnter = useCallback(
-		(dayIndex: number, sessionId: string, event: React.MouseEvent<SVGCircleElement>) => {
-			setHoveredDay({ dayIndex, sessionId });
+		(dayIndex: number, agentId: string, event: React.MouseEvent<SVGCircleElement>) => {
+			setHoveredDay({ dayIndex, agentId });
 			// Use mouse position directly - more reliable than getBoundingClientRect on SVG elements
 			setTooltipPos({
 				x: event.clientX,
@@ -327,14 +315,14 @@ export function AgentThroughputChart({
 	}, []);
 
 	// Check if there's any throughput data
-	const hasThroughputData = sessionIds.length > 0;
+	const hasThroughputData = agentIds.length > 0;
 
 	return (
 		<div
 			className="p-4 rounded-lg"
 			style={{ backgroundColor: theme.colors.bgMain }}
 			role="figure"
-			aria-label={`Agent throughput chart showing tokens per second over time. ${sessionIds.length} agents displayed.`}
+			aria-label={`Agent throughput chart showing tokens per second over time. ${agentIds.length} agents displayed.`}
 		>
 			{/* Header */}
 			<div className="flex items-center justify-between mb-4">
@@ -425,39 +413,39 @@ export function AgentThroughputChart({
 							);
 						})}
 
-						{/* Session lines */}
-						{sessionIds.map((sessionId, sessionIdx) => (
+						{/* Agent lines */}
+						{agentIds.map((agentId, agentIdx) => (
 							<path
-								key={`line-${sessionId}`}
-								d={linePaths[sessionId] || ''}
+								key={`line-${agentId}`}
+								d={linePaths[agentId] || ''}
 								fill="none"
-								stroke={getAgentColor(sessionIdx, colorBlindMode)}
+								stroke={getAgentColor(agentIdx, colorBlindMode)}
 								strokeWidth={2}
 								strokeLinecap="round"
 								strokeLinejoin="round"
-								opacity={hoveredDay && hoveredDay.sessionId !== sessionId ? 0.3 : 1}
+								opacity={hoveredDay && hoveredDay.agentId !== agentId ? 0.3 : 1}
 							/>
 						))}
 
 						{/* Data points (show all points, smaller for zero values) */}
-						{sessionIds.map((sessionId, sessionIdx) =>
-							chartData[sessionId].map((day, dayIdx) => {
+						{agentIds.map((agentId, agentIdx) =>
+							chartData[agentId].map((day, dayIdx) => {
 								const isHovered =
-									hoveredDay?.dayIndex === dayIdx && hoveredDay?.sessionId === sessionId;
+									hoveredDay?.dayIndex === dayIdx && hoveredDay?.agentId === agentId;
 								const isZero = day.avgTokensPerSecond === 0;
 
 								return (
 									<circle
-										key={`point-${sessionId}-${dayIdx}`}
+										key={`point-${agentId}-${dayIdx}`}
 										cx={xScale(dayIdx)}
 										cy={yScale(day.avgTokensPerSecond)}
 										r={isHovered ? 6 : isZero ? 2 : 4}
-										fill={getAgentColor(sessionIdx, colorBlindMode)}
+										fill={getAgentColor(agentIdx, colorBlindMode)}
 										stroke={theme.colors.bgMain}
 										strokeWidth={isZero ? 1 : 2}
 										opacity={isZero ? 0.5 : 1}
 										style={{ cursor: 'pointer', transition: 'r 0.15s ease' }}
-										onMouseEnter={(e) => handleMouseEnter(dayIdx, sessionId, e)}
+										onMouseEnter={(e) => handleMouseEnter(dayIdx, agentId, e)}
 										onMouseLeave={handleMouseLeave}
 									/>
 								);
@@ -483,23 +471,23 @@ export function AgentThroughputChart({
 							}}
 						>
 							<div className="font-medium mb-1">{allDates[hoveredDay.dayIndex].formattedDate}</div>
-							{hoveredDay.sessionId && chartData[hoveredDay.sessionId] && (
+							{hoveredDay.agentId && chartData[hoveredDay.agentId] && (
 								<div className="flex items-center gap-2">
 									<div
 										className="w-2 h-2 rounded-full"
 										style={{
 											backgroundColor: getAgentColor(
-												sessionIds.indexOf(hoveredDay.sessionId),
+												agentIds.indexOf(hoveredDay.agentId),
 												colorBlindMode
 											),
 										}}
 									/>
 									<span style={{ color: theme.colors.textDim }}>
-										{sessionDisplayNames[hoveredDay.sessionId]}:
+										{agentDisplayNames[hoveredDay.agentId]}:
 									</span>
 									<span className="font-medium">
 										{formatThroughput(
-											chartData[hoveredDay.sessionId][hoveredDay.dayIndex].avgTokensPerSecond
+											chartData[hoveredDay.agentId][hoveredDay.dayIndex].avgTokensPerSecond
 										)}
 									</span>
 								</div>
@@ -512,14 +500,14 @@ export function AgentThroughputChart({
 			{/* Legend */}
 			{hasThroughputData && (
 				<div className="flex flex-wrap gap-x-4 gap-y-1 mt-4 justify-center">
-					{sessionIds.map((sessionId, idx) => (
-						<div key={sessionId} className="flex items-center gap-1.5">
+					{agentIds.map((agentId, idx) => (
+						<div key={agentId} className="flex items-center gap-1.5">
 							<div
 								className="w-3 h-3 rounded-sm"
 								style={{ backgroundColor: getAgentColor(idx, colorBlindMode) }}
 							/>
 							<span className="text-xs" style={{ color: theme.colors.textDim }}>
-								{sessionDisplayNames[sessionId]}
+								{agentDisplayNames[agentId]}
 							</span>
 						</div>
 					))}
