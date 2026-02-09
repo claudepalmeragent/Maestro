@@ -620,7 +620,14 @@ function ThinkingStatusPillInner({
 					>
 						<span>Current{isEstimated ? '~' : ''}:</span>
 						<span className="font-medium" style={{ color: theme.colors.textMain }}>
-							{formatTokensCompact(displayTokens)} tokens
+							{(() => {
+								console.log('[YellowPill RENDER] Token display:', {
+									displayTokens,
+									isEstimated,
+									formatted: formatTokensCompact(displayTokens),
+								});
+								return `${formatTokensCompact(displayTokens)} tokens`;
+							})()}
 						</span>
 						{/* Real-time throughput display */}
 						{(writeModeTab?.thinkingStartTime || primarySession.thinkingStartTime) && (
