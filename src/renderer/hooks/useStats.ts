@@ -65,6 +65,17 @@ export interface StatsAggregation {
 			avgTokensPerSecond: number;
 		}>
 	>;
+	// Aggregation by Maestro agent ID (not fragmented session IDs) - for proper agent attribution in charts
+	byAgentIdByDay: Record<
+		string,
+		Array<{
+			date: string;
+			count: number;
+			duration: number;
+			outputTokens: number;
+			avgTokensPerSecond: number;
+		}>
+	>;
 	// Token metrics for throughput statistics
 	totalOutputTokens: number;
 	totalInputTokens: number;
