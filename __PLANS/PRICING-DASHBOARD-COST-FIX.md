@@ -560,11 +560,234 @@ WHERE ...
 3. Add tooltips showing Anthropic vs Maestro
 4. Add "(incl. in Max sub.)" annotations
 
-### Phase 7: Historical Migration (Optional, 2-3 hours)
+### Phase 7: Historical Data Reconstruction (4-6 hours)
 
-1. Backfill `maestro_cost_usd` for existing records
-2. Run audit against historical Anthropic data
-3. Generate discrepancy report
+**Goal:** Reconstruct complete query-level historical data from Anthropic's JSONL files, filling in missing records and correcting existing ones.
+
+#### Data Source: Claude Code JSONL Files
+
+Location: `~/.claude/projects/<project>/<session>.jsonl`
+
+Each JSONL file contains **per-message granular data**:
+
+```json
+{
+  "type": "assistant",
+  "sessionId": "74122bae-032f-4b6c-9114-cc36943d6cbc",
+  "timestamp": "2026-02-09T08:43:48.296Z",
+  "message": {
+    "model": "claude-opus-4-5-20251101",
+    "id": "msg_01LRSyZrc4H7jKXowGeoSv5W",
+    "usage": {
+      "input_tokens": 3,
+      "output_tokens": 3,
+      "cache_creation_input_tokens": 2515,
+      "cache_read_input_tokens": 17896
+    }
+  },
+  "uuid": "d32ec7f3-c6a8-48ab-a582-ba23e1be1913"
+}
+```
+
+#### What We Can Reconstruct (Query-Level)
+
+| Field | Source | Notes |
+|-------|--------|-------|
+| `timestamp` | JSONL `timestamp` | Exact query time |
+| `session_id` | JSONL `sessionId` | Maps to Maestro session |
+| `model` | JSONL `message.model` | Exact model used |
+| `input_tokens` | JSONL `usage.input_tokens` | Per-message |
+| `output_tokens` | JSONL `usage.output_tokens` | Per-message |
+| `cache_read_tokens` | JSONL `usage.cache_read_input_tokens` | Per-message |
+| `cache_write_tokens` | JSONL `usage.cache_creation_input_tokens` | Per-message |
+| `message_id` | JSONL `message.id` | Anthropic's unique ID |
+| `uuid` | JSONL `uuid` | Claude Code's unique ID |
+
+#### Reconstruction Strategy
+
+```typescript
+interface JournalEntry {
+  type: 'assistant' | 'user' | 'result';
+  sessionId: string;
+  timestamp: string;
+  uuid: string;
+  message?: {
+    model?: string;
+    id?: string;
+    usage?: {
+      input_tokens?: number;
+      output_tokens?: number;
+      cache_creation_input_tokens?: number;
+      cache_read_input_tokens?: number;
+    };
+  };
+}
+
+async function reconstructHistoricalData(projectPath: string): Promise<ReconstructionResult> {
+  const result: ReconstructionResult = {
+    queriesFound: 0,
+    queriesInserted: 0,
+    queriesUpdated: 0,
+    queriesSkipped: 0,
+    errors: [],
+  };
+
+  // 1. Find all JSONL files
+  const jsonlFiles = await glob(`${projectPath}/**/*.jsonl`);
+
+  for (const file of jsonlFiles) {
+    // 2. Parse each JSONL file line by line
+    const entries = await parseJsonlFile(file);
+
+    // 3. Extract assistant messages with usage data
+    const usageEntries = entries.filter(
+      (e) => e.type === 'assistant' && e.message?.usage
+    );
+
+    for (const entry of usageEntries) {
+      result.queriesFound++;
+
+      // 4. Check if we already have this query
+      const existing = await findQueryByUuid(entry.uuid);
+
+      if (existing) {
+        // 5a. Update existing record with Anthropic values
+        await updateQueryWithAnthropicData(existing.id, {
+          anthropic_cost_usd: calculateApiCost(entry),
+          anthropic_model: entry.message.model,
+          // Recalculate Maestro cost with proper billing mode
+          maestro_cost_usd: await calculateMaestroCost(entry, existing.agentId),
+          maestro_billing_mode: await resolveBillingMode(existing.agentId),
+        });
+        result.queriesUpdated++;
+      } else {
+        // 5b. Insert new record from Anthropic data
+        await insertReconstructedQuery({
+          session_id: entry.sessionId,
+          timestamp: new Date(entry.timestamp).getTime(),
+          tool_type: 'claude-code',
+          uuid: entry.uuid,
+          anthropic_message_id: entry.message.id,
+
+          // Token counts
+          input_tokens: entry.message.usage.input_tokens || 0,
+          output_tokens: entry.message.usage.output_tokens || 0,
+          cache_read_tokens: entry.message.usage.cache_read_input_tokens || 0,
+          cache_write_tokens: entry.message.usage.cache_creation_input_tokens || 0,
+
+          // Anthropic values
+          anthropic_cost_usd: calculateApiCost(entry),
+          anthropic_model: entry.message.model,
+
+          // Maestro values (calculated with current billing mode)
+          maestro_cost_usd: await calculateMaestroCost(entry),
+          maestro_billing_mode: 'max', // Default for reconstruction
+          maestro_pricing_model: entry.message.model,
+          maestro_calculated_at: Date.now(),
+
+          // Mark as reconstructed
+          is_reconstructed: true,
+          reconstructed_at: Date.now(),
+        });
+        result.queriesInserted++;
+      }
+    }
+  }
+
+  return result;
+}
+```
+
+#### SSH Remote Reconstruction
+
+For agents on SSH remotes, we can either:
+
+**Option A: Run reconstruction remotely**
+```bash
+ssh user@host "cat ~/.claude/projects/*/*.jsonl" | node reconstruct-local.js
+```
+
+**Option B: Pull JSONL files locally first**
+```bash
+rsync -avz user@host:~/.claude/projects/ ./remote-claude-data/
+```
+
+Then run reconstruction on the local copy.
+
+#### Reconstruction Tasks
+
+1. **Scan local JSONL files**
+   - Parse `~/.claude/projects/<project>/<session>.jsonl`
+   - Extract all assistant messages with usage data
+
+2. **Match to Maestro sessions**
+   - Map Claude Code `sessionId` to Maestro `session_id`
+   - Handle session ID formats (UUID, batch IDs, etc.)
+
+3. **Identify missing queries**
+   - Compare JSONL entries against `query_events` table
+   - Use `uuid` or `timestamp + session_id` for matching
+
+4. **Insert missing records**
+   - Create new `query_events` with `is_reconstructed = true`
+   - Calculate both Anthropic and Maestro costs
+
+5. **Update existing records**
+   - Add missing `anthropic_cost_usd` values
+   - Recalculate `maestro_cost_usd` with proper billing mode
+
+6. **Handle SSH remotes**
+   - Optionally pull remote JSONL files
+   - Run same reconstruction process
+
+7. **Generate reconstruction report**
+   - Count of queries found/inserted/updated/skipped
+   - Date range covered
+   - Any errors or anomalies
+
+#### New Database Columns for Reconstruction
+
+```sql
+-- Add to query_events table
+ALTER TABLE query_events ADD COLUMN uuid TEXT;
+ALTER TABLE query_events ADD COLUMN anthropic_message_id TEXT;
+ALTER TABLE query_events ADD COLUMN is_reconstructed INTEGER DEFAULT 0;
+ALTER TABLE query_events ADD COLUMN reconstructed_at INTEGER;
+
+-- Index for efficient lookup during reconstruction
+CREATE INDEX IF NOT EXISTS idx_query_events_uuid ON query_events(uuid);
+```
+
+#### Reconstruction UI
+
+Add to Usage Dashboard:
+
+```tsx
+<ReconstructionPanel>
+  <h3>Historical Data Reconstruction</h3>
+
+  <p>Scan Claude Code's JSONL files to reconstruct missing usage data.</p>
+
+  <ReconstructionOptions>
+    <Checkbox label="Local agents" defaultChecked />
+    <Checkbox label="SSH remote agents" />
+    <DateRangePicker label="Date range" />
+  </ReconstructionOptions>
+
+  <Button onClick={startReconstruction}>
+    Start Reconstruction
+  </Button>
+
+  {reconstructionResult && (
+    <ReconstructionReport>
+      <Stat label="Queries found" value={result.queriesFound} />
+      <Stat label="New records inserted" value={result.queriesInserted} />
+      <Stat label="Existing records updated" value={result.queriesUpdated} />
+      <Stat label="Skipped (already complete)" value={result.queriesSkipped} />
+    </ReconstructionReport>
+  )}
+</ReconstructionPanel>
+```
 
 ---
 
@@ -583,6 +806,10 @@ WHERE ...
 | `src/renderer/components/UsageDashboard/SummaryCards.tsx` | Show dual costs | 6 |
 | `src/main/process-manager/handlers/ExitHandler.ts` | Pass model info | 2 |
 | `src/preload/index.ts` | Expose audit IPC | 4 |
+| `src/main/services/historical-reconstruction-service.ts` | CREATE - JSONL parser & reconstruction | 7 |
+| `src/main/utils/jsonl-parser.ts` | CREATE - Parse Claude Code JSONL files | 7 |
+| `src/main/ipc/handlers/reconstruction.ts` | CREATE - Reconstruction IPC handlers | 7 |
+| `src/renderer/components/UsageDashboard/ReconstructionPanel.tsx` | CREATE - Reconstruction UI | 7 |
 
 ---
 
@@ -690,11 +917,14 @@ try {
 
 1. **Dual Storage:** Every query stores both Anthropic and Maestro costs
 2. **Accurate Calculation:** Max users see $0 for cache tokens
-3. **Audit Works:** Can fetch and compare Anthropic data
+3. **Audit Works:** Can fetch and compare Anthropic data via ccusage
 4. **Discrepancy Detection:** Anomalies are identified and reported
 5. **UI Shows Both:** Dashboard displays calculated cost with Anthropic reference
-6. **SSH Support:** Remote agents can be audited
+6. **SSH Support:** Remote agents can be audited and reconstructed
 7. **No Data Loss:** Original Anthropic values always preserved
+8. **Historical Reconstruction:** Can rebuild query-level data from JSONL files
+9. **Complete History:** Missing historical queries are identified and inserted
+10. **Audit Trail:** Reconstructed records are marked with `is_reconstructed` flag
 
 ---
 
@@ -705,13 +935,23 @@ try {
 | Phase 1: Schema Update | 3-4 hours | None |
 | Phase 2: Dual-Source Storage | 4-5 hours | Phase 1 |
 | Phase 3: Update Aggregations | 2-3 hours | Phase 2 |
-| Phase 4: Audit Service | 4-5 hours | Phase 1 |
+| Phase 4: Audit Service (ccusage) | 4-5 hours | Phase 1 |
 | Phase 5: Audit UI | 3-4 hours | Phase 4 |
 | Phase 6: Display Updates | 2-3 hours | Phase 3 |
-| Phase 7: Historical Migration | 2-3 hours | Phase 2 |
+| Phase 7: Historical Reconstruction | 4-6 hours | Phase 2, 4 |
 | Testing & Verification | 3-4 hours | All |
 
-**Total: 24-31 hours** (spread across multiple sessions)
+**Total: 26-36 hours** (spread across multiple sessions)
+
+### Phase 7 Breakdown
+
+| Sub-task | Effort |
+|----------|--------|
+| JSONL parser utility | 1-2 hours |
+| Reconstruction service | 2-3 hours |
+| IPC handlers | 0.5-1 hour |
+| Reconstruction UI | 1-2 hours |
+| SSH remote support | 1-2 hours |
 
 ---
 
@@ -722,20 +962,25 @@ try {
    - Daily automatic
    - On-demand + scheduled
 
-2. **SSH remote audit - how to handle?**
-   - Run ccusage remotely via SSH
-   - Pull JSONL files and analyze locally
-   - Skip remote agents in audit
+2. **SSH remote handling?**
+   - Run ccusage/reconstruction remotely via SSH
+   - Pull JSONL files locally via rsync, then process
+   - Combination: ccusage remote, JSONL local
 
 3. **What to do when discrepancy found?**
-   - Just report (recommended)
-   - Auto-correct Maestro values
+   - Just report (recommended for audit)
+   - Auto-correct Maestro values (for reconstruction)
    - Flag for manual review
 
-4. **Historical migration scope?**
-   - All historical data
-   - Last 30 days only
-   - No migration (new data only)
+4. **Historical reconstruction scope?**
+   - ~~All historical data~~ → **YES - reconstruct everything**
+   - ~~Last 30 days only~~
+   - ~~No migration (new data only)~~
+
+5. **Session ID mapping?**
+   - Claude Code uses UUIDs in JSONL
+   - Maestro may have different session IDs
+   - Need mapping strategy (by timestamp range? by project?)
 
 ---
 
