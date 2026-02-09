@@ -1,9 +1,10 @@
 # Usage Dashboard Cost Calculation Fix
 
 **Created:** 2026-02-09
+**Updated:** 2026-02-09 (v2 - Added Dual-Source Storage & Anthropic Audit)
 **Status:** Investigation Complete - Awaiting Discussion
 **Priority:** Critical (Core Feature Accuracy)
-**Complexity:** High (Pipeline Changes + Database Schema)
+**Complexity:** High (Pipeline Changes + Database Schema + External Integration)
 
 ---
 
@@ -15,7 +16,10 @@ The Usage Dashboard currently displays costs calculated at full API pricing rega
 2. **Costs are stored permanently** in the database with wrong values
 3. **No way to recalculate** historical data without migration
 
-This document outlines the complete investigation findings and proposed implementation plan.
+**NEW (v2):** This plan now includes:
+- **Dual-source storage** - Store BOTH Anthropic's reported values AND locally calculated values
+- **Anthropic audit integration** - Pull usage reports via `ccusage` for cross-validation
+- **Historical comparison** - Compare Maestro's tracked usage against Anthropic's ground truth
 
 ---
 
@@ -54,12 +58,12 @@ Claude Code Response
     USER SEES WRONG COST
 ```
 
-### Key Finding
+### Additional Issue: Single Source of Truth
 
-The pricing resolution functions **exist but are never called**:
-- `resolveBillingMode()` in `pricing-resolver.ts` - ✅ Exists
-- `calculateClaudeCostWithModel()` in `pricing.ts` - ✅ Exists
-- **Neither is called during cost storage** - ❌ Bug
+Currently, Maestro only stores one cost value. This creates brittleness:
+- If our calculation is wrong, we have no reference to compare against
+- If Anthropic changes their reporting, we can't detect it
+- No audit trail for pricing model changes
 
 ---
 
@@ -96,19 +100,7 @@ INSERT INTO query_events (..., total_cost_usd, ...)
 VALUES (..., event.totalCostUsd, ...)
 ```
 
-### 4. Where Costs Should Be Calculated (But Aren't)
-
-**File:** `src/main/parsers/usage-aggregator.ts` (line 213)
-
-```typescript
-// totalCostUsd passes through unchanged
-return {
-  ...usage,
-  totalCostUsd,  // This is Claude's reported value, not recalculated
-};
-```
-
-### 5. Billing Mode Resolution (Exists But Unused)
+### 4. Billing Mode Resolution (Exists But Unused)
 
 **File:** `src/main/utils/pricing-resolver.ts`
 
@@ -125,266 +117,584 @@ export async function resolveBillingMode(
 
 ---
 
-## Proposed Solution
+## NEW: Anthropic Usage Tracking via ccusage
 
-### Option A: Recalculate at Storage Time (Recommended)
+### What is ccusage?
 
-**Approach:** When storing query events, recalculate the cost using the resolved billing mode.
+[ccusage](https://github.com/ryoppippi/ccusage) is a CLI tool that analyzes Claude Code usage directly from Anthropic's local JSONL files (`~/.claude/projects/<project>/<session>.jsonl`).
 
-**Pros:**
-- Stored costs are accurate from the start
-- Dashboard queries don't need modification
-- Historical accuracy for new queries
+### Data Available
 
-**Cons:**
-- Need to resolve billing mode during storage (async operation)
-- Need session → agent → folder mapping at storage time
-- Slightly more complex pipeline
+```bash
+npx ccusage@latest daily --json --since YYYYMMDD
+```
 
-### Option B: Recalculate at Display Time
+Returns:
+```json
+{
+  "daily": [
+    {
+      "date": "2026-02-09",
+      "inputTokens": 35922,
+      "outputTokens": 21640,
+      "cacheCreationTokens": 7461626,
+      "cacheReadTokens": 181911374,
+      "totalTokens": 189430562,
+      "totalCost": 132.40,
+      "modelsUsed": ["claude-opus-4-5-20251101", "claude-haiku-4-5-20251001"],
+      "modelBreakdowns": [
+        {
+          "modelName": "claude-opus-4-5-20251101",
+          "inputTokens": 8330,
+          "outputTokens": 9158,
+          "cacheCreationTokens": 3206864,
+          "cacheReadTokens": 60218531,
+          "cost": 50.42
+        }
+      ]
+    }
+  ]
+}
+```
 
-**Approach:** Store raw token counts and recalculate costs when displaying in the dashboard.
+### Available Commands
 
-**Pros:**
-- No pipeline changes for storage
-- Can recalculate historical data easily
-- Billing mode changes apply retroactively
+| Command | Description | Use Case |
+|---------|-------------|----------|
+| `ccusage daily` | Usage by date | Daily cost tracking |
+| `ccusage weekly` | Usage by week | Weekly summaries |
+| `ccusage monthly` | Usage by month | Monthly budgets |
+| `ccusage session` | Usage by conversation | Per-agent tracking |
 
-**Cons:**
-- Slower dashboard queries (calculation on every load)
-- Need to store billing mode with each query for accuracy
-- More complex aggregation logic
+### Key Insight
 
-### Option C: Hybrid (Store Both)
+ccusage reads the **same JSONL files** that Claude Code writes. This is the **ground truth** for what Anthropic will bill. We can use this to:
 
-**Approach:** Store both the original API cost and the billing-mode-adjusted cost.
-
-**Pros:**
-- Can show both values if needed
-- Easy to audit/debug
-- Historical data preserved
-
-**Cons:**
-- Database schema more complex
-- Storage overhead (minor)
-
-### Recommendation: Option A with Fallback
-
-Store the correctly calculated cost at query time, but also store the billing mode used so we can:
-1. Verify calculations are correct
-2. Potentially recalculate if billing mode was wrong
-3. Show billing mode in UI if desired
+1. **Validate** our locally calculated costs
+2. **Detect discrepancies** between Maestro and Anthropic
+3. **Audit** our pricing model accuracy
 
 ---
 
-## Implementation Plan
+## Proposed Solution: Dual-Source Architecture
 
-### Phase 1: Database Schema Update
+### Core Principle
 
-**File:** `src/main/stats/schema.ts`
+Store **both** Anthropic's reported values AND Maestro's calculated values for every query event:
 
-Add columns to `query_events` table:
+```typescript
+interface QueryEvent {
+  // Token counts (single source - from Claude output)
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
 
-```sql
-ALTER TABLE query_events ADD COLUMN billing_mode TEXT;
-ALTER TABLE query_events ADD COLUMN detected_model TEXT;
-ALTER TABLE query_events ADD COLUMN original_cost_usd REAL;
+  // ANTHROPIC VALUES (from Claude Code response)
+  anthropic_cost_usd: number;        // Claude's reported total_cost_usd
+  anthropic_model: string;           // Model from modelUsage
+
+  // MAESTRO VALUES (locally calculated)
+  maestro_cost_usd: number;          // Our calculated cost
+  maestro_billing_mode: string;      // 'api' | 'max' | 'free'
+  maestro_pricing_model: string;     // Model used for pricing lookup
+  maestro_calculated_at: number;     // Timestamp of calculation
+}
 ```
 
-- `billing_mode`: 'max' | 'api' - the mode used for calculation
-- `detected_model`: The Claude model detected from output
-- `original_cost_usd`: The original API-priced cost (for auditing)
+### Benefits
 
-**Migration:** Add migration to handle existing tables.
+| Benefit | Description |
+|---------|-------------|
+| **Audit Trail** | Compare Anthropic vs Maestro at any time |
+| **Pricing Accuracy** | Detect when our model diverges from reality |
+| **Billing Mode Verification** | See if Max mode savings are calculated correctly |
+| **Historical Correction** | Can recalculate Maestro values without losing Anthropic data |
+| **Debugging** | Easy to identify which source has errors |
 
-### Phase 2: Update Stats Listener
+### Display Logic
+
+```typescript
+// Primary display: Maestro's calculated cost (billing-mode adjusted)
+const displayCost = queryEvent.maestro_cost_usd;
+
+// Secondary/tooltip: Anthropic's reported cost (API pricing)
+const anthropicCost = queryEvent.anthropic_cost_usd;
+
+// Savings calculation for Max users
+const savings = anthropicCost - displayCost;
+```
+
+---
+
+## NEW: Anthropic Audit Feature
+
+### Purpose
+
+Periodically pull usage data from Anthropic (via ccusage) and compare against Maestro's recorded data to:
+
+1. **Detect missing queries** - Queries Anthropic saw but Maestro didn't record
+2. **Validate token counts** - Ensure our token tracking matches Anthropic's
+3. **Audit cost calculations** - Compare calculated vs reported costs
+4. **Track pricing drift** - Detect when Anthropic changes pricing
+
+### Implementation
+
+#### 1. Audit Service
+
+**File:** `src/main/services/anthropic-audit-service.ts`
+
+```typescript
+import { execSync } from 'child_process';
+
+interface AnthropicDailyUsage {
+  date: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
+  totalCost: number;
+  modelBreakdowns: Array<{
+    modelName: string;
+    inputTokens: number;
+    outputTokens: number;
+    cacheCreationTokens: number;
+    cacheReadTokens: number;
+    cost: number;
+  }>;
+}
+
+export async function fetchAnthropicUsage(
+  period: 'daily' | 'weekly' | 'monthly',
+  since?: string,
+  until?: string
+): Promise<AnthropicDailyUsage[]> {
+  const args = ['--json'];
+  if (since) args.push('--since', since);
+  if (until) args.push('--until', until);
+
+  const result = execSync(`npx ccusage@latest ${period} ${args.join(' ')}`, {
+    encoding: 'utf8',
+    timeout: 60000,
+  });
+
+  return JSON.parse(result)[period];
+}
+
+export async function performAudit(
+  startDate: string,
+  endDate: string
+): Promise<AuditResult> {
+  // 1. Fetch Anthropic usage
+  const anthropicData = await fetchAnthropicUsage('daily', startDate, endDate);
+
+  // 2. Fetch Maestro usage for same period
+  const maestroData = await queryMaestroUsageByDate(startDate, endDate);
+
+  // 3. Compare and generate report
+  return compareUsage(anthropicData, maestroData);
+}
+```
+
+#### 2. Audit Comparison Logic
+
+```typescript
+interface AuditResult {
+  period: { start: string; end: string };
+
+  // Token comparison
+  tokens: {
+    anthropic: TokenCounts;
+    maestro: TokenCounts;
+    difference: TokenCounts;
+    percentDiff: number;
+  };
+
+  // Cost comparison
+  costs: {
+    anthropic_total: number;      // What Anthropic reports (API pricing)
+    maestro_anthropic: number;    // Sum of our anthropic_cost_usd
+    maestro_calculated: number;   // Sum of our maestro_cost_usd
+    discrepancy: number;          // anthropic_total - maestro_anthropic
+  };
+
+  // Per-model breakdown
+  modelBreakdown: Array<{
+    model: string;
+    anthropic: { tokens: TokenCounts; cost: number };
+    maestro: { tokens: TokenCounts; cost: number };
+    match: boolean;
+  }>;
+
+  // Anomalies detected
+  anomalies: Array<{
+    type: 'missing_query' | 'token_mismatch' | 'cost_mismatch' | 'model_mismatch';
+    severity: 'info' | 'warning' | 'error';
+    description: string;
+    details: any;
+  }>;
+}
+```
+
+#### 3. SSH Remote Audit Support
+
+For agents running on SSH remotes, run ccusage remotely:
+
+```typescript
+export async function fetchRemoteAnthropicUsage(
+  sshConfig: SshRemoteConfig,
+  period: 'daily' | 'weekly' | 'monthly',
+  since?: string
+): Promise<AnthropicDailyUsage[]> {
+  const sshCommand = buildSshCommand(sshConfig);
+  const ccusageCmd = `npx ccusage@latest ${period} --json ${since ? `--since ${since}` : ''}`;
+
+  const result = execSync(`${sshCommand} "${ccusageCmd}"`, {
+    encoding: 'utf8',
+    timeout: 120000, // Longer timeout for SSH
+  });
+
+  return JSON.parse(result)[period];
+}
+```
+
+#### 4. Audit UI Components
+
+**Dashboard Addition:** "Audit" tab or button in Usage Dashboard
+
+```tsx
+<AuditPanel>
+  <AuditPeriodSelector
+    value={auditPeriod}
+    onChange={setAuditPeriod}
+  />
+
+  <Button onClick={runAudit}>Run Audit</Button>
+
+  {auditResult && (
+    <>
+      <AuditSummary result={auditResult} />
+
+      <AuditTokenComparison
+        anthropic={auditResult.tokens.anthropic}
+        maestro={auditResult.tokens.maestro}
+      />
+
+      <AuditCostComparison
+        anthropic={auditResult.costs.anthropic_total}
+        maestroCalculated={auditResult.costs.maestro_calculated}
+        savings={auditResult.costs.anthropic_total - auditResult.costs.maestro_calculated}
+      />
+
+      {auditResult.anomalies.length > 0 && (
+        <AuditAnomalies anomalies={auditResult.anomalies} />
+      )}
+    </>
+  )}
+</AuditPanel>
+```
+
+---
+
+## Updated Database Schema
+
+### query_events Table
+
+```sql
+-- Existing columns (keep as-is)
+id, session_id, timestamp, tool_type, ...
+
+-- Token counts (unchanged)
+input_tokens, output_tokens, cache_read_tokens, cache_write_tokens
+
+-- REMOVE: Old single cost column
+-- total_cost_usd  -- DEPRECATED
+
+-- NEW: Anthropic values (from Claude Code response)
+anthropic_cost_usd REAL,           -- Claude's reported total_cost_usd
+anthropic_model TEXT,              -- Model name from modelUsage
+
+-- NEW: Maestro calculated values
+maestro_cost_usd REAL,             -- Our calculated cost
+maestro_billing_mode TEXT,         -- 'api' | 'max' | 'free'
+maestro_pricing_model TEXT,        -- Model ID used for pricing
+maestro_calculated_at INTEGER      -- Timestamp
+```
+
+### NEW: audit_snapshots Table
+
+```sql
+CREATE TABLE IF NOT EXISTS audit_snapshots (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at INTEGER NOT NULL,
+  period_start TEXT NOT NULL,
+  period_end TEXT NOT NULL,
+
+  -- Anthropic totals
+  anthropic_input_tokens INTEGER,
+  anthropic_output_tokens INTEGER,
+  anthropic_cache_read_tokens INTEGER,
+  anthropic_cache_write_tokens INTEGER,
+  anthropic_total_cost REAL,
+
+  -- Maestro totals
+  maestro_input_tokens INTEGER,
+  maestro_output_tokens INTEGER,
+  maestro_cache_read_tokens INTEGER,
+  maestro_cache_write_tokens INTEGER,
+  maestro_anthropic_cost REAL,
+  maestro_calculated_cost REAL,
+
+  -- Comparison results
+  token_discrepancy_percent REAL,
+  cost_discrepancy_usd REAL,
+  anomaly_count INTEGER,
+
+  -- Full audit result (JSON)
+  audit_result_json TEXT
+);
+```
+
+---
+
+## Updated Implementation Plan
+
+### Phase 1: Database Schema Update (3-4 hours)
+
+1. Add new columns to `query_events`:
+   - `anthropic_cost_usd`
+   - `anthropic_model`
+   - `maestro_cost_usd`
+   - `maestro_billing_mode`
+   - `maestro_pricing_model`
+   - `maestro_calculated_at`
+
+2. Create `audit_snapshots` table
+
+3. Migration to populate existing data:
+   - Set `anthropic_cost_usd = total_cost_usd` (existing value)
+   - Set `maestro_cost_usd = NULL` (will be calculated)
+   - Mark old `total_cost_usd` as deprecated
+
+### Phase 2: Dual-Source Storage (4-5 hours)
 
 **File:** `src/main/process-listeners/stats-listener.ts`
 
-Before storing the query event:
-
 ```typescript
-import { resolveBillingMode, resolveModelForPricing } from '../utils/pricing-resolver';
-import { calculateClaudeCostWithModel } from '../utils/pricing';
-
 async function insertQueryEventWithRetry(event: QueryEvent) {
-  // For Claude agents, recalculate cost with proper billing mode
+  // 1. Capture Anthropic's values (from Claude response)
+  const anthropicCost = event.totalCostUsd;
+  const anthropicModel = event.detectedModel;
+
+  // 2. Calculate Maestro's values
+  let maestroCost = anthropicCost; // Default to same
+  let maestroBillingMode = 'api';
+  let maestroPricingModel = anthropicModel;
+
   if (event.toolType === 'claude' || event.toolType === 'claude-code') {
-    const billingMode = await resolveBillingMode(event.agentId, event.projectFolderId);
-    const modelId = event.detectedModel || await resolveModelForPricing(event.agentId);
+    maestroBillingMode = await resolveBillingMode(event.agentId, event.projectFolderId);
+    maestroPricingModel = anthropicModel || await resolveModelForPricing(event.agentId);
 
-    // Store original cost for auditing
-    const originalCost = event.totalCostUsd;
-
-    // Recalculate with proper billing mode
-    const adjustedCost = calculateClaudeCostWithModel(
+    maestroCost = calculateClaudeCostWithModel(
       {
         inputTokens: event.inputTokens,
         outputTokens: event.outputTokens,
         cacheReadTokens: event.cacheReadTokens,
         cacheWriteTokens: event.cacheWriteTokens,
       },
-      modelId,
-      billingMode
+      maestroPricingModel,
+      maestroBillingMode
     );
-
-    event = {
-      ...event,
-      totalCostUsd: adjustedCost,
-      originalCostUsd: originalCost,
-      billingMode,
-      detectedModel: modelId,
-    };
   }
 
-  // Continue with existing insert logic
-  await insertQueryEvent(event);
-}
-```
-
-### Phase 3: Update Query Event Types
-
-**File:** `src/main/stats/types.ts` (or wherever QueryEvent is defined)
-
-```typescript
-interface QueryEvent {
-  // ... existing fields
-  totalCostUsd: number;
-
-  // New fields
-  billingMode?: 'max' | 'api';
-  detectedModel?: string;
-  originalCostUsd?: number;
-}
-```
-
-### Phase 4: Update ExitHandler
-
-**File:** `src/main/process-manager/handlers/ExitHandler.ts`
-
-Ensure the query-complete event includes necessary context:
-
-```typescript
-// Add agentId and projectFolderId to the event data
-const queryCompleteData = {
-  ...existingData,
-  agentId: this.session.id,
-  projectFolderId: this.session.projectFolderIds?.[0],
-  detectedModel: lastUsageTotals.detectedModel,
-};
-```
-
-### Phase 5: Update StdoutHandler
-
-**File:** `src/main/process-manager/handlers/StdoutHandler.ts`
-
-Pass through session context for billing mode resolution:
-
-```typescript
-// Ensure session ID and folder ID are available for stats recording
-buildUsageStats() {
-  return {
-    ...existingStats,
-    sessionId: this.session.id,
-    projectFolderIds: this.session.projectFolderIds,
+  // 3. Store both values
+  const enrichedEvent = {
+    ...event,
+    anthropic_cost_usd: anthropicCost,
+    anthropic_model: anthropicModel,
+    maestro_cost_usd: maestroCost,
+    maestro_billing_mode: maestroBillingMode,
+    maestro_pricing_model: maestroPricingModel,
+    maestro_calculated_at: Date.now(),
   };
+
+  await insertQueryEvent(enrichedEvent);
 }
 ```
 
-### Phase 6: Historical Data Migration (Optional)
+### Phase 3: Update Aggregations (2-3 hours)
 
-Create a migration script to recalculate historical costs:
+**File:** `src/main/stats/aggregations.ts`
 
-```typescript
-async function migrateHistoricalCosts() {
-  const events = await getAllQueryEvents();
+Update queries to use `maestro_cost_usd` as primary and `anthropic_cost_usd` as secondary:
 
-  for (const event of events) {
-    if (event.toolType === 'claude' || event.toolType === 'claude-code') {
-      const billingMode = await resolveBillingMode(event.agentId, event.projectFolderId);
-      const modelId = event.detectedModel || 'claude-sonnet-4-20250514'; // Default
-
-      const adjustedCost = calculateClaudeCostWithModel(
-        extractTokens(event),
-        modelId,
-        billingMode
-      );
-
-      await updateQueryEventCost(event.id, adjustedCost, billingMode);
-    }
-  }
-}
+```sql
+SELECT
+  SUM(maestro_cost_usd) as total_cost_usd,
+  SUM(anthropic_cost_usd) as anthropic_cost_usd,
+  SUM(anthropic_cost_usd) - SUM(maestro_cost_usd) as savings
+FROM query_events
+WHERE ...
 ```
 
-**Note:** This is optional and may not be necessary if users are OK with historical data being inaccurate.
+### Phase 4: Anthropic Audit Service (4-5 hours)
+
+1. Create `src/main/services/anthropic-audit-service.ts`
+2. Implement `fetchAnthropicUsage()` via ccusage
+3. Implement `performAudit()` comparison logic
+4. Add IPC handlers for audit operations
+5. Handle SSH remotes with `fetchRemoteAnthropicUsage()`
+
+### Phase 5: Audit UI (3-4 hours)
+
+1. Add "Audit" section to Usage Dashboard
+2. Create `AuditPanel` component
+3. Create comparison visualizations
+4. Add anomaly display
+5. Export audit reports
+
+### Phase 6: Update Display Components (2-3 hours)
+
+1. Update `SummaryCards` to show both costs
+2. Add savings indicator for Max users
+3. Add tooltips showing Anthropic vs Maestro
+4. Add "(incl. in Max sub.)" annotations
+
+### Phase 7: Historical Migration (Optional, 2-3 hours)
+
+1. Backfill `maestro_cost_usd` for existing records
+2. Run audit against historical Anthropic data
+3. Generate discrepancy report
 
 ---
 
-## Files to Modify
+## Files to Modify/Create
 
-| File | Changes | Phase |
-|------|---------|-------|
-| `src/main/stats/schema.ts` | Add billing_mode, detected_model, original_cost_usd columns | 1 |
-| `src/main/stats/types.ts` | Update QueryEvent interface | 3 |
-| `src/main/stats/query-events.ts` | Update INSERT to include new columns | 1 |
-| `src/main/process-listeners/stats-listener.ts` | Resolve billing mode and recalculate cost | 2 |
-| `src/main/process-manager/handlers/ExitHandler.ts` | Pass agentId and projectFolderId | 4 |
-| `src/main/process-manager/handlers/StdoutHandler.ts` | Pass session context | 5 |
-| `src/main/process-manager/types.ts` | Update QueryCompleteData interface | 4 |
+| File | Action | Phase |
+|------|--------|-------|
+| `src/main/stats/schema.ts` | Add new columns, create audit table | 1 |
+| `src/main/stats/types.ts` | Update QueryEvent interface | 1 |
+| `src/main/stats/query-events.ts` | Update INSERT for dual storage | 2 |
+| `src/main/process-listeners/stats-listener.ts` | Calculate both cost sources | 2 |
+| `src/main/stats/aggregations.ts` | Query both cost columns | 3 |
+| `src/main/services/anthropic-audit-service.ts` | CREATE - Audit service | 4 |
+| `src/main/ipc/handlers/audit.ts` | CREATE - Audit IPC handlers | 4 |
+| `src/renderer/components/UsageDashboard/AuditPanel.tsx` | CREATE - Audit UI | 5 |
+| `src/renderer/components/UsageDashboard/SummaryCards.tsx` | Show dual costs | 6 |
+| `src/main/process-manager/handlers/ExitHandler.ts` | Pass model info | 2 |
+| `src/preload/index.ts` | Expose audit IPC | 4 |
+
+---
+
+## ccusage Integration Details
+
+### Commands to Support
+
+| Command | Maestro Use | Local/Remote |
+|---------|-------------|--------------|
+| `npx ccusage@latest daily --json` | Daily audit | Both |
+| `npx ccusage@latest weekly --json` | Weekly summary | Both |
+| `npx ccusage@latest monthly --json` | Monthly budget | Both |
+| `npx ccusage@latest session --json` | Per-session audit | Local only |
+
+### Alternative: bunx
+
+For environments with Bun installed:
+```bash
+bunx ccusage daily --json
+```
+
+### Error Handling
+
+```typescript
+try {
+  const result = execSync('npx ccusage@latest daily --json', {
+    timeout: 60000,
+    encoding: 'utf8',
+  });
+  return JSON.parse(result);
+} catch (error) {
+  if (error.message.includes('ENOENT')) {
+    throw new Error('npx not found. Please install Node.js.');
+  }
+  if (error.message.includes('timeout')) {
+    throw new Error('ccusage timed out. Try again or use --offline mode.');
+  }
+  throw error;
+}
+```
+
+---
+
+## Audit Report Format
+
+### Summary View
+
+```
+╔═══════════════════════════════════════════════════════════════════╗
+║                    USAGE AUDIT: 2026-02-01 to 2026-02-09          ║
+╠═══════════════════════════════════════════════════════════════════╣
+║  SOURCE          │ INPUT     │ OUTPUT   │ CACHE     │ COST       ║
+╠═══════════════════════════════════════════════════════════════════╣
+║  Anthropic       │ 155,726   │ 79,089   │ 628.3M    │ $459.45    ║
+║  Maestro (API)   │ 155,726   │ 79,089   │ 628.3M    │ $459.45    ║
+║  Maestro (Max)   │ 155,726   │ 79,089   │ 628.3M    │ $142.18    ║
+╠═══════════════════════════════════════════════════════════════════╣
+║  Token Match: ✓ 100%    │    Cost Savings: $317.27 (69%)         ║
+╚═══════════════════════════════════════════════════════════════════╝
+```
+
+### Anomalies
+
+```
+⚠️  ANOMALIES DETECTED (2)
+
+1. [WARNING] Token Mismatch on 2026-02-05
+   Anthropic: 61,537,301 total tokens
+   Maestro:   61,537,155 total tokens
+   Difference: 146 tokens (0.0002%)
+
+2. [INFO] New model detected
+   Model: claude-haiku-4-5-20251001
+   First seen: 2026-02-01
+   Pricing verified: ✓
+```
 
 ---
 
 ## Risk Assessment
 
 ### Low Risk
-- Adding new database columns (additive, backward compatible)
-- Type updates (compile-time safety)
+- Adding new database columns (additive)
+- ccusage is read-only (doesn't modify any data)
+- Audit is optional/manual feature
 
 ### Medium Risk
-- Changing cost calculation pipeline (affects displayed values)
-- Async billing mode resolution in storage path (performance)
+- Changing primary cost column (display changes)
+- SSH remote ccusage execution (network dependent)
+- Historical migration (bulk data changes)
 
 ### High Risk
-- Database migration on existing data (data integrity)
-- Retroactive cost changes may confuse users
+- None identified (dual-source approach reduces risk)
 
-### Mitigation Strategies
+### Mitigation
 
-1. **Store original cost:** Keep `original_cost_usd` for auditing/rollback
-2. **Add feature flag:** Allow toggling between old/new calculation
-3. **Show billing mode in UI:** Make it clear which mode was used
-4. **Don't migrate historical:** Only apply to new queries
-
----
-
-## Open Questions
-
-1. **Should we migrate historical data?**
-   - Pro: Consistent historical view
-   - Con: May confuse users who remember old values
-
-2. **What if billing mode changes after query?**
-   - Option A: Cost remains as calculated at query time (recommended)
-   - Option B: Recalculate on demand (complex)
-
-3. **Should we show both costs in UI?**
-   - Could show "API equivalent: $X.XX" alongside actual cost
-   - Useful for Max users to see their savings
-
-4. **Performance of async billing mode resolution?**
-   - Resolution involves store reads, which are fast
-   - Could cache resolved modes per session
+1. **Dual storage** means we never lose data
+2. **Anthropic values preserved** as ground truth
+3. **Audit is optional** - users can ignore if not needed
+4. **Gradual rollout** - start with new queries only
 
 ---
 
 ## Success Criteria
 
-1. **Accurate Costs:** Max subscribers see $0 for cache tokens
-2. **Model-Specific Pricing:** Opus 4.5 uses $5/$25 rates, not Sonnet 4's $3/$15
-3. **Billing Mode Stored:** Can verify which mode was used
-4. **Original Cost Preserved:** Can audit/debug if needed
-5. **No Regression:** API billing mode users see same costs as before
-6. **Performance:** No noticeable slowdown in stats recording
+1. **Dual Storage:** Every query stores both Anthropic and Maestro costs
+2. **Accurate Calculation:** Max users see $0 for cache tokens
+3. **Audit Works:** Can fetch and compare Anthropic data
+4. **Discrepancy Detection:** Anomalies are identified and reported
+5. **UI Shows Both:** Dashboard displays calculated cost with Anthropic reference
+6. **SSH Support:** Remote agents can be audited
+7. **No Data Loss:** Original Anthropic values always preserved
 
 ---
 
@@ -392,23 +702,58 @@ async function migrateHistoricalCosts() {
 
 | Phase | Effort | Dependencies |
 |-------|--------|--------------|
-| Phase 1: Schema Update | 2-3 hours | None |
-| Phase 2: Stats Listener | 3-4 hours | Phase 1 |
-| Phase 3: Type Updates | 1 hour | Phase 2 |
-| Phase 4: ExitHandler | 1-2 hours | Phase 3 |
-| Phase 5: StdoutHandler | 1-2 hours | Phase 4 |
-| Phase 6: Migration (Optional) | 2-3 hours | Phase 5 |
-| Testing & Verification | 2-3 hours | All |
+| Phase 1: Schema Update | 3-4 hours | None |
+| Phase 2: Dual-Source Storage | 4-5 hours | Phase 1 |
+| Phase 3: Update Aggregations | 2-3 hours | Phase 2 |
+| Phase 4: Audit Service | 4-5 hours | Phase 1 |
+| Phase 5: Audit UI | 3-4 hours | Phase 4 |
+| Phase 6: Display Updates | 2-3 hours | Phase 3 |
+| Phase 7: Historical Migration | 2-3 hours | Phase 2 |
+| Testing & Verification | 3-4 hours | All |
 
-**Total: 12-18 hours** (spread across multiple sessions)
+**Total: 24-31 hours** (spread across multiple sessions)
+
+---
+
+## Open Questions
+
+1. **Audit frequency?**
+   - Manual only (user triggers)
+   - Daily automatic
+   - On-demand + scheduled
+
+2. **SSH remote audit - how to handle?**
+   - Run ccusage remotely via SSH
+   - Pull JSONL files and analyze locally
+   - Skip remote agents in audit
+
+3. **What to do when discrepancy found?**
+   - Just report (recommended)
+   - Auto-correct Maestro values
+   - Flag for manual review
+
+4. **Historical migration scope?**
+   - All historical data
+   - Last 30 days only
+   - No migration (new data only)
+
+---
+
+## Sources
+
+- [ccusage GitHub Repository](https://github.com/ryoppippi/ccusage)
+- [ccusage NPM Package](https://www.npmjs.com/package/ccusage)
+- [ccusage Documentation](https://ccusage.com/)
+- [How to track Claude Code usage](https://shipyard.build/blog/claude-code-track-usage/)
 
 ---
 
 ## Next Steps
 
-1. Review and discuss this plan
-2. Decide on historical data migration approach
-3. Create Auto Run documents for each phase
-4. Implement in order
-5. Test with real Claude Max subscription
-6. Verify costs in Usage Dashboard
+1. **Review this updated plan** with dual-source architecture
+2. **Decide on audit frequency** (manual vs automatic)
+3. **Decide on historical migration** scope
+4. **Create Auto Run documents** for each phase
+5. **Implement in order**
+6. **Test with real Claude Max subscription**
+7. **Run first audit and verify accuracy**
