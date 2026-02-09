@@ -57,7 +57,11 @@ interface UseBatchProcessorProps {
 	onSpawnAgent: (
 		sessionId: string,
 		prompt: string,
-		cwdOverride?: string
+		cwdOverride?: string,
+		callbacks?: {
+			onData?: (bytes: number) => void;
+			onUsage?: (tokens: number) => void;
+		}
 	) => Promise<{
 		success: boolean;
 		response?: string;
@@ -1131,34 +1135,24 @@ export function useBatchProcessor({
 							// Reset task metrics before starting (Throughput Status Pill)
 							dispatch({ type: 'RESET_TASK_METRICS', sessionId });
 
-							// Create wrapped onSpawnAgent that captures real-time token updates
-							// The batch session ID pattern is: ${sessionId}-batch-${timestamp}
-							const batchSessionPrefix = `${sessionId}-batch-`;
-							let dataUnsubscribe: (() => void) | null = null;
-							let usageUnsubscribe: (() => void) | null = null;
-
-							// Set up listeners before spawning
-							dataUnsubscribe = window.maestro.process.onData((sid: string, data: string) => {
-								if (sid.startsWith(batchSessionPrefix)) {
+							// Token tracking callbacks - these will be called from spawnAgentForSession
+							// with exact session ID matching, avoiding the prefix-match timing issues
+							const tokenCallbacks = {
+								onData: (bytes: number) => {
 									dispatch({
 										type: 'UPDATE_TASK_BYTES',
 										sessionId,
-										payload: { bytes: data.length },
+										payload: { bytes },
 									});
-								}
-							});
-
-							usageUnsubscribe = window.maestro.process.onUsage(
-								(sid: string, usageStats: UsageStats) => {
-									if (sid.startsWith(batchSessionPrefix)) {
-										dispatch({
-											type: 'UPDATE_TASK_TOKENS',
-											sessionId,
-											payload: { tokens: usageStats.outputTokens },
-										});
-									}
-								}
-							);
+								},
+								onUsage: (tokens: number) => {
+									dispatch({
+										type: 'UPDATE_TASK_TOKENS',
+										sessionId,
+										payload: { tokens },
+									});
+								},
+							};
 
 							const taskResult = await documentProcessor.processTask(
 								{
@@ -1177,12 +1171,9 @@ export function useBatchProcessor({
 								docContent,
 								{
 									onSpawnAgent,
+									tokenCallbacks,
 								}
 							);
-
-							// Clean up listeners after task completes
-							if (dataUnsubscribe) dataUnsubscribe();
-							if (usageUnsubscribe) usageUnsubscribe();
 
 							// Track agent session IDs
 							if (taskResult.agentSessionId) {
