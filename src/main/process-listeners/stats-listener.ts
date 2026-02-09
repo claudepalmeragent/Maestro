@@ -30,6 +30,7 @@ async function insertQueryEventWithRetry(
 		try {
 			const id = db.insertQueryEvent({
 				sessionId: queryData.sessionId,
+				agentId: queryData.agentId,
 				agentType: queryData.agentType,
 				source: queryData.source,
 				startTime: queryData.startTime,

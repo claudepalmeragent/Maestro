@@ -121,6 +121,7 @@ export interface ToolExecution {
 
 export interface QueryCompleteData {
 	sessionId: string;
+	agentId?: string; // Maestro agent ID (stable identifier, no batch/ai/synopsis suffixes)
 	agentType: string;
 	source: 'user' | 'auto';
 	startTime: number;

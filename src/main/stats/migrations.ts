@@ -64,6 +64,11 @@ export function getMigrations(): Migration[] {
 			description: 'Add cache token and cost columns to query_events',
 			up: (db) => migrateV5(db),
 		},
+		{
+			version: 6,
+			description: 'Add agent_id column for proper agent attribution in charts',
+			up: (db) => migrateV6(db),
+		},
 	];
 }
 
@@ -276,4 +281,40 @@ function migrateV5(db: Database.Database): void {
 	db.prepare('ALTER TABLE query_events ADD COLUMN total_cost_usd REAL').run();
 
 	logger.debug('Added cache token and cost columns to query_events table', LOG_CONTEXT);
+}
+
+/**
+ * Migration v6: Add agent_id column for proper agent attribution
+ *
+ * The agent_id column stores the base Maestro agent ID without
+ * -batch-*, -ai-*, -synopsis-* suffixes. This enables proper
+ * grouping of all queries from the same agent in Usage Dashboard charts.
+ */
+function migrateV6(db: Database.Database): void {
+	logger.info('Migrating stats database to v6: Adding agent_id column', LOG_CONTEXT);
+
+	// Add agent_id column
+	db.prepare('ALTER TABLE query_events ADD COLUMN agent_id TEXT').run();
+
+	// Create index for efficient GROUP BY queries
+	db.prepare(
+		'CREATE INDEX IF NOT EXISTS idx_query_events_agent_id ON query_events(agent_id)'
+	).run();
+
+	// Backfill existing data: Extract base agent ID from session_id
+	// Strips -batch-*, -ai-*, -synopsis-* suffixes
+	db.prepare(
+		`
+		UPDATE query_events
+		SET agent_id = CASE
+			WHEN session_id LIKE '%-batch-%' THEN substr(session_id, 1, instr(session_id, '-batch-') - 1)
+			WHEN session_id LIKE '%-ai-%' THEN substr(session_id, 1, instr(session_id, '-ai-') - 1)
+			WHEN session_id LIKE '%-synopsis-%' THEN substr(session_id, 1, instr(session_id, '-synopsis-') - 1)
+			ELSE session_id
+		END
+		WHERE agent_id IS NULL
+	`
+	).run();
+
+	logger.info('Migration v6 complete: agent_id column added and backfilled', LOG_CONTEXT);
 }
