@@ -290,6 +290,105 @@ describe('ClaudeOutputParser', () => {
 		});
 	});
 
+	describe('detectedModel extraction', () => {
+		it('should extract model from result message with modelUsage', () => {
+			// Create a fresh parser instance to test model detection
+			const freshParser = new ClaudeOutputParser();
+			const event = freshParser.parseJsonLine(
+				JSON.stringify({
+					type: 'result',
+					result: 'test',
+					modelUsage: {
+						'claude-opus-4-5-20251101': {
+							inputTokens: 100,
+							outputTokens: 50,
+						},
+					},
+					total_cost_usd: 0.01,
+				})
+			);
+
+			expect(event).not.toBeNull();
+			expect(event?.detectedModel).toBe('claude-opus-4-5-20251101');
+			expect(freshParser.getDetectedModel()).toBe('claude-opus-4-5-20251101');
+		});
+
+		it('should extract model from usage-only message with modelUsage', () => {
+			const freshParser = new ClaudeOutputParser();
+			const event = freshParser.parseJsonLine(
+				JSON.stringify({
+					session_id: 'sess-123',
+					modelUsage: {
+						'claude-sonnet-4-20250514': {
+							inputTokens: 200,
+							outputTokens: 100,
+						},
+					},
+					total_cost_usd: 0.02,
+				})
+			);
+
+			expect(event).not.toBeNull();
+			expect(event?.type).toBe('usage');
+			expect(event?.detectedModel).toBe('claude-sonnet-4-20250514');
+			expect(freshParser.getDetectedModel()).toBe('claude-sonnet-4-20250514');
+		});
+
+		it('should use first model key when multiple models present', () => {
+			const freshParser = new ClaudeOutputParser();
+			// Note: Object key order in JS is preserved for string keys
+			const event = freshParser.parseJsonLine(
+				JSON.stringify({
+					type: 'result',
+					result: 'test',
+					modelUsage: {
+						'claude-opus-4-5-20251101': { inputTokens: 100, outputTokens: 50 },
+						'claude-haiku-4-5-20251001': { inputTokens: 50, outputTokens: 25 },
+					},
+				})
+			);
+
+			expect(event?.detectedModel).toBe('claude-opus-4-5-20251101');
+		});
+
+		it('should not set detectedModel when modelUsage is missing', () => {
+			const freshParser = new ClaudeOutputParser();
+			const event = freshParser.parseJsonLine(
+				JSON.stringify({
+					type: 'result',
+					result: 'test',
+					usage: { input_tokens: 100, output_tokens: 50 },
+					total_cost_usd: 0.01,
+				})
+			);
+
+			expect(event).not.toBeNull();
+			expect(event?.detectedModel).toBeUndefined();
+			expect(freshParser.getDetectedModel()).toBeNull();
+		});
+
+		it('should persist detected model across multiple parse calls', () => {
+			const freshParser = new ClaudeOutputParser();
+
+			// First parse a result with model
+			freshParser.parseJsonLine(
+				JSON.stringify({
+					type: 'result',
+					result: 'test',
+					modelUsage: { 'claude-opus-4-5-20251101': { inputTokens: 100, outputTokens: 50 } },
+				})
+			);
+
+			// Parse another message without model
+			const event2 = freshParser.parseJsonLine(JSON.stringify({ type: 'system', subtype: 'init' }));
+
+			// The parser should still remember the detected model
+			expect(freshParser.getDetectedModel()).toBe('claude-opus-4-5-20251101');
+			// But the second event shouldn't have it set
+			expect(event2?.detectedModel).toBeUndefined();
+		});
+	});
+
 	describe('toolUseBlocks extraction', () => {
 		it('should extract tool_use blocks from assistant messages', () => {
 			const line = JSON.stringify({

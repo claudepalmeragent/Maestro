@@ -258,6 +258,59 @@ describe('StdoutHandler', () => {
 			expect(managedProcess.lastUsageTotals?.totalCostUsd).toBe(0.045);
 		});
 
+		it('should preserve detectedModel in lastUsageTotals for ExitHandler consumption', () => {
+			const sessionId = 'test-session-model-detection';
+
+			// This test verifies the model detection flow:
+			// ClaudeOutputParser extracts model from modelUsage → event.detectedModel is set →
+			// StdoutHandler stores in lastUsageTotals.detectedModel → ExitHandler passes to query-complete
+			const mockParser: Partial<AgentOutputParser> = {
+				agentId: 'claude-code',
+				parseJsonLine: vi.fn().mockReturnValue({
+					type: 'result',
+					detectedModel: 'claude-opus-4-5-20251101', // Model detected from modelUsage
+				} as ParsedEvent),
+				extractUsage: vi.fn().mockReturnValue({
+					inputTokens: 5000,
+					outputTokens: 1500,
+					cacheReadTokens: 3000,
+					cacheCreationTokens: 500,
+					costUsd: 0.1,
+					contextWindow: 200000,
+				}),
+				extractSessionId: vi.fn().mockReturnValue(null),
+				extractSlashCommands: vi.fn().mockReturnValue(null),
+				isResultMessage: vi.fn().mockReturnValue(true),
+				detectErrorFromLine: vi.fn().mockReturnValue(null),
+			};
+
+			const managedProcess: ManagedProcess = {
+				sessionId,
+				toolType: 'claude-code',
+				cwd: '/test',
+				pid: 1240,
+				isTerminal: false,
+				isStreamJsonMode: true,
+				jsonBuffer: '',
+				startTime: Date.now(),
+				outputParser: mockParser as AgentOutputParser,
+			};
+			processes.set(sessionId, managedProcess);
+
+			const resultJson = JSON.stringify({
+				type: 'result',
+				result: 'Here is my response.',
+				modelUsage: { 'claude-opus-4-5-20251101': { inputTokens: 5000, outputTokens: 1500 } },
+			});
+			stdoutHandler.handleData(sessionId, resultJson + '\n');
+
+			// Verify detectedModel is preserved for CostByModelGraph population
+			expect(managedProcess.lastUsageTotals).toBeDefined();
+			expect(managedProcess.lastUsageTotals?.detectedModel).toBe('claude-opus-4-5-20251101');
+			expect(managedProcess.lastUsageTotals?.inputTokens).toBe(5000);
+			expect(managedProcess.lastUsageTotals?.outputTokens).toBe(1500);
+		});
+
 		it('should handle zero values correctly', () => {
 			const sessionId = 'test-session-zero';
 

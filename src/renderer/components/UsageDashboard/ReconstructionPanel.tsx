@@ -14,12 +14,8 @@
 
 import React, { useState } from 'react';
 import type { Theme } from '../../types';
-
-interface SshConfig {
-	host: string;
-	user: string;
-	identityFile?: string;
-}
+import type { SshRemoteConfig } from '../../../shared/types';
+import { useSshRemotes } from '../../hooks/remote/useSshRemotes';
 
 interface ReconstructionResult {
 	queriesFound: number;
@@ -36,10 +32,11 @@ interface ReconstructionPanelProps {
 }
 
 export function ReconstructionPanel({ theme }: ReconstructionPanelProps): React.ReactElement {
+	const { configs: sshRemotes, loading: sshLoading } = useSshRemotes();
 	const [options, setOptions] = useState({
 		includeLocalAgents: true,
 		includeSshRemotes: false,
-		sshConfigs: [] as SshConfig[],
+		selectedRemoteIds: [] as string[],
 		dateRange: {
 			start: '',
 			end: '',
@@ -54,9 +51,26 @@ export function ReconstructionPanel({ theme }: ReconstructionPanelProps): React.
 		setResult(null);
 
 		try {
+			// Convert selected remote IDs to SSH configs
+			const sshConfigs = options.selectedRemoteIds
+				.map((id) => sshRemotes.find((r) => r.id === id))
+				.filter((r): r is SshRemoteConfig => r !== undefined)
+				.map((remote) => ({
+					host: remote.host,
+					user: remote.username,
+					identityFile: remote.privateKeyPath || undefined,
+				}));
+
+			const reconstructionOptions = {
+				includeLocalAgents: options.includeLocalAgents,
+				includeSshRemotes: options.includeSshRemotes && sshConfigs.length > 0,
+				sshConfigs,
+				dateRange: options.dateRange,
+			};
+
 			const reconstructResult = previewMode
-				? await window.maestro.reconstruction.preview(options)
-				: await window.maestro.reconstruction.start(options);
+				? await window.maestro.reconstruction.preview(reconstructionOptions)
+				: await window.maestro.reconstruction.start(reconstructionOptions);
 
 			setResult(reconstructResult);
 		} catch (error) {
@@ -64,26 +78,6 @@ export function ReconstructionPanel({ theme }: ReconstructionPanelProps): React.
 		} finally {
 			setRunning(false);
 		}
-	}
-
-	function addSshConfig(): void {
-		setOptions({
-			...options,
-			sshConfigs: [...options.sshConfigs, { host: '', user: '' }],
-		});
-	}
-
-	function updateSshConfig(index: number, config: Partial<SshConfig>): void {
-		const newConfigs = [...options.sshConfigs];
-		newConfigs[index] = { ...newConfigs[index], ...config };
-		setOptions({ ...options, sshConfigs: newConfigs });
-	}
-
-	function removeSshConfig(index: number): void {
-		setOptions({
-			...options,
-			sshConfigs: options.sshConfigs.filter((_, i) => i !== index),
-		});
 	}
 
 	function formatDuration(ms: number): string {
@@ -140,53 +134,92 @@ export function ReconstructionPanel({ theme }: ReconstructionPanelProps): React.
 
 				{options.includeSshRemotes && (
 					<div className="ml-6 space-y-2">
-						{options.sshConfigs.map((config, i) => (
-							<div key={i} className="flex items-center gap-2">
-								<input
-									type="text"
-									placeholder="user"
-									value={config.user}
-									onChange={(e) => updateSshConfig(i, { user: e.target.value })}
-									className="border rounded px-2 py-1 w-24"
-									style={{
-										backgroundColor: theme.colors.bgMain,
-										borderColor: theme.colors.border,
-										color: theme.colors.textMain,
-									}}
-								/>
-								<span style={{ color: theme.colors.textDim }}>@</span>
-								<input
-									type="text"
-									placeholder="hostname"
-									value={config.host}
-									onChange={(e) => updateSshConfig(i, { host: e.target.value })}
-									className="border rounded px-2 py-1 flex-1"
-									style={{
-										backgroundColor: theme.colors.bgMain,
-										borderColor: theme.colors.border,
-										color: theme.colors.textMain,
-									}}
-								/>
-								<button
-									onClick={() => removeSshConfig(i)}
-									className="px-2 py-1 text-sm rounded transition-colors"
-									style={{ color: '#ef4444' }}
-									onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#fef2f2')}
-									onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-								>
-									Remove
-								</button>
-							</div>
-						))}
-						<button
-							onClick={addSshConfig}
-							className="text-sm transition-colors"
-							style={{ color: theme.colors.accent }}
-							onMouseEnter={(e) => (e.currentTarget.style.opacity = '0.8')}
-							onMouseLeave={(e) => (e.currentTarget.style.opacity = '1')}
-						>
-							+ Add SSH Remote
-						</button>
+						{sshLoading ? (
+							<p className="text-sm" style={{ color: theme.colors.textDim }}>
+								Loading SSH remotes...
+							</p>
+						) : sshRemotes.filter((r) => r.enabled).length === 0 ? (
+							<p className="text-sm" style={{ color: theme.colors.textDim }}>
+								No SSH remotes configured.{' '}
+								<span style={{ color: theme.colors.accent }}>
+									Configure remotes in Settings → SSH Remotes.
+								</span>
+							</p>
+						) : (
+							<>
+								<p className="text-sm mb-2" style={{ color: theme.colors.textDim }}>
+									Select remotes to pull JSONL data from:
+								</p>
+								<div className="space-y-1">
+									{sshRemotes
+										.filter((r) => r.enabled)
+										.map((remote) => (
+											<label
+												key={remote.id}
+												className="flex items-center gap-2 cursor-pointer p-2 rounded transition-colors"
+												style={{
+													backgroundColor: options.selectedRemoteIds.includes(remote.id)
+														? theme.colors.bgActivity
+														: 'transparent',
+												}}
+											>
+												<input
+													type="checkbox"
+													checked={options.selectedRemoteIds.includes(remote.id)}
+													onChange={(e) => {
+														if (e.target.checked) {
+															setOptions({
+																...options,
+																selectedRemoteIds: [...options.selectedRemoteIds, remote.id],
+															});
+														} else {
+															setOptions({
+																...options,
+																selectedRemoteIds: options.selectedRemoteIds.filter(
+																	(id) => id !== remote.id
+																),
+															});
+														}
+													}}
+													className="w-4 h-4 rounded"
+													style={{ accentColor: theme.colors.accent }}
+												/>
+												<span style={{ color: theme.colors.textMain }}>{remote.name}</span>
+												<span style={{ color: theme.colors.textDim }}>({remote.host})</span>
+											</label>
+										))}
+								</div>
+
+								{/* Select All / Deselect All buttons */}
+								<div className="flex gap-2 mt-2">
+									<button
+										onClick={() =>
+											setOptions({
+												...options,
+												selectedRemoteIds: sshRemotes.filter((r) => r.enabled).map((r) => r.id),
+											})
+										}
+										className="text-xs px-2 py-1 rounded transition-colors"
+										style={{
+											color: theme.colors.accent,
+											backgroundColor: theme.colors.bgMain,
+										}}
+									>
+										Select All
+									</button>
+									<button
+										onClick={() => setOptions({ ...options, selectedRemoteIds: [] })}
+										className="text-xs px-2 py-1 rounded transition-colors"
+										style={{
+											color: theme.colors.textDim,
+											backgroundColor: theme.colors.bgMain,
+										}}
+									>
+										Deselect All
+									</button>
+								</div>
+							</>
+						)}
 					</div>
 				)}
 			</div>
