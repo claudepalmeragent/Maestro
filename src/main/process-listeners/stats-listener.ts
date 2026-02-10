@@ -57,50 +57,69 @@ function calculateDualCosts(
 	let maestroPricingModel: string | null = anthropicModel;
 	const maestroCalculatedAt = Date.now();
 
-	// Only calculate Maestro cost for Claude agents with a detected model
+	// Resolve billing mode and calculate Maestro cost for Claude agents
 	const isClaude = CLAUDE_AGENT_TYPES.has(queryData.agentType);
 
-	if (isClaude && anthropicModel) {
+	if (isClaude) {
+		// Resolve billing mode for all Claude agents regardless of model detection
+		// The billing mode depends on user's subscription, not the specific model
+		const agentId = queryData.agentId || queryData.sessionId;
 		try {
-			// Check if this is a non-Claude model (Ollama, local models, etc.)
-			if (!isClaudeModelId(anthropicModel)) {
-				// Non-Claude models are free (Ollama, local, etc.)
-				maestroBillingMode = 'free';
-				maestroCostUsd = 0;
-				maestroPricingModel = anthropicModel;
+			maestroBillingMode = resolveBillingMode(agentId);
+			logger.debug('[stats-listener] Resolved billing mode for agent', '[Stats]', {
+				sessionId: queryData.sessionId,
+				agentId,
+				billingMode: maestroBillingMode,
+			});
+		} catch (err) {
+			logger.warn('[stats-listener] Failed to resolve billing mode, defaulting to api', '[Stats]', {
+				error: String(err),
+				sessionId: queryData.sessionId,
+				agentId,
+			});
+			maestroBillingMode = 'api';
+		}
 
-				logger.debug('[stats-listener] Non-Claude model detected, marking as free', '[Stats]', {
-					sessionId: queryData.sessionId,
-					model: anthropicModel,
-				});
-			} else {
-				// Resolve billing mode from agent/folder settings
-				const agentId = queryData.agentId || queryData.sessionId;
-				maestroBillingMode = resolveBillingMode(agentId);
-				maestroPricingModel = anthropicModel;
+		// Calculate cost if model is detected
+		if (anthropicModel) {
+			try {
+				// Check if this is a non-Claude model (Ollama, local models, etc.)
+				if (!isClaudeModelId(anthropicModel)) {
+					// Non-Claude models are free (Ollama, local, etc.)
+					maestroBillingMode = 'free';
+					maestroCostUsd = 0;
+					maestroPricingModel = anthropicModel;
 
-				// Calculate cost with proper billing mode
-				const tokens = {
-					inputTokens: queryData.inputTokens || 0,
-					outputTokens: queryData.outputTokens || 0,
-					cacheReadTokens: queryData.cacheReadInputTokens || 0,
-					cacheCreationTokens: queryData.cacheCreationInputTokens || 0,
-				};
+					logger.debug('[stats-listener] Non-Claude model detected, marking as free', '[Stats]', {
+						sessionId: queryData.sessionId,
+						model: anthropicModel,
+					});
+				} else {
+					maestroPricingModel = anthropicModel;
 
-				maestroCostUsd = calculateClaudeCostWithModel(tokens, anthropicModel, maestroBillingMode);
-			}
-		} catch (error) {
-			// Fall back to Anthropic cost on any error
-			logger.warn(
-				'[stats-listener] Error calculating Maestro cost, falling back to Anthropic',
-				'[Stats]',
-				{
-					error: String(error),
-					sessionId: queryData.sessionId,
-					model: anthropicModel,
+					// Calculate cost with proper billing mode
+					const tokens = {
+						inputTokens: queryData.inputTokens || 0,
+						outputTokens: queryData.outputTokens || 0,
+						cacheReadTokens: queryData.cacheReadInputTokens || 0,
+						cacheCreationTokens: queryData.cacheCreationInputTokens || 0,
+					};
+
+					maestroCostUsd = calculateClaudeCostWithModel(tokens, anthropicModel, maestroBillingMode);
 				}
-			);
-			maestroCostUsd = anthropicCostUsd;
+			} catch (error) {
+				// Fall back to Anthropic cost on any error
+				logger.warn(
+					'[stats-listener] Error calculating Maestro cost, falling back to Anthropic',
+					'[Stats]',
+					{
+						error: String(error),
+						sessionId: queryData.sessionId,
+						model: anthropicModel,
+					}
+				);
+				maestroCostUsd = anthropicCostUsd;
+			}
 		}
 	}
 
