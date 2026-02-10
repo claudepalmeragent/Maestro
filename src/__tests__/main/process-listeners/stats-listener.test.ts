@@ -354,5 +354,42 @@ describe('Stats Listener', () => {
 				);
 			});
 		});
+
+		it('should resolve billing mode for Claude agents even when model is not detected', async () => {
+			// Mock resolveBillingMode to return 'max' for this test
+			const { resolveBillingMode } = await import('../../../main/utils/pricing-resolver');
+			vi.mocked(resolveBillingMode).mockReturnValue('max');
+
+			setupStatsListener(mockProcessManager, {
+				safeSend: mockSafeSend,
+				getStatsDB: () => mockStatsDB,
+				logger: mockLogger,
+			});
+
+			const handler = eventHandlers.get('query-complete');
+			const testQueryData: QueryCompleteData = {
+				sessionId: 'no-model-session',
+				agentId: 'max-agent',
+				agentType: 'claude-code',
+				source: 'user',
+				startTime: Date.now(),
+				duration: 1000,
+				totalCostUsd: 0.03,
+				// No detectedModel - this is the bug scenario
+			};
+
+			handler?.('no-model-session', testQueryData);
+
+			await vi.waitFor(() => {
+				expect(mockStatsDB.insertQueryEvent).toHaveBeenCalledWith(
+					expect.objectContaining({
+						sessionId: 'no-model-session',
+						agentType: 'claude-code',
+						// Billing mode should still be resolved even without model detection
+						maestroBillingMode: 'max', // Should NOT default to 'api'
+					})
+				);
+			});
+		});
 	});
 });
