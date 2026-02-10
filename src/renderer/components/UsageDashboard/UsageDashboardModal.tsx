@@ -42,8 +42,6 @@ import { PERFORMANCE_THRESHOLDS } from '../../../shared/performance-metrics';
 // Section IDs for keyboard navigation
 const OVERVIEW_SECTIONS = [
 	'summary-cards',
-	'cost-over-time',
-	'cost-by-model',
 	'agent-comparison',
 	'source-distribution',
 	'location-distribution',
@@ -51,13 +49,15 @@ const OVERVIEW_SECTIONS = [
 	'activity-heatmap',
 	'duration-trends',
 	'throughput-trends',
+	'cost-over-time',
+	'cost-by-model',
 ] as const;
 const AGENTS_SECTIONS = [
 	'session-stats',
-	'agent-cost',
 	'agent-comparison',
 	'agent-usage',
 	'agent-throughput',
+	'agent-cost',
 ] as const;
 const ACTIVITY_SECTIONS = ['activity-heatmap', 'duration-trends', 'throughput-trends'] as const;
 const AUTORUN_SECTIONS = ['autorun-stats'] as const;
@@ -732,67 +732,6 @@ export function UsageDashboardModal({
 										</ChartErrorBoundary>
 									</div>
 
-									{/* Cost Charts Grid - 2 columns side by side */}
-									<div
-										className="grid gap-6 dashboard-section-enter"
-										style={{
-											gridTemplateColumns: `repeat(${layout.chartGridCols}, minmax(0, 1fr))`,
-											animationDelay: '50ms',
-										}}
-									>
-										{/* Cost Over Time Chart */}
-										<div
-											ref={setSectionRef('cost-over-time')}
-											tabIndex={0}
-											role="region"
-											aria-label={getSectionLabel('cost-over-time')}
-											onKeyDown={(e) => handleSectionKeyDown(e, 'cost-over-time')}
-											className="outline-none rounded-lg transition-shadow"
-											style={{
-												minHeight: '280px',
-												boxShadow:
-													focusedSection === 'cost-over-time'
-														? `0 0 0 2px ${theme.colors.accent}`
-														: 'none',
-											}}
-											data-testid="section-cost-over-time"
-										>
-											<ChartErrorBoundary theme={theme} chartName="Cost Over Time">
-												<CostOverTimeGraph
-													data={dailyCostData}
-													timeRange={timeRange}
-													theme={theme}
-												/>
-											</ChartErrorBoundary>
-										</div>
-
-										{/* Cost By Model Chart */}
-										<div
-											ref={setSectionRef('cost-by-model')}
-											tabIndex={0}
-											role="region"
-											aria-label={getSectionLabel('cost-by-model')}
-											onKeyDown={(e) => handleSectionKeyDown(e, 'cost-by-model')}
-											className="outline-none rounded-lg transition-shadow"
-											style={{
-												minHeight: '280px',
-												boxShadow:
-													focusedSection === 'cost-by-model'
-														? `0 0 0 2px ${theme.colors.accent}`
-														: 'none',
-											}}
-											data-testid="section-cost-by-model"
-										>
-											<ChartErrorBoundary theme={theme} chartName="Cost By Model">
-												<CostByModelGraph
-													data={modelCostData}
-													timeRange={timeRange}
-													theme={theme}
-												/>
-											</ChartErrorBoundary>
-										</div>
-									</div>
-
 									{/* Agent Comparison Chart - Full width bar chart */}
 									<div
 										ref={setSectionRef('agent-comparison')}
@@ -987,6 +926,67 @@ export function UsageDashboardModal({
 											/>
 										</ChartErrorBoundary>
 									</div>
+
+									{/* Cost Charts Grid - 2 columns side by side (at bottom) */}
+									<div
+										className="grid gap-6 dashboard-section-enter"
+										style={{
+											gridTemplateColumns: `repeat(${layout.chartGridCols}, minmax(0, 1fr))`,
+											animationDelay: '400ms',
+										}}
+									>
+										{/* Cost Over Time Chart */}
+										<div
+											ref={setSectionRef('cost-over-time')}
+											tabIndex={0}
+											role="region"
+											aria-label={getSectionLabel('cost-over-time')}
+											onKeyDown={(e) => handleSectionKeyDown(e, 'cost-over-time')}
+											className="outline-none rounded-lg transition-shadow"
+											style={{
+												minHeight: '280px',
+												boxShadow:
+													focusedSection === 'cost-over-time'
+														? `0 0 0 2px ${theme.colors.accent}`
+														: 'none',
+											}}
+											data-testid="section-cost-over-time"
+										>
+											<ChartErrorBoundary theme={theme} chartName="Cost Over Time">
+												<CostOverTimeGraph
+													data={dailyCostData}
+													timeRange={timeRange}
+													theme={theme}
+												/>
+											</ChartErrorBoundary>
+										</div>
+
+										{/* Cost By Model Chart */}
+										<div
+											ref={setSectionRef('cost-by-model')}
+											tabIndex={0}
+											role="region"
+											aria-label={getSectionLabel('cost-by-model')}
+											onKeyDown={(e) => handleSectionKeyDown(e, 'cost-by-model')}
+											className="outline-none rounded-lg transition-shadow"
+											style={{
+												minHeight: '280px',
+												boxShadow:
+													focusedSection === 'cost-by-model'
+														? `0 0 0 2px ${theme.colors.accent}`
+														: 'none',
+											}}
+											data-testid="section-cost-by-model"
+										>
+											<ChartErrorBoundary theme={theme} chartName="Cost By Model">
+												<CostByModelGraph
+													data={modelCostData}
+													timeRange={timeRange}
+													theme={theme}
+												/>
+											</ChartErrorBoundary>
+										</div>
+									</div>
 								</>
 							)}
 
@@ -1019,29 +1019,6 @@ export function UsageDashboardModal({
 										</ChartErrorBoundary>
 									</div>
 
-									{/* Agent Cost Chart */}
-									<div
-										ref={setSectionRef('agent-cost')}
-										tabIndex={0}
-										role="region"
-										aria-label={getSectionLabel('agent-cost')}
-										onKeyDown={(e) => handleSectionKeyDown(e, 'agent-cost')}
-										className="outline-none rounded-lg transition-shadow dashboard-section-enter"
-										style={{
-											minHeight: '300px',
-											boxShadow:
-												focusedSection === 'agent-cost'
-													? `0 0 0 2px ${theme.colors.accent}`
-													: 'none',
-											animationDelay: '50ms',
-										}}
-										data-testid="section-agent-cost"
-									>
-										<ChartErrorBoundary theme={theme} chartName="Agent Cost">
-											<AgentCostGraph data={agentCostData} timeRange={timeRange} theme={theme} />
-										</ChartErrorBoundary>
-									</div>
-
 									{/* Provider Comparison */}
 									<div
 										ref={setSectionRef('agent-comparison')}
@@ -1056,7 +1033,7 @@ export function UsageDashboardModal({
 												focusedSection === 'agent-comparison'
 													? `0 0 0 2px ${theme.colors.accent}`
 													: 'none',
-											animationDelay: '100ms',
+											animationDelay: '50ms',
 										}}
 										data-testid="section-agent-comparison"
 									>
@@ -1083,7 +1060,7 @@ export function UsageDashboardModal({
 												focusedSection === 'agent-usage'
 													? `0 0 0 2px ${theme.colors.accent}`
 													: 'none',
-											animationDelay: '150ms',
+											animationDelay: '100ms',
 										}}
 										data-testid="section-agent-usage"
 									>
@@ -1112,7 +1089,7 @@ export function UsageDashboardModal({
 												focusedSection === 'agent-throughput'
 													? `0 0 0 2px ${theme.colors.accent}`
 													: 'none',
-											animationDelay: '200ms',
+											animationDelay: '150ms',
 										}}
 										data-testid="section-agent-throughput"
 									>
@@ -1122,6 +1099,34 @@ export function UsageDashboardModal({
 												timeRange={timeRange}
 												theme={theme}
 												colorBlindMode={colorBlindMode}
+												sessions={sessions}
+											/>
+										</ChartErrorBoundary>
+									</div>
+
+									{/* Agent Cost Chart (at bottom) */}
+									<div
+										ref={setSectionRef('agent-cost')}
+										tabIndex={0}
+										role="region"
+										aria-label={getSectionLabel('agent-cost')}
+										onKeyDown={(e) => handleSectionKeyDown(e, 'agent-cost')}
+										className="outline-none rounded-lg transition-shadow dashboard-section-enter"
+										style={{
+											minHeight: '300px',
+											boxShadow:
+												focusedSection === 'agent-cost'
+													? `0 0 0 2px ${theme.colors.accent}`
+													: 'none',
+											animationDelay: '200ms',
+										}}
+										data-testid="section-agent-cost"
+									>
+										<ChartErrorBoundary theme={theme} chartName="Agent Cost">
+											<AgentCostGraph
+												data={agentCostData}
+												timeRange={timeRange}
+												theme={theme}
 												sessions={sessions}
 											/>
 										</ChartErrorBoundary>

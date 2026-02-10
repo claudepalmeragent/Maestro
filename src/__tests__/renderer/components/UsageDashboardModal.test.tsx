@@ -1720,9 +1720,9 @@ describe('UsageDashboardModal', () => {
 			summarySection.focus();
 			fireEvent.keyDown(summarySection, { key: 'ArrowDown' });
 
-			// Should focus cost-over-time (next section after summary cards in Overview tab)
+			// Should focus agent-comparison (next section after summary cards in Overview tab)
 			await waitFor(() => {
-				expect(document.activeElement).toBe(screen.getByTestId('section-cost-over-time'));
+				expect(document.activeElement).toBe(screen.getByTestId('section-agent-comparison'));
 			});
 		});
 
@@ -1733,11 +1733,11 @@ describe('UsageDashboardModal', () => {
 				expect(screen.getByTestId('usage-dashboard-content')).toBeInTheDocument();
 			});
 
-			const costOverTimeSection = screen.getByTestId('section-cost-over-time');
+			const agentComparisonSection = screen.getByTestId('section-agent-comparison');
 
-			// Focus cost-over-time section and press ArrowUp
-			costOverTimeSection.focus();
-			fireEvent.keyDown(costOverTimeSection, { key: 'ArrowUp' });
+			// Focus agent-comparison section and press ArrowUp
+			agentComparisonSection.focus();
+			fireEvent.keyDown(agentComparisonSection, { key: 'ArrowUp' });
 
 			// Should focus summary cards (previous section)
 			await waitFor(() => {
@@ -1777,9 +1777,9 @@ describe('UsageDashboardModal', () => {
 			summarySection.focus();
 			fireEvent.keyDown(summarySection, { key: 'End' });
 
-			// Should focus last section (throughput trends)
+			// Should focus last section (cost-by-model, since cost charts are now at bottom)
 			await waitFor(() => {
-				expect(document.activeElement).toBe(screen.getByTestId('section-throughput-trends'));
+				expect(document.activeElement).toBe(screen.getByTestId('section-cost-by-model'));
 			});
 		});
 
@@ -1931,7 +1931,7 @@ describe('UsageDashboardModal', () => {
 			fireEvent.keyDown(summarySection, { key: 'ArrowDown' });
 
 			await waitFor(() => {
-				expect(document.activeElement).toBe(screen.getByTestId('section-cost-over-time'));
+				expect(document.activeElement).toBe(screen.getByTestId('section-agent-comparison'));
 			});
 
 			// Switch to Agents view

@@ -17,7 +17,7 @@
 
 import React, { useState, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import type { Theme } from '../../types';
+import type { Theme, Session } from '../../types';
 import type { StatsTimeRange } from '../../hooks/useStats';
 import { DataSourceToggle, type DataSource } from '../ui/DataSourceToggle';
 
@@ -61,6 +61,8 @@ interface AgentCostGraphProps {
 	title?: string;
 	/** Optional height override */
 	height?: number;
+	/** Current sessions for mapping IDs to names */
+	sessions?: Session[];
 }
 
 // Billing mode colors (accessible and distinct)
@@ -92,12 +94,31 @@ function truncateName(name: string, maxLength: number = 12): string {
 	return name.substring(0, maxLength - 1) + '…';
 }
 
+/**
+ * Get the display name for an agent, using session name if available
+ */
+function getAgentDisplayName(agentId: string, originalName: string, sessions?: Session[]): string {
+	if (sessions) {
+		const session = sessions.find((s) => s.id === agentId);
+		if (session?.name) {
+			return session.name;
+		}
+	}
+
+	// Fallback: use the original name from the data, or truncate ID if unavailable
+	if (originalName && originalName !== agentId) {
+		return originalName;
+	}
+	return agentId.length > 20 ? `${agentId.substring(0, 17)}...` : agentId;
+}
+
 export function AgentCostGraph({
 	data,
 	timeRange: _timeRange,
 	theme,
 	title = 'Cost by Agent',
 	height = 300,
+	sessions,
 }: AgentCostGraphProps): React.ReactElement {
 	const [dataSource, setDataSource] = useState<DataSource>('local');
 	const [hoveredAgent, setHoveredAgent] = useState<ChartDataPoint | null>(null);
@@ -115,18 +136,21 @@ export function AgentCostGraph({
 		if (data.length === 0) return [];
 
 		return data
-			.map((d) => ({
-				agentId: d.agentId,
-				agentName: d.agentName,
-				displayName: truncateName(d.agentName),
-				cost: dataSource === 'local' ? d.localCost : d.anthropicCost,
-				savings: d.savings,
-				billingMode: d.billingMode,
-				color: BILLING_MODE_COLORS[d.billingMode] || BILLING_MODE_COLORS.api,
-			}))
+			.map((d) => {
+				const resolvedName = getAgentDisplayName(d.agentId, d.agentName, sessions);
+				return {
+					agentId: d.agentId,
+					agentName: resolvedName,
+					displayName: truncateName(resolvedName),
+					cost: dataSource === 'local' ? d.localCost : d.anthropicCost,
+					savings: d.savings,
+					billingMode: d.billingMode,
+					color: BILLING_MODE_COLORS[d.billingMode] || BILLING_MODE_COLORS.api,
+				};
+			})
 			.sort((a, b) => b.cost - a.cost)
 			.slice(0, MAX_AGENTS);
-	}, [data, dataSource]);
+	}, [data, dataSource, sessions]);
 
 	// Calculate max cost for bar height scaling
 	const maxCost = useMemo(() => {
