@@ -41,6 +41,11 @@ import {
 } from './context';
 import { registerMarketplaceHandlers, MarketplaceHandlerDependencies } from './marketplace';
 import { registerStatsHandlers, StatsHandlerDependencies } from './stats';
+import { registerAuditHandlers, AuditHandlerDependencies } from './audit';
+import {
+	registerReconstructionHandlers,
+	ReconstructionHandlerDependencies,
+} from './reconstruction';
 import { registerDocumentGraphHandlers, DocumentGraphHandlerDependencies } from './documentGraph';
 import { registerSshRemoteHandlers, SshRemoteHandlerDependencies } from './ssh-remote';
 import { registerFilesystemHandlers } from './filesystem';
@@ -78,6 +83,10 @@ export { registerContextHandlers, cleanupAllGroomingSessions, getActiveGroomingS
 export { registerMarketplaceHandlers };
 export type { MarketplaceHandlerDependencies };
 export { registerStatsHandlers };
+export { registerAuditHandlers };
+export type { AuditHandlerDependencies };
+export { registerReconstructionHandlers };
+export type { ReconstructionHandlerDependencies };
 export { registerDocumentGraphHandlers };
 export { registerSshRemoteHandlers };
 export { registerFilesystemHandlers };

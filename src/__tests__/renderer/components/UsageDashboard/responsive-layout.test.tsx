@@ -142,6 +142,9 @@ const mockOnStatsUpdate = vi.fn(() => vi.fn());
 const mockGetAutoRunSessions = vi.fn(() => Promise.resolve([]));
 const mockGetAutoRunTasks = vi.fn(() => Promise.resolve([]));
 const mockGetDatabaseSize = vi.fn();
+const mockGetDailyCosts = vi.fn(() => Promise.resolve([]));
+const mockGetCostsByModel = vi.fn(() => Promise.resolve([]));
+const mockGetCostsByAgent = vi.fn(() => Promise.resolve([]));
 const mockSaveFile = vi.fn();
 const mockWriteFile = vi.fn();
 
@@ -154,6 +157,9 @@ Object.defineProperty(window, 'maestro', {
 			getAutoRunSessions: mockGetAutoRunSessions,
 			getAutoRunTasks: mockGetAutoRunTasks,
 			getDatabaseSize: mockGetDatabaseSize,
+			getDailyCosts: mockGetDailyCosts,
+			getCostsByModel: mockGetCostsByModel,
+			getCostsByAgent: mockGetCostsByAgent,
 		},
 		dialog: { saveFile: mockSaveFile },
 		fs: { writeFile: mockWriteFile },

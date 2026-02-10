@@ -17,8 +17,11 @@ const INSERT_SQL = `
   INSERT INTO query_events
   (id, session_id, agent_id, agent_type, source, start_time, duration, project_path, tab_id,
    is_remote, input_tokens, output_tokens, tokens_per_second,
-   cache_read_input_tokens, cache_creation_input_tokens, total_cost_usd)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+   cache_read_input_tokens, cache_creation_input_tokens, total_cost_usd,
+   anthropic_cost_usd, anthropic_model,
+   maestro_cost_usd, maestro_billing_mode, maestro_pricing_model, maestro_calculated_at,
+   uuid, anthropic_message_id, is_reconstructed, reconstructed_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `;
 
 /**
@@ -44,7 +47,18 @@ export function insertQueryEvent(db: Database.Database, event: Omit<QueryEvent, 
 		event.tokensPerSecond ?? null,
 		event.cacheReadInputTokens ?? null,
 		event.cacheCreationInputTokens ?? null,
-		event.totalCostUsd ?? null
+		event.totalCostUsd ?? null,
+		// Dual-source cost tracking (v7)
+		event.anthropicCostUsd ?? null,
+		event.anthropicModel ?? null,
+		event.maestroCostUsd ?? null,
+		event.maestroBillingMode ?? null,
+		event.maestroPricingModel ?? null,
+		event.maestroCalculatedAt ?? null,
+		event.uuid ?? null,
+		event.anthropicMessageId ?? null,
+		event.isReconstructed !== undefined ? (event.isReconstructed ? 1 : 0) : 0,
+		event.reconstructedAt ?? null
 	);
 
 	logger.debug(`Inserted query event ${id}`, LOG_CONTEXT);

@@ -11,6 +11,12 @@ import type { QueryCompleteData } from '../../../main/process-manager/types';
 import type { StatsDB } from '../../../main/stats';
 import type { ProcessListenerDependencies } from '../../../main/process-listeners/types';
 
+// Mock the pricing resolver to control billing mode resolution
+vi.mock('../../../main/utils/pricing-resolver', () => ({
+	resolveBillingMode: vi.fn(() => 'api'),
+	resolveModelForPricing: vi.fn(() => 'claude-sonnet-4-20250514'),
+}));
+
 describe('Stats Listener', () => {
 	let mockProcessManager: ProcessManager;
 	let mockSafeSend: SafeSendFn;
@@ -76,15 +82,22 @@ describe('Stats Listener', () => {
 		// Wait for async processing
 		await vi.waitFor(() => {
 			expect(mockStatsDB.isReady).toHaveBeenCalled();
-			expect(mockStatsDB.insertQueryEvent).toHaveBeenCalledWith({
-				sessionId: testQueryData.sessionId,
-				agentType: testQueryData.agentType,
-				source: testQueryData.source,
-				startTime: testQueryData.startTime,
-				duration: testQueryData.duration,
-				projectPath: testQueryData.projectPath,
-				tabId: testQueryData.tabId,
-			});
+			// Use objectContaining to check core fields while allowing new dual-cost fields
+			expect(mockStatsDB.insertQueryEvent).toHaveBeenCalledWith(
+				expect.objectContaining({
+					sessionId: testQueryData.sessionId,
+					agentType: testQueryData.agentType,
+					source: testQueryData.source,
+					startTime: testQueryData.startTime,
+					duration: testQueryData.duration,
+					projectPath: testQueryData.projectPath,
+					tabId: testQueryData.tabId,
+					// Dual-source cost fields (Phase 2 of PRICING-DASHBOARD-COST-FIX)
+					anthropicCostUsd: 0, // No cost reported in input data
+					maestroCostUsd: 0, // Defaults to 0 for non-Claude models without detection
+					maestroBillingMode: 'api', // Default billing mode
+				})
+			);
 			expect(mockSafeSend).toHaveBeenCalledWith('stats:updated');
 		});
 	});
@@ -235,5 +248,111 @@ describe('Stats Listener', () => {
 			'[Stats]',
 			expect.any(Object)
 		);
+	});
+
+	describe('Dual-source cost storage', () => {
+		it('should store both Anthropic and Maestro costs for Claude agents', async () => {
+			setupStatsListener(mockProcessManager, {
+				safeSend: mockSafeSend,
+				getStatsDB: () => mockStatsDB,
+				logger: mockLogger,
+			});
+
+			const handler = eventHandlers.get('query-complete');
+			const testQueryData: QueryCompleteData = {
+				sessionId: 'claude-session',
+				agentId: 'agent-123',
+				agentType: 'claude-code',
+				source: 'user',
+				startTime: Date.now(),
+				duration: 2000,
+				inputTokens: 1000,
+				outputTokens: 500,
+				cacheReadInputTokens: 200,
+				cacheCreationInputTokens: 100,
+				totalCostUsd: 0.05,
+				detectedModel: 'claude-sonnet-4-20250514',
+			};
+
+			handler?.('claude-session', testQueryData);
+
+			await vi.waitFor(() => {
+				expect(mockStatsDB.insertQueryEvent).toHaveBeenCalledWith(
+					expect.objectContaining({
+						sessionId: 'claude-session',
+						agentType: 'claude-code',
+						// Anthropic values
+						anthropicCostUsd: 0.05,
+						anthropicModel: 'claude-sonnet-4-20250514',
+						// Maestro values
+						maestroBillingMode: 'api',
+						maestroPricingModel: 'claude-sonnet-4-20250514',
+					})
+				);
+			});
+		});
+
+		it('should set billingMode to free for non-Claude models', async () => {
+			setupStatsListener(mockProcessManager, {
+				safeSend: mockSafeSend,
+				getStatsDB: () => mockStatsDB,
+				logger: mockLogger,
+			});
+
+			const handler = eventHandlers.get('query-complete');
+			const testQueryData: QueryCompleteData = {
+				sessionId: 'ollama-session',
+				agentType: 'claude-code', // Still using claude-code agent
+				source: 'user',
+				startTime: Date.now(),
+				duration: 1000,
+				totalCostUsd: 0, // Ollama reports 0 cost
+				detectedModel: 'llama3:70b', // Non-Claude model
+			};
+
+			handler?.('ollama-session', testQueryData);
+
+			await vi.waitFor(() => {
+				expect(mockStatsDB.insertQueryEvent).toHaveBeenCalledWith(
+					expect.objectContaining({
+						maestroBillingMode: 'free', // Should be free for non-Claude models
+						maestroCostUsd: 0,
+						maestroPricingModel: 'llama3:70b',
+					})
+				);
+			});
+		});
+
+		it('should pass through cost for non-Claude agent types', async () => {
+			setupStatsListener(mockProcessManager, {
+				safeSend: mockSafeSend,
+				getStatsDB: () => mockStatsDB,
+				logger: mockLogger,
+			});
+
+			const handler = eventHandlers.get('query-complete');
+			const testQueryData: QueryCompleteData = {
+				sessionId: 'codex-session',
+				agentType: 'codex', // Non-Claude agent type
+				source: 'auto',
+				startTime: Date.now(),
+				duration: 1500,
+				totalCostUsd: 0.02,
+				detectedModel: 'gpt-4',
+			};
+
+			handler?.('codex-session', testQueryData);
+
+			await vi.waitFor(() => {
+				expect(mockStatsDB.insertQueryEvent).toHaveBeenCalledWith(
+					expect.objectContaining({
+						// For non-Claude agents, both costs should be the same
+						anthropicCostUsd: 0.02,
+						maestroCostUsd: 0.02,
+						maestroBillingMode: 'api', // Default
+					})
+				);
+			});
+		});
 	});
 });

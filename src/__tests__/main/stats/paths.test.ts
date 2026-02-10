@@ -714,7 +714,7 @@ describe('File path normalization in database (forward slashes consistently)', (
 			});
 
 			// Verify that the statement was called with normalized path
-			// insertQueryEvent now has 16 parameters: id, sessionId, agentId, agentType, source, startTime, duration, projectPath, tabId, isRemote, inputTokens, outputTokens, tokensPerSecond, cacheReadInputTokens, cacheCreationInputTokens, totalCostUsd
+			// insertQueryEvent now has 26 parameters: id, sessionId, agentId, agentType, source, startTime, duration, projectPath, tabId, isRemote, inputTokens, outputTokens, tokensPerSecond, cacheReadInputTokens, cacheCreationInputTokens, totalCostUsd, plus v7 dual-source cost tracking fields
 			expect(mockStatement.run).toHaveBeenCalledWith(
 				expect.any(String), // id
 				'session-1',
@@ -731,7 +731,17 @@ describe('File path normalization in database (forward slashes consistently)', (
 				null, // tokensPerSecond (undefined → null)
 				null, // cacheReadInputTokens (undefined → null)
 				null, // cacheCreationInputTokens (undefined → null)
-				null // totalCostUsd (undefined → null)
+				null, // totalCostUsd (undefined → null)
+				null, // anthropicCostUsd (undefined → null)
+				null, // anthropicModel (undefined → null)
+				null, // maestroCostUsd (undefined → null)
+				null, // maestroBillingMode (undefined → null)
+				null, // maestroPricingModel (undefined → null)
+				null, // maestroCalculatedAt (undefined → null)
+				null, // uuid (undefined → null)
+				null, // anthropicMessageId (undefined → null)
+				0, // isReconstructed (defaults to 0)
+				null // reconstructedAt (undefined → null)
 			);
 		});
 
@@ -750,7 +760,7 @@ describe('File path normalization in database (forward slashes consistently)', (
 				tabId: 'tab-1',
 			});
 
-			// insertQueryEvent now has 16 parameters including token and cost fields
+			// insertQueryEvent now has 26 parameters including token and cost fields
 			expect(mockStatement.run).toHaveBeenCalledWith(
 				expect.any(String),
 				'session-1',
@@ -767,7 +777,17 @@ describe('File path normalization in database (forward slashes consistently)', (
 				null, // tokensPerSecond (undefined → null)
 				null, // cacheReadInputTokens (undefined → null)
 				null, // cacheCreationInputTokens (undefined → null)
-				null // totalCostUsd (undefined → null)
+				null, // totalCostUsd (undefined → null)
+				null, // anthropicCostUsd (undefined → null)
+				null, // anthropicModel (undefined → null)
+				null, // maestroCostUsd (undefined → null)
+				null, // maestroBillingMode (undefined → null)
+				null, // maestroPricingModel (undefined → null)
+				null, // maestroCalculatedAt (undefined → null)
+				null, // uuid (undefined → null)
+				null, // anthropicMessageId (undefined → null)
+				0, // isReconstructed (defaults to 0)
+				null // reconstructedAt (undefined → null)
 			);
 		});
 
@@ -785,7 +805,7 @@ describe('File path normalization in database (forward slashes consistently)', (
 				// projectPath is undefined
 			});
 
-			// insertQueryEvent now has 16 parameters including token and cost fields
+			// insertQueryEvent now has 26 parameters including token, cost, and dual-source tracking fields
 			expect(mockStatement.run).toHaveBeenCalledWith(
 				expect.any(String),
 				'session-1',
@@ -802,7 +822,17 @@ describe('File path normalization in database (forward slashes consistently)', (
 				null, // tokensPerSecond (undefined → null)
 				null, // cacheReadInputTokens (undefined → null)
 				null, // cacheCreationInputTokens (undefined → null)
-				null // totalCostUsd (undefined → null)
+				null, // totalCostUsd (undefined → null)
+				null, // anthropicCostUsd (undefined → null)
+				null, // anthropicModel (undefined → null)
+				null, // maestroCostUsd (undefined → null)
+				null, // maestroBillingMode (undefined → null)
+				null, // maestroPricingModel (undefined → null)
+				null, // maestroCalculatedAt (undefined → null)
+				null, // uuid (undefined → null)
+				null, // anthropicMessageId (undefined → null)
+				0, // isReconstructed (defaults to 0)
+				null // reconstructedAt (undefined → null)
 			);
 		});
 	});

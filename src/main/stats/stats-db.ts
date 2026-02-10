@@ -52,7 +52,15 @@ import {
 	getSessionLifecycleEvents,
 	clearSessionLifecycleCache,
 } from './session-lifecycle';
-import { getAggregatedStats } from './aggregations';
+import {
+	getAggregatedStats,
+	getDailyCosts,
+	getCostsByModel,
+	getCostsByAgent,
+	type DailyCostData,
+	type ModelCostData,
+	type AgentCostData,
+} from './aggregations';
 import { clearOldData, exportToCsv } from './data-management';
 
 /**
@@ -517,6 +525,18 @@ export class StatsDB {
 
 	getAggregatedStats(range: StatsTimeRange): StatsAggregation {
 		return getAggregatedStats(this.database, range);
+	}
+
+	getDailyCosts(range: StatsTimeRange): DailyCostData[] {
+		return getDailyCosts(this.database, range);
+	}
+
+	getCostsByModel(range: StatsTimeRange): ModelCostData[] {
+		return getCostsByModel(this.database, range);
+	}
+
+	getCostsByAgent(range: StatsTimeRange): AgentCostData[] {
+		return getCostsByAgent(this.database, range);
 	}
 
 	// ============================================================================

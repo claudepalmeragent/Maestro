@@ -2421,6 +2421,209 @@ interface MaestroAPI {
 				isRemote?: boolean;
 			}>
 		>;
+		// Get daily costs for cost-over-time graph
+		getDailyCosts: (range: 'day' | 'week' | 'month' | 'year' | 'all') => Promise<
+			Array<{
+				date: string;
+				localCost: number;
+				anthropicCost: number;
+				savings: number;
+			}>
+		>;
+		// Get costs by model for cost-by-model graph
+		getCostsByModel: (range: 'day' | 'week' | 'month' | 'year' | 'all') => Promise<
+			Array<{
+				model: string;
+				localCost: number;
+				anthropicCost: number;
+				savings: number;
+			}>
+		>;
+		// Get costs by agent for cost-by-agent graph
+		getCostsByAgent: (range: 'day' | 'week' | 'month' | 'year' | 'all') => Promise<
+			Array<{
+				agentId: string;
+				agentName: string;
+				localCost: number;
+				anthropicCost: number;
+				savings: number;
+				billingMode: 'api' | 'max' | 'free';
+			}>
+		>;
+	};
+	// Audit API (usage auditing - compare Anthropic vs Maestro data)
+	audit: {
+		run: (
+			startDate: string,
+			endDate: string
+		) => Promise<{
+			period: { start: string; end: string };
+			generatedAt: number;
+			tokens: {
+				anthropic: {
+					inputTokens: number;
+					outputTokens: number;
+					cacheReadTokens: number;
+					cacheWriteTokens: number;
+				};
+				maestro: {
+					inputTokens: number;
+					outputTokens: number;
+					cacheReadTokens: number;
+					cacheWriteTokens: number;
+				};
+				difference: {
+					inputTokens: number;
+					outputTokens: number;
+					cacheReadTokens: number;
+					cacheWriteTokens: number;
+				};
+				percentDiff: number;
+			};
+			costs: {
+				anthropic_total: number;
+				maestro_anthropic: number;
+				maestro_calculated: number;
+				discrepancy: number;
+				savings: number;
+			};
+			modelBreakdown: Array<{
+				model: string;
+				anthropic: {
+					tokens: {
+						inputTokens: number;
+						outputTokens: number;
+						cacheReadTokens: number;
+						cacheWriteTokens: number;
+					};
+					cost: number;
+				};
+				maestro: {
+					tokens: {
+						inputTokens: number;
+						outputTokens: number;
+						cacheReadTokens: number;
+						cacheWriteTokens: number;
+					};
+					cost: number;
+				};
+				match: boolean;
+			}>;
+			anomalies: Array<{
+				type: 'missing_query' | 'token_mismatch' | 'cost_mismatch' | 'model_mismatch';
+				severity: 'info' | 'warning' | 'error';
+				description: string;
+				details: unknown;
+			}>;
+		}>;
+		getHistory: (limit?: number) => Promise<
+			Array<{
+				period: { start: string; end: string };
+				generatedAt: number;
+				tokens: {
+					percentDiff: number;
+				};
+				costs: {
+					anthropic_total: number;
+					maestro_calculated: number;
+					savings: number;
+					discrepancy: number;
+				};
+				anomalies: Array<{ severity: string }>;
+			}>
+		>;
+		getSnapshotsByRange: (
+			startDate: string,
+			endDate: string
+		) => Promise<
+			Array<{
+				period: { start: string; end: string };
+				generatedAt: number;
+				tokens: { percentDiff: number };
+				costs: {
+					anthropic_total: number;
+					maestro_calculated: number;
+					savings: number;
+					discrepancy: number;
+				};
+				anomalies: Array<{ severity: string }>;
+			}>
+		>;
+		getConfig: () => Promise<{
+			dailyEnabled: boolean;
+			dailyTime: string;
+			weeklyEnabled: boolean;
+			weeklyDay: number;
+			monthlyEnabled: boolean;
+		}>;
+		saveConfig: (config: {
+			dailyEnabled: boolean;
+			dailyTime: string;
+			weeklyEnabled: boolean;
+			weeklyDay: number;
+			monthlyEnabled: boolean;
+		}) => Promise<{ success: boolean }>;
+		getScheduleStatus: () => Promise<
+			Record<
+				string,
+				{
+					enabled: boolean;
+					lastRunAt: number | null;
+					lastRunStatus: string | null;
+					nextRunAt: number | null;
+				}
+			>
+		>;
+		startScheduler: () => Promise<{ success: boolean }>;
+		stopScheduler: () => Promise<{ success: boolean }>;
+		autoCorrect: (entryIds: string[]) => Promise<{ corrected: number; total: number }>;
+		onAuditUpdate: (callback: () => void) => () => void;
+	};
+	// Reconstruction API (historical data reconstruction from JSONL files)
+	reconstruction: {
+		start: (options?: {
+			includeLocalAgents?: boolean;
+			includeSshRemotes?: boolean;
+			sshConfigs?: Array<{
+				host: string;
+				user: string;
+				identityFile?: string;
+			}>;
+			dateRange?: {
+				start?: string;
+				end?: string;
+			};
+		}) => Promise<{
+			queriesFound: number;
+			queriesInserted: number;
+			queriesUpdated: number;
+			queriesSkipped: number;
+			dateRangeCovered: { start: string; end: string } | null;
+			errors: Array<{ file: string; error: string }>;
+			duration: number;
+		}>;
+		preview: (options?: {
+			includeLocalAgents?: boolean;
+			includeSshRemotes?: boolean;
+			sshConfigs?: Array<{
+				host: string;
+				user: string;
+				identityFile?: string;
+			}>;
+			dateRange?: {
+				start?: string;
+				end?: string;
+			};
+		}) => Promise<{
+			queriesFound: number;
+			queriesInserted: number;
+			queriesUpdated: number;
+			queriesSkipped: number;
+			dateRangeCovered: { start: string; end: string } | null;
+			errors: Array<{ file: string; error: string }>;
+			duration: number;
+		}>;
+		onReconstructionUpdate: (callback: () => void) => () => void;
 	};
 	// Document Graph API (file watching for graph visualization)
 	documentGraph: {

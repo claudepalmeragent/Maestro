@@ -30,6 +30,9 @@ import { SessionStats } from './SessionStats';
 import { EmptyState } from './EmptyState';
 import { DashboardSkeleton } from './ChartSkeletons';
 import { ChartErrorBoundary } from './ChartErrorBoundary';
+import { CostOverTimeGraph, type DailyCostData } from './CostOverTimeGraph';
+import { CostByModelGraph, type ModelCostData } from './CostByModelGraph';
+import { AgentCostGraph, type AgentCostData } from './AgentCostGraph';
 import type { Theme, Session } from '../../types';
 import { useLayerStack } from '../../contexts/LayerStackContext';
 import { MODAL_PRIORITIES } from '../../constants/modalPriorities';
@@ -39,6 +42,8 @@ import { PERFORMANCE_THRESHOLDS } from '../../../shared/performance-metrics';
 // Section IDs for keyboard navigation
 const OVERVIEW_SECTIONS = [
 	'summary-cards',
+	'cost-over-time',
+	'cost-by-model',
 	'agent-comparison',
 	'source-distribution',
 	'location-distribution',
@@ -49,6 +54,7 @@ const OVERVIEW_SECTIONS = [
 ] as const;
 const AGENTS_SECTIONS = [
 	'session-stats',
+	'agent-cost',
 	'agent-comparison',
 	'agent-usage',
 	'agent-throughput',
@@ -128,6 +134,9 @@ export function UsageDashboardModal({
 	const [timeRange, setTimeRange] = useState<StatsTimeRange>(defaultTimeRange);
 	const [viewMode, setViewMode] = useState<ViewMode>('overview');
 	const [data, setData] = useState<StatsAggregation | null>(null);
+	const [dailyCostData, setDailyCostData] = useState<DailyCostData[]>([]);
+	const [modelCostData, setModelCostData] = useState<ModelCostData[]>([]);
+	const [agentCostData, setAgentCostData] = useState<AgentCostData[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
 	const [isExporting, setIsExporting] = useState(false);
@@ -177,13 +186,19 @@ export function UsageDashboardModal({
 			setError(null);
 
 			try {
-				// Fetch stats and database size in parallel
-				const [stats, dbSize] = await Promise.all([
+				// Fetch stats, database size, and cost data in parallel
+				const [stats, dbSize, dailyCosts, costsByModel, costsByAgent] = await Promise.all([
 					window.maestro.stats.getAggregation(timeRange),
 					window.maestro.stats.getDatabaseSize(),
+					window.maestro.stats.getDailyCosts(timeRange),
+					window.maestro.stats.getCostsByModel(timeRange),
+					window.maestro.stats.getCostsByAgent(timeRange),
 				]);
 				setData(stats);
 				setDatabaseSize(dbSize);
+				setDailyCostData(dailyCosts);
+				setModelCostData(costsByModel);
+				setAgentCostData(costsByAgent);
 
 				// Log fetch performance
 				const fetchDuration = perfMetrics.end(fetchStart, 'fetchStats', {
@@ -333,7 +348,10 @@ export function UsageDashboardModal({
 	const getSectionLabel = useCallback((sectionId: SectionId): string => {
 		const labels: Record<SectionId, string> = {
 			'summary-cards': 'Summary Cards',
+			'cost-over-time': 'Cost Over Time Chart',
+			'cost-by-model': 'Cost by Model Chart',
 			'session-stats': 'Agent Statistics',
+			'agent-cost': 'Agent Cost Chart',
 			'agent-comparison': 'Provider Comparison Chart',
 			'agent-usage': 'Agent Usage Chart',
 			'agent-throughput': 'Agent Throughput Chart',
@@ -714,6 +732,67 @@ export function UsageDashboardModal({
 										</ChartErrorBoundary>
 									</div>
 
+									{/* Cost Charts Grid - 2 columns side by side */}
+									<div
+										className="grid gap-6 dashboard-section-enter"
+										style={{
+											gridTemplateColumns: `repeat(${layout.chartGridCols}, minmax(0, 1fr))`,
+											animationDelay: '50ms',
+										}}
+									>
+										{/* Cost Over Time Chart */}
+										<div
+											ref={setSectionRef('cost-over-time')}
+											tabIndex={0}
+											role="region"
+											aria-label={getSectionLabel('cost-over-time')}
+											onKeyDown={(e) => handleSectionKeyDown(e, 'cost-over-time')}
+											className="outline-none rounded-lg transition-shadow"
+											style={{
+												minHeight: '280px',
+												boxShadow:
+													focusedSection === 'cost-over-time'
+														? `0 0 0 2px ${theme.colors.accent}`
+														: 'none',
+											}}
+											data-testid="section-cost-over-time"
+										>
+											<ChartErrorBoundary theme={theme} chartName="Cost Over Time">
+												<CostOverTimeGraph
+													data={dailyCostData}
+													timeRange={timeRange}
+													theme={theme}
+												/>
+											</ChartErrorBoundary>
+										</div>
+
+										{/* Cost By Model Chart */}
+										<div
+											ref={setSectionRef('cost-by-model')}
+											tabIndex={0}
+											role="region"
+											aria-label={getSectionLabel('cost-by-model')}
+											onKeyDown={(e) => handleSectionKeyDown(e, 'cost-by-model')}
+											className="outline-none rounded-lg transition-shadow"
+											style={{
+												minHeight: '280px',
+												boxShadow:
+													focusedSection === 'cost-by-model'
+														? `0 0 0 2px ${theme.colors.accent}`
+														: 'none',
+											}}
+											data-testid="section-cost-by-model"
+										>
+											<ChartErrorBoundary theme={theme} chartName="Cost By Model">
+												<CostByModelGraph
+													data={modelCostData}
+													timeRange={timeRange}
+													theme={theme}
+												/>
+											</ChartErrorBoundary>
+										</div>
+									</div>
+
 									{/* Agent Comparison Chart - Full width bar chart */}
 									<div
 										ref={setSectionRef('agent-comparison')}
@@ -940,6 +1019,29 @@ export function UsageDashboardModal({
 										</ChartErrorBoundary>
 									</div>
 
+									{/* Agent Cost Chart */}
+									<div
+										ref={setSectionRef('agent-cost')}
+										tabIndex={0}
+										role="region"
+										aria-label={getSectionLabel('agent-cost')}
+										onKeyDown={(e) => handleSectionKeyDown(e, 'agent-cost')}
+										className="outline-none rounded-lg transition-shadow dashboard-section-enter"
+										style={{
+											minHeight: '300px',
+											boxShadow:
+												focusedSection === 'agent-cost'
+													? `0 0 0 2px ${theme.colors.accent}`
+													: 'none',
+											animationDelay: '50ms',
+										}}
+										data-testid="section-agent-cost"
+									>
+										<ChartErrorBoundary theme={theme} chartName="Agent Cost">
+											<AgentCostGraph data={agentCostData} timeRange={timeRange} theme={theme} />
+										</ChartErrorBoundary>
+									</div>
+
 									{/* Provider Comparison */}
 									<div
 										ref={setSectionRef('agent-comparison')}
@@ -981,7 +1083,7 @@ export function UsageDashboardModal({
 												focusedSection === 'agent-usage'
 													? `0 0 0 2px ${theme.colors.accent}`
 													: 'none',
-											animationDelay: '200ms',
+											animationDelay: '150ms',
 										}}
 										data-testid="section-agent-usage"
 									>
@@ -1010,7 +1112,7 @@ export function UsageDashboardModal({
 												focusedSection === 'agent-throughput'
 													? `0 0 0 2px ${theme.colors.accent}`
 													: 'none',
-											animationDelay: '300ms',
+											animationDelay: '200ms',
 										}}
 										data-testid="section-agent-throughput"
 									>

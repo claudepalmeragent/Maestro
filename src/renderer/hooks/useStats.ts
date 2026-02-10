@@ -86,7 +86,12 @@ export interface StatsAggregation {
 	totalCacheReadInputTokens?: number;
 	totalCacheCreationInputTokens?: number;
 	// Cost metrics (optional for backwards compatibility)
+	/** Primary cost: Maestro calculated (billing-mode aware) */
 	totalCostUsd?: number;
+	/** Secondary cost: Anthropic reported (API pricing) - added in v7 */
+	anthropicCostUsd?: number;
+	/** Savings calculation (API - Maestro) - added in v7 */
+	savingsUsd?: number;
 }
 
 // Return type for the useStats hook

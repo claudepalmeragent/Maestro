@@ -28,7 +28,34 @@ export interface QueryEvent {
 	// Cache tokens and cost (added in v5)
 	cacheReadInputTokens?: number;
 	cacheCreationInputTokens?: number;
+	/** @deprecated Use anthropicCostUsd instead. Kept for backward compatibility. */
 	totalCostUsd?: number;
+
+	// Anthropic values (from Claude Code response) - added in v7
+	/** Cost reported by Anthropic/Claude Code */
+	anthropicCostUsd?: number;
+	/** Model name from Anthropic response */
+	anthropicModel?: string;
+
+	// Maestro calculated values - added in v7
+	/** Cost calculated by Maestro pricing */
+	maestroCostUsd?: number;
+	/** Billing mode: 'api' | 'max' | 'free' */
+	maestroBillingMode?: 'api' | 'max' | 'free';
+	/** Pricing model used for calculation */
+	maestroPricingModel?: string;
+	/** Timestamp when Maestro calculated the cost */
+	maestroCalculatedAt?: number;
+
+	// Reconstruction tracking - added in v7
+	/** Unique identifier for reconstruction */
+	uuid?: string;
+	/** Message ID from Anthropic for deduplication */
+	anthropicMessageId?: string;
+	/** Whether this record was reconstructed from external data */
+	isReconstructed?: boolean;
+	/** Timestamp when the record was reconstructed */
+	reconstructedAt?: number;
 }
 
 /**
@@ -159,7 +186,12 @@ export interface StatsAggregation {
 	// Cache tokens and cost aggregates (added in v5)
 	totalCacheReadInputTokens: number;
 	totalCacheCreationInputTokens: number;
+	/** Primary cost: Maestro calculated (billing-mode aware) */
 	totalCostUsd: number;
+	/** Secondary cost: Anthropic reported (API pricing) - added in v7 */
+	anthropicCostUsd: number;
+	/** Savings calculation (API - Maestro) - added in v7 */
+	savingsUsd: number;
 }
 
 /**
@@ -177,5 +209,6 @@ export interface StatsFilters {
  * Version 4: Added input_tokens, output_tokens, tokens_per_second columns to query_events
  * Version 5: Added cache_read_input_tokens, cache_creation_input_tokens, total_cost_usd columns
  * Version 6: Added agent_id column for proper Maestro agent attribution
+ * Version 7: Added dual-source cost tracking (Anthropic + Maestro) and audit tables
  */
-export const STATS_DB_VERSION = 6;
+export const STATS_DB_VERSION = 7;

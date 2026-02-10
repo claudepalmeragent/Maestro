@@ -58,6 +58,8 @@ const mockData: StatsAggregation = {
 	totalCacheCreationInputTokens: 10000,
 	// Cost (optional)
 	totalCostUsd: 1.23,
+	anthropicCostUsd: 1.5,
+	savingsUsd: 0.27,
 };
 
 // Empty data for edge case testing
@@ -118,6 +120,8 @@ const largeNumbersData: StatsAggregation = {
 	avgOutputTokensPerQuery: 50,
 	queriesWithTokenData: 1500000,
 	totalCostUsd: 1500.5,
+	anthropicCostUsd: 1800.75,
+	savingsUsd: 300.25,
 };
 
 // Single agent data
@@ -535,6 +539,8 @@ describe('SummaryCards', () => {
 			const dataWithZeroCost: StatsAggregation = {
 				...mockData,
 				totalCostUsd: 0,
+				anthropicCostUsd: 0,
+				savingsUsd: 0,
 			};
 			render(<SummaryCards data={dataWithZeroCost} theme={theme} />);
 
@@ -562,16 +568,31 @@ describe('SummaryCards', () => {
 			expect(svgIcon).toHaveClass('w-4', 'h-4');
 		});
 
-		it('renders tooltip explaining the Total Cost metric', () => {
+		it('renders detailed tooltip with dual costs when savings exist', () => {
 			render(<SummaryCards data={mockData} theme={theme} />);
 
 			// Find the Total Cost card and verify its tooltip
 			const totalCostCard = screen.getByRole('group', { name: /Total Cost/i });
 			expect(totalCostCard).toBeInTheDocument();
 
-			// The tooltip should explain what the metric represents
-			const expectedTooltip = 'Total API cost across all queries in the selected time range';
+			// The tooltip should show Maestro Cost, API Pricing, and Max Savings
+			const expectedTooltip = 'Maestro Cost: $1.23\nAPI Pricing: $1.50\nMax Savings: $0.27';
 			expect(totalCostCard).toHaveAttribute('title', expectedTooltip);
+		});
+
+		it('renders basic tooltip when no savings exist', () => {
+			const dataWithNoSavings: StatsAggregation = {
+				...mockData,
+				anthropicCostUsd: 0,
+				savingsUsd: 0,
+			};
+			render(<SummaryCards data={dataWithNoSavings} theme={theme} />);
+
+			const totalCostCard = screen.getByRole('group', { name: /Total Cost/i });
+			expect(totalCostCard).toHaveAttribute(
+				'title',
+				'Total API cost across all queries in the selected time range'
+			);
 		});
 
 		it('handles undefined totalCostUsd gracefully', () => {
@@ -583,6 +604,53 @@ describe('SummaryCards', () => {
 
 			// Should default to $0.00 when undefined
 			expect(screen.getByText('$0.00')).toBeInTheDocument();
+		});
+	});
+
+	describe('Dual Cost Display (Task 6.5)', () => {
+		it('displays savings subtitle when savingsUsd is positive', () => {
+			render(<SummaryCards data={mockData} theme={theme} />);
+
+			// mockData has savingsUsd: 0.27
+			expect(screen.getByText('Saved $0.27 vs API pricing')).toBeInTheDocument();
+		});
+
+		it('does not display savings subtitle when savingsUsd is zero', () => {
+			const dataWithNoSavings: StatsAggregation = {
+				...mockData,
+				savingsUsd: 0,
+			};
+			render(<SummaryCards data={dataWithNoSavings} theme={theme} />);
+
+			expect(screen.queryByText(/Saved.*vs API pricing/i)).not.toBeInTheDocument();
+		});
+
+		it('does not display savings subtitle when savingsUsd is undefined', () => {
+			const dataWithUndefinedSavings: StatsAggregation = {
+				...mockData,
+				savingsUsd: undefined,
+			};
+			render(<SummaryCards data={dataWithUndefinedSavings} theme={theme} />);
+
+			expect(screen.queryByText(/Saved.*vs API pricing/i)).not.toBeInTheDocument();
+		});
+
+		it('displays savings with proper precision for large amounts', () => {
+			render(<SummaryCards data={largeNumbersData} theme={theme} />);
+
+			// largeNumbersData.savingsUsd = 300.25
+			expect(screen.getByText('Saved $300.25 vs API pricing')).toBeInTheDocument();
+		});
+
+		it('includes anthropic cost in tooltip when present', () => {
+			render(<SummaryCards data={mockData} theme={theme} />);
+
+			const totalCostCard = screen.getByRole('group', { name: /Total Cost/i });
+			const title = totalCostCard.getAttribute('title');
+
+			expect(title).toContain('Maestro Cost: $1.23');
+			expect(title).toContain('API Pricing: $1.50');
+			expect(title).toContain('Max Savings: $0.27');
 		});
 	});
 });

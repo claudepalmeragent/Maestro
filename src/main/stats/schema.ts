@@ -58,6 +58,19 @@ export const CREATE_META_TABLE_SQL = `
  * - cache_read_input_tokens: INTEGER (nullable) - Cache read tokens (v5)
  * - cache_creation_input_tokens: INTEGER (nullable) - Cache creation tokens (v5)
  * - total_cost_usd: REAL (nullable) - Cost in USD (v5)
+ * - agent_id: TEXT (nullable) - Maestro agent ID without suffixes (v6)
+ *
+ * Dual-source cost tracking (v7):
+ * - anthropic_cost_usd: REAL (nullable) - Cost reported by Anthropic/Claude Code
+ * - anthropic_model: TEXT (nullable) - Model name from Anthropic response
+ * - maestro_cost_usd: REAL (nullable) - Cost calculated by Maestro pricing
+ * - maestro_billing_mode: TEXT (nullable) - 'api' | 'max' | 'free'
+ * - maestro_pricing_model: TEXT (nullable) - Pricing model used for calculation
+ * - maestro_calculated_at: INTEGER (nullable) - Timestamp of Maestro calculation
+ * - uuid: TEXT (nullable) - Unique identifier for reconstruction
+ * - anthropic_message_id: TEXT (nullable) - Message ID from Anthropic for deduplication
+ * - is_reconstructed: INTEGER DEFAULT 0 - Whether this record was reconstructed
+ * - reconstructed_at: INTEGER (nullable) - When the record was reconstructed
  */
 export const CREATE_QUERY_EVENTS_SQL = `
   CREATE TABLE IF NOT EXISTS query_events (
@@ -146,6 +159,86 @@ export const CREATE_SESSION_LIFECYCLE_SQL = `
 export const CREATE_SESSION_LIFECYCLE_INDEXES_SQL = `
   CREATE INDEX IF NOT EXISTS idx_session_created_at ON session_lifecycle(created_at);
   CREATE INDEX IF NOT EXISTS idx_session_agent_type ON session_lifecycle(agent_type)
+`;
+
+// ============================================================================
+// Audit Snapshots (Migration v7)
+// ============================================================================
+
+/**
+ * Audit snapshots table - stores periodic cost comparison results
+ *
+ * Captures snapshots of token and cost data from both Anthropic (via ccusage)
+ * and Maestro's internal calculations for reconciliation and auditing.
+ */
+export const CREATE_AUDIT_SNAPSHOTS_SQL = `
+  CREATE TABLE IF NOT EXISTS audit_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at INTEGER NOT NULL,
+    period_start TEXT NOT NULL,
+    period_end TEXT NOT NULL,
+    audit_type TEXT NOT NULL CHECK(audit_type IN ('daily', 'weekly', 'monthly', 'manual')),
+
+    -- Anthropic totals (from ccusage)
+    anthropic_input_tokens INTEGER,
+    anthropic_output_tokens INTEGER,
+    anthropic_cache_read_tokens INTEGER,
+    anthropic_cache_write_tokens INTEGER,
+    anthropic_total_cost REAL,
+
+    -- Maestro totals (from our database)
+    maestro_input_tokens INTEGER,
+    maestro_output_tokens INTEGER,
+    maestro_cache_read_tokens INTEGER,
+    maestro_cache_write_tokens INTEGER,
+    maestro_anthropic_cost REAL,
+    maestro_calculated_cost REAL,
+
+    -- Comparison results
+    token_match_percent REAL,
+    cost_discrepancy_usd REAL,
+    anomaly_count INTEGER,
+
+    -- Full audit result (JSON blob)
+    audit_result_json TEXT,
+
+    -- Status
+    status TEXT DEFAULT 'completed' CHECK(status IN ('completed', 'failed', 'partial'))
+  )
+`;
+
+export const CREATE_AUDIT_SNAPSHOTS_INDEXES_SQL = `
+  CREATE INDEX IF NOT EXISTS idx_audit_snapshots_period ON audit_snapshots(period_start, period_end);
+  CREATE INDEX IF NOT EXISTS idx_audit_snapshots_created ON audit_snapshots(created_at)
+`;
+
+// ============================================================================
+// Audit Schedule (Migration v7)
+// ============================================================================
+
+/**
+ * Audit schedule table - configuration for scheduled audits
+ *
+ * Stores settings for automatic daily/weekly/monthly audit runs.
+ */
+export const CREATE_AUDIT_SCHEDULE_SQL = `
+  CREATE TABLE IF NOT EXISTS audit_schedule (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    schedule_type TEXT NOT NULL CHECK(schedule_type IN ('daily', 'weekly', 'monthly')),
+    enabled INTEGER DEFAULT 0,
+
+    -- Schedule configuration
+    run_time TEXT,
+    run_day INTEGER,
+
+    -- Last run info
+    last_run_at INTEGER,
+    last_run_status TEXT,
+    next_run_at INTEGER,
+
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  )
 `;
 
 // ============================================================================

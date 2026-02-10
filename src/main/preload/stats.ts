@@ -148,7 +148,12 @@ export interface StatsAggregation {
 	// Cache tokens and cost aggregates (added in v5)
 	totalCacheReadInputTokens: number;
 	totalCacheCreationInputTokens: number;
+	/** Primary cost: Maestro calculated (billing-mode aware) */
 	totalCostUsd: number;
+	/** Secondary cost: Anthropic reported (API pricing) - added in v7 */
+	anthropicCostUsd: number;
+	/** Savings calculation (API - Maestro) - added in v7 */
+	savingsUsd: number;
 }
 
 /**
@@ -280,6 +285,44 @@ export function createStatsApi() {
 				isRemote?: boolean;
 			}>
 		> => ipcRenderer.invoke('stats:get-session-lifecycle', range),
+
+		// Get daily costs for cost-over-time graph
+		getDailyCosts: (
+			range: 'day' | 'week' | 'month' | 'year' | 'all'
+		): Promise<
+			Array<{
+				date: string;
+				localCost: number;
+				anthropicCost: number;
+				savings: number;
+			}>
+		> => ipcRenderer.invoke('stats:get-daily-costs', range),
+
+		// Get costs by model for cost-by-model graph
+		getCostsByModel: (
+			range: 'day' | 'week' | 'month' | 'year' | 'all'
+		): Promise<
+			Array<{
+				model: string;
+				localCost: number;
+				anthropicCost: number;
+				savings: number;
+			}>
+		> => ipcRenderer.invoke('stats:get-costs-by-model', range),
+
+		// Get costs by agent for cost-by-agent graph
+		getCostsByAgent: (
+			range: 'day' | 'week' | 'month' | 'year' | 'all'
+		): Promise<
+			Array<{
+				agentId: string;
+				agentName: string;
+				localCost: number;
+				anthropicCost: number;
+				savings: number;
+				billingMode: 'api' | 'max' | 'free';
+			}>
+		> => ipcRenderer.invoke('stats:get-costs-by-agent', range),
 	};
 }
 
