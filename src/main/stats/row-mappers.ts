@@ -35,6 +35,17 @@ export interface QueryEventRow {
 	cache_read_input_tokens: number | null;
 	cache_creation_input_tokens: number | null;
 	total_cost_usd: number | null;
+	// Dual-source cost tracking (v7)
+	anthropic_cost_usd: number | null;
+	anthropic_model: string | null;
+	maestro_cost_usd: number | null;
+	maestro_billing_mode: string | null;
+	maestro_pricing_model: string | null;
+	maestro_calculated_at: number | null;
+	uuid: string | null;
+	anthropic_message_id: string | null;
+	is_reconstructed: number | null;
+	reconstructed_at: number | null;
 }
 
 export interface AutoRunSessionRow {
@@ -102,6 +113,17 @@ export function mapQueryEventRow(row: QueryEventRow): QueryEvent {
 		cacheReadInputTokens: row.cache_read_input_tokens ?? undefined,
 		cacheCreationInputTokens: row.cache_creation_input_tokens ?? undefined,
 		totalCostUsd: row.total_cost_usd ?? undefined,
+		// Dual-source cost tracking (v7)
+		anthropicCostUsd: row.anthropic_cost_usd ?? undefined,
+		anthropicModel: row.anthropic_model ?? undefined,
+		maestroCostUsd: row.maestro_cost_usd ?? undefined,
+		maestroBillingMode: row.maestro_billing_mode as 'api' | 'max' | 'free' | undefined,
+		maestroPricingModel: row.maestro_pricing_model ?? undefined,
+		maestroCalculatedAt: row.maestro_calculated_at ?? undefined,
+		uuid: row.uuid ?? undefined,
+		anthropicMessageId: row.anthropic_message_id ?? undefined,
+		isReconstructed: row.is_reconstructed !== null ? row.is_reconstructed === 1 : undefined,
+		reconstructedAt: row.reconstructed_at ?? undefined,
 	};
 }
 

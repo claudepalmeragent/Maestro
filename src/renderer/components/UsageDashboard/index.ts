@@ -7,3 +7,4 @@
 
 export { UsageDashboardModal } from './UsageDashboardModal';
 export { SessionStats } from './SessionStats';
+export { ReconstructionPanel } from './ReconstructionPanel';

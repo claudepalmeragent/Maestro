@@ -474,6 +474,8 @@ function queryTokenMetrics(
 	totalCacheReadInputTokens: number;
 	totalCacheCreationInputTokens: number;
 	totalCostUsd: number;
+	anthropicCostUsd: number;
+	savingsUsd: number;
 	avgTokensPerSecond: number;
 	avgOutputTokensPerQuery: number;
 } {
@@ -487,7 +489,13 @@ function queryTokenMetrics(
         COALESCE(SUM(output_tokens), 0) as total_output_tokens,
         COALESCE(SUM(cache_read_input_tokens), 0) as total_cache_read_input_tokens,
         COALESCE(SUM(cache_creation_input_tokens), 0) as total_cache_creation_input_tokens,
-        COALESCE(SUM(total_cost_usd), 0) as total_cost_usd,
+        -- Primary cost: Maestro calculated (billing-mode aware)
+        COALESCE(SUM(maestro_cost_usd), SUM(total_cost_usd), 0) as total_cost_usd,
+        -- Secondary cost: Anthropic reported (API pricing)
+        COALESCE(SUM(anthropic_cost_usd), SUM(total_cost_usd), 0) as anthropic_cost_usd,
+        -- Savings calculation (API - Maestro)
+        COALESCE(SUM(anthropic_cost_usd), SUM(total_cost_usd), 0) -
+          COALESCE(SUM(maestro_cost_usd), SUM(total_cost_usd), 0) as savings_usd,
         COALESCE(AVG(tokens_per_second), 0) as avg_tokens_per_second,
         COALESCE(AVG(output_tokens), 0) as avg_output_tokens
       FROM query_events
@@ -501,10 +509,21 @@ function queryTokenMetrics(
 		total_cache_read_input_tokens: number;
 		total_cache_creation_input_tokens: number;
 		total_cost_usd: number;
+		anthropic_cost_usd: number;
+		savings_usd: number;
 		avg_tokens_per_second: number;
 		avg_output_tokens: number;
 	};
 	perfMetrics.end(perfStart, 'getAggregatedStats:tokenMetrics');
+
+	// Debug logging for dual cost tracking
+	logger.debug('[aggregations] Token metrics result:', LOG_CONTEXT, {
+		totalCostUsd: result.total_cost_usd,
+		anthropicCostUsd: result.anthropic_cost_usd,
+		savingsUsd: result.savings_usd,
+		hasDualCosts: result.total_cost_usd !== result.anthropic_cost_usd,
+	});
+
 	return {
 		queriesWithTokenData: result.queries_with_data,
 		totalInputTokens: result.total_input_tokens,
@@ -512,9 +531,205 @@ function queryTokenMetrics(
 		totalCacheReadInputTokens: result.total_cache_read_input_tokens,
 		totalCacheCreationInputTokens: result.total_cache_creation_input_tokens,
 		totalCostUsd: result.total_cost_usd,
+		anthropicCostUsd: result.anthropic_cost_usd,
+		savingsUsd: result.savings_usd,
 		avgTokensPerSecond: result.avg_tokens_per_second,
 		avgOutputTokensPerQuery: result.avg_output_tokens,
 	};
+}
+
+// ============================================================================
+// Cost Data Queries
+// ============================================================================
+
+/**
+ * Daily cost data for cost-over-time graph
+ */
+export interface DailyCostData {
+	date: string;
+	localCost: number;
+	anthropicCost: number;
+	savings: number;
+}
+
+/**
+ * Model cost data for cost-by-model graph
+ */
+export interface ModelCostData {
+	model: string;
+	localCost: number;
+	anthropicCost: number;
+	savings: number;
+}
+
+/**
+ * Agent cost data for cost-by-agent graph
+ */
+export interface AgentCostData {
+	agentId: string;
+	agentName: string;
+	localCost: number;
+	anthropicCost: number;
+	savings: number;
+	billingMode: 'api' | 'max' | 'free';
+}
+
+/**
+ * Query daily costs aggregated by date.
+ * Returns both local (Maestro calculated) and Anthropic (API pricing) costs.
+ */
+export function queryDailyCosts(db: Database.Database, startTime: number): DailyCostData[] {
+	const perfStart = perfMetrics.start();
+	const rows = db
+		.prepare(
+			`
+      SELECT
+        date(start_time / 1000, 'unixepoch', 'localtime') as date,
+        COALESCE(SUM(maestro_cost_usd), SUM(total_cost_usd), 0) as local_cost,
+        COALESCE(SUM(anthropic_cost_usd), SUM(total_cost_usd), 0) as anthropic_cost,
+        COALESCE(SUM(anthropic_cost_usd), SUM(total_cost_usd), 0) -
+          COALESCE(SUM(maestro_cost_usd), SUM(total_cost_usd), 0) as savings
+      FROM query_events
+      WHERE start_time >= ?
+      GROUP BY date(start_time / 1000, 'unixepoch', 'localtime')
+      ORDER BY date ASC
+    `
+		)
+		.all(startTime) as Array<{
+		date: string;
+		local_cost: number;
+		anthropic_cost: number;
+		savings: number;
+	}>;
+
+	perfMetrics.end(perfStart, 'queryDailyCosts', { dayCount: rows.length });
+
+	return rows.map((row) => ({
+		date: row.date,
+		localCost: row.local_cost,
+		anthropicCost: row.anthropic_cost,
+		savings: row.savings,
+	}));
+}
+
+/**
+ * Query costs aggregated by model.
+ * Uses maestro_pricing_model for grouping (falls back to 'unknown' for older data).
+ */
+export function queryCostsByModel(db: Database.Database, startTime: number): ModelCostData[] {
+	const perfStart = perfMetrics.start();
+	const rows = db
+		.prepare(
+			`
+      SELECT
+        COALESCE(maestro_pricing_model, anthropic_model, 'unknown') as model,
+        COALESCE(SUM(maestro_cost_usd), SUM(total_cost_usd), 0) as local_cost,
+        COALESCE(SUM(anthropic_cost_usd), SUM(total_cost_usd), 0) as anthropic_cost,
+        COALESCE(SUM(anthropic_cost_usd), SUM(total_cost_usd), 0) -
+          COALESCE(SUM(maestro_cost_usd), SUM(total_cost_usd), 0) as savings
+      FROM query_events
+      WHERE start_time >= ?
+      GROUP BY COALESCE(maestro_pricing_model, anthropic_model, 'unknown')
+      ORDER BY local_cost DESC
+    `
+		)
+		.all(startTime) as Array<{
+		model: string;
+		local_cost: number;
+		anthropic_cost: number;
+		savings: number;
+	}>;
+
+	perfMetrics.end(perfStart, 'queryCostsByModel', { modelCount: rows.length });
+
+	return rows.map((row) => ({
+		model: row.model,
+		localCost: row.local_cost,
+		anthropicCost: row.anthropic_cost,
+		savings: row.savings,
+	}));
+}
+
+/**
+ * Get daily costs for a time range.
+ * Convenience function that applies the time range filter.
+ */
+export function getDailyCosts(db: Database.Database, range: StatsTimeRange): DailyCostData[] {
+	const startTime = getTimeRangeStart(range);
+	return queryDailyCosts(db, startTime);
+}
+
+/**
+ * Get costs by model for a time range.
+ * Convenience function that applies the time range filter.
+ */
+export function getCostsByModel(db: Database.Database, range: StatsTimeRange): ModelCostData[] {
+	const startTime = getTimeRangeStart(range);
+	return queryCostsByModel(db, startTime);
+}
+
+/**
+ * Query costs aggregated by agent (Maestro agent ID).
+ * Uses agent_id for grouping (falls back to session_id for older data).
+ * Includes billing mode derived from maestro_billing_mode field.
+ */
+export function queryCostsByAgent(db: Database.Database, startTime: number): AgentCostData[] {
+	const perfStart = perfMetrics.start();
+	const rows = db
+		.prepare(
+			`
+      SELECT
+        COALESCE(agent_id, session_id) as agent_id,
+        COALESCE(SUM(maestro_cost_usd), SUM(total_cost_usd), 0) as local_cost,
+        COALESCE(SUM(anthropic_cost_usd), SUM(total_cost_usd), 0) as anthropic_cost,
+        COALESCE(SUM(anthropic_cost_usd), SUM(total_cost_usd), 0) -
+          COALESCE(SUM(maestro_cost_usd), SUM(total_cost_usd), 0) as savings,
+        MAX(maestro_billing_mode) as billing_mode
+      FROM query_events
+      WHERE start_time >= ?
+      GROUP BY COALESCE(agent_id, session_id)
+      ORDER BY local_cost DESC
+    `
+		)
+		.all(startTime) as Array<{
+		agent_id: string;
+		local_cost: number;
+		anthropic_cost: number;
+		savings: number;
+		billing_mode: string | null;
+	}>;
+
+	perfMetrics.end(perfStart, 'queryCostsByAgent', { agentCount: rows.length });
+
+	return rows.map((row) => {
+		// Derive billing mode from database field
+		let billingMode: 'api' | 'max' | 'free' = 'api';
+		if (row.billing_mode === 'max') {
+			billingMode = 'max';
+		} else if (row.billing_mode === 'free') {
+			billingMode = 'free';
+		}
+
+		return {
+			agentId: row.agent_id,
+			// Use agent_id as the name since we don't have a separate name field
+			// The UI can lookup display names from sessions if needed
+			agentName: row.agent_id,
+			localCost: row.local_cost,
+			anthropicCost: row.anthropic_cost,
+			savings: row.savings,
+			billingMode,
+		};
+	});
+}
+
+/**
+ * Get costs by agent for a time range.
+ * Convenience function that applies the time range filter.
+ */
+export function getCostsByAgent(db: Database.Database, range: StatsTimeRange): AgentCostData[] {
+	const startTime = getTimeRangeStart(range);
+	return queryCostsByAgent(db, startTime);
 }
 
 // ============================================================================
@@ -578,5 +793,7 @@ export function getAggregatedStats(db: Database.Database, range: StatsTimeRange)
 		totalCacheReadInputTokens: tokenMetrics.totalCacheReadInputTokens,
 		totalCacheCreationInputTokens: tokenMetrics.totalCacheCreationInputTokens,
 		totalCostUsd: tokenMetrics.totalCostUsd,
+		anthropicCostUsd: tokenMetrics.anthropicCostUsd,
+		savingsUsd: tokenMetrics.savingsUsd,
 	};
 }

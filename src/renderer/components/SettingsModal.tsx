@@ -30,6 +30,7 @@ import {
 	Battery,
 	Monitor,
 	PartyPopper,
+	ClipboardCheck,
 } from 'lucide-react';
 import { useSettings } from '../hooks';
 import type {
@@ -53,6 +54,7 @@ import { SettingCheckbox } from './SettingCheckbox';
 import { FontConfigurationPanel } from './FontConfigurationPanel';
 import { NotificationsPanel } from './NotificationsPanel';
 import { SshRemotesSection } from './Settings/SshRemotesSection';
+import { AuditsSettingsTab } from './Settings/AuditsSettingsTab';
 
 // Feature flags - set to true to enable dormant features
 const FEATURE_FLAGS = {
@@ -270,7 +272,15 @@ interface SettingsModalProps {
 	setCrashReportingEnabled: (value: boolean) => void;
 	customAICommands: CustomAICommand[];
 	setCustomAICommands: (commands: CustomAICommand[]) => void;
-	initialTab?: 'general' | 'llm' | 'shortcuts' | 'theme' | 'notifications' | 'aicommands' | 'ssh';
+	initialTab?:
+		| 'general'
+		| 'llm'
+		| 'shortcuts'
+		| 'theme'
+		| 'notifications'
+		| 'aicommands'
+		| 'ssh'
+		| 'audits';
 	hasNoAgents?: boolean;
 	onThemeImportError?: (message: string) => void;
 	onThemeImportSuccess?: (message: string) => void;
@@ -304,7 +314,7 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 	} = useSettings();
 
 	const [activeTab, setActiveTab] = useState<
-		'general' | 'llm' | 'shortcuts' | 'theme' | 'notifications' | 'aicommands' | 'ssh'
+		'general' | 'llm' | 'shortcuts' | 'theme' | 'notifications' | 'aicommands' | 'ssh' | 'audits'
 	>('general');
 	const [systemFonts, setSystemFonts] = useState<string[]>([]);
 	const [customFonts, setCustomFonts] = useState<string[]>([]);
@@ -442,10 +452,17 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 
 		const handleTabNavigation = (e: KeyboardEvent) => {
 			const tabs: Array<
-				'general' | 'llm' | 'shortcuts' | 'theme' | 'notifications' | 'aicommands' | 'ssh'
+				| 'general'
+				| 'llm'
+				| 'shortcuts'
+				| 'theme'
+				| 'notifications'
+				| 'aicommands'
+				| 'ssh'
+				| 'audits'
 			> = FEATURE_FLAGS.LLM_SETTINGS
-				? ['general', 'llm', 'shortcuts', 'theme', 'notifications', 'aicommands', 'ssh']
-				: ['general', 'shortcuts', 'theme', 'notifications', 'aicommands', 'ssh'];
+				? ['general', 'llm', 'shortcuts', 'theme', 'notifications', 'aicommands', 'ssh', 'audits']
+				: ['general', 'shortcuts', 'theme', 'notifications', 'aicommands', 'ssh', 'audits'];
 			const currentIndex = tabs.indexOf(activeTab);
 
 			if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === '[') {
@@ -905,6 +922,15 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 					>
 						<Server className="w-4 h-4" />
 						{activeTab === 'ssh' && <span>SSH Hosts</span>}
+					</button>
+					<button
+						onClick={() => setActiveTab('audits')}
+						className={`px-4 py-4 text-sm font-bold border-b-2 ${activeTab === 'audits' ? 'border-indigo-500' : 'border-transparent'} flex items-center gap-2`}
+						tabIndex={-1}
+						title="Audits"
+					>
+						<ClipboardCheck className="w-4 h-4" />
+						{activeTab === 'audits' && <span>Audits</span>}
 					</button>
 					<div className="flex-1 flex justify-end items-center pr-4">
 						<button onClick={onClose} tabIndex={-1}>
@@ -2523,6 +2549,12 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 					{activeTab === 'ssh' && (
 						<div className="space-y-5">
 							<SshRemotesSection theme={theme} />
+						</div>
+					)}
+
+					{activeTab === 'audits' && (
+						<div className="space-y-5">
+							<AuditsSettingsTab theme={theme} />
 						</div>
 					)}
 				</div>

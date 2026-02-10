@@ -67,6 +67,9 @@ const mockOnStatsUpdate = vi.fn(() => vi.fn()); // Returns unsubscribe function
 const mockGetAutoRunSessions = vi.fn(() => Promise.resolve([]));
 const mockGetAutoRunTasks = vi.fn(() => Promise.resolve([]));
 const mockGetDatabaseSize = vi.fn();
+const mockGetDailyCosts = vi.fn(() => Promise.resolve([]));
+const mockGetCostsByModel = vi.fn(() => Promise.resolve([]));
+const mockGetCostsByAgent = vi.fn(() => Promise.resolve([]));
 
 // Mock dialog and fs API
 const mockSaveFile = vi.fn();
@@ -80,6 +83,9 @@ const mockMaestro = {
 		getAutoRunSessions: mockGetAutoRunSessions,
 		getAutoRunTasks: mockGetAutoRunTasks,
 		getDatabaseSize: mockGetDatabaseSize,
+		getDailyCosts: mockGetDailyCosts,
+		getCostsByModel: mockGetCostsByModel,
+		getCostsByAgent: mockGetCostsByAgent,
 	},
 	dialog: {
 		saveFile: mockSaveFile,
@@ -1714,9 +1720,9 @@ describe('UsageDashboardModal', () => {
 			summarySection.focus();
 			fireEvent.keyDown(summarySection, { key: 'ArrowDown' });
 
-			// Should focus agent comparison (next section)
+			// Should focus cost-over-time (next section after summary cards in Overview tab)
 			await waitFor(() => {
-				expect(document.activeElement).toBe(screen.getByTestId('section-agent-comparison'));
+				expect(document.activeElement).toBe(screen.getByTestId('section-cost-over-time'));
 			});
 		});
 
@@ -1727,11 +1733,11 @@ describe('UsageDashboardModal', () => {
 				expect(screen.getByTestId('usage-dashboard-content')).toBeInTheDocument();
 			});
 
-			const agentSection = screen.getByTestId('section-agent-comparison');
+			const costOverTimeSection = screen.getByTestId('section-cost-over-time');
 
-			// Focus agent comparison and press ArrowUp
-			agentSection.focus();
-			fireEvent.keyDown(agentSection, { key: 'ArrowUp' });
+			// Focus cost-over-time section and press ArrowUp
+			costOverTimeSection.focus();
+			fireEvent.keyDown(costOverTimeSection, { key: 'ArrowUp' });
 
 			// Should focus summary cards (previous section)
 			await waitFor(() => {
@@ -1925,7 +1931,7 @@ describe('UsageDashboardModal', () => {
 			fireEvent.keyDown(summarySection, { key: 'ArrowDown' });
 
 			await waitFor(() => {
-				expect(document.activeElement).toBe(screen.getByTestId('section-agent-comparison'));
+				expect(document.activeElement).toBe(screen.getByTestId('section-cost-over-time'));
 			});
 
 			// Switch to Agents view

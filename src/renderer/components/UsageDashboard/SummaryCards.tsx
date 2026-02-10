@@ -153,6 +153,8 @@ export function SummaryCards({ data, theme, columns = 4 }: SummaryCardsProps) {
 		totalTokensSubtitle,
 		totalTokensTooltip,
 		totalCostDisplay,
+		totalCostSubtitle,
+		totalCostTooltip,
 	} = useMemo(() => {
 		// Find most active agent by query count
 		const agents = Object.entries(data.byAgent);
@@ -182,9 +184,23 @@ export function SummaryCards({ data, theme, columns = 4 }: SummaryCardsProps) {
 		// Detailed tooltip for tokens
 		const tokenTooltip = `Input: ${formatTokensCompact(data.totalInputTokens || 0)}\nOutput: ${formatTokensCompact(data.totalOutputTokens || 0)}\nCache Read: ${formatTokensCompact(cacheRead)}\nCache Write: ${formatTokensCompact(cacheWrite)}`;
 
-		// Format total cost
-		const cost = data.totalCostUsd || 0;
-		const costDisplay = `$${cost.toFixed(2)}`;
+		// Format total cost with dual display
+		const maestroCost = data.totalCostUsd || 0;
+		const anthropicCost = data.anthropicCostUsd || 0;
+		const savings = data.savingsUsd || 0;
+		const costDisplay = `$${maestroCost.toFixed(2)}`;
+
+		// Cost subtitle: show savings if positive (indicates Max billing mode savings)
+		const costSubtitle = savings > 0 ? `Saved $${savings.toFixed(2)} vs API pricing` : undefined;
+
+		// Cost tooltip: show both costs and savings breakdown
+		let costTooltipText = 'Total API cost across all queries in the selected time range';
+		if (anthropicCost > 0 || savings > 0) {
+			costTooltipText = `Maestro Cost: $${maestroCost.toFixed(2)}\nAPI Pricing: $${anthropicCost.toFixed(2)}`;
+			if (savings > 0) {
+				costTooltipText += `\nMax Savings: $${savings.toFixed(2)}`;
+			}
+		}
 
 		return {
 			mostActiveAgent: topAgent ? topAgent[0] : 'N/A',
@@ -194,6 +210,8 @@ export function SummaryCards({ data, theme, columns = 4 }: SummaryCardsProps) {
 			totalTokensSubtitle: tokenSubtitle,
 			totalTokensTooltip: tokenTooltip,
 			totalCostDisplay: costDisplay,
+			totalCostSubtitle: costSubtitle,
+			totalCostTooltip: costTooltipText,
 		};
 	}, [
 		data.byAgent,
@@ -204,6 +222,8 @@ export function SummaryCards({ data, theme, columns = 4 }: SummaryCardsProps) {
 		data.totalCacheReadInputTokens,
 		data.totalCacheCreationInputTokens,
 		data.totalCostUsd,
+		data.anthropicCostUsd,
+		data.savingsUsd,
 	]);
 
 	const metrics = [
@@ -243,7 +263,8 @@ export function SummaryCards({ data, theme, columns = 4 }: SummaryCardsProps) {
 			icon: <DollarSign className="w-4 h-4" />,
 			label: 'Total Cost',
 			value: totalCostDisplay,
-			tooltip: 'Total API cost across all queries in the selected time range',
+			subtitle: totalCostSubtitle,
+			tooltip: totalCostTooltip,
 		},
 		{
 			icon: <Bot className="w-4 h-4" />,

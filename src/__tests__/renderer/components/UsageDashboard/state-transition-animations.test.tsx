@@ -118,6 +118,9 @@ const mockStats = {
 	getDatabaseSize: vi.fn(),
 	onStatsUpdate: vi.fn(() => () => {}),
 	exportCsv: vi.fn(),
+	getDailyCosts: vi.fn(() => Promise.resolve([])),
+	getCostsByModel: vi.fn(() => Promise.resolve([])),
+	getCostsByAgent: vi.fn(() => Promise.resolve([])),
 };
 
 const mockDialog = {

@@ -40,6 +40,8 @@ import { createAutorunApi, createPlaybooksApi, createMarketplaceApi } from './au
 import { createDebugApi, createDocumentGraphApi } from './debug';
 import { createGroupChatApi } from './groupChat';
 import { createStatsApi } from './stats';
+import { createAuditApi } from './audit';
+import { createReconstructionApi } from './reconstruction';
 import { createNotificationApi } from './notifications';
 import { createLeaderboardApi } from './leaderboard';
 import { createAttachmentsApi } from './attachments';
@@ -172,6 +174,12 @@ contextBridge.exposeInMainWorld('maestro', {
 	// Stats API
 	stats: createStatsApi(),
 
+	// Audit API
+	audit: createAuditApi(),
+
+	// Reconstruction API
+	reconstruction: createReconstructionApi(),
+
 	// Leaderboard API
 	leaderboard: createLeaderboardApi(),
 
@@ -231,6 +239,10 @@ export {
 	createGroupChatApi,
 	// Stats
 	createStatsApi,
+	// Audit
+	createAuditApi,
+	// Reconstruction
+	createReconstructionApi,
 	// Notifications
 	createNotificationApi,
 	// Leaderboard
@@ -356,6 +368,21 @@ export type {
 	SessionCreatedEvent,
 	StatsAggregation,
 } from './stats';
+export type {
+	// From audit
+	AuditApi,
+	AuditResult,
+	AuditConfig,
+	TokenCounts,
+	ScheduleStatus,
+} from './audit';
+export type {
+	// From reconstruction
+	ReconstructionApi,
+	ReconstructionOptions,
+	ReconstructionResult,
+	SshConfig,
+} from './reconstruction';
 export type {
 	// From notifications
 	NotificationApi,

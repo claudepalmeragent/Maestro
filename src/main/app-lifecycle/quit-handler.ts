@@ -30,6 +30,8 @@ export interface QuitHandlerDependencies {
 	closeStatsDB: () => void;
 	/** Function to stop CLI watcher (optional, may not be started yet) */
 	stopCliWatcher?: () => void;
+	/** Function to stop audit scheduler (optional) */
+	stopAuditScheduler?: () => void;
 }
 
 /** Quit handler state */
@@ -74,6 +76,7 @@ export function createQuitHandler(deps: QuitHandlerDependencies): QuitHandler {
 		cleanupAllGroomingSessions,
 		closeStatsDB,
 		stopCliWatcher,
+		stopAuditScheduler,
 	} = deps;
 
 	const state: QuitHandlerState = {
@@ -154,6 +157,11 @@ export function createQuitHandler(deps: QuitHandlerDependencies): QuitHandler {
 		// Stop CLI activity watcher
 		if (stopCliWatcher) {
 			stopCliWatcher();
+		}
+
+		// Stop audit scheduler
+		if (stopAuditScheduler) {
+			stopAuditScheduler();
 		}
 
 		// Clean up active grooming sessions (context merge/transfer operations)

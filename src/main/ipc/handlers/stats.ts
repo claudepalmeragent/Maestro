@@ -292,4 +292,31 @@ export function registerStatsHandlers(deps: StatsHandlerDependencies): void {
 			return db.getSessionLifecycleEvents(range);
 		})
 	);
+
+	// Get daily costs for cost-over-time graph
+	ipcMain.handle(
+		'stats:get-daily-costs',
+		withIpcErrorLogging(handlerOpts('getDailyCosts'), async (range: StatsTimeRange) => {
+			const db = getStatsDB();
+			return db.getDailyCosts(range);
+		})
+	);
+
+	// Get costs by model for cost-by-model graph
+	ipcMain.handle(
+		'stats:get-costs-by-model',
+		withIpcErrorLogging(handlerOpts('getCostsByModel'), async (range: StatsTimeRange) => {
+			const db = getStatsDB();
+			return db.getCostsByModel(range);
+		})
+	);
+
+	// Get costs by agent for cost-by-agent graph
+	ipcMain.handle(
+		'stats:get-costs-by-agent',
+		withIpcErrorLogging(handlerOpts('getCostsByAgent'), async (range: StatsTimeRange) => {
+			const db = getStatsDB();
+			return db.getCostsByAgent(range);
+		})
+	);
 }

@@ -24,6 +24,9 @@ import {
 	CREATE_AUTO_RUN_TASKS_INDEXES_SQL,
 	CREATE_SESSION_LIFECYCLE_SQL,
 	CREATE_SESSION_LIFECYCLE_INDEXES_SQL,
+	CREATE_AUDIT_SNAPSHOTS_SQL,
+	CREATE_AUDIT_SNAPSHOTS_INDEXES_SQL,
+	CREATE_AUDIT_SCHEDULE_SQL,
 	runStatements,
 } from './schema';
 import { LOG_CONTEXT } from './utils';
@@ -68,6 +71,11 @@ export function getMigrations(): Migration[] {
 			version: 6,
 			description: 'Add agent_id column for proper agent attribution in charts',
 			up: (db) => migrateV6(db),
+		},
+		{
+			version: 7,
+			description: 'Add dual-source cost tracking columns and audit tables',
+			up: (db) => migrateV7(db),
 		},
 	];
 }
@@ -317,4 +325,64 @@ function migrateV6(db: Database.Database): void {
 	).run();
 
 	logger.info('Migration v6 complete: agent_id column added and backfilled', LOG_CONTEXT);
+}
+
+/**
+ * Migration v7: Add dual-source cost tracking and audit tables
+ *
+ * Adds columns to query_events for tracking costs from both Anthropic (Claude Code)
+ * and Maestro's internal calculations:
+ * - anthropic_cost_usd: Cost reported by Anthropic
+ * - anthropic_model: Model name from the response
+ * - maestro_cost_usd: Cost calculated by Maestro pricing
+ * - maestro_billing_mode: 'api' | 'max' | 'free'
+ * - maestro_pricing_model: Pricing model used
+ * - maestro_calculated_at: Timestamp of calculation
+ * - uuid: Unique identifier for reconstruction
+ * - anthropic_message_id: Message ID for deduplication
+ * - is_reconstructed: Whether the record was reconstructed
+ * - reconstructed_at: When the record was reconstructed
+ *
+ * Also creates audit_snapshots and audit_schedule tables.
+ */
+function migrateV7(db: Database.Database): void {
+	logger.info('Migrating stats database to v7: Adding dual-source cost tracking', LOG_CONTEXT);
+
+	// Add Anthropic cost columns
+	db.prepare('ALTER TABLE query_events ADD COLUMN anthropic_cost_usd REAL').run();
+	db.prepare('ALTER TABLE query_events ADD COLUMN anthropic_model TEXT').run();
+
+	// Add Maestro cost columns
+	db.prepare('ALTER TABLE query_events ADD COLUMN maestro_cost_usd REAL').run();
+	db.prepare('ALTER TABLE query_events ADD COLUMN maestro_billing_mode TEXT').run();
+	db.prepare('ALTER TABLE query_events ADD COLUMN maestro_pricing_model TEXT').run();
+	db.prepare('ALTER TABLE query_events ADD COLUMN maestro_calculated_at INTEGER').run();
+
+	// Add reconstruction tracking columns
+	db.prepare('ALTER TABLE query_events ADD COLUMN uuid TEXT').run();
+	db.prepare('ALTER TABLE query_events ADD COLUMN anthropic_message_id TEXT').run();
+	db.prepare('ALTER TABLE query_events ADD COLUMN is_reconstructed INTEGER DEFAULT 0').run();
+	db.prepare('ALTER TABLE query_events ADD COLUMN reconstructed_at INTEGER').run();
+
+	// Create indexes for reconstruction lookups
+	db.prepare('CREATE INDEX IF NOT EXISTS idx_query_events_uuid ON query_events(uuid)').run();
+	db.prepare(
+		'CREATE INDEX IF NOT EXISTS idx_query_events_anthropic_msg_id ON query_events(anthropic_message_id)'
+	).run();
+
+	// Copy existing total_cost_usd to anthropic_cost_usd for backward compatibility
+	db.prepare(
+		'UPDATE query_events SET anthropic_cost_usd = total_cost_usd WHERE anthropic_cost_usd IS NULL AND total_cost_usd IS NOT NULL'
+	).run();
+
+	// Create audit tables
+	db.prepare(CREATE_AUDIT_SNAPSHOTS_SQL).run();
+	runStatements(db, CREATE_AUDIT_SNAPSHOTS_INDEXES_SQL);
+
+	db.prepare(CREATE_AUDIT_SCHEDULE_SQL).run();
+
+	logger.info(
+		'Migration v7 complete: dual-source cost tracking columns and audit tables added',
+		LOG_CONTEXT
+	);
 }

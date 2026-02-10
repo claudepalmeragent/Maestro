@@ -40,6 +40,8 @@ import {
 	registerContextHandlers,
 	registerMarketplaceHandlers,
 	registerStatsHandlers,
+	registerAuditHandlers,
+	registerReconstructionHandlers,
 	registerDocumentGraphHandlers,
 	registerSshRemoteHandlers,
 	registerFilesystemHandlers,
@@ -53,6 +55,7 @@ import {
 	cleanupAllGroomingSessions,
 	getActiveGroomingSessionCount,
 } from './ipc/handlers';
+import { scheduleAudits, clearScheduledTimers } from './services/audit-scheduler';
 import { initializeStatsDB, closeStatsDB, getStatsDB } from './stats';
 import { groupChatEmitters } from './ipc/handlers/groupChat';
 import {
@@ -322,6 +325,11 @@ app.whenReady().then(async () => {
 	try {
 		initializeStatsDB();
 		logger.info('Stats database initialized', 'Startup');
+
+		// Start audit scheduler (requires stats DB to be initialized)
+		scheduleAudits().catch((error) => {
+			logger.warn(`Failed to start audit scheduler: ${error}`, 'Startup');
+		});
 	} catch (error) {
 		// Stats initialization failed - log error but continue with app startup
 		// Stats will be unavailable but the app will still function
@@ -374,6 +382,7 @@ const quitHandler = createQuitHandler({
 	cleanupAllGroomingSessions,
 	closeStatsDB,
 	stopCliWatcher: () => cliWatcher.stop(),
+	stopAuditScheduler: () => clearScheduledTimers(),
 });
 quitHandler.setup();
 
@@ -524,6 +533,16 @@ function setupIpcHandlers() {
 	registerStatsHandlers({
 		getMainWindow: () => mainWindow,
 		settingsStore: store,
+	});
+
+	// Register Audit handlers for Anthropic cost comparison
+	registerAuditHandlers({
+		getMainWindow: () => mainWindow,
+	});
+
+	// Register Reconstruction handlers for historical data reconstruction
+	registerReconstructionHandlers({
+		getMainWindow: () => mainWindow,
 	});
 
 	// Register Document Graph handlers for file watching
