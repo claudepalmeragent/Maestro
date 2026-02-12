@@ -11,7 +11,7 @@ import type { ProcessManager } from '../process-manager';
 import type { QueryCompleteData } from '../process-manager/types';
 import type { ProcessListenerDependencies } from './types';
 import type { QueryEvent } from '../../shared/stats-types';
-import { resolveBillingMode } from '../utils/pricing-resolver';
+import { resolveBillingModeAsync } from '../utils/pricing-resolver';
 import { calculateClaudeCostWithModel } from '../utils/pricing';
 import { isClaudeModelId } from '../utils/claude-pricing';
 import { getSessionsStore } from '../stores';
@@ -43,17 +43,17 @@ const claudeSessionMap = new Map<string, string>();
  * Returns both Anthropic's reported cost and Maestro's calculated cost based on
  * the resolved billing mode (api/max) and detected model.
  */
-function calculateDualCosts(
+async function calculateDualCosts(
 	queryData: QueryCompleteData,
 	logger: ProcessListenerDependencies['logger']
-): {
+): Promise<{
 	anthropicCostUsd: number;
 	anthropicModel: string | null;
 	maestroCostUsd: number;
 	maestroBillingMode: 'api' | 'max' | 'free';
 	maestroPricingModel: string | null;
 	maestroCalculatedAt: number;
-} {
+}> {
 	// Default values - use Anthropic's reported cost
 	const anthropicCostUsd = queryData.totalCostUsd || 0;
 	const anthropicModel = queryData.detectedModel || null;
@@ -72,7 +72,7 @@ function calculateDualCosts(
 		// The billing mode depends on user's subscription, not the specific model
 		const agentId = queryData.agentId || queryData.sessionId;
 		try {
-			maestroBillingMode = resolveBillingMode(agentId);
+			maestroBillingMode = await resolveBillingModeAsync(agentId);
 			logger.debug('[stats-listener] Resolved billing mode for agent', '[Stats]', {
 				sessionId: queryData.sessionId,
 				agentId,
@@ -152,7 +152,7 @@ async function insertQueryEventWithRetry(
 	logger: ProcessListenerDependencies['logger']
 ): Promise<string | null> {
 	// Calculate dual costs before insertion
-	const dualCosts = calculateDualCosts(queryData, logger);
+	const dualCosts = await calculateDualCosts(queryData, logger);
 
 	// Log dual cost calculation for debugging
 	const savings = dualCosts.anthropicCostUsd - dualCosts.maestroCostUsd;

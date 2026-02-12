@@ -19,6 +19,7 @@ import type {
 	ProjectFolderPricingConfig,
 } from '../../shared/types';
 import { DEFAULT_MODEL_ID } from './claude-pricing';
+import { detectLocalAuth } from './claude-auth-detector';
 
 const LOG_CONTEXT = '[PricingResolver]';
 
@@ -107,12 +108,13 @@ export function getAgentProjectFolderId(agentId: string): string | null {
 }
 
 /**
- * Resolve the billing mode for an agent based on configuration precedence.
+ * Resolve the billing mode for an agent based on configuration precedence (sync version).
+ * NOTE: This does NOT auto-detect from credentials. Use resolveBillingModeAsync for full detection.
  *
  * Precedence order:
  * 1. Agent-level setting (if not 'auto')
  * 2. Project Folder default (if agent is in a folder)
- * 3. Auto-detected from credentials
+ * 3. Cached auto-detected billing mode
  * 4. Application default ('api')
  *
  * @param agentId - The agent ID to resolve billing mode for
@@ -141,6 +143,66 @@ export function resolveBillingMode(agentId: string, projectFolderId?: string): C
 	}
 
 	// 4. Default to 'api' (conservative)
+	return 'api';
+}
+
+/**
+ * Resolve the billing mode for an agent with async auto-detection from credentials.
+ *
+ * Precedence order:
+ * 1. Agent-level setting (if not 'auto')
+ * 2. Project Folder default (if agent is in a folder)
+ * 3. Auto-detected from ~/.claude/.credentials.json
+ * 4. Application default ('api')
+ *
+ * @param agentId - The agent ID to resolve billing mode for
+ * @param projectFolderId - Optional project folder ID (if known)
+ * @returns Promise resolving to the billing mode ('max' or 'api')
+ */
+export async function resolveBillingModeAsync(
+	agentId: string,
+	projectFolderId?: string
+): Promise<ClaudeBillingMode> {
+	// 1. Check agent-level setting
+	const agentConfig = getAgentPricingConfig(agentId);
+	console.log('[FIX-30] agentConfig:', {
+		agentId,
+		billingMode: agentConfig.billingMode,
+		detectedBillingMode: agentConfig.detectedBillingMode,
+	});
+	if (agentConfig.billingMode !== 'auto') {
+		console.log('[FIX-30] Using agent-level billingMode:', agentConfig.billingMode);
+		return agentConfig.billingMode;
+	}
+
+	// 2. Check project folder default
+	const folderId = projectFolderId ?? getAgentProjectFolderId(agentId);
+	if (folderId) {
+		const folderConfig = getProjectFolderPricingConfig(folderId);
+		if (folderConfig?.billingMode) {
+			return folderConfig.billingMode;
+		}
+	}
+
+	// 3. Check cached auto-detected in agent config
+	if (agentConfig.detectedBillingMode) {
+		return agentConfig.detectedBillingMode;
+	}
+
+	// 4. Auto-detect from credentials file (same as agents:detectAuth IPC handler)
+	try {
+		const auth = await detectLocalAuth();
+		console.log('[FIX-30] detectLocalAuth returned:', {
+			billingMode: auth.billingMode,
+			source: auth.source,
+			subscriptionType: auth.subscriptionType,
+		});
+		return auth.billingMode;
+	} catch (error) {
+		console.log('[FIX-30] detectLocalAuth error:', error);
+	}
+
+	// 5. Default to 'api' (conservative)
 	return 'api';
 }
 
