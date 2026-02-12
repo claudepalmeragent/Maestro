@@ -16,16 +16,10 @@ import React, { useState } from 'react';
 import type { Theme } from '../../types';
 import type { SshRemoteConfig } from '../../../shared/types';
 import { useSshRemotes } from '../../hooks/remote/useSshRemotes';
-
-interface ReconstructionResult {
-	queriesFound: number;
-	queriesInserted: number;
-	queriesUpdated: number;
-	queriesSkipped: number;
-	dateRangeCovered: { start: string; end: string } | null;
-	errors: Array<{ file: string; error: string }>;
-	duration: number;
-}
+import {
+	ReconstructionPreviewModal,
+	type ReconstructionResult,
+} from '../ReconstructionPreviewModal';
 
 interface ReconstructionPanelProps {
 	theme: Theme;
@@ -45,39 +39,65 @@ export function ReconstructionPanel({ theme }: ReconstructionPanelProps): React.
 	const [running, setRunning] = useState(false);
 	const [result, setResult] = useState<ReconstructionResult | null>(null);
 	const [previewMode, setPreviewMode] = useState(true);
+	const [showPreviewModal, setShowPreviewModal] = useState(false);
+	const [previewResult, setPreviewResult] = useState<ReconstructionResult | null>(null);
+
+	function buildReconstructionOptions(): {
+		includeLocalAgents: boolean;
+		includeSshRemotes: boolean;
+		sshConfigs: Array<{ id: string; host: string; user: string; identityFile?: string }>;
+		dateRange: { start: string; end: string };
+	} {
+		// Convert selected remote IDs to SSH configs
+		const sshConfigs = options.selectedRemoteIds
+			.map((id) => sshRemotes.find((r) => r.id === id))
+			.filter((r): r is SshRemoteConfig => r !== undefined)
+			.map((remote) => ({
+				id: remote.id, // Include SSH remote ID for session mapping
+				host: remote.host,
+				user: remote.username,
+				identityFile: remote.privateKeyPath || undefined,
+			}));
+
+		return {
+			includeLocalAgents: options.includeLocalAgents,
+			includeSshRemotes: options.includeSshRemotes && sshConfigs.length > 0,
+			sshConfigs,
+			dateRange: options.dateRange,
+		};
+	}
 
 	async function handleReconstruct(): Promise<void> {
 		setRunning(true);
 		setResult(null);
 
 		try {
-			// Convert selected remote IDs to SSH configs
-			const sshConfigs = options.selectedRemoteIds
-				.map((id) => sshRemotes.find((r) => r.id === id))
-				.filter((r): r is SshRemoteConfig => r !== undefined)
-				.map((remote) => ({
-					host: remote.host,
-					user: remote.username,
-					identityFile: remote.privateKeyPath || undefined,
-				}));
+			const reconstructionOptions = buildReconstructionOptions();
 
-			const reconstructionOptions = {
-				includeLocalAgents: options.includeLocalAgents,
-				includeSshRemotes: options.includeSshRemotes && sshConfigs.length > 0,
-				sshConfigs,
-				dateRange: options.dateRange,
-			};
-
-			const reconstructResult = previewMode
-				? await window.maestro.reconstruction.preview(reconstructionOptions)
-				: await window.maestro.reconstruction.start(reconstructionOptions);
-
-			setResult(reconstructResult);
+			if (previewMode) {
+				// Run preview and show modal
+				const previewResultData =
+					await window.maestro.reconstruction.preview(reconstructionOptions);
+				setPreviewResult(previewResultData);
+				setShowPreviewModal(true);
+			} else {
+				// Run live reconstruction
+				const reconstructResult = await window.maestro.reconstruction.start(reconstructionOptions);
+				setResult(reconstructResult);
+			}
 		} catch (error) {
 			console.error('Reconstruction failed:', error);
 		} finally {
 			setRunning(false);
 		}
+	}
+
+	async function handleRunLiveFromModal(): Promise<void> {
+		// Use the same options that were used for preview
+		const reconstructionOptions = buildReconstructionOptions();
+		const liveResult = await window.maestro.reconstruction.start(reconstructionOptions);
+		setResult(liveResult);
+		setShowPreviewModal(false);
 	}
 
 	function formatDuration(ms: number): string {
@@ -398,6 +418,17 @@ export function ReconstructionPanel({ theme }: ReconstructionPanelProps): React.
 						</div>
 					)}
 				</div>
+			)}
+
+			{/* Preview Results Modal */}
+			{previewResult && (
+				<ReconstructionPreviewModal
+					isOpen={showPreviewModal}
+					onClose={() => setShowPreviewModal(false)}
+					result={previewResult}
+					onRunLive={handleRunLiveFromModal}
+					theme={theme}
+				/>
 			)}
 		</div>
 	);

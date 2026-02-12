@@ -46,6 +46,7 @@ export interface QueryEventRow {
 	anthropic_message_id: string | null;
 	is_reconstructed: number | null;
 	reconstructed_at: number | null;
+	claude_session_id: string | null;
 }
 
 export interface AutoRunSessionRow {
@@ -124,6 +125,7 @@ export function mapQueryEventRow(row: QueryEventRow): QueryEvent {
 		anthropicMessageId: row.anthropic_message_id ?? undefined,
 		isReconstructed: row.is_reconstructed !== null ? row.is_reconstructed === 1 : undefined,
 		reconstructedAt: row.reconstructed_at ?? undefined,
+		claudeSessionId: row.claude_session_id ?? undefined,
 	};
 }
 

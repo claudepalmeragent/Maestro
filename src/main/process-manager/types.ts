@@ -77,6 +77,8 @@ export interface UsageTotals {
 	totalCostUsd: number;
 	/** Detected model ID from modelUsage */
 	detectedModel?: string;
+	/** Anthropic's message ID from the last message */
+	anthropicMessageId?: string;
 }
 
 export interface UsageStats {
@@ -87,6 +89,10 @@ export interface UsageStats {
 	totalCostUsd: number;
 	contextWindow: number;
 	reasoningTokens?: number;
+	/** Detected model ID from Claude response (e.g., 'claude-opus-4-5-20251101') */
+	detectedModel?: string;
+	/** Anthropic's message ID from the API response */
+	anthropicMessageId?: string;
 }
 
 export interface SpawnResult {
@@ -144,6 +150,8 @@ export interface QueryCompleteData {
 	detectedModel?: string;
 	/** Billing mode used for cost calculation ('api' or 'max') */
 	billingMode?: 'api' | 'max';
+	/** Anthropic's unique message ID */
+	anthropicMessageId?: string;
 }
 
 // Re-export for backwards compatibility

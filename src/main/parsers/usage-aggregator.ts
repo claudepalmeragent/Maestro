@@ -35,6 +35,10 @@ export interface UsageStats {
 	 * These are already included in outputTokens but tracked separately for UI display.
 	 */
 	reasoningTokens?: number;
+	/** Detected model ID from Claude response (e.g., 'claude-opus-4-5-20251101') */
+	detectedModel?: string;
+	/** Anthropic's message ID from the API response */
+	anthropicMessageId?: string;
 }
 
 /**

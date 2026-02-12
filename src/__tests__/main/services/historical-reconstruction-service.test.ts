@@ -220,7 +220,8 @@ describe('historical-reconstruction-service', () => {
 			expect(mockRun).toHaveBeenCalled();
 		});
 
-		it('should insert new records in non-dry-run mode', async () => {
+		it('should skip entries with no matching query_event (reconstruction never inserts)', async () => {
+			// COST-GRAPH-FIX-12: Reconstruction only updates existing records, never inserts
 			const jsonlPath = path.join(projectsDir, 'session-123.jsonl');
 			const entries = [
 				{
@@ -253,11 +254,15 @@ describe('historical-reconstruction-service', () => {
 			const result = await reconstructHistoricalData({ dryRun: false, basePath: tempDir });
 
 			expect(result.queriesFound).toBe(1);
-			expect(result.queriesInserted).toBe(1);
-			expect(mockRun).toHaveBeenCalled();
+			// Reconstruction never inserts - entries without matching query_events are skipped
+			expect(result.queriesInserted).toBe(0);
+			expect(result.queriesSkipped).toBe(1);
+			// No database writes should occur for skipped entries
+			expect(mockRun).not.toHaveBeenCalled();
 		});
 
-		it('should not insert in dry-run mode', async () => {
+		it('should skip entries with no matching query_event in dry-run mode', async () => {
+			// COST-GRAPH-FIX-12: Reconstruction only updates existing records, never inserts
 			const jsonlPath = path.join(projectsDir, 'session-123.jsonl');
 			const entries = [
 				{
@@ -284,8 +289,9 @@ describe('historical-reconstruction-service', () => {
 			const result = await reconstructHistoricalData({ dryRun: true, basePath: tempDir });
 
 			expect(result.queriesFound).toBe(1);
-			expect(result.queriesInserted).toBe(1);
-			// In dry run, the insert should not actually be called
+			// Reconstruction never inserts - entries without matching query_events are skipped
+			expect(result.queriesInserted).toBe(0);
+			expect(result.queriesSkipped).toBe(1);
 			expect(mockRun).not.toHaveBeenCalled();
 		});
 
@@ -442,8 +448,10 @@ describe('historical-reconstruction-service', () => {
 	});
 
 	describe('cost calculation', () => {
-		it('should calculate costs using model-specific pricing', async () => {
+		it('should calculate costs using model-specific pricing when updating existing record', async () => {
+			// COST-GRAPH-FIX-12: Reconstruction only updates existing records
 			const jsonlPath = path.join(projectsDir, 'session-123.jsonl');
+			const timestamp = new Date('2026-02-09T08:43:48.296Z').getTime();
 			const entries = [
 				{
 					type: 'assistant',
@@ -463,26 +471,48 @@ describe('historical-reconstruction-service', () => {
 			];
 			fs.writeFileSync(jsonlPath, entries.map((e) => JSON.stringify(e)).join('\n'));
 
-			let insertedValues: unknown[] = [];
+			let updateValues: unknown[] = [];
 			mockDatabase.prepare.mockImplementation((sql: string) => {
 				if (sql.includes('SELECT')) {
-					return { get: () => undefined };
+					// Return existing record with missing cost data to trigger UPDATE
+					return {
+						get: () => ({
+							id: 'existing-id',
+							session_id: 'session-123',
+							input_tokens: null,
+							output_tokens: null,
+							cache_read_input_tokens: null,
+							cache_creation_input_tokens: null,
+							anthropic_cost_usd: null,
+							maestro_cost_usd: null,
+							anthropic_model: null,
+							tokens_per_second: null,
+							duration: 5000,
+							start_time: timestamp,
+						}),
+					};
 				}
 				return {
 					run: (...args: unknown[]) => {
-						insertedValues = args;
+						updateValues = args;
 					},
 				};
 			});
 
-			await reconstructHistoricalData({ dryRun: false, basePath: tempDir });
+			const result = await reconstructHistoricalData({ dryRun: false, basePath: tempDir });
+
+			expect(result.queriesUpdated).toBe(1);
+			expect(result.queriesInserted).toBe(0);
 
 			// Check that costs were calculated
-			// Opus 4.5 pricing: $5/M input, $25/M output
-			// With Max billing mode, cache tokens are free
-			const anthropicCost = insertedValues[11] as number; // Index matches INSERT statement
-			const maestroCost = insertedValues[13] as number;
+			// UPDATE column order: input_tokens(0), output_tokens(1), cache_read_input_tokens(2),
+			// cache_creation_input_tokens(3), tokens_per_second(4), anthropic_cost_usd(5),
+			// anthropic_model(6), maestro_cost_usd(7), maestro_pricing_model(8), maestro_calculated_at(9),
+			// claude_session_id(10), id(11)
+			const anthropicCost = updateValues[5] as number;
+			const maestroCost = updateValues[7] as number;
 
+			// Opus 4.5 pricing: $5/M input, $25/M output
 			expect(anthropicCost).toBeCloseTo(30, 1); // $5 input + $25 output
 			expect(maestroCost).toBeCloseTo(30, 1); // Same for Max mode (no cache tokens)
 		});

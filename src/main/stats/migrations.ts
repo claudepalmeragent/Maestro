@@ -77,6 +77,11 @@ export function getMigrations(): Migration[] {
 			description: 'Add dual-source cost tracking columns and audit tables',
 			up: (db) => migrateV7(db),
 		},
+		{
+			version: 8,
+			description: 'Add claude_session_id for reconstruction matching',
+			up: (db) => migrateV8(db),
+		},
 	];
 }
 
@@ -385,4 +390,24 @@ function migrateV7(db: Database.Database): void {
 		'Migration v7 complete: dual-source cost tracking columns and audit tables added',
 		LOG_CONTEXT
 	);
+}
+
+/**
+ * Migration v8: Add claude_session_id column
+ *
+ * Stores Claude Code's internal session UUID to enable matching
+ * between JSONL files and Maestro's query_events during reconstruction.
+ */
+function migrateV8(db: Database.Database): void {
+	logger.info('Migrating stats database to v8: Adding claude_session_id column', LOG_CONTEXT);
+
+	// Add claude_session_id column
+	db.prepare('ALTER TABLE query_events ADD COLUMN claude_session_id TEXT').run();
+
+	// Create index for efficient reconstruction matching
+	db.prepare(
+		'CREATE INDEX IF NOT EXISTS idx_query_events_claude_session_id ON query_events(claude_session_id)'
+	).run();
+
+	logger.info('Migration v8 complete: claude_session_id column added', LOG_CONTEXT);
 }

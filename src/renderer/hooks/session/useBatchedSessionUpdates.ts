@@ -437,6 +437,10 @@ export function useBatchedSessionUpdates(
 								reasoningTokens:
 									(existing?.reasoningTokens || 0) + (sessionUsageDelta.reasoningTokens || 0),
 								contextWindow: sessionUsageDelta.contextWindow,
+								// Model tracking fields (FIX-30 Part C) - use latest model
+								detectedModel: sessionUsageDelta.detectedModel || existing?.detectedModel,
+								anthropicMessageId:
+									sessionUsageDelta.anthropicMessageId || existing?.anthropicMessageId,
 							},
 						};
 					}
@@ -462,6 +466,9 @@ export function useBatchedSessionUpdates(
 										outputTokens: tabUsageDelta.outputTokens, // Current (not accumulated)
 										totalCostUsd: (existing?.totalCostUsd || 0) + tabUsageDelta.totalCostUsd,
 										reasoningTokens: tabUsageDelta.reasoningTokens,
+										// Model tracking fields (FIX-30 Part C)
+										detectedModel: tabUsageDelta.detectedModel,
+										anthropicMessageId: tabUsageDelta.anthropicMessageId,
 									},
 									// Cumulative totals for pill display (never decreases)
 									cumulativeUsageStats: {
