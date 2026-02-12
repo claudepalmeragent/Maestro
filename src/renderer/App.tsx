@@ -1810,22 +1810,22 @@ function MaestroConsoleInner() {
 			}
 
 			// Strip bash warnings (setlocale, etc.) that appear via SSH before AI response
-			// Bash warnings use \r separators, not \n - so we can't rely on ^ line anchors
+			// Bash warnings use \r separators, not \n - format: "bash: warning:...\rbash: warning:...\r<real content>"
 			let cleanedData = data;
 			if (data.includes('bash: warning:')) {
-				// Remove all "bash: warning:..." text (handles \r-separated warnings)
+				// Remove all "bash: warning:..." text up to the next \r or \n
 				cleanedData = data.replace(/bash: warning:[^\r\n]*/g, '');
-				// Clean up resulting empty lines from removed warnings
+				// Clean up resulting \r and \n characters left behind from removed warnings
 				cleanedData = cleanedData.replace(/^[\r\n]+/, '').replace(/[\r\n]+$/, '');
-				if (cleanedData.length === 0) {
-					return; // Skip only if nothing remains after stripping warnings
-				}
 			}
 
-			// Batch the log append, delivery mark, unread mark, and byte tracking
-			batchedUpdater.appendLog(actualSessionId, targetTabId, true, cleanedData);
-			batchedUpdater.markDelivered(actualSessionId, targetTabId);
-			batchedUpdater.updateCycleBytes(actualSessionId, cleanedData.length);
+			// Always process - even if cleanedData is empty, we want to track state
+			// But only count bytes and append logs when there's actual content
+			if (cleanedData.length > 0) {
+				batchedUpdater.appendLog(actualSessionId, targetTabId, true, cleanedData);
+				batchedUpdater.markDelivered(actualSessionId, targetTabId);
+				batchedUpdater.updateCycleBytes(actualSessionId, cleanedData.length);
+			}
 
 			// Clear error state if session had an error but is now receiving successful data
 			// This indicates the user fixed the issue (e.g., re-authenticated) and the agent is working

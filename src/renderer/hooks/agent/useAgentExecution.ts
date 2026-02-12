@@ -217,20 +217,21 @@ export function useAgentExecution(deps: UseAgentExecutionDeps): UseAgentExecutio
 						window.maestro.process.onData((sid: string, data: string) => {
 							if (sid === targetSessionId) {
 								// Strip bash warnings (setlocale, etc.) that appear via SSH
-								// Bash warnings use \r separators, not \n - so we can't rely on ^ line anchors
+								// Bash warnings use \r separators, not \n - format: "bash: warning:...\rbash: warning:...\r<real content>"
 								let cleanedData = data;
 								if (data.includes('bash: warning:')) {
-									// Remove all "bash: warning:..." text (handles \r-separated warnings)
+									// Remove all "bash: warning:..." text up to the next \r or \n
 									cleanedData = data.replace(/bash: warning:[^\r\n]*/g, '');
-									// Clean up resulting empty lines from removed warnings
+									// Clean up resulting \r and \n characters left behind from removed warnings
 									cleanedData = cleanedData.replace(/^[\r\n]+/, '').replace(/[\r\n]+$/, '');
-									if (cleanedData.length === 0) {
-										return; // Skip only if nothing remains after stripping
-									}
 								}
-								responseText += cleanedData;
-								// Call optional callback for real-time byte tracking (Auto Run)
-								callbacks?.onData?.(cleanedData.length);
+
+								// Only accumulate and track bytes when there's actual content
+								if (cleanedData.length > 0) {
+									responseText += cleanedData;
+									// Call optional callback for real-time byte tracking (Auto Run)
+									callbacks?.onData?.(cleanedData.length);
+								}
 							}
 						})
 					);
