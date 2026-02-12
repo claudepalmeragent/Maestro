@@ -5,6 +5,12 @@ community-data/
 .mcp.json
 specs/
 
+# Debug/analysis scripts (temporary)
+analyze_*.js
+scripts/debug-*.ts
+scripts/merge-*.js
+scripts/verify-*.js
+
 # Tests
 coverage/
 do-wishlist.sh
