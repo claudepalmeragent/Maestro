@@ -74,6 +74,18 @@ export interface QueryEvent {
 	 * This is used by the stats IPC handler to populate anthropicModel.
 	 */
 	detectedModel?: string;
+
+	/**
+	 * Detected billing mode passed from renderer to main process.
+	 * Used for cost calculation with proper Max subscription handling.
+	 */
+	detectedBillingMode?: 'api' | 'max';
+
+	/**
+	 * SSH Remote ID if this query was executed on a remote agent.
+	 * Used for fallback billing mode detection via SSH.
+	 */
+	sshRemoteId?: string;
 }
 
 /**

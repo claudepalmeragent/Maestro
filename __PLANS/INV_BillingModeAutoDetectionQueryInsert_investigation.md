@@ -2,17 +2,40 @@
 
 **Date:** 2026-02-12
 **Issue:** `maestroBillingMode` returns `'api'` instead of `'max'` when calling `detectLocalAuth()` in stats.ts IPC handler
-**Status:** Investigation Complete
+**Status:** ✅ RESOLVED - Implemented Option F (Hybrid Detection)
 
 ---
 
 ## Executive Summary
 
-The billing mode auto-detection works correctly in the **renderer UI** (Agent Settings shows "Max" correctly) but fails in the **main process stats handler** (`stats.ts`). The investigation reveals that both code paths call the same `detectLocalAuth()` function, but the main process context may have different behavior due to:
+The billing mode auto-detection works correctly in the **renderer UI** (Agent Settings shows "Max" correctly) but fails in the **main process stats handler** (`stats.ts`).
 
-1. **Timing:** The IPC handler is called synchronously during query completion, while the UI detection is called independently with full async resolution
-2. **Promise behavior:** The `await detectLocalAuth()` in stats.ts may be silently failing or timing out
-3. **File system access:** The credentials file read may behave differently in the IPC handler context
+### ROOT CAUSE (DETERMINISTIC - CONFIRMED BY LOGS)
+
+**The stats handler calls `detectLocalAuth()` which checks the LOCAL Mac filesystem, but credentials only exist on the REMOTE Linux VMs where Claude Code agents run.**
+
+**Diagnostic Log Evidence:**
+```
+[FIX-30-AUTH] detectLocalAuth START - path: /Users/douglaspalmer/.claude/.credentials.json, homedir: /Users/douglaspalmer
+[FIX-30-AUTH] CATCH block hit: errorType=Error, errorCode=ENOENT, errorMessage=ENOENT: no such file or directory, open '/Users/douglaspalmer/.claude/.credentials.json'
+[FIX-30-AUTH] RETURNING api (error fallback)
+```
+
+**Architecture:**
+- Maestro app runs on Mac (`/Users/douglaspalmer/`)
+- Claude Code agents run on remote Linux VMs via SSH
+- Credentials (`~/.claude/.credentials.json`) exist ONLY on the remote VMs
+- `detectLocalAuth()` checks Mac filesystem → File not found → Returns `'api'`
+
+**Why UI Detection Works:**
+- `useBillingMode` hook passes `sshRemoteId` parameter
+- Calls `detectRemoteAuthCached(sshRemoteId, sshConfig)` which SSHes to remote VM
+- Reads credentials from remote filesystem → Returns `'max'`
+
+**Why Stats Handler Fails:**
+- Calls `detectLocalAuth()` directly (no SSH remote awareness)
+- Checks local Mac filesystem where credentials don't exist
+- Returns `'api'` as fallback
 
 ---
 
@@ -227,30 +250,75 @@ The function may be returning before the await completes. This could happen if:
 
 ## Part 6: Proposed Solutions
 
-### Option A: Pass Billing Mode from Renderer (RECOMMENDED)
+### Option A: Pass Billing Mode from Renderer
 
-**Strategy:** The renderer already knows the billing mode (via `useBillingMode` hook). Pass it along with the query event.
-
-**Implementation:**
-1. Add `detectedBillingMode` to the `recordQuery` call in App.tsx
-2. Use passed value in stats.ts instead of re-detecting
+**Strategy:** The renderer already knows the billing mode (via `useBillingMode` hook which correctly uses `detectRemoteAuthCached()` for SSH sessions). Pass it along with the query event.
 
 **Pros:**
-- Uses already-working detection path
-- No additional file I/O in stats handler
-- Consistent with how `detectedModel` is passed
+- Uses already-working detection path (SSH-aware)
+- No additional SSH operations in stats handler
 
 **Cons:**
-- Requires renderer changes
-- Billing mode is per-call rather than per-session
+- Only works when renderer provides value
+- No fallback for batch mode or edge cases
+- Does NOT support both local and remote agents independently
+
+---
+
+### Option F: Hybrid - Pass from Renderer with SSH-Aware Fallback (RECOMMENDED)
+
+**Strategy:**
+1. Renderer passes `detectedBillingMode` AND `sshRemoteId` in the query event
+2. Stats handler uses passed billing mode if available (fast path)
+3. If not available, falls back to SSH-aware detection (supports both local AND remote)
+
+**Why this is the correct solution:**
+1. **Supports BOTH local and remote agents** - doesn't assume one topology
+2. **Uses same logic as working `agents:detectAuth`** - try local first, then remote if sshRemoteId provided
+3. **Fast path via renderer** - avoids redundant detection when renderer already has value
+4. **Robust fallback** - works for batch mode, edge cases, or when renderer doesn't provide value
+
+**Implementation in stats.ts:**
+```typescript
+// 1. Use passed billing mode if available (from renderer - fast path)
+if ((event as any).detectedBillingMode) {
+  maestroBillingMode = (event as any).detectedBillingMode;
+} else {
+  // 2. Fallback: detect based on whether remote or local
+  const sshRemoteId = (event as any).sshRemoteId;
+  if (sshRemoteId) {
+    // Remote agent: SSH to VM for credentials
+    const sshConfig = getSshRemoteById(settingsStore, sshRemoteId);
+    if (sshConfig) {
+      const auth = await detectRemoteAuthCached(sshRemoteId, sshConfig);
+      maestroBillingMode = auth.billingMode;
+    }
+  } else {
+    // Local agent: check local filesystem
+    const auth = await detectLocalAuth();
+    maestroBillingMode = auth.billingMode;
+  }
+}
+```
+
+**Pros:**
+- Supports BOTH local and remote agent topologies
+- Fast path when renderer provides value
+- Robust fallback for batch mode / edge cases
+- Uses exact same detection logic as working `agents:detectAuth`
+- No brittle assumptions about user's agent topology
+
+**Cons:**
+- More complex than Option A
+- Need to pass both `detectedBillingMode` and `sshRemoteId` from renderer
 
 **Files to modify:**
-- `src/renderer/App.tsx` - Pass billing mode
-- `src/renderer/hooks/agent/useAgentExecution.ts` - Pass billing mode (Auto Run)
-- `src/main/ipc/handlers/stats.ts` - Use passed value
-- `src/shared/stats-types.ts` - Add `detectedBillingMode` field
+- `src/renderer/App.tsx` - Pass `detectedBillingMode` and `sshRemoteId` in recordQuery
+- `src/renderer/hooks/agent/useAgentExecution.ts` - Pass same fields (Auto Run)
+- `src/main/ipc/handlers/stats.ts` - Implement hybrid detection with fallback
+- `src/shared/stats-types.ts` - Add `detectedBillingMode` and ensure `sshRemoteId` field exists
 
-**Estimated effort:** 2-3 hours
+**Estimated effort:** 3-4 hours
 
 ---
 
@@ -308,36 +376,129 @@ maestroBillingMode = auth.billingMode;
 
 ---
 
-### Option D: Debug and Fix Root Cause
+### Option D: Debug and Fix Root Cause (REQUIRED FIRST)
 
-**Strategy:** Add comprehensive logging to understand exactly why detection fails.
+**Strategy:** Add comprehensive logging to `detectLocalAuth()` to get a DETERMINISTIC answer on why detection fails in the stats handler context.
 
 **Implementation:**
-1. Add logging to `detectLocalAuth()` at every step
-2. Log homedir, credentials path, file existence, file content, parse result
-3. Compare logs between working and failing paths
+
+Add the following diagnostic logging to `/app/Maestro/src/main/utils/claude-auth-detector.ts` in the `detectLocalAuth()` function:
+
+```typescript
+export async function detectLocalAuth(): Promise<DetectedAuth> {
+	const credentialsPath = getLocalClaudeCredentialsPath();
+	const now = Date.now();
+
+	// DIAGNOSTIC LOGGING - FIX-30 Investigation
+	console.log('[FIX-30-AUTH] detectLocalAuth START', {
+		credentialsPath,
+		homedir: require('os').homedir(),
+		cwd: process.cwd(),
+	});
+
+	try {
+		console.log('[FIX-30-AUTH] Attempting fs.readFile...');
+		const content = await fs.readFile(credentialsPath, 'utf-8');
+		console.log('[FIX-30-AUTH] File read SUCCESS, length:', content.length);
+
+		const creds = parseCredentialsFile(content);
+		console.log('[FIX-30-AUTH] Parse result:', {
+			parsed: !!creds,
+			hasOauth: !!creds?.claudeAiOauth,
+			subscriptionType: creds?.claudeAiOauth?.subscriptionType,
+		});
+
+		if (!creds) {
+			console.log('[FIX-30-AUTH] RETURNING api (parse failed)');
+			logger.info(`${LOG_CONTEXT} Credentials file found but could not be parsed`, LOG_CONTEXT);
+			return {
+				billingMode: 'api',
+				source: 'default',
+				detectedAt: now,
+			};
+		}
+
+		const result = detectAuthFromCredentials(creds);
+		console.log('[FIX-30-AUTH] RETURNING', result.billingMode, '(from credentials)');
+		return result;
+	} catch (error) {
+		console.log('[FIX-30-AUTH] CATCH block hit:', {
+			errorType: error?.constructor?.name,
+			errorCode: (error as NodeJS.ErrnoException).code,
+			errorMessage: error instanceof Error ? error.message : String(error),
+		});
+
+		// Handle file not found gracefully
+		if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+			logger.debug(`${LOG_CONTEXT} Credentials file not found at ${credentialsPath}`, LOG_CONTEXT);
+		} else {
+			logger.warn(
+				`${LOG_CONTEXT} Error reading credentials file: ${error instanceof Error ? error.message : String(error)}`,
+				LOG_CONTEXT
+			);
+		}
+
+		console.log('[FIX-30-AUTH] RETURNING api (error fallback)');
+		return {
+			billingMode: 'api',
+			source: 'default',
+			detectedAt: now,
+		};
+	}
+}
+```
+
+**Expected Log Output Analysis:**
+
+| Log Pattern | Diagnosis |
+|-------------|-----------|
+| `detectLocalAuth START` appears, then nothing | Promise not completing/awaiting |
+| `File read SUCCESS` then `Parse result: { parsed: false }` | JSON parse failure |
+| `Parse result: { hasOauth: false }` | Credentials structure different |
+| `Parse result: { subscriptionType: undefined }` | Missing subscription field |
+| `CATCH block hit: { errorCode: 'ENOENT' }` | File not found (wrong path) |
+| `CATCH block hit: { errorCode: 'EACCES' }` | Permission denied |
+| `RETURNING max (from credentials)` | Working correctly |
+
+**This will give us a DETERMINISTIC answer because:**
+1. Every code path logs before returning
+2. We log the exact error if caught
+3. We log the parsed data structure
+4. We can compare the logs from stats.ts context vs agents.ts context
 
 **Pros:**
-- Addresses root cause
-- May reveal other issues
+- Addresses root cause definitively
+- Quick to implement (15 mins)
+- No architectural changes needed
+- Logging can be removed after diagnosis
 
 **Cons:**
-- Requires investigation time
-- May not find clear cause
+- Requires one more test cycle
+- Temporary debug code
 
-**Estimated effort:** 3-4 hours (uncertain)
+**Estimated effort:** 15 minutes for code + 1 test cycle
 
 ---
 
 ## Part 7: Recommendation
 
-### Primary Recommendation: Option A (Pass from Renderer)
+### ROOT CAUSE CONFIRMED - Option D Complete
+
+Diagnostic logging confirmed the root cause:
+- `detectLocalAuth()` checks LOCAL Mac filesystem
+- Credentials only exist on REMOTE Linux VMs
+- File not found (ENOENT) → Returns `'api'` fallback
+
+---
+
+### RECOMMENDED SOLUTION: Option F (Hybrid with SSH-Aware Fallback)
 
 **Rationale:**
-1. The renderer already has reliable billing mode detection working
-2. Follows the established pattern for `detectedModel` (passed from renderer)
-3. Avoids duplicating detection logic
-4. More resilient (detection happens in clean context, not during process exit)
+1. Supports BOTH local and remote agent topologies
+2. Uses renderer's already-working detection as fast path
+3. Falls back to SSH-aware detection (same as `agents:detectAuth`)
+4. No brittle assumptions about user's infrastructure
+5. Works for batch mode, edge cases, and future topology changes
 
 ### Implementation Plan
 
@@ -425,4 +586,50 @@ This approach:
 ---
 
 **Document Author:** Claude Investigation Agent
-**Review Status:** Ready for User Review
+**Review Status:** ✅ RESOLVED
+
+---
+
+## Part 11: Resolution Summary (Added 2026-02-12)
+
+### Implementation Completed
+
+**Option F (Hybrid Detection)** was successfully implemented via Auto Run document:
+`/app/__AUTORUN/FIX-30-BillingMode-HybridDetection.md`
+
+### Files Modified
+
+| File | Change |
+|------|--------|
+| `src/shared/stats-types.ts` | Added `detectedBillingMode?: 'api' \| 'max'` and `sshRemoteId?: string` to QueryEvent |
+| `src/main/ipc/handlers/stats.ts` | Implemented hybrid billing mode detection with SSH-aware fallback |
+| `src/renderer/App.tsx` | Pass `sshRemoteId` in recordQuery call |
+| `src/renderer/hooks/agent/useAgentExecution.ts` | Pass `sshRemoteId` for Auto Run path |
+
+### Verification Results
+
+After implementation, logs confirmed correct detection:
+```
+maestroBillingMode: 'max',
+source: 'ssh-remote'
+anthropicCostUsd: 0.18346025,
+maestroCostUsd: 0.0023899999999999998
+```
+
+The `maestro_cost_usd` is now correctly calculated with Max pricing (cache tokens free), showing ~98.7% cost reduction compared to `anthropic_cost_usd`.
+
+### Detection Precedence (Final Implementation)
+
+1. Explicit agent config setting (not 'auto')
+2. Renderer-provided `detectedBillingMode` (fast path)
+3. SSH remote detection via `detectRemoteAuthCached()` (if sshRemoteId provided)
+4. Local detection via `detectLocalAuth()` (if no sshRemoteId)
+5. Default to 'api'
+
+### Key Insight
+
+The solution supports BOTH local and remote SSH agents:
+- **Local agents**: Credentials on same machine as Maestro → `detectLocalAuth()`
+- **Remote SSH agents**: Credentials on remote VM → `detectRemoteAuthCached(sshRemoteId, sshConfig)`
+
+This hybrid approach ensures correct billing mode detection regardless of agent topology.
