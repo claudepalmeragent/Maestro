@@ -220,14 +220,66 @@ export class StdoutHandler {
 			isPartial: event?.isPartial,
 			isResultMessage: event ? outputParser.isResultMessage(event) : false,
 			resultEmitted: managedProcess.resultEmitted,
+			detectedModel: event?.detectedModel,
+			anthropicMessageId: event?.anthropicMessageId,
 		});
 
 		if (!event) return;
 
+		// Capture detectedModel and anthropicMessageId from ANY event that has them
+		// These may come from assistant messages before usage data arrives
+		if (event.detectedModel) {
+			if (!managedProcess.lastUsageTotals) {
+				managedProcess.lastUsageTotals = {
+					inputTokens: 0,
+					outputTokens: 0,
+					cacheReadInputTokens: 0,
+					cacheCreationInputTokens: 0,
+					reasoningTokens: 0,
+					totalCostUsd: 0,
+				};
+			}
+			managedProcess.lastUsageTotals.detectedModel = event.detectedModel;
+		}
+		if (event.anthropicMessageId) {
+			if (!managedProcess.lastUsageTotals) {
+				managedProcess.lastUsageTotals = {
+					inputTokens: 0,
+					outputTokens: 0,
+					cacheReadInputTokens: 0,
+					cacheCreationInputTokens: 0,
+					reasoningTokens: 0,
+					totalCostUsd: 0,
+				};
+			}
+			managedProcess.lastUsageTotals.anthropicMessageId = event.anthropicMessageId;
+		}
+
 		// Extract usage
 		const usage = outputParser.extractUsage(event);
 		if (usage) {
-			const usageStats = this.buildUsageStats(managedProcess, usage);
+			// Get model from event or existing lastUsageTotals
+			const detectedModel = event.detectedModel || managedProcess.lastUsageTotals?.detectedModel;
+			const anthropicMessageId =
+				event.anthropicMessageId || managedProcess.lastUsageTotals?.anthropicMessageId;
+
+			// Log model tracking for debugging FIX-30
+			logger.debug('[ProcessManager] Building usage stats with model tracking', 'ProcessManager', {
+				sessionId,
+				eventDetectedModel: event.detectedModel,
+				existingDetectedModel: managedProcess.lastUsageTotals?.detectedModel,
+				finalDetectedModel: detectedModel,
+				eventMessageId: event.anthropicMessageId,
+				existingMessageId: managedProcess.lastUsageTotals?.anthropicMessageId,
+				finalMessageId: anthropicMessageId,
+			});
+
+			const usageStats = this.buildUsageStats(
+				managedProcess,
+				usage,
+				detectedModel,
+				anthropicMessageId
+			);
 
 			// For Codex: Convert cumulative -> delta (also sets lastUsageTotals internally)
 			// For all other agents: Set lastUsageTotals directly (for ExitHandler to use)
@@ -237,6 +289,9 @@ export class StdoutHandler {
 			} else {
 				// Store totals for non-Codex agents (Claude, OpenCode, etc.)
 				// This is needed by ExitHandler to emit cache tokens and cost in query-complete
+				// Preserve detectedModel/anthropicMessageId if already captured from earlier events
+				const existingModel = managedProcess.lastUsageTotals?.detectedModel;
+				const existingMessageId = managedProcess.lastUsageTotals?.anthropicMessageId;
 				managedProcess.lastUsageTotals = {
 					inputTokens: usageStats.inputTokens,
 					outputTokens: usageStats.outputTokens,
@@ -244,11 +299,20 @@ export class StdoutHandler {
 					cacheCreationInputTokens: usageStats.cacheCreationInputTokens,
 					reasoningTokens: usageStats.reasoningTokens || 0,
 					totalCostUsd: usageStats.totalCostUsd,
-					// Capture detected model from the event if available
-					detectedModel: event.detectedModel,
+					// Use event's model/messageId if present, otherwise preserve existing
+					detectedModel: event.detectedModel || existingModel,
+					anthropicMessageId: event.anthropicMessageId || existingMessageId,
 				};
 				normalizedUsageStats = usageStats;
 			}
+
+			// Log emitted usage stats for debugging FIX-30 model flow
+			console.log('[FIX-30] Emitting usage event:', {
+				sessionId,
+				detectedModel: normalizedUsageStats.detectedModel,
+				eventDetectedModel: event.detectedModel,
+				inputTokens: normalizedUsageStats.inputTokens,
+			});
 
 			this.emitter.emit('usage', sessionId, normalizedUsageStats);
 		}
@@ -419,7 +483,9 @@ export class StdoutHandler {
 			costUsd?: number;
 			contextWindow?: number;
 			reasoningTokens?: number;
-		}
+		},
+		detectedModel?: string,
+		anthropicMessageId?: string
 	): UsageStats {
 		return {
 			inputTokens: usage.inputTokens,
@@ -429,6 +495,8 @@ export class StdoutHandler {
 			totalCostUsd: usage.costUsd || 0,
 			contextWindow: managedProcess.contextWindow || usage.contextWindow || 0,
 			reasoningTokens: usage.reasoningTokens,
+			detectedModel,
+			anthropicMessageId,
 		};
 	}
 }

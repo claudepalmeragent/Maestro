@@ -14,6 +14,7 @@ import type { QueryEvent } from '../../shared/stats-types';
 import { resolveBillingMode } from '../utils/pricing-resolver';
 import { calculateClaudeCostWithModel } from '../utils/pricing';
 import { isClaudeModelId } from '../utils/claude-pricing';
+import { getSessionsStore } from '../stores';
 
 /**
  * Maximum number of retry attempts for transient database failures.
@@ -29,6 +30,12 @@ const RETRY_BASE_DELAY_MS = 100;
  * Agent types that use Claude models and support billing mode detection.
  */
 const CLAUDE_AGENT_TYPES = new Set(['claude-code', 'claude']);
+
+/**
+ * Map of Maestro session IDs to Claude Code session IDs.
+ * Populated by 'session-id' events from ProcessManager.
+ */
+const claudeSessionMap = new Map<string, string>();
 
 /**
  * Calculate dual-source costs for a query event.
@@ -182,12 +189,16 @@ async function insertQueryEventWithRetry(
 		// Anthropic values (from Claude response)
 		anthropicCostUsd: dualCosts.anthropicCostUsd,
 		anthropicModel: dualCosts.anthropicModel || undefined,
+		anthropicMessageId: queryData.anthropicMessageId,
 
 		// Maestro calculated values
 		maestroCostUsd: dualCosts.maestroCostUsd,
 		maestroBillingMode: dualCosts.maestroBillingMode,
 		maestroPricingModel: dualCosts.maestroPricingModel || undefined,
 		maestroCalculatedAt: dualCosts.maestroCalculatedAt,
+
+		// Claude session ID for reconstruction matching (v8)
+		claudeSessionId: claudeSessionMap.get(queryData.sessionId),
 	};
 
 	for (let attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
@@ -238,9 +249,50 @@ export function setupStatsListener(
 ): void {
 	const { safeSend, getStatsDB, logger } = deps;
 
+	// Capture Claude session ID mapping from 'session-id' events
+	// This handles both interactive and Auto Run sessions
+	processManager.on('session-id', (maestroSessionId: string, claudeSessionId: string) => {
+		claudeSessionMap.set(maestroSessionId, claudeSessionId);
+
+		// Also persist to sessions store so agentSessionId survives app restart
+		// This is critical for Auto Run sessions where no interactive handshake occurs
+		try {
+			const sessionsStore = getSessionsStore();
+			const sessions = sessionsStore.get('sessions', []) as any[];
+			const sessionIndex = sessions.findIndex((s: any) => s.id === maestroSessionId);
+			if (sessionIndex >= 0 && !sessions[sessionIndex].agentSessionId) {
+				sessions[sessionIndex].agentSessionId = claudeSessionId;
+				sessionsStore.set('sessions', sessions);
+				logger.debug('[stats-listener] Persisted agentSessionId to session store', '[Stats]', {
+					maestroSessionId,
+					claudeSessionId,
+				});
+			}
+		} catch (err) {
+			logger.warn('[stats-listener] Failed to persist agentSessionId to session store', '[Stats]', {
+				error: String(err),
+				maestroSessionId,
+			});
+		}
+
+		logger.debug('[stats-listener] Captured Claude session mapping', '[Stats]', {
+			maestroSessionId,
+			claudeSessionId,
+		});
+	});
+
 	// Handle query-complete events for stats tracking
 	// This is emitted when a batch mode AI query completes (user or auto)
 	processManager.on('query-complete', (_sessionId: string, queryData: QueryCompleteData) => {
+		// Log incoming query data for debugging FIX-30 model tracking
+		logger.debug('[stats-listener] Received query-complete event', '[Stats]', {
+			sessionId: queryData.sessionId,
+			detectedModel: queryData.detectedModel,
+			anthropicMessageId: queryData.anthropicMessageId,
+			agentType: queryData.agentType,
+			source: queryData.source,
+		});
+
 		const db = getStatsDB();
 		if (!db.isReady()) {
 			return;

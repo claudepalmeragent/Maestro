@@ -24,6 +24,9 @@ import {
 	StatsTimeRange,
 	StatsFilters,
 } from '../../../shared/stats-types';
+import { resolveBillingMode } from '../../utils/pricing-resolver';
+import { calculateClaudeCostWithModel } from '../../utils/pricing';
+import { isClaudeModelId } from '../../utils/claude-pricing';
 
 const LOG_CONTEXT = '[Stats]';
 
@@ -63,6 +66,103 @@ function broadcastStatsUpdate(getMainWindow: () => BrowserWindow | null): void {
 	}
 }
 
+const CLAUDE_AGENT_TYPES = new Set(['claude-code', 'claude']);
+
+/**
+ * Calculate dual costs and enrich query event for interactive mode.
+ * This mirrors the logic in stats-listener.ts for batch mode.
+ */
+function calculateAndEnrichEvent(
+	event: Omit<QueryEvent, 'id'>,
+	log: typeof logger
+): Omit<QueryEvent, 'id'> {
+	// Log incoming event for debugging FIX-30 (using console.log for visibility)
+	console.log('[FIX-30] stats:record-query received:', {
+		sessionId: event.sessionId,
+		incomingDetectedModel: (event as any).detectedModel,
+		agentType: event.agentType,
+		totalCostUsd: event.totalCostUsd,
+	});
+
+	// If model fields are already populated, return as-is
+	if (event.anthropicModel && event.maestroCostUsd !== undefined) {
+		log.debug(
+			'[stats:record-query] Event already has model fields, skipping enrichment',
+			LOG_CONTEXT
+		);
+		return event;
+	}
+
+	// Extract model from event
+	const anthropicModel = (event as any).detectedModel || null;
+	let anthropicCostUsd = 0;
+	let maestroCostUsd = 0;
+	let maestroBillingMode: 'api' | 'max' | 'free' = 'api';
+	const maestroPricingModel: string | null = anthropicModel;
+	const maestroCalculatedAt = Date.now();
+
+	// Calculate both costs from tokens for Claude agents
+	const isClaude = CLAUDE_AGENT_TYPES.has(event.agentType);
+	if (isClaude) {
+		try {
+			const agentId = event.agentId || event.sessionId;
+			maestroBillingMode = resolveBillingMode(agentId);
+
+			const tokens = {
+				inputTokens: event.inputTokens || 0,
+				outputTokens: event.outputTokens || 0,
+				cacheReadTokens: event.cacheReadInputTokens || 0,
+				cacheCreationTokens: event.cacheCreationInputTokens || 0,
+			};
+
+			if (anthropicModel) {
+				if (!isClaudeModelId(anthropicModel)) {
+					// Non-Claude models (Ollama, local) are free
+					maestroBillingMode = 'free';
+					anthropicCostUsd = 0;
+					maestroCostUsd = 0;
+				} else {
+					// Calculate anthropic_cost_usd with API pricing (cache tokens charged)
+					anthropicCostUsd = calculateClaudeCostWithModel(tokens, anthropicModel, 'api');
+					// Calculate maestro_cost_usd with resolved billing mode (Max = cache tokens free)
+					maestroCostUsd = calculateClaudeCostWithModel(tokens, anthropicModel, maestroBillingMode);
+
+					console.log('[FIX-30] Calculated costs:', {
+						tokens,
+						anthropicModel,
+						maestroBillingMode,
+						anthropicCostUsd,
+						maestroCostUsd,
+					});
+				}
+			}
+		} catch (err) {
+			log.warn('[stats:record-query] Failed to calculate costs', LOG_CONTEXT, {
+				error: String(err),
+			});
+		}
+	}
+
+	const enrichedEvent = {
+		...event,
+		anthropicCostUsd,
+		anthropicModel: anthropicModel || undefined,
+		maestroCostUsd,
+		maestroBillingMode,
+		maestroPricingModel: maestroPricingModel || undefined,
+		maestroCalculatedAt,
+	};
+
+	log.debug('[stats:record-query] Enriched event result', LOG_CONTEXT, {
+		sessionId: event.sessionId,
+		anthropicModel: enrichedEvent.anthropicModel,
+		maestroBillingMode: enrichedEvent.maestroBillingMode,
+		maestroCostUsd: enrichedEvent.maestroCostUsd,
+	});
+
+	return enrichedEvent;
+}
+
 /**
  * Register all Stats-related IPC handlers.
  *
@@ -87,8 +187,11 @@ export function registerStatsHandlers(deps: StatsHandlerDependencies): void {
 				return null;
 			}
 
+			// Calculate dual costs for interactive mode (mirrors stats-listener.ts batch mode logic)
+			const enrichedEvent = calculateAndEnrichEvent(event, logger);
+
 			const db = getStatsDB();
-			const id = db.insertQueryEvent(event);
+			const id = db.insertQueryEvent(enrichedEvent);
 			logger.debug(`Recorded query event: ${id}`, LOG_CONTEXT, {
 				sessionId: event.sessionId,
 				agentType: event.agentType,

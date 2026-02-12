@@ -20,8 +20,8 @@ const INSERT_SQL = `
    cache_read_input_tokens, cache_creation_input_tokens, total_cost_usd,
    anthropic_cost_usd, anthropic_model,
    maestro_cost_usd, maestro_billing_mode, maestro_pricing_model, maestro_calculated_at,
-   uuid, anthropic_message_id, is_reconstructed, reconstructed_at)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+   uuid, anthropic_message_id, is_reconstructed, reconstructed_at, claude_session_id)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `;
 
 /**
@@ -58,7 +58,8 @@ export function insertQueryEvent(db: Database.Database, event: Omit<QueryEvent, 
 		event.uuid ?? null,
 		event.anthropicMessageId ?? null,
 		event.isReconstructed !== undefined ? (event.isReconstructed ? 1 : 0) : 0,
-		event.reconstructedAt ?? null
+		event.reconstructedAt ?? null,
+		event.claudeSessionId ?? null
 	);
 
 	logger.debug(`Inserted query event ${id}`, LOG_CONTEXT);

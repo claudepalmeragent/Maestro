@@ -257,6 +257,17 @@ export function useAgentExecution(deps: UseAgentExecutionDeps): UseAgentExecutio
 									taskUsageStats?.outputTokens && queryDuration > 0
 										? taskUsageStats.outputTokens / (queryDuration / 1000)
 										: undefined;
+
+								// Determine model with fallback to session config (FIX-30)
+								const queryDetectedModel = taskUsageStats?.detectedModel || session.customModel;
+
+								console.log('[useAgentExecution:ModelTracking] Recording auto query:', {
+									sessionId,
+									usageStatsModel: taskUsageStats?.detectedModel,
+									sessionCustomModel: session.customModel,
+									finalModel: queryDetectedModel,
+								});
+
 								window.maestro.stats
 									.recordQuery({
 										sessionId: sessionId, // Use the original session ID, not the batch ID
@@ -276,6 +287,9 @@ export function useAgentExecution(deps: UseAgentExecutionDeps): UseAgentExecutio
 										cacheReadInputTokens: taskUsageStats?.cacheReadInputTokens,
 										cacheCreationInputTokens: taskUsageStats?.cacheCreationInputTokens,
 										totalCostUsd: taskUsageStats?.totalCostUsd,
+										// Model tracking fields (FIX-30)
+										detectedModel: queryDetectedModel,
+										anthropicMessageId: taskUsageStats?.anthropicMessageId,
 									})
 									.catch((err) => {
 										// Don't fail the batch flow if stats recording fails

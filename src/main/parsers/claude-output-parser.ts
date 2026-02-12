@@ -61,6 +61,15 @@ interface ClaudeRawMessage {
 	message?: {
 		role?: string;
 		content?: string | ClaudeContentBlock[];
+		model?: string; // Anthropic model ID (e.g., "claude-opus-4-5-20251101")
+		id?: string; // Anthropic message ID (e.g., "msg_01LRSyZrc4H7jKXowGeoSv5W")
+		usage?: {
+			// Nested usage (Claude Code format)
+			input_tokens?: number;
+			output_tokens?: number;
+			cache_read_input_tokens?: number;
+			cache_creation_input_tokens?: number;
+		};
 	};
 	slash_commands?: string[];
 	modelUsage?: Record<string, ModelStats>;
@@ -137,9 +146,14 @@ export class ClaudeOutputParser implements AgentOutputParser {
 				resultText = this.extractTextFromMessage(msg);
 			}
 
-			// Extract model from modelUsage object keys
+			// Extract model from message.model (Claude Code format - primary source)
+			if (msg.message?.model) {
+				this.detectedModel = msg.message.model;
+			}
+
+			// Extract model from modelUsage object keys (fallback for legacy format)
 			// modelUsage looks like: { "claude-opus-4-5-20251101": { inputTokens: 1000, ... } }
-			if (msg.modelUsage) {
+			if (!this.detectedModel && msg.modelUsage) {
 				const modelKeys = Object.keys(msg.modelUsage);
 				if (modelKeys.length > 0) {
 					this.detectedModel = modelKeys[0];
@@ -151,6 +165,7 @@ export class ClaudeOutputParser implements AgentOutputParser {
 				text: resultText,
 				sessionId: msg.session_id,
 				detectedModel: this.detectedModel || undefined,
+				anthropicMessageId: msg.message?.id,
 				raw: msg,
 			};
 
@@ -165,6 +180,12 @@ export class ClaudeOutputParser implements AgentOutputParser {
 
 		// Handle assistant messages (streaming partial responses)
 		if (msg.type === 'assistant') {
+			// Extract model and message ID from assistant messages
+			// This is the PRIMARY source - most Claude messages come through as type: 'assistant'
+			if (msg.message?.model) {
+				this.detectedModel = msg.message.model;
+			}
+
 			const text = this.extractTextFromMessage(msg);
 			const thinkingText = this.extractThinkingFromMessage(msg);
 			const toolUseBlocks = this.extractToolUseBlocks(msg);
@@ -180,6 +201,8 @@ export class ClaudeOutputParser implements AgentOutputParser {
 				text: contentToEmit,
 				sessionId: msg.session_id,
 				isPartial: true,
+				detectedModel: this.detectedModel || undefined,
+				anthropicMessageId: msg.message?.id,
 				toolUseBlocks: toolUseBlocks.length > 0 ? toolUseBlocks : undefined,
 				taskToolInvocation: taskToolInvocation || undefined,
 				raw: msg,
@@ -188,8 +211,13 @@ export class ClaudeOutputParser implements AgentOutputParser {
 
 		// Handle messages with only usage stats (no content type)
 		if (msg.modelUsage || msg.usage || msg.total_cost_usd !== undefined) {
-			// Extract model from modelUsage object keys
-			if (msg.modelUsage) {
+			// Extract model from message.model (Claude Code format - primary source)
+			if (msg.message?.model) {
+				this.detectedModel = msg.message.model;
+			}
+
+			// Extract model from modelUsage object keys (fallback for legacy format)
+			if (!this.detectedModel && msg.modelUsage) {
 				const modelKeys = Object.keys(msg.modelUsage);
 				if (modelKeys.length > 0) {
 					this.detectedModel = modelKeys[0];
@@ -201,6 +229,7 @@ export class ClaudeOutputParser implements AgentOutputParser {
 				type: 'usage',
 				sessionId: msg.session_id,
 				detectedModel: this.detectedModel || undefined,
+				anthropicMessageId: msg.message?.id,
 				usage: usage || undefined,
 				raw: msg,
 			};

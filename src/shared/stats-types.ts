@@ -56,6 +56,17 @@ export interface QueryEvent {
 	isReconstructed?: boolean;
 	/** Timestamp when the record was reconstructed */
 	reconstructedAt?: number;
+
+	// Claude session ID for reconstruction matching - added in v8
+	/**
+	 * Claude Code's internal session UUID (for JSONL matching).
+	 * Used to match reconstruction data from ~/.claude/projects/ JSONL files
+	 * to existing query_events records.
+	 *
+	 * NULL for non-Claude agents (Codex, Ollama, etc.) - they don't use
+	 * Claude's session system and are not affected by reconstruction.
+	 */
+	claudeSessionId?: string;
 }
 
 /**
@@ -210,5 +221,6 @@ export interface StatsFilters {
  * Version 5: Added cache_read_input_tokens, cache_creation_input_tokens, total_cost_usd columns
  * Version 6: Added agent_id column for proper Maestro agent attribution
  * Version 7: Added dual-source cost tracking (Anthropic + Maestro) and audit tables
+ * Version 8: Added claude_session_id for reconstruction matching
  */
-export const STATS_DB_VERSION = 7;
+export const STATS_DB_VERSION = 8;

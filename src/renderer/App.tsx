@@ -1947,6 +1947,9 @@ function MaestroConsoleInner() {
 					cacheReadInputTokens?: number;
 					cacheCreationInputTokens?: number;
 					totalCostUsd?: number;
+					// Model tracking fields (FIX-30 Part C)
+					detectedModel?: string;
+					anthropicMessageId?: string;
 				} | null = null;
 				let queuedItemToProcess: {
 					sessionId: string;
@@ -2065,6 +2068,15 @@ function MaestroConsoleInner() {
 						// Get tab usage stats for token metrics (prefer tab-level, fallback to session-level)
 						const tabUsageStats = completedTab?.usageStats || currentSession.usageStats;
 
+						// Log model tracking flow for debugging FIX-30
+						console.log('[App:ModelTracking] Exit handler model data:', {
+							sessionId: actualSessionId,
+							tabUsageStatsModel: tabUsageStats?.detectedModel,
+							sessionCustomModel: currentSession.customModel,
+							completedTabModel: completedTab?.usageStats?.detectedModel,
+							sessionUsageModel: currentSession.usageStats?.detectedModel,
+						});
+
 						toastData = {
 							title,
 							summary,
@@ -2094,6 +2106,10 @@ function MaestroConsoleInner() {
 							cacheReadInputTokens: tabUsageStats?.cacheReadInputTokens,
 							cacheCreationInputTokens: tabUsageStats?.cacheCreationInputTokens,
 							totalCostUsd: tabUsageStats?.totalCostUsd,
+							// Model tracking fields (FIX-30 Part C)
+							// Fallback chain: usageStats.detectedModel -> session.customModel
+							detectedModel: tabUsageStats?.detectedModel || currentSession.customModel,
+							anthropicMessageId: tabUsageStats?.anthropicMessageId,
 						};
 
 						// Check if synopsis should be triggered:
@@ -2393,6 +2409,14 @@ function MaestroConsoleInner() {
 							? toastData.outputTokens / (toastData.duration / 1000)
 							: undefined;
 
+					// Log model data being sent to stats (FIX-30 debugging)
+					console.log('[App:ModelTracking] Recording query with model:', {
+						sessionId: sessionIdForStats,
+						detectedModel: toastData.detectedModel,
+						anthropicMessageId: toastData.anthropicMessageId,
+						totalCostUsd: toastData.totalCostUsd,
+					});
+
 					window.maestro.stats
 						.recordQuery({
 							sessionId: sessionIdForStats,
@@ -2412,6 +2436,9 @@ function MaestroConsoleInner() {
 							cacheReadInputTokens: toastData.cacheReadInputTokens,
 							cacheCreationInputTokens: toastData.cacheCreationInputTokens,
 							totalCostUsd: toastData.totalCostUsd,
+							// Model tracking fields - main process will calculate dual costs
+							detectedModel: toastData.detectedModel,
+							anthropicMessageId: toastData.anthropicMessageId,
 						})
 						.catch((err) => {
 							// Don't fail the completion flow if stats recording fails

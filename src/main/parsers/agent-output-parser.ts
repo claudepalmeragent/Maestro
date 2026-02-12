@@ -149,6 +149,12 @@ export interface ParsedEvent {
 	detectedModel?: string;
 
 	/**
+	 * Anthropic's message ID from the API response
+	 * Format: "msg_XXXXX" (e.g., "msg_01LRSyZrc4H7jKXowGeoSv5W")
+	 */
+	anthropicMessageId?: string;
+
+	/**
 	 * Original event data for debugging
 	 * Preserved unchanged from agent output
 	 * Optional - primarily used for debugging and not read in production

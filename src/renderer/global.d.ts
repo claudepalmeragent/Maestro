@@ -130,6 +130,10 @@ interface UsageStats {
 	totalCostUsd: number;
 	contextWindow: number;
 	reasoningTokens?: number; // Separate reasoning tokens (Codex o3/o4-mini)
+	/** Detected model ID from Claude response (e.g., 'claude-opus-4-5-20251101') */
+	detectedModel?: string;
+	/** Anthropic's message ID from the API response */
+	anthropicMessageId?: string;
 }
 
 type HistoryEntryType = 'AUTO' | 'USER';

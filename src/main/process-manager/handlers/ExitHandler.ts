@@ -198,6 +198,7 @@ export class ExitHandler {
 				cacheCreationInputTokens,
 				totalCostUsd,
 				detectedModel,
+				anthropicMessageId: managedProcess.lastUsageTotals?.anthropicMessageId,
 			});
 			logger.debug('[ProcessManager] Query complete event emitted', 'ProcessManager', {
 				sessionId,
