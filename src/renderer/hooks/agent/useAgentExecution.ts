@@ -217,10 +217,10 @@ export function useAgentExecution(deps: UseAgentExecutionDeps): UseAgentExecutio
 						window.maestro.process.onData((sid: string, data: string) => {
 							if (sid === targetSessionId) {
 								// Strip bash warnings (setlocale, etc.) that appear via SSH
-								// Use regex to remove warning lines while preserving other content structure
+								// Warnings may appear with \r prefix (from SSH) or at line start
 								let cleanedData = data;
 								if (data.includes('bash: warning:')) {
-									cleanedData = data.replace(/^bash: warning:[^\r\n]*[\r\n]*/gm, '');
+									cleanedData = data.replace(/[\r\n]*bash: warning:[^\r\n]*/g, '');
 									if (cleanedData.length === 0) {
 										return; // Skip only if nothing remains after stripping
 									}
