@@ -1809,19 +1809,19 @@ function MaestroConsoleInner() {
 				return;
 			}
 
+			// DISABLED: Bash warning filter - fix environment to not produce these messages instead
 			// Strip bash warnings (setlocale, etc.) that appear via SSH before AI response
-			// Bash warnings use \r separators - match warning text up to and including the line ending
-			let cleanedData = data;
-			if (data.includes('bash: warning:')) {
-				// Match "bash: warning:" followed by any chars (non-greedy via negative lookahead) until \r or \n
-				cleanedData = data.replace(/bash: warning: (?:(?!(?:\\r|\r|\n)).)*(?:\\r|\r|\n)/g, '');
-			}
+			// Bash warnings use \r separators - match warning text up to and including the line ending (or end of string)
+			// let cleanedData = data;
+			// if (data.includes('bash: warning:')) {
+			// 	// Match "bash: warning:" followed by any chars until \r, \n, or end of string
+			// 	cleanedData = data.replace(/bash: warning: (?:(?!(?:\\r|\r|\n)).)*(?:\\r|\r|\n|$)/g, '');
+			// }
 
-			// ALWAYS call batched updates - they handle empty/zero gracefully
-			// This ensures the flush cycle keeps running even when warnings are stripped
-			batchedUpdater.appendLog(actualSessionId, targetTabId, true, cleanedData);
+			// Pass data through directly without filtering
+			batchedUpdater.appendLog(actualSessionId, targetTabId, true, data);
 			batchedUpdater.markDelivered(actualSessionId, targetTabId);
-			batchedUpdater.updateCycleBytes(actualSessionId, cleanedData.length);
+			batchedUpdater.updateCycleBytes(actualSessionId, data.length);
 
 			// Clear error state if session had an error but is now receiving successful data
 			// This indicates the user fixed the issue (e.g., re-authenticated) and the agent is working

@@ -216,20 +216,21 @@ export function useAgentExecution(deps: UseAgentExecutionDeps): UseAgentExecutio
 					cleanupFns.push(
 						window.maestro.process.onData((sid: string, data: string) => {
 							if (sid === targetSessionId) {
+								// DISABLED: Bash warning filter - fix environment to not produce these messages instead
 								// Strip bash warnings (setlocale, etc.) that appear via SSH
-								// Bash warnings use \r separators - match warning text up to and including the line ending
-								let cleanedData = data;
-								if (data.includes('bash: warning:')) {
-									// Match "bash: warning:" followed by any chars (non-greedy via negative lookahead) until \r or \n
-									cleanedData = data.replace(
-										/bash: warning: (?:(?!(?:\\r|\r|\n)).)*(?:\\r|\r|\n)/g,
-										''
-									);
-								}
+								// Bash warnings use \r separators - match warning text up to and including the line ending (or end of string)
+								// let cleanedData = data;
+								// if (data.includes('bash: warning:')) {
+								// 	// Match "bash: warning:" followed by any chars until \r, \n, or end of string
+								// 	cleanedData = data.replace(
+								// 		/bash: warning: (?:(?!(?:\\r|\r|\n)).)*(?:\\r|\r|\n|$)/g,
+								// 		''
+								// 	);
+								// }
 
-								// Always track - accumulate text and call callback for byte tracking
-								responseText += cleanedData;
-								callbacks?.onData?.(cleanedData.length);
+								// Pass data through directly without filtering
+								responseText += data;
+								callbacks?.onData?.(data.length);
 							}
 						})
 					);
