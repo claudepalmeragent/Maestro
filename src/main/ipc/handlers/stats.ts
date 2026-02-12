@@ -24,9 +24,11 @@ import {
 	StatsTimeRange,
 	StatsFilters,
 } from '../../../shared/stats-types';
-import { resolveBillingMode } from '../../utils/pricing-resolver';
 import { calculateClaudeCostWithModel } from '../../utils/pricing';
 import { isClaudeModelId } from '../../utils/claude-pricing';
+import { detectLocalAuth } from '../../utils/claude-auth-detector';
+import { getAgentConfigsStore } from '../../stores/getters';
+import type { AgentPricingConfig } from '../../stores/types';
 
 const LOG_CONTEXT = '[Stats]';
 
@@ -72,10 +74,10 @@ const CLAUDE_AGENT_TYPES = new Set(['claude-code', 'claude']);
  * Calculate dual costs and enrich query event for interactive mode.
  * This mirrors the logic in stats-listener.ts for batch mode.
  */
-function calculateAndEnrichEvent(
+async function calculateAndEnrichEvent(
 	event: Omit<QueryEvent, 'id'>,
 	log: typeof logger
-): Omit<QueryEvent, 'id'> {
+): Promise<Omit<QueryEvent, 'id'>> {
 	// Log incoming event for debugging FIX-30 (using console.log for visibility)
 	console.log('[FIX-30] stats:record-query received:', {
 		sessionId: event.sessionId,
@@ -105,8 +107,27 @@ function calculateAndEnrichEvent(
 	const isClaude = CLAUDE_AGENT_TYPES.has(event.agentType);
 	if (isClaude) {
 		try {
-			const agentId = event.agentId || event.sessionId;
-			maestroBillingMode = resolveBillingMode(agentId);
+			// Resolve billing mode inline (simpler than going through pricing-resolver)
+			const configKey = event.agentType; // e.g., 'claude-code'
+
+			// Check agent config first
+			const store = getAgentConfigsStore();
+			const allConfigs = store.get('configs', {});
+			const agentConfig = allConfigs[configKey]?.pricingConfig as AgentPricingConfig | undefined;
+
+			if (agentConfig?.billingMode && agentConfig.billingMode !== 'auto') {
+				// Explicit setting
+				maestroBillingMode = agentConfig.billingMode;
+			} else {
+				// Auto-detect from credentials
+				const auth = await detectLocalAuth();
+				maestroBillingMode = auth.billingMode;
+			}
+
+			console.log('[FIX-30] Resolved billing mode:', {
+				configKey,
+				maestroBillingMode,
+			});
 
 			const tokens = {
 				inputTokens: event.inputTokens || 0,
@@ -188,7 +209,7 @@ export function registerStatsHandlers(deps: StatsHandlerDependencies): void {
 			}
 
 			// Calculate dual costs for interactive mode (mirrors stats-listener.ts batch mode logic)
-			const enrichedEvent = calculateAndEnrichEvent(event, logger);
+			const enrichedEvent = await calculateAndEnrichEvent(event, logger);
 
 			const db = getStatsDB();
 			const id = db.insertQueryEvent(enrichedEvent);

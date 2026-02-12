@@ -67,6 +67,13 @@ export interface QueryEvent {
 	 * Claude's session system and are not affected by reconstruction.
 	 */
 	claudeSessionId?: string;
+
+	// Input fields for IPC (used during record-query, not stored directly)
+	/**
+	 * Detected model passed from renderer to main process for cost calculation.
+	 * This is used by the stats IPC handler to populate anthropicModel.
+	 */
+	detectedModel?: string;
 }
 
 /**
