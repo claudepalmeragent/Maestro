@@ -1810,11 +1810,11 @@ function MaestroConsoleInner() {
 			}
 
 			// Strip bash warnings (setlocale, etc.) that appear via SSH before AI response
-			// Use regex to remove warning lines while preserving other content structure
+			// Warnings may appear with \r prefix (from SSH) or at line start
 			let cleanedData = data;
 			if (data.includes('bash: warning:')) {
-				// Remove lines starting with "bash: warning:" (may have \r or \n line endings)
-				cleanedData = data.replace(/^bash: warning:[^\r\n]*[\r\n]*/gm, '');
+				// Remove "bash: warning:..." segments including any preceding \r or \n
+				cleanedData = data.replace(/[\r\n]*bash: warning:[^\r\n]*/g, '');
 				if (cleanedData.length === 0) {
 					return; // Skip only if nothing remains after stripping warnings
 				}
