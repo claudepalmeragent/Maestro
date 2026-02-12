@@ -1819,13 +1819,11 @@ function MaestroConsoleInner() {
 				cleanedData = cleanedData.replace(/^[\r\n]+/, '').replace(/[\r\n]+$/, '');
 			}
 
-			// Always process - even if cleanedData is empty, we want to track state
-			// But only count bytes and append logs when there's actual content
-			if (cleanedData.length > 0) {
-				batchedUpdater.appendLog(actualSessionId, targetTabId, true, cleanedData);
-				batchedUpdater.markDelivered(actualSessionId, targetTabId);
-				batchedUpdater.updateCycleBytes(actualSessionId, cleanedData.length);
-			}
+			// ALWAYS call batched updates - they handle empty/zero gracefully
+			// This ensures the flush cycle keeps running even when warnings are stripped
+			batchedUpdater.appendLog(actualSessionId, targetTabId, true, cleanedData);
+			batchedUpdater.markDelivered(actualSessionId, targetTabId);
+			batchedUpdater.updateCycleBytes(actualSessionId, cleanedData.length);
 
 			// Clear error state if session had an error but is now receiving successful data
 			// This indicates the user fixed the issue (e.g., re-authenticated) and the agent is working
