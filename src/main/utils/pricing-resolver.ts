@@ -165,13 +165,7 @@ export async function resolveBillingModeAsync(
 ): Promise<ClaudeBillingMode> {
 	// 1. Check agent-level setting
 	const agentConfig = getAgentPricingConfig(agentId);
-	console.log('[FIX-30] agentConfig:', {
-		agentId,
-		billingMode: agentConfig.billingMode,
-		detectedBillingMode: agentConfig.detectedBillingMode,
-	});
 	if (agentConfig.billingMode !== 'auto') {
-		console.log('[FIX-30] Using agent-level billingMode:', agentConfig.billingMode);
 		return agentConfig.billingMode;
 	}
 
@@ -192,14 +186,9 @@ export async function resolveBillingModeAsync(
 	// 4. Auto-detect from credentials file (same as agents:detectAuth IPC handler)
 	try {
 		const auth = await detectLocalAuth();
-		console.log('[FIX-30] detectLocalAuth returned:', {
-			billingMode: auth.billingMode,
-			source: auth.source,
-			subscriptionType: auth.subscriptionType,
-		});
 		return auth.billingMode;
 	} catch (error) {
-		console.log('[FIX-30] detectLocalAuth error:', error);
+		logger.warn(`${LOG_CONTEXT} Failed to detect local auth: ${error}`, LOG_CONTEXT);
 	}
 
 	// 5. Default to 'api' (conservative)

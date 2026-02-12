@@ -26,7 +26,8 @@ import {
 } from '../../../shared/stats-types';
 import { calculateClaudeCostWithModel } from '../../utils/pricing';
 import { isClaudeModelId } from '../../utils/claude-pricing';
-import { detectLocalAuth } from '../../utils/claude-auth-detector';
+import { detectLocalAuth, detectRemoteAuthCached } from '../../utils/claude-auth-detector';
+import { getSshRemoteById } from '../../stores/getters';
 import { getAgentConfigsStore } from '../../stores/getters';
 import type { AgentPricingConfig } from '../../stores/types';
 
@@ -78,14 +79,6 @@ async function calculateAndEnrichEvent(
 	event: Omit<QueryEvent, 'id'>,
 	log: typeof logger
 ): Promise<Omit<QueryEvent, 'id'>> {
-	// Log incoming event for debugging FIX-30 (using console.log for visibility)
-	console.log('[FIX-30] stats:record-query received:', {
-		sessionId: event.sessionId,
-		incomingDetectedModel: (event as any).detectedModel,
-		agentType: event.agentType,
-		totalCostUsd: event.totalCostUsd,
-	});
-
 	// If model fields are already populated, return as-is
 	if (event.anthropicModel && event.maestroCostUsd !== undefined) {
 		log.debug(
@@ -116,18 +109,27 @@ async function calculateAndEnrichEvent(
 			const agentConfig = allConfigs[configKey]?.pricingConfig as AgentPricingConfig | undefined;
 
 			if (agentConfig?.billingMode && agentConfig.billingMode !== 'auto') {
-				// Explicit setting
+				// Explicit setting from agent config
 				maestroBillingMode = agentConfig.billingMode;
+			} else if ((event as any).detectedBillingMode) {
+				// Fast path: use billing mode passed from renderer (already detected correctly)
+				maestroBillingMode = (event as any).detectedBillingMode;
 			} else {
-				// Auto-detect from credentials
-				const auth = await detectLocalAuth();
-				maestroBillingMode = auth.billingMode;
+				// Fallback: detect based on whether remote or local agent
+				const sshRemoteId = (event as any).sshRemoteId;
+				if (sshRemoteId) {
+					// Remote agent: SSH to VM for credentials
+					const sshConfig = getSshRemoteById(sshRemoteId);
+					if (sshConfig) {
+						const auth = await detectRemoteAuthCached(sshRemoteId, sshConfig);
+						maestroBillingMode = auth.billingMode;
+					}
+				} else {
+					// Local agent: check local filesystem
+					const auth = await detectLocalAuth();
+					maestroBillingMode = auth.billingMode;
+				}
 			}
-
-			console.log('[FIX-30] Resolved billing mode:', {
-				configKey,
-				maestroBillingMode,
-			});
 
 			const tokens = {
 				inputTokens: event.inputTokens || 0,
@@ -146,15 +148,12 @@ async function calculateAndEnrichEvent(
 					// Calculate anthropic_cost_usd with API pricing (cache tokens charged)
 					anthropicCostUsd = calculateClaudeCostWithModel(tokens, anthropicModel, 'api');
 					// Calculate maestro_cost_usd with resolved billing mode (Max = cache tokens free)
-					maestroCostUsd = calculateClaudeCostWithModel(tokens, anthropicModel, maestroBillingMode);
-
-					console.log('[FIX-30] Calculated costs:', {
+					// Cast is safe: 'free' is only set for non-Claude models, handled in the if-branch above
+					maestroCostUsd = calculateClaudeCostWithModel(
 						tokens,
 						anthropicModel,
-						maestroBillingMode,
-						anthropicCostUsd,
-						maestroCostUsd,
-					});
+						maestroBillingMode as 'api' | 'max'
+					);
 				}
 			}
 		} catch (err) {

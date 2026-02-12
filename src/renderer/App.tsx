@@ -1956,6 +1956,8 @@ function MaestroConsoleInner() {
 					// Model tracking fields (FIX-30 Part C)
 					detectedModel?: string;
 					anthropicMessageId?: string;
+					// Billing mode fields (FIX-30 Hybrid Detection)
+					sshRemoteId?: string;
 				} | null = null;
 				let queuedItemToProcess: {
 					sessionId: string;
@@ -2116,6 +2118,9 @@ function MaestroConsoleInner() {
 							// Fallback chain: usageStats.detectedModel -> session.customModel
 							detectedModel: tabUsageStats?.detectedModel || currentSession.customModel,
 							anthropicMessageId: tabUsageStats?.anthropicMessageId,
+							// Billing mode fields (FIX-30 Hybrid Detection)
+							// Pass SSH remote ID for fallback detection in stats handler
+							sshRemoteId: currentSession.sshRemoteId,
 						};
 
 						// Check if synopsis should be triggered:
@@ -2445,6 +2450,8 @@ function MaestroConsoleInner() {
 							// Model tracking fields - main process will calculate dual costs
 							detectedModel: toastData.detectedModel,
 							anthropicMessageId: toastData.anthropicMessageId,
+							// Billing mode fields - for SSH-aware fallback detection
+							sshRemoteId: toastData.sshRemoteId,
 						})
 						.catch((err) => {
 							// Don't fail the completion flow if stats recording fails

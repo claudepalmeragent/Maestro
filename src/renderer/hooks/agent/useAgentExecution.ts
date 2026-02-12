@@ -302,6 +302,8 @@ export function useAgentExecution(deps: UseAgentExecutionDeps): UseAgentExecutio
 										// Model tracking fields (FIX-30)
 										detectedModel: queryDetectedModel,
 										anthropicMessageId: taskUsageStats?.anthropicMessageId,
+										// Billing mode fields (FIX-30 Hybrid Detection)
+										sshRemoteId: session.sshRemoteId,
 									})
 									.catch((err) => {
 										// Don't fail the batch flow if stats recording fails
