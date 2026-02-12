@@ -216,9 +216,22 @@ export function useAgentExecution(deps: UseAgentExecutionDeps): UseAgentExecutio
 					cleanupFns.push(
 						window.maestro.process.onData((sid: string, data: string) => {
 							if (sid === targetSessionId) {
-								responseText += data;
+								// Strip bash warnings (setlocale, etc.) that appear via SSH
+								// Remove only the warning lines, keep any valid content that follows
+								let cleanedData = data;
+								if (data.includes('bash: warning:')) {
+									cleanedData = data
+										.split(/[\r\n]+/)
+										.filter((line) => !line.startsWith('bash: warning:'))
+										.join('\n')
+										.trim();
+									if (cleanedData.length === 0) {
+										return; // Skip only if nothing remains after stripping
+									}
+								}
+								responseText += cleanedData;
 								// Call optional callback for real-time byte tracking (Auto Run)
-								callbacks?.onData?.(data.length);
+								callbacks?.onData?.(cleanedData.length);
 							}
 						})
 					);
