@@ -315,6 +315,12 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 		// Synopsis settings
 		synopsisEnabled,
 		setSynopsisEnabled,
+		// SSH Stats timeout
+		sshStatsTimeoutMs,
+		setSshStatsTimeoutMs,
+		// Global Stats auto-refresh interval
+		globalStatsRefreshIntervalMs,
+		setGlobalStatsRefreshIntervalMs,
 	} = useSettings();
 
 	const [activeTab, setActiveTab] = useState<
@@ -1894,6 +1900,50 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 										</select>
 										<p className="text-xs opacity-50 mt-1">
 											Time range shown when opening the Usage Dashboard.
+										</p>
+									</div>
+
+									{/* SSH Stats Timeout */}
+									<div>
+										<label className="block text-xs opacity-60 mb-2">
+											SSH remote stats timeout
+										</label>
+										<select
+											value={sshStatsTimeoutMs}
+											onChange={(e) => setSshStatsTimeoutMs(parseInt(e.target.value))}
+											className="w-full p-2 rounded border bg-transparent outline-none text-sm"
+											style={{ borderColor: theme.colors.border, color: theme.colors.textMain }}
+										>
+											<option value="10000">10 seconds</option>
+											<option value="20000">20 seconds</option>
+											<option value="30000">30 seconds</option>
+											<option value="45000">45 seconds</option>
+											<option value="60000">60 seconds</option>
+											<option value="90000">90 seconds</option>
+										</select>
+										<p className="text-xs opacity-50 mt-1">
+											Timeout for fetching statistics from SSH remotes.
+										</p>
+									</div>
+
+									{/* Global Stats Auto-Refresh Interval */}
+									<div>
+										<label className="block text-xs opacity-60 mb-2">Auto-refresh interval</label>
+										<select
+											value={globalStatsRefreshIntervalMs}
+											onChange={(e) => setGlobalStatsRefreshIntervalMs(parseInt(e.target.value))}
+											className="w-full p-2 rounded border bg-transparent outline-none text-sm"
+											style={{ borderColor: theme.colors.border, color: theme.colors.textMain }}
+										>
+											<option value="300000">5 minutes</option>
+											<option value="900000">15 minutes</option>
+											<option value="1800000">30 minutes</option>
+											<option value="3600000">1 hour</option>
+											<option value="14400000">4 hours</option>
+											<option value="86400000">1 day</option>
+										</select>
+										<p className="text-xs opacity-50 mt-1">
+											How often to auto-refresh Global Statistics in the About modal.
 										</p>
 									</div>
 

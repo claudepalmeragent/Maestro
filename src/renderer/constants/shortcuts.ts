@@ -54,6 +54,7 @@ export const DEFAULT_SHORTCUTS: Record<string, Shortcut> = {
 		keys: ['Alt', 'Meta', 'p'],
 	},
 	usageDashboard: { id: 'usageDashboard', label: 'Usage Dashboard', keys: ['Alt', 'Meta', 'u'] },
+	aboutModal: { id: 'aboutModal', label: 'About Maestro', keys: ['Alt', 'Meta', 'a'] },
 	jumpToBottom: { id: 'jumpToBottom', label: 'Jump to Bottom', keys: ['Meta', 'Shift', 'j'] },
 	prevTab: { id: 'prevTab', label: 'Previous Tab', keys: ['Meta', 'Shift', '['] },
 	nextTab: { id: 'nextTab', label: 'Next Tab', keys: ['Meta', 'Shift', ']'] },

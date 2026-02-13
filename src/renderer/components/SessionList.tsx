@@ -2472,7 +2472,7 @@ function SessionListInner(props: SessionListProps) {
 								<button
 									onClick={() => setAboutModalOpen(true)}
 									className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold transition-colors hover:bg-white/10"
-									title={`${getBadgeForTime(autoRunStats.cumulativeTimeMs)?.name || 'Apprentice'} - Click to view achievements`}
+									title={`${getBadgeForTime(autoRunStats.cumulativeTimeMs)?.name || 'Apprentice'} - Click to view achievements (⌥⌘A)`}
 									style={{
 										color: autoRunStats.currentBadgeLevel >= 8 ? '#FFD700' : theme.colors.accent,
 									}}

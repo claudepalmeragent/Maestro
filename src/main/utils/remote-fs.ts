@@ -930,3 +930,132 @@ export async function listAllFilesRemote(
 		data: files,
 	};
 }
+
+/**
+ * Parse Claude session stats remotely using shell commands.
+ *
+ * Instead of transferring the entire file, this runs grep/awk on the remote
+ * to extract and sum token counts, returning only the aggregated numbers.
+ * Works for files of any size since only ~50 bytes are transferred back.
+ *
+ * @param filePath Path to the session file on the remote host
+ * @param sshRemote SSH remote configuration
+ * @param deps Optional dependencies for testing
+ * @returns Parsed stats or error
+ */
+export async function parseRemoteClaudeStatsViaShell(
+	filePath: string,
+	sshRemote: SshRemoteConfig,
+	deps: RemoteFsDeps = defaultDeps
+): Promise<
+	RemoteFsResult<{
+		sizeBytes: number;
+		messageCount: number;
+		inputTokens: number;
+		outputTokens: number;
+		cacheReadTokens: number;
+		cacheCreationTokens: number;
+	}>
+> {
+	const escapedPath = escapeRemotePath(filePath);
+
+	// POSIX-compatible shell script that works on Linux and macOS
+	// Each line outputs one number, parsed in order
+	// Note: We sum ALL input_tokens matches, then subtract cache tokens in the caller
+	// This avoids needing Perl regex negative lookbehind
+	const remoteScript = `
+FILE=${escapedPath}
+# File size (Linux stat vs macOS stat)
+stat -c'%s' "$FILE" 2>/dev/null || stat -f'%z' "$FILE"
+# Message count (user + assistant)
+grep -cE '"type"[[:space:]]*:[[:space:]]*"(user|assistant)"' "$FILE" 2>/dev/null || echo 0
+# Total input_tokens (includes cache tokens - we'll subtract later)
+grep -oE '"input_tokens"[[:space:]]*:[[:space:]]*[0-9]+' "$FILE" 2>/dev/null | grep -oE '[0-9]+$' | awk '{s+=$1}END{print s+0}'
+# Output tokens
+grep -oE '"output_tokens"[[:space:]]*:[[:space:]]*[0-9]+' "$FILE" 2>/dev/null | grep -oE '[0-9]+$' | awk '{s+=$1}END{print s+0}'
+# Cache read tokens
+grep -oE '"cache_read_input_tokens"[[:space:]]*:[[:space:]]*[0-9]+' "$FILE" 2>/dev/null | grep -oE '[0-9]+$' | awk '{s+=$1}END{print s+0}'
+# Cache creation tokens
+grep -oE '"cache_creation_input_tokens"[[:space:]]*:[[:space:]]*[0-9]+' "$FILE" 2>/dev/null | grep -oE '[0-9]+$' | awk '{s+=$1}END{print s+0}'
+`.trim();
+
+	const result = await execRemoteCommand(sshRemote, remoteScript, deps);
+
+	if (result.exitCode !== 0) {
+		return {
+			success: false,
+			error: result.stderr || `Failed to parse remote stats: ${filePath}`,
+		};
+	}
+
+	// Parse the 6 lines of output
+	const lines = result.stdout.trim().split('\n');
+	if (lines.length < 6) {
+		return {
+			success: false,
+			error: `Unexpected output format from remote stats parsing: got ${lines.length} lines, expected 6`,
+		};
+	}
+
+	const sizeBytes = parseInt(lines[0], 10) || 0;
+	const messageCount = parseInt(lines[1], 10) || 0;
+	const totalInputTokens = parseInt(lines[2], 10) || 0;
+	const outputTokens = parseInt(lines[3], 10) || 0;
+	const cacheReadTokens = parseInt(lines[4], 10) || 0;
+	const cacheCreationTokens = parseInt(lines[5], 10) || 0;
+
+	// input_tokens in Claude JSONL already represents non-cached input only
+	// Cache tokens are tracked separately, so no subtraction needed
+	const inputTokens = totalInputTokens;
+
+	return {
+		success: true,
+		data: {
+			sizeBytes,
+			messageCount,
+			inputTokens: Math.max(0, inputTokens), // Ensure non-negative
+			outputTokens,
+			cacheReadTokens,
+			cacheCreationTokens,
+		},
+	};
+}
+
+/**
+ * Count user and assistant messages in a Claude session file remotely.
+ * Uses grep to count "type": "user" and "type": "assistant" entries.
+ *
+ * @param filePath Path to the session file on the remote host
+ * @param sshRemote SSH remote configuration
+ * @param deps Optional dependencies for testing
+ * @returns Message count or error
+ */
+export async function countRemoteClaudeMessages(
+	filePath: string,
+	sshRemote: SshRemoteConfig,
+	deps: RemoteFsDeps = defaultDeps
+): Promise<RemoteFsResult<number>> {
+	const escapedPath = escapeRemotePath(filePath);
+
+	// Count user and assistant messages via grep
+	const remoteScript = `
+FILE=${escapedPath}
+grep -cE '"type"[[:space:]]*:[[:space:]]*"(user|assistant)"' "$FILE" 2>/dev/null || echo 0
+`.trim();
+
+	const result = await execRemoteCommand(sshRemote, remoteScript, deps);
+
+	if (result.exitCode !== 0) {
+		return {
+			success: false,
+			error: result.stderr || `Failed to count messages: ${filePath}`,
+		};
+	}
+
+	const count = parseInt(result.stdout.trim(), 10) || 0;
+
+	return {
+		success: true,
+		data: count,
+	};
+}
