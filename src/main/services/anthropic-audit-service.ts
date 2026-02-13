@@ -183,9 +183,12 @@ export async function fetchAnthropicUsage(
 	since?: string,
 	until?: string
 ): Promise<AnthropicDailyUsage[]> {
+	// Convert YYYY-MM-DD to YYYYMMDD format required by ccusage
+	const formatDate = (date: string): string => date.replace(/-/g, '');
+
 	const args = ['--json'];
-	if (since) args.push('--since', since);
-	if (until) args.push('--until', until);
+	if (since) args.push('--since', formatDate(since));
+	if (until) args.push('--until', formatDate(until));
 
 	try {
 		logger.info(
@@ -242,13 +245,16 @@ export async function fetchRemoteAnthropicUsage(
 	since?: string,
 	until?: string
 ): Promise<AnthropicDailyUsage[]> {
+	// Convert YYYY-MM-DD to YYYYMMDD format required by ccusage
+	const formatDate = (date: string): string => date.replace(/-/g, '');
+
 	const sshManager = new SshRemoteManager();
 	const sshArgs = sshManager.buildSshArgs(sshConfig);
 
 	// Build the ccusage command for remote execution
 	let ccusageCmd = `npx ccusage@latest ${period} --json`;
-	if (since) ccusageCmd += ` --since ${since}`;
-	if (until) ccusageCmd += ` --until ${until}`;
+	if (since) ccusageCmd += ` --since ${formatDate(since)}`;
+	if (until) ccusageCmd += ` --until ${formatDate(until)}`;
 
 	// Wrap in double quotes for SSH command execution
 	sshArgs.push(ccusageCmd);
