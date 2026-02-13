@@ -362,20 +362,13 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 				// Write mode tabs must wait for any busy tab to finish
 				// EXCEPTION: Write commands bypass queue when all running/queued items are read-only
 				// ALSO: Always queue write commands when AutoRun is active (to prevent file conflicts)
+				// Queue messages when synopsis is in progress on SSH sessions to prevent session hijacking
+				const isSynopsisBlocking = activeSession.synopsisInProgress === true;
 				const shouldQueue = isReadOnlyMode
 					? activeTab?.state === 'busy' // Read-only: only queue if THIS tab is busy
-					: (activeSession.state === 'busy' && !canWriteBypassQueue()) || isAutoRunActive; // Write mode: queue if busy OR AutoRun active
-
-				// Debug logging to diagnose queue issues
-				console.log('[processInput] Queue decision:', {
-					sessionId: activeSession.id.substring(0, 8),
-					sessionState: activeSession.state,
-					tabState: activeTab?.state,
-					isReadOnlyMode,
-					isAutoRunActive,
-					shouldQueue,
-					queueLength: activeSession.executionQueue.length,
-				});
+					: (activeSession.state === 'busy' && !canWriteBypassQueue()) ||
+						isAutoRunActive ||
+						isSynopsisBlocking; // Write mode: queue if busy OR AutoRun active OR synopsis in progress
 
 				if (shouldQueue) {
 					const queuedItem: QueuedItem = {

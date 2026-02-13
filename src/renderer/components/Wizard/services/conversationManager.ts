@@ -394,7 +394,7 @@ class ConversationManager {
 
 			// Set up exit listener
 			this.session!.exitListenerCleanup = window.maestro.process.onExit(
-				(sessionId: string, code: number) => {
+				(sessionId: string, code: number, _resultEmitted: boolean) => {
 					console.log('[Wizard] Exit event received:', {
 						receivedId: sessionId,
 						expectedId: this.session?.sessionId,

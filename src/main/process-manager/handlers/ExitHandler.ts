@@ -50,7 +50,8 @@ export class ExitHandler {
 	handleExit(sessionId: string, code: number): void {
 		const managedProcess = this.processes.get(sessionId);
 		if (!managedProcess) {
-			this.emitter.emit('exit', sessionId, code);
+			// No managed process - emit with resultEmitted=false (unknown state)
+			this.emitter.emit('exit', sessionId, code, false);
 			return;
 		}
 
@@ -213,7 +214,9 @@ export class ExitHandler {
 			});
 		}
 
-		this.emitter.emit('exit', sessionId, code);
+		// Include resultEmitted flag so renderer knows if a result was sent
+		// before the process exited (used for synopsis timing)
+		this.emitter.emit('exit', sessionId, code, managedProcess.resultEmitted ?? false);
 		this.processes.delete(sessionId);
 	}
 
@@ -293,7 +296,8 @@ export class ExitHandler {
 		}
 
 		this.emitter.emit('data', sessionId, `[error] ${error.message}`);
-		this.emitter.emit('exit', sessionId, 1);
+		// Error exit - resultEmitted is false (error occurred before result)
+		this.emitter.emit('exit', sessionId, 1, managedProcess?.resultEmitted ?? false);
 		this.processes.delete(sessionId);
 	}
 }

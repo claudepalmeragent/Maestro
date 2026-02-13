@@ -256,7 +256,7 @@ export function useAgentExecution(deps: UseAgentExecutionDeps): UseAgentExecutio
 					);
 
 					cleanupFns.push(
-						window.maestro.process.onExit((sid: string) => {
+						window.maestro.process.onExit((sid: string, _code: number, _resultEmitted: boolean) => {
 							if (sid === targetSessionId) {
 								// Clean up listeners
 								cleanup();
@@ -575,12 +575,14 @@ export function useAgentExecution(deps: UseAgentExecutionDeps): UseAgentExecutio
 					);
 
 					cleanupFns.push(
-						window.maestro.process.onExit((sid: string) => {
+						window.maestro.process.onExit((sid: string, code: number, _resultEmitted: boolean) => {
 							if (sid === targetSessionId) {
 								cleanup();
+								// Check for process failure: non-zero exit code or error message in response
+								const isError = code !== 0 || responseText.includes('[error]');
 								resolve({
-									success: true,
-									response: responseText,
+									success: !isError,
+									response: isError ? '' : responseText,
 									agentSessionId,
 									usageStats: synopsisUsageStats,
 								});

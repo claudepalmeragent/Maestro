@@ -692,6 +692,11 @@ export interface Session {
 	// Set when background SSH operations fail (e.g., git info fetch on startup)
 	sshConnectionFailed?: boolean;
 
+	// Synopsis in progress flag - runtime only, not persisted
+	// Set when synopsis is running on an SSH session to prevent message hijacking
+	// When true, new messages should be queued instead of sent immediately
+	synopsisInProgress?: boolean;
+
 	/**
 	 * Project Folders this session belongs to (one-to-many relationship).
 	 * A session can belong to multiple project folders.
