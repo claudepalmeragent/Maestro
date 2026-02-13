@@ -57,6 +57,60 @@ export interface AuditResult {
 }
 
 /**
+ * Individual audit entry for detailed comparison
+ */
+export interface AuditEntry {
+	id: string;
+	date: string;
+	model: string;
+	billingMode: 'api' | 'max' | 'unknown';
+	tokens: {
+		anthropic: TokenCounts;
+		maestro: TokenCounts;
+	};
+	costs: {
+		anthropicCost: number;
+		maestroCost: number;
+	};
+	status: 'match' | 'minor' | 'major' | 'missing';
+	discrepancyPercent: number;
+}
+
+/**
+ * Billing mode breakdown for audit summary
+ */
+export interface BillingModeBreakdown {
+	api: {
+		entryCount: number;
+		anthropicCost: number;
+		maestroCost: number;
+		tokenCount: number;
+	};
+	max: {
+		entryCount: number;
+		anthropicCost: number;
+		maestroCost: number;
+		cacheSavings: number;
+		tokenCount: number;
+	};
+}
+
+/**
+ * Extended audit result with entry-level data
+ */
+export interface ExtendedAuditResult extends AuditResult {
+	entries: AuditEntry[];
+	billingModeBreakdown: BillingModeBreakdown;
+	summary: {
+		total: number;
+		matches: number;
+		minorDiscrepancies: number;
+		majorDiscrepancies: number;
+		missing: number;
+	};
+}
+
+/**
  * Audit configuration settings
  */
 export interface AuditConfig {
@@ -88,18 +142,18 @@ export function createAuditApi() {
 		 *
 		 * @param startDate - Start date (YYYY-MM-DD)
 		 * @param endDate - End date (YYYY-MM-DD)
-		 * @returns The audit result with comparisons and anomalies
+		 * @returns The extended audit result with comparisons, entries, and breakdowns
 		 */
-		run: (startDate: string, endDate: string): Promise<AuditResult> =>
+		run: (startDate: string, endDate: string): Promise<ExtendedAuditResult> =>
 			ipcRenderer.invoke('audit:run', startDate, endDate),
 
 		/**
 		 * Get historical audit results.
 		 *
 		 * @param limit - Maximum number of results to return (default: 10)
-		 * @returns Array of past audit results
+		 * @returns Array of past extended audit results
 		 */
-		getHistory: (limit?: number): Promise<AuditResult[]> =>
+		getHistory: (limit?: number): Promise<ExtendedAuditResult[]> =>
 			ipcRenderer.invoke('audit:getHistory', limit),
 
 		/**

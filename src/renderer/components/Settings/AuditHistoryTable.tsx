@@ -7,41 +7,98 @@
  * - Anthropic vs Maestro costs
  * - Savings
  * - Status (errors/warnings/OK)
- *
- * Usage:
- * ```tsx
- * <AuditHistoryTable theme={theme} />
- * ```
+ * - Click to view details
  */
 
 import React, { useState, useEffect } from 'react';
 import type { Theme } from '../../types';
 
 /**
- * Summary of an audit result for display in the history table.
- * This is a subset of the full AuditResult used for list views.
+ * Extended audit result type matching backend ExtendedAuditResult
  */
-interface AuditSummary {
+interface ExtendedAuditResult {
 	period: { start: string; end: string };
 	generatedAt: number;
 	tokens: {
+		anthropic: TokenCounts;
+		maestro: TokenCounts;
+		difference: TokenCounts;
 		percentDiff: number;
 	};
 	costs: {
 		anthropic_total: number;
+		maestro_anthropic: number;
 		maestro_calculated: number;
-		savings: number;
 		discrepancy: number;
+		savings: number;
 	};
-	anomalies: Array<{ severity: string }>;
+	modelBreakdown: ModelBreakdownEntry[];
+	anomalies: Array<{ type: string; severity: string; description: string; details: unknown }>;
+	entries: AuditEntry[];
+	billingModeBreakdown: BillingModeBreakdown;
+	summary: {
+		total: number;
+		matches: number;
+		minorDiscrepancies: number;
+		majorDiscrepancies: number;
+		missing: number;
+	};
+}
+
+interface TokenCounts {
+	inputTokens: number;
+	outputTokens: number;
+	cacheReadTokens: number;
+	cacheWriteTokens: number;
+}
+
+interface AuditEntry {
+	id: string;
+	date: string;
+	model: string;
+	billingMode: 'api' | 'max' | 'unknown';
+	tokens: {
+		anthropic: TokenCounts;
+		maestro: TokenCounts;
+	};
+	costs: {
+		anthropicCost: number;
+		maestroCost: number;
+	};
+	status: 'match' | 'minor' | 'major' | 'missing';
+	discrepancyPercent: number;
+}
+
+interface BillingModeBreakdown {
+	api: { entryCount: number; anthropicCost: number; maestroCost: number; tokenCount: number };
+	max: {
+		entryCount: number;
+		anthropicCost: number;
+		maestroCost: number;
+		cacheSavings: number;
+		tokenCount: number;
+	};
+}
+
+interface ModelBreakdownEntry {
+	model: string;
+	anthropic: { tokens: TokenCounts; cost: number };
+	maestro: { tokens: TokenCounts; cost: number };
+	entryCount: number;
+	discrepancyPercent: number;
+	match: boolean;
 }
 
 export interface AuditHistoryTableProps {
 	theme: Theme;
+	onSelectAudit?: (audit: ExtendedAuditResult) => void;
 }
 
-export function AuditHistoryTable({ theme }: AuditHistoryTableProps): React.ReactElement {
-	const [history, setHistory] = useState<AuditSummary[]>([]);
+export function AuditHistoryTable({
+	theme,
+	onSelectAudit,
+}: AuditHistoryTableProps): React.ReactElement {
+	const [history, setHistory] = useState<ExtendedAuditResult[]>([]);
 	const [loading, setLoading] = useState(true);
 
 	useEffect(() => {
@@ -51,7 +108,7 @@ export function AuditHistoryTable({ theme }: AuditHistoryTableProps): React.Reac
 	async function loadHistory(): Promise<void> {
 		try {
 			const results = await window.maestro.audit.getHistory(10);
-			setHistory(results);
+			setHistory(results as ExtendedAuditResult[]);
 		} catch (error) {
 			console.error('Failed to load audit history:', error);
 		} finally {
@@ -67,27 +124,31 @@ export function AuditHistoryTable({ theme }: AuditHistoryTableProps): React.Reac
 		return `$${value.toFixed(2)}`;
 	}
 
-	function getStatusBadge(audit: AuditSummary): React.ReactElement {
+	function getStatusBadge(audit: ExtendedAuditResult): React.ReactElement {
 		const errorCount = audit.anomalies.filter((a) => a.severity === 'error').length;
 		const warningCount = audit.anomalies.filter((a) => a.severity === 'warning').length;
 
-		if (errorCount > 0) {
+		// Also consider entry-level discrepancies
+		const majorCount = audit.summary?.majorDiscrepancies || 0;
+		const minorCount = audit.summary?.minorDiscrepancies || 0;
+
+		if (errorCount > 0 || majorCount > 0) {
 			return (
 				<span
 					className="px-2 py-1 rounded text-xs"
 					style={{ backgroundColor: 'rgba(239, 68, 68, 0.2)', color: '#ef4444' }}
 				>
-					{errorCount} errors
+					{errorCount + majorCount} issues
 				</span>
 			);
 		}
-		if (warningCount > 0) {
+		if (warningCount > 0 || minorCount > 0) {
 			return (
 				<span
 					className="px-2 py-1 rounded text-xs"
 					style={{ backgroundColor: 'rgba(234, 179, 8, 0.2)', color: '#eab308' }}
 				>
-					{warningCount} warnings
+					{warningCount + minorCount} warnings
 				</span>
 			);
 		}
@@ -99,6 +160,12 @@ export function AuditHistoryTable({ theme }: AuditHistoryTableProps): React.Reac
 				OK
 			</span>
 		);
+	}
+
+	function handleRowClick(audit: ExtendedAuditResult): void {
+		if (onSelectAudit) {
+			onSelectAudit(audit);
+		}
 	}
 
 	if (loading) {
@@ -137,6 +204,9 @@ export function AuditHistoryTable({ theme }: AuditHistoryTableProps): React.Reac
 						Savings
 					</th>
 					<th className="py-2" style={{ color: theme.colors.textDim }}>
+						Entries
+					</th>
+					<th className="py-2" style={{ color: theme.colors.textDim }}>
 						Status
 					</th>
 				</tr>
@@ -145,10 +215,14 @@ export function AuditHistoryTable({ theme }: AuditHistoryTableProps): React.Reac
 				{history.map((audit, i) => (
 					<tr
 						key={i}
-						className="border-b hover:bg-opacity-50 transition-colors"
+						className="border-b hover:bg-opacity-50 transition-colors cursor-pointer"
 						style={{
 							borderColor: theme.colors.border,
 						}}
+						onClick={() => handleRowClick(audit)}
+						onKeyDown={(e) => e.key === 'Enter' && handleRowClick(audit)}
+						tabIndex={0}
+						role="button"
 					>
 						<td className="py-2" style={{ color: theme.colors.textMain }}>
 							{formatDate(audit.generatedAt)}
@@ -165,6 +239,9 @@ export function AuditHistoryTable({ theme }: AuditHistoryTableProps): React.Reac
 						<td className="py-2" style={{ color: '#22c55e' }}>
 							{formatCurrency(audit.costs.savings)}
 						</td>
+						<td className="py-2" style={{ color: theme.colors.textMain }}>
+							{audit.summary?.total || audit.entries?.length || '-'}
+						</td>
 						<td className="py-2">{getStatusBadge(audit)}</td>
 					</tr>
 				))}
@@ -172,3 +249,5 @@ export function AuditHistoryTable({ theme }: AuditHistoryTableProps): React.Reac
 		</table>
 	);
 }
+
+export type { ExtendedAuditResult, AuditEntry, BillingModeBreakdown, ModelBreakdownEntry };

@@ -2248,6 +2248,14 @@ interface MaestroAPI {
 			cacheReadInputTokens?: number;
 			cacheCreationInputTokens?: number;
 			totalCostUsd?: number;
+			// Model tracking fields (FIX-30)
+			/** Detected model ID from Claude response (e.g., 'claude-opus-4-5-20251101') */
+			detectedModel?: string;
+			/** Anthropic's message ID from the API response */
+			anthropicMessageId?: string;
+			// Billing mode fields (FIX-30 Hybrid Detection)
+			/** SSH Remote ID if this query was executed on a remote agent */
+			sshRemoteId?: string;
 		}) => Promise<string>;
 		// Start an Auto Run session (returns session ID)
 		startAutoRun: (session: {

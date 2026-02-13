@@ -11,6 +11,7 @@ import { getStatsDB } from '../stats';
 import { logger } from '../utils/logger';
 import { SshRemoteConfig } from '../../shared/types';
 import { SshRemoteManager } from '../ssh-remote-manager';
+import { getPricingForModel } from '../utils/claude-pricing';
 
 const execAsync = promisify(exec);
 const LOG_CONTEXT = '[AnthropicAudit]';
@@ -99,6 +100,72 @@ export interface AuditConfig {
 	monthlyEnabled: boolean;
 }
 
+/**
+ * Individual audit entry comparing a single day/model/billing combination
+ */
+export interface AuditEntry {
+	id: string;
+	date: string;
+	model: string;
+	billingMode: 'api' | 'max' | 'unknown';
+	tokens: {
+		anthropic: TokenCounts;
+		maestro: TokenCounts;
+	};
+	costs: {
+		anthropicCost: number;
+		maestroCost: number;
+	};
+	status: 'match' | 'minor' | 'major' | 'missing';
+	discrepancyPercent: number;
+}
+
+/**
+ * Billing mode breakdown for audit summary
+ */
+export interface BillingModeBreakdown {
+	api: {
+		entryCount: number;
+		anthropicCost: number;
+		maestroCost: number;
+		tokenCount: number;
+	};
+	max: {
+		entryCount: number;
+		anthropicCost: number;
+		maestroCost: number;
+		cacheSavings: number;
+		tokenCount: number;
+	};
+}
+
+/**
+ * Model breakdown for audit summary
+ */
+export interface ModelBreakdownEntry {
+	model: string;
+	anthropic: { tokens: TokenCounts; cost: number };
+	maestro: { tokens: TokenCounts; cost: number };
+	entryCount: number;
+	discrepancyPercent: number;
+	match: boolean;
+}
+
+/**
+ * Extended audit result with entry-level data
+ */
+export interface ExtendedAuditResult extends AuditResult {
+	entries: AuditEntry[];
+	billingModeBreakdown: BillingModeBreakdown;
+	summary: {
+		total: number;
+		matches: number;
+		minorDiscrepancies: number;
+		majorDiscrepancies: number;
+		missing: number;
+	};
+}
+
 // ============================================================================
 // ccusage Integration
 // ============================================================================
@@ -132,7 +199,14 @@ export async function fetchAnthropicUsage(
 			maxBuffer: 10 * 1024 * 1024, // 10MB buffer for large outputs
 		});
 
-		const result = JSON.parse(stdout);
+		// Validate that stdout is JSON before parsing
+		const trimmed = stdout.trim();
+		if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
+			// ccusage returned an error message instead of JSON
+			throw new Error(`ccusage error: ${trimmed.substring(0, 200)}`);
+		}
+
+		const result = JSON.parse(trimmed);
 
 		// Handle different response structures from ccusage
 		const usageData = result[period] || result.daily || result.data || [];
@@ -191,7 +265,14 @@ export async function fetchRemoteAnthropicUsage(
 			maxBuffer: 10 * 1024 * 1024,
 		});
 
-		const result = JSON.parse(stdout);
+		// Validate that stdout is JSON before parsing
+		const trimmed = stdout.trim();
+		if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
+			// ccusage returned an error message instead of JSON
+			throw new Error(`ccusage error: ${trimmed.substring(0, 200)}`);
+		}
+
+		const result = JSON.parse(trimmed);
 		const usageData = result[period] || result.daily || result.data || [];
 
 		logger.info(
@@ -253,51 +334,88 @@ function normalizeModelBreakdowns(breakdowns: unknown[]): AnthropicDailyUsage['m
 // ============================================================================
 
 /**
- * Query Maestro's recorded usage data by date range.
+ * Query Maestro's recorded usage data by date range with billing mode and model breakdown.
  *
  * @param startDate - Start date (YYYY-MM-DD)
  * @param endDate - End date (YYYY-MM-DD)
- * @returns Map of date to usage data
+ * @returns Map of composite key (date|model|billingMode) to usage data
  */
 export async function queryMaestroUsageByDate(
 	startDate: string,
 	endDate: string
-): Promise<Map<string, { tokens: TokenCounts; anthropicCost: number; maestroCost: number }>> {
+): Promise<
+	Map<
+		string,
+		{
+			date: string;
+			model: string;
+			billingMode: 'api' | 'max' | 'unknown';
+			tokens: TokenCounts;
+			anthropicCost: number;
+			maestroCost: number;
+			entryCount: number;
+		}
+	>
+> {
 	const db = getStatsDB();
 	const database = db.database;
 
 	const sql = `
 		SELECT
 			date(start_time / 1000, 'unixepoch') as date,
+			COALESCE(anthropic_model, detected_model, 'unknown') as model,
+			COALESCE(maestro_billing_mode, 'unknown') as billing_mode,
 			SUM(input_tokens) as input_tokens,
 			SUM(output_tokens) as output_tokens,
 			SUM(cache_read_input_tokens) as cache_read_tokens,
 			SUM(cache_creation_input_tokens) as cache_write_tokens,
 			COALESCE(SUM(anthropic_cost_usd), SUM(total_cost_usd)) as anthropic_cost,
-			COALESCE(SUM(maestro_cost_usd), SUM(total_cost_usd)) as maestro_cost
+			COALESCE(SUM(maestro_cost_usd), SUM(total_cost_usd)) as maestro_cost,
+			COUNT(*) as entry_count
 		FROM query_events
 		WHERE date(start_time / 1000, 'unixepoch') >= ?
 			AND date(start_time / 1000, 'unixepoch') <= ?
-		GROUP BY date(start_time / 1000, 'unixepoch')
+		GROUP BY date(start_time / 1000, 'unixepoch'),
+			COALESCE(anthropic_model, detected_model, 'unknown'),
+			COALESCE(maestro_billing_mode, 'unknown')
+		ORDER BY date, model, billing_mode
 	`;
 
 	const rows = database.prepare(sql).all(startDate, endDate) as Array<{
 		date: string;
+		model: string;
+		billing_mode: string;
 		input_tokens: number | null;
 		output_tokens: number | null;
 		cache_read_tokens: number | null;
 		cache_write_tokens: number | null;
 		anthropic_cost: number | null;
 		maestro_cost: number | null;
+		entry_count: number;
 	}>;
 
 	const result = new Map<
 		string,
-		{ tokens: TokenCounts; anthropicCost: number; maestroCost: number }
+		{
+			date: string;
+			model: string;
+			billingMode: 'api' | 'max' | 'unknown';
+			tokens: TokenCounts;
+			anthropicCost: number;
+			maestroCost: number;
+			entryCount: number;
+		}
 	>();
 
 	for (const row of rows) {
-		result.set(row.date, {
+		const billingMode =
+			row.billing_mode === 'api' || row.billing_mode === 'max' ? row.billing_mode : 'unknown';
+		const key = `${row.date}|${row.model}|${billingMode}`;
+
+		result.set(key, {
+			date: row.date,
+			model: row.model,
+			billingMode,
 			tokens: {
 				inputTokens: row.input_tokens || 0,
 				outputTokens: row.output_tokens || 0,
@@ -306,11 +424,90 @@ export async function queryMaestroUsageByDate(
 			},
 			anthropicCost: row.anthropic_cost || 0,
 			maestroCost: row.maestro_cost || 0,
+			entryCount: row.entry_count,
 		});
 	}
 
-	logger.debug(`Queried Maestro usage: ${result.size} days with data`, LOG_CONTEXT);
+	logger.debug(`Queried Maestro usage: ${result.size} groups with data`, LOG_CONTEXT);
 	return result;
+}
+
+// ============================================================================
+// Helper Functions for Audit Entry Processing
+// ============================================================================
+
+/**
+ * Determine the status of an audit entry based on token/cost discrepancy.
+ *
+ * @param anthropicTokens - Total tokens from Anthropic
+ * @param maestroTokens - Total tokens from Maestro
+ * @param anthropicCost - Cost from Anthropic
+ * @param maestroCost - Cost from Maestro
+ * @returns Status and discrepancy percentage
+ */
+function determineEntryStatus(
+	anthropicTokens: number,
+	maestroTokens: number,
+	anthropicCost: number,
+	maestroCost: number
+): { status: AuditEntry['status']; discrepancyPercent: number } {
+	// Calculate token discrepancy
+	const tokenDiff = Math.abs(anthropicTokens - maestroTokens);
+	const tokenBase = Math.max(anthropicTokens, maestroTokens, 1);
+	const tokenDiscrepancy = (tokenDiff / tokenBase) * 100;
+
+	// Calculate cost discrepancy
+	const costDiff = Math.abs(anthropicCost - maestroCost);
+	const costBase = Math.max(anthropicCost, maestroCost, 0.001);
+	const costDiscrepancy = (costDiff / costBase) * 100;
+
+	// Use the larger of the two discrepancies
+	const discrepancyPercent = Math.max(tokenDiscrepancy, costDiscrepancy);
+
+	// Determine status based on thresholds
+	let status: AuditEntry['status'];
+	if (discrepancyPercent <= 1) {
+		status = 'match';
+	} else if (discrepancyPercent <= 5) {
+		status = 'minor';
+	} else {
+		status = 'major';
+	}
+
+	return { status, discrepancyPercent };
+}
+
+/**
+ * Calculate total tokens from a TokenCounts object.
+ */
+function totalTokens(tokens: TokenCounts): number {
+	return (
+		tokens.inputTokens + tokens.outputTokens + tokens.cacheReadTokens + tokens.cacheWriteTokens
+	);
+}
+
+/**
+ * Generate a unique ID for an audit entry.
+ */
+function generateEntryId(date: string, model: string, billingMode: string): string {
+	return `${date}_${model}_${billingMode}`.replace(/[^a-zA-Z0-9_-]/g, '_');
+}
+
+/**
+ * Calculate cache savings for Max billing mode.
+ * Cache tokens are free for Max users, so savings = what they would have paid at API rates.
+ */
+function calculateCacheSavings(tokens: TokenCounts, model: string): number {
+	const pricing = getPricingForModel(model);
+
+	if (!pricing) {
+		return 0;
+	}
+
+	const cacheReadCost = (tokens.cacheReadTokens / 1_000_000) * pricing.CACHE_READ_PER_MILLION;
+	const cacheWriteCost = (tokens.cacheWriteTokens / 1_000_000) * pricing.CACHE_CREATION_PER_MILLION;
+
+	return cacheReadCost + cacheWriteCost;
 }
 
 // ============================================================================
@@ -323,7 +520,7 @@ export async function queryMaestroUsageByDate(
  * @param startDate - Start date (YYYY-MM-DD)
  * @param endDate - End date (YYYY-MM-DD)
  * @param options - Additional options
- * @returns Audit result with comparison data and anomalies
+ * @returns Extended audit result with comparison data, entries, and breakdowns
  */
 export async function performAudit(
 	startDate: string,
@@ -332,7 +529,7 @@ export async function performAudit(
 		includeRemotes?: boolean;
 		remoteConfigs?: SshRemoteConfig[];
 	}
-): Promise<AuditResult> {
+): Promise<ExtendedAuditResult> {
 	logger.info(`Starting audit for ${startDate} to ${endDate}`, LOG_CONTEXT);
 
 	// 1. Fetch Anthropic usage (local)
@@ -359,24 +556,212 @@ export async function performAudit(
 }
 
 /**
- * Compare Anthropic and Maestro usage data.
+ * Compare Anthropic and Maestro usage data with full breakdown.
  */
 function compareUsage(
 	anthropicData: AnthropicDailyUsage[],
-	maestroData: Map<string, { tokens: TokenCounts; anthropicCost: number; maestroCost: number }>,
+	maestroData: Map<
+		string,
+		{
+			date: string;
+			model: string;
+			billingMode: 'api' | 'max' | 'unknown';
+			tokens: TokenCounts;
+			anthropicCost: number;
+			maestroCost: number;
+			entryCount: number;
+		}
+	>,
 	startDate: string,
 	endDate: string
-): AuditResult {
+): ExtendedAuditResult {
 	const anomalies: AuditResult['anomalies'] = [];
+	const entries: AuditEntry[] = [];
 
-	// Aggregate Anthropic totals
+	// Initialize billing mode breakdown
+	const billingModeBreakdown: BillingModeBreakdown = {
+		api: { entryCount: 0, anthropicCost: 0, maestroCost: 0, tokenCount: 0 },
+		max: { entryCount: 0, anthropicCost: 0, maestroCost: 0, cacheSavings: 0, tokenCount: 0 },
+	};
+
+	// Initialize model breakdown map
+	const modelBreakdownMap = new Map<string, ModelBreakdownEntry>();
+
+	// Summary counters
+	let totalEntries = 0;
+	let matches = 0;
+	let minorDiscrepancies = 0;
+	let majorDiscrepancies = 0;
+	let missing = 0;
+
+	// Aggregate Anthropic totals by date (for comparison)
+	const anthropicByDate = new Map<string, AnthropicDailyUsage>();
+	for (const day of anthropicData) {
+		anthropicByDate.set(day.date, day);
+	}
+
+	// Process Maestro data and create entries
+	for (const [_key, maestroEntry] of maestroData.entries()) {
+		totalEntries++;
+
+		const {
+			date,
+			model,
+			billingMode,
+			tokens,
+			anthropicCost: _anthropicCost,
+			maestroCost,
+			entryCount,
+		} = maestroEntry;
+
+		// Try to find matching Anthropic data for this date
+		const anthropicDay = anthropicByDate.get(date);
+
+		// Create estimated Anthropic tokens for this entry (proportional if multiple models/billing modes)
+		// This is an approximation since ccusage doesn't break down by billing mode
+		const anthropicTokens: TokenCounts = anthropicDay
+			? {
+					inputTokens: anthropicDay.inputTokens,
+					outputTokens: anthropicDay.outputTokens,
+					cacheReadTokens: anthropicDay.cacheReadTokens,
+					cacheWriteTokens: anthropicDay.cacheCreationTokens,
+				}
+			: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
+
+		const anthropicCostForEntry = anthropicDay?.totalCost || 0;
+
+		// Determine entry status
+		const { status, discrepancyPercent } = determineEntryStatus(
+			totalTokens(anthropicTokens),
+			totalTokens(tokens),
+			anthropicCostForEntry,
+			maestroCost
+		);
+
+		// Update summary counters
+		switch (status) {
+			case 'match':
+				matches++;
+				break;
+			case 'minor':
+				minorDiscrepancies++;
+				break;
+			case 'major':
+				majorDiscrepancies++;
+				break;
+			case 'missing':
+				missing++;
+				break;
+		}
+
+		// Create entry
+		const entry: AuditEntry = {
+			id: generateEntryId(date, model, billingMode),
+			date,
+			model,
+			billingMode,
+			tokens: {
+				anthropic: anthropicTokens,
+				maestro: tokens,
+			},
+			costs: {
+				anthropicCost: anthropicCostForEntry,
+				maestroCost,
+			},
+			status,
+			discrepancyPercent,
+		};
+		entries.push(entry);
+
+		// Update billing mode breakdown
+		if (billingMode === 'api') {
+			billingModeBreakdown.api.entryCount += entryCount;
+			billingModeBreakdown.api.anthropicCost += anthropicCostForEntry;
+			billingModeBreakdown.api.maestroCost += maestroCost;
+			billingModeBreakdown.api.tokenCount += totalTokens(tokens);
+		} else if (billingMode === 'max') {
+			billingModeBreakdown.max.entryCount += entryCount;
+			billingModeBreakdown.max.anthropicCost += anthropicCostForEntry;
+			billingModeBreakdown.max.maestroCost += maestroCost;
+			billingModeBreakdown.max.cacheSavings += calculateCacheSavings(tokens, model);
+			billingModeBreakdown.max.tokenCount += totalTokens(tokens);
+		}
+
+		// Update model breakdown
+		if (!modelBreakdownMap.has(model)) {
+			modelBreakdownMap.set(model, {
+				model,
+				anthropic: {
+					tokens: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+					cost: 0,
+				},
+				maestro: {
+					tokens: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+					cost: 0,
+				},
+				entryCount: 0,
+				discrepancyPercent: 0,
+				match: true,
+			});
+		}
+		const modelEntry = modelBreakdownMap.get(model)!;
+		modelEntry.maestro.tokens.inputTokens += tokens.inputTokens;
+		modelEntry.maestro.tokens.outputTokens += tokens.outputTokens;
+		modelEntry.maestro.tokens.cacheReadTokens += tokens.cacheReadTokens;
+		modelEntry.maestro.tokens.cacheWriteTokens += tokens.cacheWriteTokens;
+		modelEntry.maestro.cost += maestroCost;
+		modelEntry.entryCount += entryCount;
+		if (status !== 'match') {
+			modelEntry.match = false;
+			modelEntry.discrepancyPercent = Math.max(modelEntry.discrepancyPercent, discrepancyPercent);
+		}
+	}
+
+	// Process Anthropic data for model breakdown (aggregate)
+	for (const day of anthropicData) {
+		for (const breakdown of day.modelBreakdowns) {
+			const model = breakdown.modelName;
+			if (!modelBreakdownMap.has(model)) {
+				modelBreakdownMap.set(model, {
+					model,
+					anthropic: {
+						tokens: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+						cost: 0,
+					},
+					maestro: {
+						tokens: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+						cost: 0,
+					},
+					entryCount: 0,
+					discrepancyPercent: 0,
+					match: true,
+				});
+			}
+			const modelEntry = modelBreakdownMap.get(model)!;
+			modelEntry.anthropic.tokens.inputTokens += breakdown.inputTokens;
+			modelEntry.anthropic.tokens.outputTokens += breakdown.outputTokens;
+			modelEntry.anthropic.tokens.cacheReadTokens += breakdown.cacheReadTokens;
+			modelEntry.anthropic.tokens.cacheWriteTokens += breakdown.cacheCreationTokens;
+			modelEntry.anthropic.cost += breakdown.cost;
+		}
+	}
+
+	// Calculate aggregate totals for backward compatibility
 	const anthropicTotals: TokenCounts = {
 		inputTokens: 0,
 		outputTokens: 0,
 		cacheReadTokens: 0,
 		cacheWriteTokens: 0,
 	};
+	const maestroTotals: TokenCounts = {
+		inputTokens: 0,
+		outputTokens: 0,
+		cacheReadTokens: 0,
+		cacheWriteTokens: 0,
+	};
 	let anthropicCostTotal = 0;
+	let maestroAnthropicCost = 0;
+	let maestroCalculatedCost = 0;
 
 	for (const day of anthropicData) {
 		anthropicTotals.inputTokens += day.inputTokens || 0;
@@ -385,16 +770,6 @@ function compareUsage(
 		anthropicTotals.cacheWriteTokens += day.cacheCreationTokens || 0;
 		anthropicCostTotal += day.totalCost || 0;
 	}
-
-	// Aggregate Maestro totals
-	const maestroTotals: TokenCounts = {
-		inputTokens: 0,
-		outputTokens: 0,
-		cacheReadTokens: 0,
-		cacheWriteTokens: 0,
-	};
-	let maestroAnthropicCost = 0;
-	let maestroCalculatedCost = 0;
 
 	for (const [, data] of maestroData.entries()) {
 		maestroTotals.inputTokens += data.tokens.inputTokens;
@@ -413,11 +788,7 @@ function compareUsage(
 		cacheWriteTokens: anthropicTotals.cacheWriteTokens - maestroTotals.cacheWriteTokens,
 	};
 
-	const totalAnthropicTokens =
-		anthropicTotals.inputTokens +
-		anthropicTotals.outputTokens +
-		anthropicTotals.cacheReadTokens +
-		anthropicTotals.cacheWriteTokens;
+	const totalAnthropicTokens = totalTokens(anthropicTotals);
 	const totalDiff =
 		Math.abs(tokenDiff.inputTokens) +
 		Math.abs(tokenDiff.outputTokens) +
@@ -446,7 +817,7 @@ function compareUsage(
 	}
 
 	logger.info(
-		`Audit completed: ${anomalies.length} anomalies, savings: $${(anthropicCostTotal - maestroCalculatedCost).toFixed(2)}`,
+		`Audit completed: ${entries.length} entries, ${anomalies.length} anomalies, savings: $${(anthropicCostTotal - maestroCalculatedCost).toFixed(2)}`,
 		LOG_CONTEXT
 	);
 
@@ -466,8 +837,18 @@ function compareUsage(
 			discrepancy: costDiscrepancy,
 			savings: anthropicCostTotal - maestroCalculatedCost,
 		},
-		modelBreakdown: [], // TODO: Implement per-model breakdown if needed
+		modelBreakdown: Array.from(modelBreakdownMap.values()),
 		anomalies,
+		// New extended fields
+		entries,
+		billingModeBreakdown,
+		summary: {
+			total: totalEntries,
+			matches,
+			minorDiscrepancies,
+			majorDiscrepancies,
+			missing,
+		},
 	};
 }
 
@@ -478,12 +859,12 @@ function compareUsage(
 /**
  * Save an audit result as a snapshot for historical reference.
  *
- * @param result - The audit result to save
+ * @param result - The extended audit result to save
  * @param auditType - The type of audit (daily, weekly, monthly, manual)
  * @returns The ID of the saved snapshot
  */
 export async function saveAuditSnapshot(
-	result: AuditResult,
+	result: ExtendedAuditResult,
 	auditType: 'daily' | 'weekly' | 'monthly' | 'manual' = 'manual'
 ): Promise<number> {
 	const db = getStatsDB();
@@ -534,9 +915,9 @@ export async function saveAuditSnapshot(
  * Get historical audit snapshots.
  *
  * @param limit - Maximum number of snapshots to return
- * @returns Array of audit results
+ * @returns Array of extended audit results
  */
-export async function getAuditHistory(limit: number = 10): Promise<AuditResult[]> {
+export async function getAuditHistory(limit: number = 10): Promise<ExtendedAuditResult[]> {
 	const db = getStatsDB();
 	const database = db.database;
 
@@ -548,7 +929,7 @@ export async function getAuditHistory(limit: number = 10): Promise<AuditResult[]
 	`;
 
 	const rows = database.prepare(sql).all(limit) as Array<{ audit_result_json: string }>;
-	return rows.map((row) => JSON.parse(row.audit_result_json) as AuditResult);
+	return rows.map((row) => JSON.parse(row.audit_result_json) as ExtendedAuditResult);
 }
 
 /**
@@ -556,12 +937,12 @@ export async function getAuditHistory(limit: number = 10): Promise<AuditResult[]
  *
  * @param startDate - Start date (YYYY-MM-DD)
  * @param endDate - End date (YYYY-MM-DD)
- * @returns Array of audit results
+ * @returns Array of extended audit results
  */
 export async function getAuditSnapshotsByRange(
 	startDate: string,
 	endDate: string
-): Promise<AuditResult[]> {
+): Promise<ExtendedAuditResult[]> {
 	const db = getStatsDB();
 	const database = db.database;
 
@@ -575,5 +956,5 @@ export async function getAuditSnapshotsByRange(
 	const rows = database.prepare(sql).all(startDate, endDate) as Array<{
 		audit_result_json: string;
 	}>;
-	return rows.map((row) => JSON.parse(row.audit_result_json) as AuditResult);
+	return rows.map((row) => JSON.parse(row.audit_result_json) as ExtendedAuditResult);
 }
