@@ -176,7 +176,7 @@ export const MODEL_ALIASES: Record<string, ClaudeModelId> = {
 /**
  * Default model ID to use when model detection fails
  */
-export const DEFAULT_MODEL_ID: ClaudeModelId = 'claude-sonnet-4-20250514';
+export const DEFAULT_MODEL_ID: ClaudeModelId = 'claude-opus-4-5-20251101';
 
 /**
  * Check if a model ID is a valid Claude model

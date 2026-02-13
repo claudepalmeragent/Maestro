@@ -104,7 +104,7 @@ export const CLAUDE_SESSION_PARSE_LIMITS = {
 } as const;
 
 /**
- * Claude API pricing (per million tokens) - Sonnet 4 pricing
+ * Claude API pricing (per million tokens) - Opus 4.5 pricing
  * Used for cost estimation in session statistics
  *
  * @deprecated Use model-specific pricing from `src/main/utils/claude-pricing.ts` instead.
@@ -115,8 +115,8 @@ export const CLAUDE_SESSION_PARSE_LIMITS = {
  * @see src/main/utils/claude-pricing.ts for the full model pricing registry
  */
 export const CLAUDE_PRICING = {
-	INPUT_PER_MILLION: 3,
-	OUTPUT_PER_MILLION: 15,
-	CACHE_READ_PER_MILLION: 0.3,
-	CACHE_CREATION_PER_MILLION: 3.75,
+	INPUT_PER_MILLION: 5,
+	OUTPUT_PER_MILLION: 25,
+	CACHE_READ_PER_MILLION: 0.5,
+	CACHE_CREATION_PER_MILLION: 6.25,
 } as const;
