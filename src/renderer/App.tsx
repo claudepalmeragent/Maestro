@@ -519,6 +519,9 @@ function MaestroConsoleInner() {
 
 		// Rendering settings
 		disableConfetti,
+
+		// Synopsis settings
+		synopsisEnabled,
 	} = settings;
 
 	// --- KEYBOARD SHORTCUT HELPERS ---
@@ -2126,6 +2129,7 @@ function MaestroConsoleInner() {
 						};
 
 						// Check if synopsis should be triggered:
+						// 0. Global synopsisEnabled setting is true (defaults to true if undefined)
 						// 1. Tab has saveToHistory enabled, OR
 						// 2. This was a custom AI command (pendingAICommandForSynopsis)
 						// Only trigger when queue is empty (final task complete) and we have a agentSessionId
@@ -2134,6 +2138,7 @@ function MaestroConsoleInner() {
 						// exited prematurely (e.g., during thinking/streaming over SSH) and synopsis
 						// would interfere with the ongoing conversation.
 						const shouldSynopsis =
+							synopsisEnabled !== false && // Global setting (defaults to true)
 							resultEmitted &&
 							currentSession.executionQueue.length === 0 &&
 							(completedTab?.agentSessionId || currentSession.agentSessionId) &&

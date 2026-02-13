@@ -71,6 +71,8 @@ export interface MaestroSettings {
 	defaultSshRemoteId: string | null;
 	// Unique installation identifier (generated once on first run)
 	installationId: string | null;
+	// Synopsis generation toggle for interactive sessions
+	synopsisEnabled?: boolean;
 }
 
 // ============================================================================

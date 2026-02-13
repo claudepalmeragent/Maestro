@@ -65,6 +65,7 @@ export const SETTINGS_DEFAULTS: MaestroSettings = {
 	sshRemotes: [],
 	defaultSshRemoteId: null,
 	installationId: null,
+	synopsisEnabled: true,
 };
 
 export const SESSIONS_DEFAULTS: SessionsData = {

@@ -31,6 +31,7 @@ import {
 	Monitor,
 	PartyPopper,
 	ClipboardCheck,
+	MessageSquare,
 } from 'lucide-react';
 import { useSettings } from '../hooks';
 import type {
@@ -311,6 +312,9 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 		setDisableGpuAcceleration,
 		disableConfetti,
 		setDisableConfetti,
+		// Synopsis settings
+		synopsisEnabled,
+		setSynopsisEnabled,
 	} = useSettings();
 
 	const [activeTab, setActiveTab] = useState<
@@ -1416,6 +1420,17 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 								description="When enabled, new AI tabs will show streaming thinking/reasoning content as the AI works, instead of waiting for the final result"
 								checked={props.defaultShowThinking}
 								onChange={props.setDefaultShowThinking}
+								theme={theme}
+							/>
+
+							{/* Synopsis Toast Notifications */}
+							<SettingCheckbox
+								icon={MessageSquare}
+								sectionLabel="Synopsis"
+								title="Enable toast synopses for completed queries"
+								description="When enabled, a toast notification with a synopsis will appear when interactive AI queries complete"
+								checked={synopsisEnabled}
+								onChange={setSynopsisEnabled}
 								theme={theme}
 							/>
 
