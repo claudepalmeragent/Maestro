@@ -219,7 +219,14 @@ export async function fetchAnthropicUsage(
 		return normalizeAnthropicData(usageData);
 	} catch (error) {
 		const err = error as Error & { message?: string };
-		logger.error(`Error fetching Anthropic usage: ${err.message}`, LOG_CONTEXT);
+
+		// Log at debug level for expected "no Claude directories" error (will fallback to SSH remotes)
+		// Log at error level for unexpected errors
+		if (err.message?.includes('No valid Claude data directories')) {
+			logger.debug(`Local ccusage: ${err.message}`, LOG_CONTEXT);
+		} else {
+			logger.error(`Error fetching Anthropic usage: ${err.message}`, LOG_CONTEXT);
+		}
 
 		if (err.message?.includes('ENOENT')) {
 			throw new Error('npx not found. Please ensure Node.js is installed.');
@@ -370,7 +377,7 @@ export async function queryMaestroUsageByDate(
 	const sql = `
 		SELECT
 			date(start_time / 1000, 'unixepoch') as date,
-			COALESCE(anthropic_model, detected_model, 'unknown') as model,
+			COALESCE(maestro_pricing_model, anthropic_model, 'unknown') as model,
 			COALESCE(maestro_billing_mode, 'unknown') as billing_mode,
 			SUM(input_tokens) as input_tokens,
 			SUM(output_tokens) as output_tokens,
@@ -383,7 +390,7 @@ export async function queryMaestroUsageByDate(
 		WHERE date(start_time / 1000, 'unixepoch') >= ?
 			AND date(start_time / 1000, 'unixepoch') <= ?
 		GROUP BY date(start_time / 1000, 'unixepoch'),
-			COALESCE(anthropic_model, detected_model, 'unknown'),
+			COALESCE(maestro_pricing_model, anthropic_model, 'unknown'),
 			COALESCE(maestro_billing_mode, 'unknown')
 		ORDER BY date, model, billing_mode
 	`;
