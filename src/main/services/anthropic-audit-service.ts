@@ -12,6 +12,7 @@ import { logger } from '../utils/logger';
 import { SshRemoteConfig } from '../../shared/types';
 import { SshRemoteManager } from '../ssh-remote-manager';
 import { getPricingForModel } from '../utils/claude-pricing';
+import { getSettingsStore } from '../stores/getters';
 
 const execAsync = promisify(exec);
 const LOG_CONTEXT = '[AnthropicAudit]';
@@ -521,6 +522,19 @@ function calculateCacheSavings(tokens: TokenCounts, model: string): number {
 // ============================================================================
 
 /**
+ * Get enabled SSH remote configurations from settings store.
+ */
+function getEnabledSshRemotes(): SshRemoteConfig[] {
+	try {
+		const store = getSettingsStore();
+		const remotes = store.get('sshRemotes', []) as SshRemoteConfig[];
+		return remotes.filter((r) => r.enabled);
+	} catch {
+		return [];
+	}
+}
+
+/**
  * Perform a full audit comparing Anthropic and Maestro usage data.
  *
  * @param startDate - Start date (YYYY-MM-DD)
@@ -538,15 +552,35 @@ export async function performAudit(
 ): Promise<ExtendedAuditResult> {
 	logger.info(`Starting audit for ${startDate} to ${endDate}`, LOG_CONTEXT);
 
-	// 1. Fetch Anthropic usage (local)
-	const anthropicData = await fetchAnthropicUsage('daily', startDate, endDate);
+	const anthropicData: AnthropicDailyUsage[] = [];
+	let localFetchFailed = false;
 
-	// 2. Optionally fetch from SSH remotes
-	if (options?.includeRemotes && options?.remoteConfigs) {
-		for (const config of options.remoteConfigs) {
+	// 1. Try to fetch Anthropic usage locally first
+	try {
+		const localData = await fetchAnthropicUsage('daily', startDate, endDate);
+		anthropicData.push(...localData);
+	} catch (error) {
+		const err = error as Error;
+		// Check if this is a "no Claude directories" error - fallback to remotes
+		if (err.message?.includes('No valid Claude data directories')) {
+			logger.info('No local Claude data found, will try SSH remotes', LOG_CONTEXT);
+			localFetchFailed = true;
+		} else {
+			throw error;
+		}
+	}
+
+	// 2. Fetch from SSH remotes (either explicitly requested or as fallback)
+	const remoteConfigs = options?.remoteConfigs || (localFetchFailed ? getEnabledSshRemotes() : []);
+	const shouldFetchRemotes = options?.includeRemotes || localFetchFailed;
+
+	if (shouldFetchRemotes && remoteConfigs.length > 0) {
+		for (const config of remoteConfigs) {
 			try {
+				logger.info(`Fetching usage from SSH remote: ${config.host}`, LOG_CONTEXT);
 				const remoteData = await fetchRemoteAnthropicUsage(config, 'daily', startDate, endDate);
 				anthropicData.push(...remoteData);
+				logger.info(`Fetched ${remoteData.length} records from ${config.host}`, LOG_CONTEXT);
 			} catch (error) {
 				const err = error as Error;
 				logger.warn(`Failed to fetch from ${config.host}: ${err.message}`, LOG_CONTEXT);
@@ -554,10 +588,26 @@ export async function performAudit(
 		}
 	}
 
-	// 3. Fetch Maestro usage for same period
+	// 3. If we still have no data and local failed, provide a helpful error
+	if (anthropicData.length === 0 && localFetchFailed) {
+		const remoteCount = remoteConfigs.length;
+		if (remoteCount === 0) {
+			throw new Error(
+				'No Claude data directories found locally and no SSH remotes configured. ' +
+					'Configure an SSH remote in Settings to fetch usage data from a remote host.'
+			);
+		} else {
+			throw new Error(
+				`No Claude data found locally or from ${remoteCount} SSH remote(s). ` +
+					'Ensure Claude Code is installed and has usage data on the remote host(s).'
+			);
+		}
+	}
+
+	// 4. Fetch Maestro usage for same period
 	const maestroData = await queryMaestroUsageByDate(startDate, endDate);
 
-	// 4. Compare and generate report
+	// 5. Compare and generate report
 	return compareUsage(anthropicData, maestroData, startDate, endDate);
 }
 
