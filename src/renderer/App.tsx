@@ -3088,6 +3088,9 @@ function MaestroConsoleInner() {
 				const tabId = aiTabMatch[2];
 				const bufferKey = `${actualSessionId}:${tabId}`;
 
+				// Update cycle bytes for real-time token estimation in ThinkingStatusPill
+				batchedUpdater.updateCycleBytes(actualSessionId, content.length);
+
 				// Buffer the chunk - accumulate if there's already content for this session+tab
 				const existingContent = thinkingChunkBufferRef.current.get(bufferKey) || '';
 				thinkingChunkBufferRef.current.set(bufferKey, existingContent + content);
