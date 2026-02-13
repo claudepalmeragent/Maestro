@@ -92,11 +92,13 @@ interface ModelBreakdownEntry {
 export interface AuditHistoryTableProps {
 	theme: Theme;
 	onSelectAudit?: (audit: ExtendedAuditResult) => void;
+	onDeleteAudit?: (audit: ExtendedAuditResult) => void;
 }
 
 export function AuditHistoryTable({
 	theme,
 	onSelectAudit,
+	onDeleteAudit,
 }: AuditHistoryTableProps): React.ReactElement {
 	const [history, setHistory] = useState<ExtendedAuditResult[]>([]);
 	const [loading, setLoading] = useState(true);
@@ -168,6 +170,13 @@ export function AuditHistoryTable({
 		}
 	}
 
+	function handleDeleteClick(e: React.MouseEvent, audit: ExtendedAuditResult): void {
+		e.stopPropagation(); // Prevent row click
+		if (onDeleteAudit) {
+			onDeleteAudit(audit);
+		}
+	}
+
 	if (loading) {
 		return (
 			<div className="text-sm" style={{ color: theme.colors.textDim }}>
@@ -209,6 +218,7 @@ export function AuditHistoryTable({
 					<th className="py-2" style={{ color: theme.colors.textDim }}>
 						Status
 					</th>
+					{onDeleteAudit && <th className="py-2 w-10" style={{ color: theme.colors.textDim }}></th>}
 				</tr>
 			</thead>
 			<tbody>
@@ -243,6 +253,32 @@ export function AuditHistoryTable({
 							{audit.summary?.total || audit.entries?.length || '-'}
 						</td>
 						<td className="py-2">{getStatusBadge(audit)}</td>
+						{onDeleteAudit && (
+							<td className="py-2">
+								<button
+									onClick={(e) => handleDeleteClick(e, audit)}
+									className="p-1 rounded hover:bg-red-500 hover:bg-opacity-20 transition-colors"
+									style={{ color: theme.colors.textDim }}
+									title="Delete audit"
+								>
+									<svg
+										xmlns="http://www.w3.org/2000/svg"
+										width="16"
+										height="16"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										strokeWidth="2"
+										strokeLinecap="round"
+										strokeLinejoin="round"
+									>
+										<path d="M3 6h18" />
+										<path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+										<path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+									</svg>
+								</button>
+							</td>
+						)}
 					</tr>
 				))}
 			</tbody>

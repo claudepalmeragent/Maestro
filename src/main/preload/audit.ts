@@ -218,6 +218,15 @@ export function createAuditApi() {
 			ipcRenderer.invoke('audit:autoCorrect', entryIds),
 
 		/**
+		 * Delete an audit snapshot by its generatedAt timestamp.
+		 *
+		 * @param generatedAt - The timestamp when the audit was generated
+		 * @returns Success status
+		 */
+		delete: (generatedAt: number): Promise<{ success: boolean }> =>
+			ipcRenderer.invoke('audit:delete', generatedAt),
+
+		/**
 		 * Subscribe to audit updates.
 		 * Called when a new audit completes or configuration changes.
 		 *

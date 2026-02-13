@@ -1021,3 +1021,25 @@ export async function getAuditSnapshotsByRange(
 	}>;
 	return rows.map((row) => JSON.parse(row.audit_result_json) as ExtendedAuditResult);
 }
+
+/**
+ * Delete an audit snapshot by its generatedAt timestamp.
+ *
+ * @param generatedAt - The timestamp when the audit was generated
+ * @returns True if deleted, false if not found
+ */
+export async function deleteAuditSnapshot(generatedAt: number): Promise<boolean> {
+	const db = getStatsDB();
+	const database = db.database;
+
+	const sql = `DELETE FROM audit_snapshots WHERE created_at = ?`;
+	const result = database.prepare(sql).run(generatedAt);
+
+	if (result.changes > 0) {
+		logger.info(`Deleted audit snapshot with timestamp ${generatedAt}`, LOG_CONTEXT);
+		return true;
+	}
+
+	logger.warn(`No audit snapshot found with timestamp ${generatedAt}`, LOG_CONTEXT);
+	return false;
+}

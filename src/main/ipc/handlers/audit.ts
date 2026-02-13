@@ -16,6 +16,7 @@ import { withIpcErrorLogging, CreateHandlerOptions } from '../../utils/ipcHandle
 import {
 	getAuditHistory,
 	getAuditSnapshotsByRange,
+	deleteAuditSnapshot,
 	AuditConfig,
 	ExtendedAuditResult,
 } from '../../services/anthropic-audit-service';
@@ -201,6 +202,22 @@ export function registerAuditHandlers(deps: AuditHandlerDependencies): void {
 				logger.info(`Auto-corrected ${corrected}/${entryIds.length} entries`, LOG_CONTEXT);
 				broadcastAuditUpdate(getMainWindow);
 				return { corrected, total: entryIds.length };
+			}
+		)
+	);
+
+	// Delete an audit snapshot
+	ipcMain.handle(
+		'audit:delete',
+		withIpcErrorLogging(
+			handlerOpts('deleteAudit'),
+			async (generatedAt: number): Promise<{ success: boolean }> => {
+				logger.info(`Deleting audit with timestamp ${generatedAt}`, LOG_CONTEXT);
+				const deleted = await deleteAuditSnapshot(generatedAt);
+				if (deleted) {
+					broadcastAuditUpdate(getMainWindow);
+				}
+				return { success: deleted };
 			}
 		)
 	);
