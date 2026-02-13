@@ -98,6 +98,7 @@ import {
 // Phase 2 refactoring - dependency injection
 import { createSafeSend } from './utils/safe-send';
 import { createWebServerFactory } from './web-server/web-server-factory';
+import { cleanupStaleSshSockets } from './utils/ssh-socket-cleanup';
 // Phase 4 refactoring - app lifecycle
 import {
 	setupGlobalErrorHandlers,
@@ -275,6 +276,9 @@ app.whenReady().then(async () => {
 
 	// Check for WSL + Windows mount issues early
 	checkWslEnvironment(process.cwd());
+
+	// Clean up stale SSH sockets from previous sessions
+	cleanupStaleSshSockets();
 
 	// Initialize core services
 	logger.info('Initializing core services', 'Startup');
