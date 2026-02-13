@@ -879,8 +879,12 @@ function compareUsage(
 		});
 	}
 
+	// Total savings = cache savings (for Max entries) + any API billing mode discrepancies
+	const totalSavings =
+		billingModeBreakdown.max.cacheSavings + (anthropicCostTotal - maestroCalculatedCost);
+
 	logger.info(
-		`Audit completed: ${entries.length} entries, ${anomalies.length} anomalies, savings: $${(anthropicCostTotal - maestroCalculatedCost).toFixed(2)}`,
+		`Audit completed: ${entries.length} entries, ${anomalies.length} anomalies, savings: $${totalSavings.toFixed(2)}`,
 		LOG_CONTEXT
 	);
 
@@ -898,7 +902,7 @@ function compareUsage(
 			maestro_anthropic: maestroAnthropicCost,
 			maestro_calculated: maestroCalculatedCost,
 			discrepancy: costDiscrepancy,
-			savings: anthropicCostTotal - maestroCalculatedCost,
+			savings: totalSavings,
 		},
 		modelBreakdown: Array.from(modelBreakdownMap.values()),
 		anomalies,

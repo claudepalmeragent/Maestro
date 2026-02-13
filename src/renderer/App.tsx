@@ -1190,6 +1190,7 @@ function MaestroConsoleInner() {
 					// Clear runtime-only error state - no agent is running yet so there can't be an error
 					agentError: undefined,
 					agentErrorPaused: false,
+					synopsisInProgress: false, // Runtime-only, clear to prevent queue lock on restart
 					closedTabHistory: [], // Runtime-only, reset on load
 				};
 			} else {
