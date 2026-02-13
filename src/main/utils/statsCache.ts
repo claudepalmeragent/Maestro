@@ -138,20 +138,52 @@ export interface CachedSessionStats {
  */
 export interface GlobalStatsCache {
 	/** Per-provider session stats, keyed by provider then "projectDir/sessionId" or "date/sessionId" */
-	providers: Record<
-		string,
-		{
-			sessions: Record<string, CachedSessionStats>;
-		}
-	>;
+	providers: {
+		'claude-code': { sessions: Record<string, CachedSessionStats> };
+		codex: { sessions: Record<string, CachedSessionStats> };
+	};
 	/** Unix timestamp when cache was last updated */
 	lastUpdated: number;
 	/** Cache version - bump to invalidate old caches */
 	version: number;
+	/** Remote provider stats keyed by sshRemoteId */
+	remoteProviders?: Record<
+		string,
+		{
+			remoteName: string;
+			remoteHost: string;
+			lastFetchedAt: number;
+			fetchError?: string;
+			'claude-code': { sessions: Record<string, CachedSessionStats> };
+		}
+	>;
 }
 
 /** Current global stats cache version. Bump to force cache invalidation. */
-export const GLOBAL_STATS_CACHE_VERSION = 3;
+export const GLOBAL_STATS_CACHE_VERSION = 7;
+
+/**
+ * Result of fetching stats from a single SSH remote
+ */
+export interface RemoteStatsFetchResult {
+	sshRemoteId: string;
+	remoteName: string;
+	remoteHost: string;
+	success: boolean;
+	error?: string;
+	stats?: {
+		sessions: number;
+		messages: number;
+		inputTokens: number;
+		outputTokens: number;
+		cacheReadTokens: number;
+		cacheCreationTokens: number;
+		costUsd: number;
+		sizeBytes: number;
+	};
+	sessionDetails?: Record<string, CachedSessionStats>;
+	fetchedAt: number;
+}
 
 /**
  * Get the cache file path for global stats.

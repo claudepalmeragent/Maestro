@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import {
 	X,
 	Wand2,
@@ -10,6 +10,9 @@ import {
 	Globe,
 	Check,
 	BookOpen,
+	ChevronDown,
+	ChevronUp,
+	RefreshCw,
 } from 'lucide-react';
 import type { Theme, AutoRunStats, MaestroUsageStats, LeaderboardRegistration } from '../types';
 import type { GlobalAgentStats } from '../../shared/types';
@@ -43,8 +46,22 @@ export function AboutModal({
 }: AboutModalProps) {
 	const [globalStats, setGlobalStats] = useState<GlobalAgentStats | null>(null);
 	const [loading, setLoading] = useState(true);
-	const [isStatsComplete, setIsStatsComplete] = useState(false);
+	const [showRemoteBreakdown, setShowRemoteBreakdown] = useState(false);
+	const [isRefreshing, setIsRefreshing] = useState(false);
 	const badgeEscapeHandlerRef = useRef<(() => boolean) | null>(null);
+
+	// Handler to manually refresh stats
+	const handleRefreshStats = useCallback(async () => {
+		setIsRefreshing(true);
+		try {
+			const stats = await window.maestro.agentSessions.getGlobalStats();
+			setGlobalStats(stats);
+		} catch (error) {
+			console.error('Failed to refresh global stats:', error);
+		} finally {
+			setIsRefreshing(false);
+		}
+	}, []);
 
 	// Use ref to avoid re-registering layer when onClose changes
 	const onCloseRef = useRef(onClose);
@@ -56,9 +73,6 @@ export function AboutModal({
 		const unsubscribe = window.maestro.agentSessions.onGlobalStatsUpdate((stats) => {
 			setGlobalStats(stats);
 			setLoading(false);
-			if (stats.isComplete) {
-				setIsStatsComplete(true);
-			}
 		});
 
 		// Trigger the stats calculation (which will send streaming updates)
@@ -69,22 +83,49 @@ export function AboutModal({
 				// Use returned stats as fallback if streaming updates didn't arrive
 				setGlobalStats((current) => current ?? stats);
 				setLoading(false);
-				// Only set isComplete based on actual stats, not unconditionally
-				if (stats.isComplete) {
-					setIsStatsComplete(true);
-				}
 			})
 			.catch((error) => {
 				console.error('Failed to load global agent stats:', error);
 				setLoading(false);
-				// On error, mark as complete to stop showing loading state
-				setIsStatsComplete(true);
 			});
 
 		return () => {
 			unsubscribe();
 		};
 	}, []);
+
+	// Auto-refresh timer for global stats based on user setting
+	useEffect(() => {
+		let intervalId: ReturnType<typeof setInterval> | null = null;
+
+		const setupInterval = async () => {
+			// Get refresh interval from settings (default 15 minutes)
+			let intervalMs = 900000;
+			try {
+				const savedInterval = await window.maestro.settings.get('globalStatsRefreshIntervalMs');
+				if (savedInterval && typeof savedInterval === 'number') {
+					intervalMs = savedInterval;
+				}
+			} catch {
+				// Use default on error
+			}
+
+			intervalId = setInterval(() => {
+				// Only refresh if not already refreshing and no fetch in progress
+				if (!isRefreshing && !globalStats?.remoteFetchInProgress) {
+					handleRefreshStats();
+				}
+			}, intervalMs);
+		};
+
+		setupInterval();
+
+		return () => {
+			if (intervalId) {
+				clearInterval(intervalId);
+			}
+		};
+	}, [isRefreshing, globalStats?.remoteFetchInProgress, handleRefreshStats]);
 
 	// formatTokensCompact and formatSize imported from ../utils/formatters
 
@@ -215,14 +256,23 @@ export function AboutModal({
 					className="p-4 rounded border"
 					style={{ borderColor: theme.colors.border, backgroundColor: theme.colors.bgActivity }}
 				>
-					<div className="flex items-center gap-2 mb-3">
-						<BarChart3 className="w-4 h-4" style={{ color: theme.colors.accent }} />
-						<span className="text-sm font-bold" style={{ color: theme.colors.textMain }}>
-							Global Statistics
-						</span>
-						{!isStatsComplete && (
-							<Loader2 className="w-3 h-3 animate-spin" style={{ color: theme.colors.textDim }} />
-						)}
+					<div className="flex items-center justify-between mb-3">
+						<div className="flex items-center gap-2">
+							<BarChart3 className="w-4 h-4" style={{ color: theme.colors.accent }} />
+							<span className="text-sm font-bold" style={{ color: theme.colors.textMain }}>
+								Global Statistics
+							</span>
+						</div>
+						<button
+							onClick={handleRefreshStats}
+							disabled={isRefreshing || globalStats?.remoteFetchInProgress}
+							className="flex items-center gap-1 px-2 py-1 rounded text-[10px] hover:bg-white/10 transition-colors disabled:opacity-50"
+							style={{ color: theme.colors.textDim }}
+							title="Refresh statistics"
+						>
+							<RefreshCw className={`w-3 h-3 ${isRefreshing ? 'animate-spin' : ''}`} />
+							<span>Refresh</span>
+						</button>
 					</div>
 					{loading ? (
 						<div className="flex items-center justify-center py-4 gap-2">
@@ -239,13 +289,21 @@ export function AboutModal({
 								<div className="flex justify-between">
 									<span style={{ color: theme.colors.textDim }}>Sessions</span>
 									<span className="font-mono font-bold" style={{ color: theme.colors.textMain }}>
-										{formatTokensCompact(globalStats.totalSessions)}
+										{globalStats ? formatTokensCompact(globalStats.totalSessions) : '—'}
 									</span>
 								</div>
 								<div className="flex justify-between">
-									<span style={{ color: theme.colors.textDim }}>Messages</span>
+									<span className="flex items-center gap-2" style={{ color: theme.colors.textDim }}>
+										Messages
+										{globalStats?.messagesFetchInProgress && (
+											<Loader2
+												className="w-3 h-3 animate-spin"
+												style={{ color: theme.colors.accent }}
+											/>
+										)}
+									</span>
 									<span className="font-mono font-bold" style={{ color: theme.colors.textMain }}>
-										{formatTokensCompact(globalStats.totalMessages)}
+										{globalStats ? formatTokensCompact(globalStats.totalMessages) : '—'}
 									</span>
 								</div>
 
@@ -253,13 +311,13 @@ export function AboutModal({
 								<div className="flex justify-between">
 									<span style={{ color: theme.colors.textDim }}>Input Tokens</span>
 									<span className="font-mono font-bold" style={{ color: theme.colors.textMain }}>
-										{formatTokensCompact(globalStats.totalInputTokens)}
+										{globalStats ? formatTokensCompact(globalStats.totalInputTokens) : '—'}
 									</span>
 								</div>
 								<div className="flex justify-between">
 									<span style={{ color: theme.colors.textDim }}>Output Tokens</span>
 									<span className="font-mono font-bold" style={{ color: theme.colors.textMain }}>
-										{formatTokensCompact(globalStats.totalOutputTokens)}
+										{globalStats ? formatTokensCompact(globalStats.totalOutputTokens) : '—'}
 									</span>
 								</div>
 
@@ -273,7 +331,7 @@ export function AboutModal({
 												className="font-mono font-bold"
 												style={{ color: theme.colors.textMain }}
 											>
-												{formatTokensCompact(globalStats.totalCacheReadTokens)}
+												{globalStats ? formatTokensCompact(globalStats.totalCacheReadTokens) : '—'}
 											</span>
 										</div>
 										<div className="flex justify-between">
@@ -282,47 +340,174 @@ export function AboutModal({
 												className="font-mono font-bold"
 												style={{ color: theme.colors.textMain }}
 											>
-												{formatTokensCompact(globalStats.totalCacheCreationTokens)}
+												{globalStats
+													? formatTokensCompact(globalStats.totalCacheCreationTokens)
+													: '—'}
 											</span>
 										</div>
 									</>
 								)}
 
-								{/* Active Time & Total Cost - show cost only if we have cost data */}
-								{(handsOnTimeMs > 0 || globalStats.hasCostData) && (
+								{/* Active Time - show only if we have hands-on time */}
+								{handsOnTimeMs > 0 && (
 									<div
-										className="flex justify-between col-span-2 pt-2 border-t"
+										className="flex justify-between col-span-2 pt-2 border-t relative"
 										style={{ borderColor: theme.colors.border }}
 									>
-										{handsOnTimeMs > 0 && (
-											<span style={{ color: theme.colors.textDim }}>
-												Hands-on Time: {formatDuration(handsOnTimeMs)}
-											</span>
-										)}
-										{!handsOnTimeMs && globalStats.hasCostData && (
-											<span style={{ color: theme.colors.textDim }}>Total Cost</span>
-										)}
-										{globalStats.hasCostData && (
-											<span
-												className={`font-mono font-bold ${!isStatsComplete ? 'animate-pulse' : ''}`}
-												style={{ color: theme.colors.success }}
-											>
-												$
-												{globalStats.totalCostUsd.toLocaleString('en-US', {
-													minimumFractionDigits: 2,
-													maximumFractionDigits: 2,
-												})}
-											</span>
-										)}
+										<span style={{ color: theme.colors.textDim }}>
+											Hands-on Time: {formatDuration(handsOnTimeMs)}
+										</span>
 									</div>
 								)}
+
+								{/* Cost Breakdown: Maestro | Anthropic | Savings */}
+								{globalStats.hasCostData && (
+									<>
+										<div className="flex justify-between col-span-2">
+											<span style={{ color: theme.colors.textDim }}>Cost</span>
+											<span
+												className="font-mono font-bold flex items-center gap-1"
+												style={{ color: theme.colors.textMain }}
+											>
+												<span title="Maestro (billing-mode aware)">
+													${globalStats.totalCostUsd.toFixed(2)}
+												</span>
+												<span style={{ color: theme.colors.textDim }}>|</span>
+												<span
+													title="Anthropic (API pricing)"
+													style={{ color: theme.colors.textDim }}
+												>
+													${globalStats.anthropicCostUsd?.toFixed(2) ?? '0.00'}
+												</span>
+												<span style={{ color: theme.colors.textDim }}>|</span>
+												<span title="Savings" style={{ color: theme.colors.success }}>
+													${globalStats.savingsUsd?.toFixed(2) ?? '0.00'}
+												</span>
+											</span>
+										</div>
+										{/* Cost labels */}
+										<div className="col-span-2 text-right">
+											<span
+												className="text-xs"
+												style={{ color: theme.colors.textDim, opacity: 0.6 }}
+											>
+												Maestro | Anthropic | Savings
+											</span>
+										</div>
+									</>
+								)}
 							</div>
-							{/* Note about SSH Remote sessions */}
+							{/* Per-Remote Breakdown (expandable) */}
+							{globalStats?.byRemote && Object.keys(globalStats.byRemote).length > 0 && (
+								<div className="pt-2 mt-2 border-t" style={{ borderColor: theme.colors.border }}>
+									<button
+										onClick={() => setShowRemoteBreakdown(!showRemoteBreakdown)}
+										className="flex items-center justify-between w-full text-[10px] hover:bg-white/5 rounded px-1 py-0.5 transition-colors"
+										style={{ color: theme.colors.textDim }}
+									>
+										<span className="flex items-center gap-1">
+											<Globe className="w-3 h-3" />
+											SSH Remote Breakdown ({Object.keys(globalStats.byRemote).length} remote
+											{Object.keys(globalStats.byRemote).length !== 1 ? 's' : ''})
+										</span>
+										{showRemoteBreakdown ? (
+											<ChevronUp className="w-3 h-3" />
+										) : (
+											<ChevronDown className="w-3 h-3" />
+										)}
+									</button>
+
+									{showRemoteBreakdown && (
+										<div
+											className="mt-2 space-y-2 max-h-48 overflow-y-auto pr-1 rounded"
+											style={{
+												backgroundColor: `${theme.colors.bgSidebar}50`,
+												padding: '0.5rem',
+											}}
+										>
+											{Object.entries(globalStats.byRemote).map(([remoteId, remote]) => (
+												<div
+													key={remoteId}
+													className="p-2 rounded text-[10px]"
+													style={{ backgroundColor: theme.colors.bgSidebar }}
+												>
+													<div className="flex items-center justify-between mb-1">
+														<span className="font-medium" style={{ color: theme.colors.textMain }}>
+															{remote.remoteName}
+														</span>
+														<span style={{ color: theme.colors.textDim }}>{remote.remoteHost}</span>
+													</div>
+													{remote.fetchError ? (
+														<div style={{ color: theme.colors.error }}>
+															Error: {remote.fetchError}
+														</div>
+													) : (
+														<div className="grid grid-cols-2 gap-x-4 gap-y-1">
+															<div className="flex justify-between gap-2">
+																<span style={{ color: theme.colors.textDim }}>Sessions</span>
+																<span
+																	className="font-mono text-right"
+																	style={{ color: theme.colors.textMain }}
+																>
+																	{formatTokensCompact(remote.stats.sessions)}
+																</span>
+															</div>
+															<div className="flex justify-between gap-2">
+																<span style={{ color: theme.colors.textDim }}>Messages</span>
+																<span
+																	className="font-mono text-right"
+																	style={{ color: theme.colors.textMain }}
+																>
+																	{formatTokensCompact(remote.stats.messages)}
+																</span>
+															</div>
+															<div className="flex justify-between gap-2">
+																<span style={{ color: theme.colors.textDim }}>Input</span>
+																<span
+																	className="font-mono text-right"
+																	style={{ color: theme.colors.textMain }}
+																>
+																	{formatTokensCompact(remote.stats.inputTokens)}
+																</span>
+															</div>
+															<div className="flex justify-between gap-2">
+																<span style={{ color: theme.colors.textDim }}>Output</span>
+																<span
+																	className="font-mono text-right"
+																	style={{ color: theme.colors.textMain }}
+																>
+																	{formatTokensCompact(remote.stats.outputTokens)}
+																</span>
+															</div>
+															{remote.stats.costUsd > 0 && (
+																<div
+																	className="flex justify-between gap-2 col-span-2 pt-1 mt-1 border-t"
+																	style={{ borderColor: theme.colors.border }}
+																>
+																	<span style={{ color: theme.colors.textDim }}>Cost</span>
+																	<span
+																		className="font-mono text-right"
+																		style={{ color: theme.colors.success }}
+																	>
+																		${remote.stats.costUsd.toFixed(2)}
+																	</span>
+																</div>
+															)}
+														</div>
+													)}
+												</div>
+											))}
+										</div>
+									)}
+								</div>
+							)}
+
+							{/* Note about session sources */}
 							<div
 								className="text-[10px] text-center pt-2 mt-2 border-t"
 								style={{ borderColor: theme.colors.border, color: theme.colors.textDim }}
 							>
-								Local sessions only. SSH Remote sessions shown in Session Explorer.
+								Includes Local and SSH Remote sessions.
 							</div>
 						</div>
 					) : (

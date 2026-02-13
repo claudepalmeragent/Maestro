@@ -44,6 +44,10 @@ export interface MaestroSettings {
 	installationId: string | null;
 	// Synopsis generation toggle for interactive sessions
 	synopsisEnabled?: boolean;
+	/** Timeout in milliseconds for fetching stats from SSH remotes (default: 30000) */
+	sshStatsTimeoutMs?: number;
+	/** Auto-refresh interval for Global Stats in milliseconds (default: 900000 = 15 minutes) */
+	globalStatsRefreshIntervalMs?: number;
 	[key: string]: any;
 }
 

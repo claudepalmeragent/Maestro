@@ -66,6 +66,8 @@ export const SETTINGS_DEFAULTS: MaestroSettings = {
 	defaultSshRemoteId: null,
 	installationId: null,
 	synopsisEnabled: true,
+	sshStatsTimeoutMs: 30000,
+	globalStatsRefreshIntervalMs: 900000, // 15 minutes default
 };
 
 export const SESSIONS_DEFAULTS: SessionsData = {

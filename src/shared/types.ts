@@ -427,21 +427,40 @@ export interface ProviderStats {
  * Used by AboutModal and AgentSessions handlers.
  */
 export interface GlobalAgentStats {
-	totalSessions: number;
+	totalSessions: number; // Keep for backwards compat, but this will be totalQueries
 	totalMessages: number;
 	totalInputTokens: number;
 	totalOutputTokens: number;
 	totalCacheReadTokens: number;
 	totalCacheCreationTokens: number;
-	/** Total cost in USD - only includes providers that support cost tracking */
+	/** Total cost in USD - Maestro calculated (billing-mode aware) */
 	totalCostUsd: number;
+	/** Anthropic reported cost (API pricing) */
+	anthropicCostUsd?: number;
+	/** Savings (Anthropic - Maestro) */
+	savingsUsd?: number;
 	/** Whether any provider contributed cost data */
 	hasCostData: boolean;
 	totalSizeBytes: number;
 	/** Whether stats calculation is complete (used for progressive updates) */
 	isComplete: boolean;
+	/** Whether message count is still being fetched from SSH remotes */
+	messagesFetchInProgress?: boolean;
 	/** Per-provider breakdown */
 	byProvider: Record<string, ProviderStats>;
+	/** Per-remote breakdown of stats (key = sshRemoteId) */
+	byRemote?: Record<
+		string,
+		{
+			remoteName: string;
+			remoteHost: string;
+			stats: ProviderStats;
+			lastFetchedAt: number;
+			fetchError?: string;
+		}
+	>;
+	/** Whether remote stats are still being fetched */
+	remoteFetchInProgress?: boolean;
 }
 
 // ============================================================================

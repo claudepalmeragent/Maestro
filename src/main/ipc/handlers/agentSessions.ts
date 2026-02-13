@@ -16,20 +16,10 @@
 
 import { ipcMain, BrowserWindow } from 'electron';
 import Store from 'electron-store';
-import path from 'path';
-import os from 'os';
-import fs from 'fs/promises';
 import { logger } from '../../utils/logger';
 import { withIpcErrorLogging } from '../../utils/ipcHandler';
 import { getSessionStorage, hasSessionStorage, getAllSessionStorages } from '../../agents';
-import { calculateClaudeCost } from '../../utils/pricing';
-import {
-	loadGlobalStatsCache,
-	saveGlobalStatsCache,
-	GlobalStatsCache,
-	CachedSessionStats,
-	GLOBAL_STATS_CACHE_VERSION,
-} from '../../utils/statsCache';
+import { getStatsDB } from '../../stats';
 import type {
 	AgentSessionInfo,
 	PaginatedSessionsResult,
@@ -41,6 +31,31 @@ import type {
 } from '../../agents';
 import type { GlobalAgentStats, ProviderStats, SshRemoteConfig } from '../../../shared/types';
 import type { MaestroSettings } from './persistence';
+
+// Imports for local message counting (Task 17.4)
+import path from 'path';
+import os from 'os';
+import fs from 'fs/promises';
+// Import for remote message counting (Task 17.5)
+import {
+	countRemoteClaudeMessages as countRemoteClaudeMessagesViaShell,
+	readDirRemote,
+} from '../../utils/remote-fs';
+
+// DEPRECATED: The following imports were used by the file-based stats scanning code.
+// They are kept here commented out alongside the deprecated code below for potential future use.
+// import { calculateClaudeCost } from '../../utils/pricing';
+// import {
+// 	loadGlobalStatsCache,
+// 	saveGlobalStatsCache,
+// 	GlobalStatsCache,
+// 	CachedSessionStats,
+// 	GLOBAL_STATS_CACHE_VERSION,
+// } from '../../utils/statsCache';
+// import {
+//   statRemote,
+//   parseRemoteClaudeStatsViaShell,
+// } from '../../utils/remote-fs';
 
 // Re-export for backwards compatibility
 export type { GlobalAgentStats, ProviderStats };
@@ -95,17 +110,197 @@ function handlerOpts(operation: string) {
 }
 
 /**
- * File info for incremental scanning
+ * Get global stats from Usage Dashboard (StatsDB).
+ * This is the authoritative source for token and cost data.
  */
+async function getStatsFromUsageDashboard(): Promise<{
+	totalQueries: number;
+	totalInputTokens: number;
+	totalOutputTokens: number;
+	totalCacheReadTokens: number;
+	totalCacheCreationTokens: number;
+	maestroCostUsd: number;
+	anthropicCostUsd: number;
+	savingsUsd: number;
+}> {
+	try {
+		const db = getStatsDB();
+		const aggregation = db.getAggregatedStats('all');
+
+		return {
+			totalQueries: aggregation.totalQueries,
+			totalInputTokens: aggregation.totalInputTokens ?? 0,
+			totalOutputTokens: aggregation.totalOutputTokens ?? 0,
+			totalCacheReadTokens: aggregation.totalCacheReadInputTokens ?? 0,
+			totalCacheCreationTokens: aggregation.totalCacheCreationInputTokens ?? 0,
+			maestroCostUsd: aggregation.totalCostUsd ?? 0,
+			anthropicCostUsd: aggregation.anthropicCostUsd ?? 0,
+			savingsUsd: aggregation.savingsUsd ?? 0,
+		};
+	} catch (error) {
+		logger.warn('Failed to get stats from Usage Dashboard', LOG_CONTEXT, { error });
+		return {
+			totalQueries: 0,
+			totalInputTokens: 0,
+			totalOutputTokens: 0,
+			totalCacheReadTokens: 0,
+			totalCacheCreationTokens: 0,
+			maestroCostUsd: 0,
+			anthropicCostUsd: 0,
+			savingsUsd: 0,
+		};
+	}
+}
+
+/**
+ * Count total messages from all local Claude session files.
+ * Counts "type": "user" and "type": "assistant" entries.
+ */
+async function countLocalClaudeMessages(): Promise<number> {
+	const homeDir = os.homedir();
+	const claudeProjectsDir = path.join(homeDir, '.claude', 'projects');
+	let totalMessages = 0;
+
+	try {
+		await fs.access(claudeProjectsDir);
+	} catch {
+		return 0;
+	}
+
+	const projectDirs = await fs.readdir(claudeProjectsDir);
+
+	for (const projectDir of projectDirs) {
+		const projectPath = path.join(claudeProjectsDir, projectDir);
+		try {
+			const stat = await fs.stat(projectPath);
+			if (!stat.isDirectory()) continue;
+
+			const entries = await fs.readdir(projectPath, { withFileTypes: true });
+
+			for (const entry of entries) {
+				// Count messages in main session files
+				if (entry.isFile() && entry.name.endsWith('.jsonl')) {
+					const filePath = path.join(projectPath, entry.name);
+					try {
+						const content = await fs.readFile(filePath, 'utf-8');
+						const userCount = (content.match(/"type"\s*:\s*"user"/g) || []).length;
+						const assistantCount = (content.match(/"type"\s*:\s*"assistant"/g) || []).length;
+						totalMessages += userCount + assistantCount;
+					} catch {
+						// Skip files we can't read
+					}
+				}
+
+				// Count messages in subagent files
+				if (entry.isDirectory()) {
+					const subagentsDir = path.join(projectPath, entry.name, 'subagents');
+					try {
+						const subFiles = await fs.readdir(subagentsDir);
+						for (const subFile of subFiles) {
+							if (!subFile.startsWith('agent-') || !subFile.endsWith('.jsonl')) continue;
+							const subFilePath = path.join(subagentsDir, subFile);
+							try {
+								const content = await fs.readFile(subFilePath, 'utf-8');
+								const userCount = (content.match(/"type"\s*:\s*"user"/g) || []).length;
+								const assistantCount = (content.match(/"type"\s*:\s*"assistant"/g) || []).length;
+								totalMessages += userCount + assistantCount;
+							} catch {
+								// Skip files we can't read
+							}
+						}
+					} catch {
+						// No subagents directory
+					}
+				}
+			}
+		} catch {
+			continue;
+		}
+	}
+
+	return totalMessages;
+}
+
+/**
+ * Count total messages from all Claude session files on an SSH remote.
+ */
+async function countRemoteClaudeMessagesForHost(
+	sshConfig: SshRemoteConfig,
+	_timeoutMs: number = 60000
+): Promise<number> {
+	let totalMessages = 0;
+
+	try {
+		// List all project directories
+		const projectsResult = await readDirRemote('~/.claude/projects', sshConfig);
+		if (!projectsResult.success || !projectsResult.data) {
+			return 0;
+		}
+
+		const projectDirs = projectsResult.data.filter((e) => e.isDirectory);
+
+		for (const projectDir of projectDirs) {
+			const projectPath = `~/.claude/projects/${projectDir.name}`;
+
+			try {
+				const entriesResult = await readDirRemote(projectPath, sshConfig);
+				if (!entriesResult.success || !entriesResult.data) continue;
+
+				for (const entry of entriesResult.data) {
+					// Count messages in main session files
+					if (!entry.isDirectory && entry.name.endsWith('.jsonl')) {
+						const filePath = `${projectPath}/${entry.name}`;
+						const countResult = await countRemoteClaudeMessagesViaShell(filePath, sshConfig);
+						if (countResult.success && countResult.data) {
+							totalMessages += countResult.data;
+						}
+					}
+
+					// Count messages in subagent files
+					if (entry.isDirectory) {
+						const subagentsPath = `${projectPath}/${entry.name}/subagents`;
+						try {
+							const subResult = await readDirRemote(subagentsPath, sshConfig);
+							if (!subResult.success || !subResult.data) continue;
+
+							for (const subEntry of subResult.data) {
+								if (subEntry.isDirectory) continue;
+								if (!subEntry.name.startsWith('agent-') || !subEntry.name.endsWith('.jsonl'))
+									continue;
+
+								const subFilePath = `${subagentsPath}/${subEntry.name}`;
+								const countResult = await countRemoteClaudeMessagesViaShell(subFilePath, sshConfig);
+								if (countResult.success && countResult.data) {
+									totalMessages += countResult.data;
+								}
+							}
+						} catch {
+							// No subagents directory
+						}
+					}
+				}
+			} catch {
+				continue;
+			}
+		}
+	} catch (error) {
+		logger.warn(`Failed to count messages on remote ${sshConfig.name}`, LOG_CONTEXT, { error });
+	}
+
+	return totalMessages;
+}
+
+// DEPRECATED: Global Stats now uses Usage Dashboard data
+// The following code (SessionFileInfo, parse functions, discover functions, aggregate functions)
+// is kept commented out in case we need file-based stats in the future
+
+/*
 interface SessionFileInfo {
 	filePath: string;
 	sessionKey: string;
 	mtimeMs: number;
 }
 
-/**
- * Parse a Claude Code session file and extract stats
- */
 function parseClaudeSessionContent(
 	content: string,
 	sizeBytes: number
@@ -118,8 +313,6 @@ function parseClaudeSessionContent(
 	let cacheReadTokens = 0;
 	let cacheCreationTokens = 0;
 
-	// IMPORTANT: Use negative lookbehind to avoid double-counting cache tokens
-	// e.g., "cache_read_input_tokens" should NOT match the "input_tokens" regex
 	const inputMatches = content.matchAll(
 		/(?<!cache_read_|cache_creation_)"input_tokens"\s*:\s*(\d+)/g
 	);
@@ -145,9 +338,6 @@ function parseClaudeSessionContent(
 	};
 }
 
-/**
- * Parse a Codex session file and extract stats
- */
 function parseCodexSessionContent(
 	content: string,
 	sizeBytes: number
@@ -163,7 +353,6 @@ function parseCodexSessionContent(
 		try {
 			const entry = JSON.parse(line);
 
-			// Count messages from response_item entries
 			if (entry.type === 'response_item' && entry.payload?.type === 'message') {
 				const role = entry.payload.role;
 				if (role === 'user' || role === 'assistant') {
@@ -171,7 +360,6 @@ function parseCodexSessionContent(
 				}
 			}
 
-			// Extract token usage from event_msg with token_count payload
 			if (entry.type === 'event_msg' && entry.payload?.type === 'token_count') {
 				const usage = entry.payload.info?.total_token_usage;
 				if (usage) {
@@ -197,10 +385,6 @@ function parseCodexSessionContent(
 	};
 }
 
-/**
- * Discover Claude Code session files from ~/.claude/projects/
- * Returns list of files with their mtime for cache comparison
- */
 async function discoverClaudeSessionFiles(): Promise<SessionFileInfo[]> {
 	const homeDir = os.homedir();
 	const claudeProjectsDir = path.join(homeDir, '.claude', 'projects');
@@ -220,33 +404,176 @@ async function discoverClaudeSessionFiles(): Promise<SessionFileInfo[]> {
 			const stat = await fs.stat(projectPath);
 			if (!stat.isDirectory()) continue;
 
-			const dirFiles = await fs.readdir(projectPath);
-			const sessionFiles = dirFiles.filter((f) => f.endsWith('.jsonl'));
+			const dirEntries = await fs.readdir(projectPath, { withFileTypes: true });
 
-			for (const filename of sessionFiles) {
-				const filePath = path.join(projectPath, filename);
-				try {
-					const fileStat = await fs.stat(filePath);
-					// Skip 0-byte sessions (created but abandoned before any content was written)
-					if (fileStat.size === 0) continue;
-					const sessionKey = `${projectDir}/${filename.replace('.jsonl', '')}`;
-					files.push({ filePath, sessionKey, mtimeMs: fileStat.mtimeMs });
-				} catch {
-					// Skip files we can't stat
+			for (const entry of dirEntries) {
+				if (entry.isFile() && entry.name.endsWith('.jsonl')) {
+					const filePath = path.join(projectPath, entry.name);
+					try {
+						const fileStat = await fs.stat(filePath);
+						if (fileStat.size === 0) continue;
+						const sessionKey = `${projectDir}/${entry.name.replace('.jsonl', '')}`;
+						files.push({ filePath, sessionKey, mtimeMs: fileStat.mtimeMs });
+					} catch {
+						// Skip files we can't stat
+					}
+				}
+
+				if (entry.isDirectory()) {
+					const sessionDir = path.join(projectPath, entry.name);
+					const subagentsDir = path.join(sessionDir, 'subagents');
+
+					try {
+						await fs.access(subagentsDir);
+						const subagentFiles = await fs.readdir(subagentsDir);
+
+						for (const subFile of subagentFiles) {
+							if (!subFile.startsWith('agent-') || !subFile.endsWith('.jsonl')) continue;
+
+							const subFilePath = path.join(subagentsDir, subFile);
+							try {
+								const subFileStat = await fs.stat(subFilePath);
+								if (subFileStat.size === 0) continue;
+								const subSessionKey = `${projectDir}/${entry.name}/subagents/${subFile.replace('.jsonl', '')}`;
+								files.push({ filePath: subFilePath, sessionKey: subSessionKey, mtimeMs: subFileStat.mtimeMs });
+							} catch {
+								// Skip files we can't stat
+							}
+						}
+					} catch {
+						// No subagents directory
+					}
 				}
 			}
 		} catch {
-			// Skip directories we can't access
+			continue;
 		}
 	}
 
 	return files;
 }
 
-/**
- * Discover Codex session files from ~/.codex/sessions/YYYY/MM/DD/
- * Returns list of files with their mtime for cache comparison
- */
+async function discoverRemoteClaudeSessionFiles(
+	sshConfig: SshRemoteConfig,
+	_timeoutMs: number = 30000
+): Promise<{ filePath: string; sessionKey: string; mtimeMs: number }[]> {
+	const files: { filePath: string; sessionKey: string; mtimeMs: number }[] = [];
+
+	try {
+		const projectsResult = await readDirRemote('~/.claude/projects', sshConfig);
+		if (!projectsResult.success || !projectsResult.data) {
+			return files;
+		}
+
+		const projectDirs = projectsResult.data.filter((e) => e.isDirectory);
+
+		for (const projectDir of projectDirs) {
+			const projectPath = `~/.claude/projects/${projectDir.name}`;
+
+			try {
+				const entriesResult = await readDirRemote(projectPath, sshConfig);
+				if (!entriesResult.success || !entriesResult.data) continue;
+
+				for (const entry of entriesResult.data) {
+					if (!entry.isDirectory && entry.name.endsWith('.jsonl')) {
+						const filePath = `${projectPath}/${entry.name}`;
+						const statResult = await statRemote(filePath, sshConfig);
+						if (!statResult.success || !statResult.data) continue;
+						if (statResult.data.size === 0) continue;
+
+						const sessionKey = `${projectDir.name}/${entry.name.replace('.jsonl', '')}`;
+						files.push({
+							filePath,
+							sessionKey,
+							mtimeMs: statResult.data.mtime,
+						});
+					}
+
+					if (entry.isDirectory) {
+						const subagentsPath = `${projectPath}/${entry.name}/subagents`;
+
+						try {
+							const subagentsResult = await readDirRemote(subagentsPath, sshConfig);
+							if (!subagentsResult.success || !subagentsResult.data) continue;
+
+							for (const subEntry of subagentsResult.data) {
+								if (subEntry.isDirectory) continue;
+								if (!subEntry.name.startsWith('agent-') || !subEntry.name.endsWith('.jsonl')) continue;
+
+								const subFilePath = `${subagentsPath}/${subEntry.name}`;
+								const subStatResult = await statRemote(subFilePath, sshConfig);
+								if (!subStatResult.success || !subStatResult.data) continue;
+								if (subStatResult.data.size === 0) continue;
+
+								const subSessionKey = `${projectDir.name}/${entry.name}/subagents/${subEntry.name.replace('.jsonl', '')}`;
+								files.push({
+									filePath: subFilePath,
+									sessionKey: subSessionKey,
+									mtimeMs: subStatResult.data.mtime,
+								});
+							}
+						} catch {
+							// No subagents directory
+						}
+					}
+				}
+			} catch {
+				continue;
+			}
+		}
+	} catch (error) {
+		logger.warn(`Failed to discover remote Claude sessions on ${sshConfig.name}`, LOG_CONTEXT, {
+			error,
+		});
+	}
+
+	return files;
+}
+
+async function parseRemoteClaudeSession(
+	filePath: string,
+	sshConfig: SshRemoteConfig,
+	timeoutMs: number = 10000
+): Promise<Omit<CachedSessionStats, 'fileMtimeMs' | 'archived'> | null> {
+	try {
+		const timeoutPromise = new Promise<never>((_, reject) => {
+			setTimeout(() => reject(new Error(`SSH parse timeout after ${timeoutMs}ms`)), timeoutMs);
+		});
+
+		const parsePromise = (async () => {
+			const result = await parseRemoteClaudeStatsViaShell(filePath, sshConfig);
+			if (!result.success || !result.data) {
+				logger.warn(
+					`Failed to parse remote Claude session: ${filePath} on ${sshConfig.name}`,
+					LOG_CONTEXT,
+					{ error: result.error }
+				);
+				return null;
+			}
+
+			const stats = result.data;
+			return {
+				messages: stats.messageCount,
+				inputTokens: stats.inputTokens,
+				outputTokens: stats.outputTokens,
+				cacheReadTokens: stats.cacheReadTokens,
+				cacheCreationTokens: stats.cacheCreationTokens,
+				cachedInputTokens: 0,
+				sizeBytes: stats.sizeBytes,
+			};
+		})();
+
+		return await Promise.race([parsePromise, timeoutPromise]);
+	} catch (error) {
+		logger.warn(
+			`Failed to parse remote Claude session: ${filePath} on ${sshConfig.name}`,
+			LOG_CONTEXT,
+			{ error }
+		);
+		return null;
+	}
+}
+
 async function discoverCodexSessionFiles(): Promise<SessionFileInfo[]> {
 	const homeDir = os.homedir();
 	const codexSessionsDir = path.join(homeDir, '.codex', 'sessions');
@@ -292,7 +619,6 @@ async function discoverCodexSessionFiles(): Promise<SessionFileInfo[]> {
 
 								try {
 									const fileStat = await fs.stat(filePath);
-									// Skip 0-byte sessions (created but abandoned before any content was written)
 									if (fileStat.size === 0) continue;
 									const sessionKey = `${year}/${month}/${day}/${file.replace('.jsonl', '')}`;
 									files.push({ filePath, sessionKey, mtimeMs: fileStat.mtimeMs });
@@ -316,9 +642,6 @@ async function discoverCodexSessionFiles(): Promise<SessionFileInfo[]> {
 	return files;
 }
 
-/**
- * Calculate aggregated stats from cached sessions for a provider
- */
 function aggregateProviderStats(
 	sessions: Record<string, CachedSessionStats>,
 	hasCostData: boolean
@@ -374,6 +697,50 @@ function aggregateProviderStats(
 		hasCostData,
 	};
 }
+
+function aggregateRemoteIntoResult(
+	result: GlobalAgentStats,
+	remoteId: string,
+	remoteName: string,
+	remoteHost: string,
+	sessions: Record<string, CachedSessionStats>,
+	fetchedAt: number,
+	fetchError?: string
+): void {
+	const agg = aggregateProviderStats(sessions, true);
+
+	if (!result.byRemote) {
+		result.byRemote = {};
+	}
+
+	result.byRemote[remoteId] = {
+		remoteName,
+		remoteHost,
+		stats: {
+			sessions: agg.sessions,
+			messages: agg.messages,
+			inputTokens: agg.inputTokens,
+			outputTokens: agg.outputTokens,
+			costUsd: agg.costUsd,
+			hasCostData: agg.sessions > 0,
+		},
+		lastFetchedAt: fetchedAt,
+		fetchError,
+	};
+
+	if (agg.sessions > 0) {
+		result.totalSessions += agg.sessions;
+		result.totalMessages += agg.messages;
+		result.totalInputTokens += agg.inputTokens;
+		result.totalOutputTokens += agg.outputTokens;
+		result.totalCacheReadTokens += agg.cacheReadTokens;
+		result.totalCacheCreationTokens += agg.cacheCreationTokens;
+		result.totalCostUsd += agg.costUsd;
+		result.totalSizeBytes += agg.sizeBytes;
+		result.hasCostData = true;
+	}
+}
+// End of deprecated code */
 
 /**
  * Register all agent sessions IPC handlers.
@@ -932,221 +1299,112 @@ export function registerAgentSessionsHandlers(deps?: AgentSessionsHandlerDepende
 
 	// ============ Get Global Stats (All Providers) ============
 
-	ipcMain.handle(
-		'agentSessions:getGlobalStats',
-		withIpcErrorLogging(handlerOpts('getGlobalStats'), async (): Promise<GlobalAgentStats> => {
-			const mainWindow = getMainWindow?.();
+	ipcMain.handle('agentSessions:getGlobalStats', async (): Promise<GlobalAgentStats> => {
+		logger.info('Getting global stats from Usage Dashboard + message count', LOG_CONTEXT);
 
-			// Helper to build result from cache
-			const buildResultFromCache = (
-				cache: GlobalStatsCache,
-				isComplete: boolean
-			): GlobalAgentStats => {
-				const result: GlobalAgentStats = {
-					totalSessions: 0,
-					totalMessages: 0,
-					totalInputTokens: 0,
-					totalOutputTokens: 0,
-					totalCacheReadTokens: 0,
-					totalCacheCreationTokens: 0,
-					totalCostUsd: 0,
-					hasCostData: false,
-					totalSizeBytes: 0,
-					isComplete,
-					byProvider: {},
-				};
+		const mainWindow = getMainWindow?.();
 
-				// Aggregate Claude Code stats
-				const claudeSessions = cache.providers['claude-code']?.sessions || {};
-				const claudeAgg = aggregateProviderStats(claudeSessions, true);
-				if (claudeAgg.sessions > 0) {
-					result.byProvider['claude-code'] = {
-						sessions: claudeAgg.sessions,
-						messages: claudeAgg.messages,
-						inputTokens: claudeAgg.inputTokens,
-						outputTokens: claudeAgg.outputTokens,
-						costUsd: claudeAgg.costUsd,
-						hasCostData: true,
-					};
-					result.totalSessions += claudeAgg.sessions;
-					result.totalMessages += claudeAgg.messages;
-					result.totalInputTokens += claudeAgg.inputTokens;
-					result.totalOutputTokens += claudeAgg.outputTokens;
-					result.totalCacheReadTokens += claudeAgg.cacheReadTokens;
-					result.totalCacheCreationTokens += claudeAgg.cacheCreationTokens;
-					result.totalCostUsd += claudeAgg.costUsd;
-					result.totalSizeBytes += claudeAgg.sizeBytes;
-					result.hasCostData = true;
-				}
+		// Get authoritative stats from Usage Dashboard (StatsDB)
+		const udStats = await getStatsFromUsageDashboard();
 
-				// Aggregate Codex stats
-				const codexSessions = cache.providers['codex']?.sessions || {};
-				const codexAgg = aggregateProviderStats(codexSessions, false);
-				if (codexAgg.sessions > 0) {
-					result.byProvider['codex'] = {
-						sessions: codexAgg.sessions,
-						messages: codexAgg.messages,
-						inputTokens: codexAgg.inputTokens,
-						outputTokens: codexAgg.outputTokens,
-						costUsd: 0,
-						hasCostData: false,
-					};
-					result.totalSessions += codexAgg.sessions;
-					result.totalMessages += codexAgg.messages;
-					result.totalInputTokens += codexAgg.inputTokens;
-					result.totalOutputTokens += codexAgg.outputTokens;
-					result.totalCacheReadTokens += codexAgg.cachedInputTokens;
-					result.totalSizeBytes += codexAgg.sizeBytes;
-				}
+		// Start with UD data, messages will be updated async
+		const result: GlobalAgentStats = {
+			totalSessions: udStats.totalQueries, // Use queries as "sessions"
+			totalMessages: 0, // Will be updated by message counting
+			totalInputTokens: udStats.totalInputTokens,
+			totalOutputTokens: udStats.totalOutputTokens,
+			totalCacheReadTokens: udStats.totalCacheReadTokens,
+			totalCacheCreationTokens: udStats.totalCacheCreationTokens,
+			totalCostUsd: udStats.maestroCostUsd,
+			anthropicCostUsd: udStats.anthropicCostUsd,
+			savingsUsd: udStats.savingsUsd,
+			hasCostData: udStats.maestroCostUsd > 0,
+			totalSizeBytes: 0,
+			isComplete: false,
+			messagesFetchInProgress: true,
+			byProvider: {
+				'claude-code': {
+					sessions: udStats.totalQueries,
+					messages: 0,
+					inputTokens: udStats.totalInputTokens,
+					outputTokens: udStats.totalOutputTokens,
+					costUsd: udStats.maestroCostUsd,
+					hasCostData: udStats.maestroCostUsd > 0,
+				},
+			},
+			byRemote: undefined,
+			remoteFetchInProgress: false,
+		};
 
-				return result;
-			};
+		// Send initial update with UD data
+		if (mainWindow && !mainWindow.isDestroyed()) {
+			mainWindow.webContents.send('agentSessions:globalStatsUpdate', result);
+		}
 
-			// Helper to send progressive updates
-			const sendUpdate = (cache: GlobalStatsCache, isComplete: boolean) => {
+		// Count messages async (local + remote)
+		(async () => {
+			try {
+				// Count local messages first
+				const localMessages = await countLocalClaudeMessages();
+				result.totalMessages = localMessages;
+				result.byProvider['claude-code'].messages = localMessages;
+
+				// Send update with local messages
 				if (mainWindow && !mainWindow.isDestroyed()) {
-					const stats = buildResultFromCache(cache, isComplete);
-					mainWindow.webContents.send('agentSessions:globalStatsUpdate', stats);
+					mainWindow.webContents.send('agentSessions:globalStatsUpdate', { ...result });
 				}
-			};
 
-			// Load existing cache or create new one
-			let cache = await loadGlobalStatsCache();
-			if (!cache) {
-				cache = {
-					version: GLOBAL_STATS_CACHE_VERSION,
-					lastUpdated: Date.now(),
-					providers: {},
-				};
-			}
+				// Count messages on SSH remotes
+				const settingsStore = agentSessionsSettingsStore;
+				const sshRemotes = (settingsStore?.get('sshRemotes', []) as SshRemoteConfig[]) || [];
+				const enabledRemotes = sshRemotes.filter((r) => r.enabled);
 
-			// Ensure provider entries exist
-			if (!cache.providers['claude-code']) {
-				cache.providers['claude-code'] = { sessions: {} };
-			}
-			if (!cache.providers['codex']) {
-				cache.providers['codex'] = { sessions: {} };
-			}
+				if (enabledRemotes.length > 0) {
+					const sshStatsTimeoutMs = settingsStore?.get('sshStatsTimeoutMs', 60000) ?? 60000;
 
-			// Discover all session files
-			logger.info('Discovering session files for global stats', LOG_CONTEXT);
-			const [claudeFiles, codexFiles] = await Promise.all([
-				discoverClaudeSessionFiles(),
-				discoverCodexSessionFiles(),
-			]);
+					for (const remote of enabledRemotes) {
+						try {
+							logger.info(`Counting messages on SSH remote: ${remote.name}`, LOG_CONTEXT);
+							const remoteMessages = await countRemoteClaudeMessagesForHost(
+								remote,
+								sshStatsTimeoutMs
+							);
+							result.totalMessages += remoteMessages;
+							result.byProvider['claude-code'].messages = result.totalMessages;
 
-			// Build sets of current session keys for archive detection
-			const currentClaudeKeys = new Set(claudeFiles.map((f) => f.sessionKey));
-			const currentCodexKeys = new Set(codexFiles.map((f) => f.sessionKey));
-
-			// Mark deleted sessions as archived (preserve stats for lifetime cost tracking)
-			for (const key of Object.keys(cache.providers['claude-code'].sessions)) {
-				const session = cache.providers['claude-code'].sessions[key];
-				if (!currentClaudeKeys.has(key)) {
-					// Source file deleted - mark as archived to preserve stats
-					session.archived = true;
-				} else if (session.archived) {
-					// Source file reappeared - mark as active (will be re-parsed below)
-					session.archived = false;
-				}
-			}
-			for (const key of Object.keys(cache.providers['codex'].sessions)) {
-				const session = cache.providers['codex'].sessions[key];
-				if (!currentCodexKeys.has(key)) {
-					// Source file deleted - mark as archived to preserve stats
-					session.archived = true;
-				} else if (session.archived) {
-					// Source file reappeared - mark as active (will be re-parsed below)
-					session.archived = false;
-				}
-			}
-
-			// Find sessions that need processing (new or modified)
-			const claudeToProcess = claudeFiles.filter((f) => {
-				const cached = cache!.providers['claude-code'].sessions[f.sessionKey];
-				return !cached || cached.fileMtimeMs < f.mtimeMs;
-			});
-			const codexToProcess = codexFiles.filter((f) => {
-				const cached = cache!.providers['codex'].sessions[f.sessionKey];
-				return !cached || cached.fileMtimeMs < f.mtimeMs;
-			});
-
-			const totalToProcess = claudeToProcess.length + codexToProcess.length;
-			const cachedCount = claudeFiles.length + codexFiles.length - totalToProcess;
-
-			logger.info(
-				`Global stats: ${totalToProcess} to process (${claudeToProcess.length} Claude, ${codexToProcess.length} Codex), ${cachedCount} cached`,
-				LOG_CONTEXT
-			);
-
-			// Send initial update with cached data
-			sendUpdate(cache, totalToProcess === 0);
-
-			// Process Claude sessions incrementally
-			let processedCount = 0;
-			for (const file of claudeToProcess) {
-				try {
-					const content = await fs.readFile(file.filePath, 'utf-8');
-					const fileStat = await fs.stat(file.filePath);
-					const stats = parseClaudeSessionContent(content, fileStat.size);
-
-					cache.providers['claude-code'].sessions[file.sessionKey] = {
-						...stats,
-						fileMtimeMs: file.mtimeMs,
-						archived: false,
-					};
-
-					processedCount++;
-
-					// Send streaming update every 10 sessions or at end
-					if (processedCount % 10 === 0 || processedCount === claudeToProcess.length) {
-						sendUpdate(cache, false);
+							// Send streaming update after each remote
+							if (mainWindow && !mainWindow.isDestroyed()) {
+								mainWindow.webContents.send('agentSessions:globalStatsUpdate', { ...result });
+							}
+						} catch (error) {
+							logger.warn(`Failed to count messages on ${remote.name}`, LOG_CONTEXT, { error });
+						}
 					}
-				} catch (error) {
-					logger.warn(`Failed to parse Claude session: ${file.sessionKey}`, LOG_CONTEXT, { error });
+				}
+
+				// Mark as complete
+				result.isComplete = true;
+				result.messagesFetchInProgress = false;
+
+				logger.info(
+					`Global stats complete: ${result.totalSessions} queries, ${result.totalMessages} messages, $${result.totalCostUsd.toFixed(2)}`,
+					LOG_CONTEXT
+				);
+
+				// Send final update
+				if (mainWindow && !mainWindow.isDestroyed()) {
+					mainWindow.webContents.send('agentSessions:globalStatsUpdate', result);
+				}
+			} catch (error) {
+				logger.error('Failed to count messages', LOG_CONTEXT, { error });
+				result.isComplete = true;
+				result.messagesFetchInProgress = false;
+				if (mainWindow && !mainWindow.isDestroyed()) {
+					mainWindow.webContents.send('agentSessions:globalStatsUpdate', result);
 				}
 			}
+		})();
 
-			// Process Codex sessions incrementally
-			for (const file of codexToProcess) {
-				try {
-					const content = await fs.readFile(file.filePath, 'utf-8');
-					const fileStat = await fs.stat(file.filePath);
-					const stats = parseCodexSessionContent(content, fileStat.size);
-
-					cache.providers['codex'].sessions[file.sessionKey] = {
-						...stats,
-						fileMtimeMs: file.mtimeMs,
-						archived: false,
-					};
-
-					processedCount++;
-
-					// Send streaming update every 10 sessions or at end
-					if (processedCount % 10 === 0 || processedCount === totalToProcess) {
-						sendUpdate(cache, false);
-					}
-				} catch (error) {
-					logger.warn(`Failed to parse Codex session: ${file.sessionKey}`, LOG_CONTEXT, { error });
-				}
-			}
-
-			// Update cache timestamp and save
-			cache.lastUpdated = Date.now();
-			await saveGlobalStatsCache(cache);
-
-			// Build final result
-			const result = buildResultFromCache(cache, true);
-
-			logger.info(
-				`Global stats complete: ${result.totalSessions} sessions, ${result.totalMessages} messages, $${result.totalCostUsd.toFixed(2)} (${totalToProcess} processed, ${cachedCount} cached)`,
-				LOG_CONTEXT
-			);
-
-			// Send final update
-			sendUpdate(cache, true);
-
-			return result;
-		})
-	);
+		return result;
+	});
 }

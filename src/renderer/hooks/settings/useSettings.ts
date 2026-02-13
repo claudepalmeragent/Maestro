@@ -337,6 +337,14 @@ export interface UseSettingsReturn {
 	// Synopsis settings (for interactive sessions)
 	synopsisEnabled: boolean;
 	setSynopsisEnabled: (value: boolean) => void;
+
+	// SSH Stats timeout setting
+	sshStatsTimeoutMs: number;
+	setSshStatsTimeoutMs: (value: number) => void;
+
+	// Global Stats auto-refresh interval setting
+	globalStatsRefreshIntervalMs: number;
+	setGlobalStatsRefreshIntervalMs: (value: number) => void;
 }
 
 export function useSettings(): UseSettingsReturn {
@@ -482,6 +490,12 @@ export function useSettings(): UseSettingsReturn {
 
 	// Synopsis settings (for interactive sessions)
 	const [synopsisEnabled, setSynopsisEnabledState] = useState(true); // Default: enabled
+
+	// SSH Stats timeout setting
+	const [sshStatsTimeoutMs, setSshStatsTimeoutMsState] = useState(30000); // Default: 30 seconds
+
+	// Global Stats auto-refresh interval setting
+	const [globalStatsRefreshIntervalMs, setGlobalStatsRefreshIntervalMsState] = useState(900000); // Default: 15 minutes
 
 	// Wrapper functions that persist to electron-store
 	// PERF: All wrapped in useCallback to prevent re-renders
@@ -1275,6 +1289,18 @@ export function useSettings(): UseSettingsReturn {
 		window.maestro.settings.set('synopsisEnabled', value);
 	}, []);
 
+	// SSH Stats timeout for remote fetching
+	const setSshStatsTimeoutMs = useCallback((value: number) => {
+		setSshStatsTimeoutMsState(value);
+		window.maestro.settings.set('sshStatsTimeoutMs', value);
+	}, []);
+
+	// Global Stats auto-refresh interval
+	const setGlobalStatsRefreshIntervalMs = useCallback((value: number) => {
+		setGlobalStatsRefreshIntervalMsState(value);
+		window.maestro.settings.set('globalStatsRefreshIntervalMs', value);
+	}, []);
+
 	// Load settings from electron-store on mount
 	// PERF: Use batch loading to reduce IPC calls from ~60 to 3
 	useEffect(() => {
@@ -1346,6 +1372,8 @@ export function useSettings(): UseSettingsReturn {
 				const savedDisableGpuAcceleration = allSettings['disableGpuAcceleration'];
 				const savedDisableConfetti = allSettings['disableConfetti'];
 				const savedSynopsisEnabled = allSettings['synopsisEnabled'];
+				const savedSshStatsTimeoutMs = allSettings['sshStatsTimeoutMs'];
+				const savedGlobalStatsRefreshIntervalMs = allSettings['globalStatsRefreshIntervalMs'];
 
 				if (savedEnterToSendAI !== undefined) setEnterToSendAIState(savedEnterToSendAI as boolean);
 				if (savedEnterToSendTerminal !== undefined)
@@ -1683,6 +1711,16 @@ export function useSettings(): UseSettingsReturn {
 				if (savedSynopsisEnabled !== undefined) {
 					setSynopsisEnabledState(savedSynopsisEnabled as boolean);
 				}
+
+				// SSH Stats timeout
+				if (savedSshStatsTimeoutMs !== undefined) {
+					setSshStatsTimeoutMsState(savedSshStatsTimeoutMs as number);
+				}
+
+				// Global Stats auto-refresh interval
+				if (savedGlobalStatsRefreshIntervalMs !== undefined) {
+					setGlobalStatsRefreshIntervalMsState(savedGlobalStatsRefreshIntervalMs as number);
+				}
 			} catch (error) {
 				console.error('[Settings] Failed to load settings:', error);
 			} finally {
@@ -1840,6 +1878,10 @@ export function useSettings(): UseSettingsReturn {
 			setDisableConfetti,
 			synopsisEnabled,
 			setSynopsisEnabled,
+			sshStatsTimeoutMs,
+			setSshStatsTimeoutMs,
+			globalStatsRefreshIntervalMs,
+			setGlobalStatsRefreshIntervalMs,
 		}),
 		[
 			// State values
@@ -1978,6 +2020,10 @@ export function useSettings(): UseSettingsReturn {
 			setDisableConfetti,
 			synopsisEnabled,
 			setSynopsisEnabled,
+			sshStatsTimeoutMs,
+			setSshStatsTimeoutMs,
+			globalStatsRefreshIntervalMs,
+			setGlobalStatsRefreshIntervalMs,
 		]
 	);
 }
