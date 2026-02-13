@@ -80,13 +80,14 @@ const prepareSessionForPersistence = (session: Session): Session => {
 	}));
 
 	// Return session without runtime-only fields
-	 
+
 	const {
 		closedTabHistory,
 		agentError,
 		agentErrorPaused,
 		agentErrorTabId,
 		sshConnectionFailed,
+		synopsisInProgress, // Runtime-only, don't persist
 		...sessionWithoutRuntimeFields
 	} = session;
 
