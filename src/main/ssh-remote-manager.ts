@@ -68,9 +68,14 @@ export class SshRemoteManager {
 		ConnectTimeout: '10', // Connection timeout in seconds
 		ClearAllForwardings: 'yes', // Disable port forwarding from SSH config (avoids "Address already in use" errors)
 		RequestTTY: 'no', // Don't request a TTY for command execution (avoids shell rc issues)
-		ControlMaster: 'no', // Disable connection multiplexing to prevent "UNKNOWN port -1" errors when multiple agents connect to same server
-		ControlPath: 'none', // Ensure no ControlPath is used from ~/.ssh/config
-		ControlPersist: 'no', // Don't persist control connections
+		// Connection multiplexing - share a single TCP connection per host
+		// Uses %C (hash of connection params) to create unique socket per user@host:port
+		ControlMaster: 'auto', // Automatically create/reuse master connection
+		ControlPath: '/tmp/maestro-ssh-%C', // Socket path (%C = hash for uniqueness)
+		ControlPersist: '300', // Keep connection alive 5 minutes after last use
+		// Keep-alive settings to detect dead connections proactively
+		ServerAliveInterval: '30', // Send keep-alive every 30 seconds
+		ServerAliveCountMax: '3', // Disconnect after 3 missed responses (90s total)
 	};
 
 	/**

@@ -9,6 +9,7 @@ import type { ProcessManager } from '../process-manager';
 import type { WebServer } from '../web-server';
 import { tunnelManager as tunnelManagerInstance } from '../tunnel-manager';
 import type { HistoryManager } from '../history-manager';
+import { closeSshConnections } from '../utils/ssh-socket-cleanup';
 
 /** Dependencies for quit handler */
 export interface QuitHandlerDependencies {
@@ -189,6 +190,12 @@ export function createQuitHandler(deps: QuitHandlerDependencies): QuitHandler {
 		logger.info('Stopping web server', 'Shutdown');
 		webServer?.stop().catch((err: unknown) => {
 			logger.error(`Error stopping web server: ${err}`, 'Shutdown');
+		});
+
+		// Gracefully close SSH ControlMaster connections (fire and forget)
+		logger.info('Closing SSH connections', 'Shutdown');
+		closeSshConnections().catch((err: unknown) => {
+			logger.error(`Error closing SSH connections: ${err}`, 'Shutdown');
 		});
 
 		// Close stats database
