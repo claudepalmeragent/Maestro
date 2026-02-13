@@ -333,6 +333,10 @@ export interface UseSettingsReturn {
 	setDisableGpuAcceleration: (value: boolean) => void;
 	disableConfetti: boolean;
 	setDisableConfetti: (value: boolean) => void;
+
+	// Synopsis settings (for interactive sessions)
+	synopsisEnabled: boolean;
+	setSynopsisEnabled: (value: boolean) => void;
 }
 
 export function useSettings(): UseSettingsReturn {
@@ -475,6 +479,9 @@ export function useSettings(): UseSettingsReturn {
 	// Rendering settings
 	const [disableGpuAcceleration, setDisableGpuAccelerationState] = useState(false); // Default: disabled (GPU enabled)
 	const [disableConfetti, setDisableConfettiState] = useState(false); // Default: disabled (confetti enabled)
+
+	// Synopsis settings (for interactive sessions)
+	const [synopsisEnabled, setSynopsisEnabledState] = useState(true); // Default: enabled
 
 	// Wrapper functions that persist to electron-store
 	// PERF: All wrapped in useCallback to prevent re-renders
@@ -1262,6 +1269,12 @@ export function useSettings(): UseSettingsReturn {
 		window.maestro.settings.set('disableConfetti', value);
 	}, []);
 
+	// Synopsis toggle for interactive sessions
+	const setSynopsisEnabled = useCallback((value: boolean) => {
+		setSynopsisEnabledState(value);
+		window.maestro.settings.set('synopsisEnabled', value);
+	}, []);
+
 	// Load settings from electron-store on mount
 	// PERF: Use batch loading to reduce IPC calls from ~60 to 3
 	useEffect(() => {
@@ -1332,6 +1345,7 @@ export function useSettings(): UseSettingsReturn {
 				const savedPreventSleepEnabled = allSettings['preventSleepEnabled'];
 				const savedDisableGpuAcceleration = allSettings['disableGpuAcceleration'];
 				const savedDisableConfetti = allSettings['disableConfetti'];
+				const savedSynopsisEnabled = allSettings['synopsisEnabled'];
 
 				if (savedEnterToSendAI !== undefined) setEnterToSendAIState(savedEnterToSendAI as boolean);
 				if (savedEnterToSendTerminal !== undefined)
@@ -1664,6 +1678,11 @@ export function useSettings(): UseSettingsReturn {
 				if (savedDisableConfetti !== undefined) {
 					setDisableConfettiState(savedDisableConfetti as boolean);
 				}
+
+				// Synopsis settings (for interactive sessions)
+				if (savedSynopsisEnabled !== undefined) {
+					setSynopsisEnabledState(savedSynopsisEnabled as boolean);
+				}
 			} catch (error) {
 				console.error('[Settings] Failed to load settings:', error);
 			} finally {
@@ -1819,6 +1838,8 @@ export function useSettings(): UseSettingsReturn {
 			setDisableGpuAcceleration,
 			disableConfetti,
 			setDisableConfetti,
+			synopsisEnabled,
+			setSynopsisEnabled,
 		}),
 		[
 			// State values
@@ -1955,6 +1976,8 @@ export function useSettings(): UseSettingsReturn {
 			setDisableGpuAcceleration,
 			disableConfetti,
 			setDisableConfetti,
+			synopsisEnabled,
+			setSynopsisEnabled,
 		]
 	);
 }
