@@ -4,17 +4,13 @@
  * This component provides a UI for:
  * - Configuring scheduled audits (daily, weekly, monthly)
  * - Running manual audits for a date range
- * - Viewing audit history
- *
- * Usage:
- * ```tsx
- * <AuditsSettingsTab theme={theme} />
- * ```
+ * - Viewing audit history with detail modal
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import type { Theme } from '../../types';
-import { AuditHistoryTable } from './AuditHistoryTable';
+import { AuditHistoryTable, type ExtendedAuditResult } from './AuditHistoryTable';
+import { AuditResultModal } from '../AuditResultModal';
 import { ReconstructionPanel } from '../UsageDashboard/ReconstructionPanel';
 
 /**
@@ -50,6 +46,8 @@ export function AuditsSettingsTab({ theme }: AuditsSettingsTabProps): React.Reac
 		end: '',
 	});
 	const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
+	const [selectedAudit, setSelectedAudit] = useState<ExtendedAuditResult | null>(null);
+	const [modalOpen, setModalOpen] = useState(false);
 
 	useEffect(() => {
 		loadConfig();
@@ -97,12 +95,34 @@ export function AuditsSettingsTab({ theme }: AuditsSettingsTabProps): React.Reac
 			console.log('Audit result:', result);
 			// Refresh the history table after a successful audit
 			setHistoryRefreshKey((prev) => prev + 1);
+			// Show the result in modal
+			setSelectedAudit(result as ExtendedAuditResult);
+			setModalOpen(true);
 		} catch (error) {
 			console.error('Audit failed:', error);
 		} finally {
 			setAuditRunning(false);
 		}
 	}
+
+	const handleSelectAudit = useCallback((audit: ExtendedAuditResult) => {
+		setSelectedAudit(audit);
+		setModalOpen(true);
+	}, []);
+
+	const handleCloseModal = useCallback(() => {
+		setModalOpen(false);
+	}, []);
+
+	const handleMarkReviewed = useCallback(async (selectedIds: string[]) => {
+		try {
+			await window.maestro.audit.autoCorrect(selectedIds);
+			// Refresh history after marking
+			setHistoryRefreshKey((prev) => prev + 1);
+		} catch (error) {
+			console.error('Failed to mark entries as reviewed:', error);
+		}
+	}, []);
 
 	if (loading) {
 		return (
@@ -276,13 +296,29 @@ export function AuditsSettingsTab({ theme }: AuditsSettingsTabProps): React.Reac
 				<h3 className="font-medium mb-4" style={{ color: theme.colors.textMain }}>
 					Audit History
 				</h3>
-				<AuditHistoryTable theme={theme} key={historyRefreshKey} />
+				<p className="text-sm mb-4" style={{ color: theme.colors.textDim }}>
+					Click on a row to view detailed breakdown.
+				</p>
+				<AuditHistoryTable
+					theme={theme}
+					key={historyRefreshKey}
+					onSelectAudit={handleSelectAudit}
+				/>
 			</section>
 
 			{/* Historical Data Reconstruction Section */}
 			<section className="pt-4 border-t" style={{ borderColor: theme.colors.border }}>
 				<ReconstructionPanel theme={theme} />
 			</section>
+
+			{/* Audit Result Modal */}
+			<AuditResultModal
+				isOpen={modalOpen}
+				onClose={handleCloseModal}
+				result={selectedAudit}
+				onMarkReviewed={handleMarkReviewed}
+				theme={theme}
+			/>
 		</div>
 	);
 }

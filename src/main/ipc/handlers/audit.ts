@@ -16,8 +16,8 @@ import { withIpcErrorLogging, CreateHandlerOptions } from '../../utils/ipcHandle
 import {
 	getAuditHistory,
 	getAuditSnapshotsByRange,
-	AuditResult,
 	AuditConfig,
+	ExtendedAuditResult,
 } from '../../services/anthropic-audit-service';
 import {
 	getAuditConfig,
@@ -71,7 +71,7 @@ export function registerAuditHandlers(deps: AuditHandlerDependencies): void {
 		'audit:run',
 		withIpcErrorLogging(
 			handlerOpts('runAudit'),
-			async (startDate: string, endDate: string): Promise<AuditResult> => {
+			async (startDate: string, endDate: string): Promise<ExtendedAuditResult> => {
 				logger.info(`Running audit for ${startDate} to ${endDate}`, LOG_CONTEXT);
 				const result = await runManualAudit(startDate, endDate);
 				broadcastAuditUpdate(getMainWindow);
@@ -85,7 +85,7 @@ export function registerAuditHandlers(deps: AuditHandlerDependencies): void {
 		'audit:getHistory',
 		withIpcErrorLogging(
 			handlerOpts('getHistory'),
-			async (limit?: number): Promise<AuditResult[]> => {
+			async (limit?: number): Promise<ExtendedAuditResult[]> => {
 				logger.debug(`Getting audit history (limit: ${limit || 10})`, LOG_CONTEXT);
 				return await getAuditHistory(limit);
 			}
@@ -97,7 +97,7 @@ export function registerAuditHandlers(deps: AuditHandlerDependencies): void {
 		'audit:getSnapshotsByRange',
 		withIpcErrorLogging(
 			handlerOpts('getSnapshotsByRange'),
-			async (startDate: string, endDate: string): Promise<AuditResult[]> => {
+			async (startDate: string, endDate: string): Promise<ExtendedAuditResult[]> => {
 				logger.debug(`Getting audit snapshots for ${startDate} to ${endDate}`, LOG_CONTEXT);
 				return await getAuditSnapshotsByRange(startDate, endDate);
 			}

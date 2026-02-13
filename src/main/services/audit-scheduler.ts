@@ -9,7 +9,7 @@ import {
 	performAudit,
 	saveAuditSnapshot,
 	AuditConfig,
-	AuditResult,
+	ExtendedAuditResult,
 } from './anthropic-audit-service';
 import { getStatsDB } from '../stats';
 import { logger } from '../utils/logger';
@@ -214,11 +214,11 @@ function scheduleMonthlyAudit(): void {
  * Run a scheduled audit.
  *
  * @param type - The type of audit to run
- * @returns The audit result
+ * @returns The extended audit result
  */
 async function runScheduledAudit(
 	type: 'daily' | 'weekly' | 'monthly'
-): Promise<AuditResult | null> {
+): Promise<ExtendedAuditResult | null> {
 	logger.info(`Running ${type} audit`, LOG_CONTEXT);
 
 	const endDate = new Date().toISOString().split('T')[0];
@@ -358,9 +358,12 @@ export async function getScheduleStatus(): Promise<
  *
  * @param startDate - Start date (YYYY-MM-DD)
  * @param endDate - End date (YYYY-MM-DD)
- * @returns The audit result
+ * @returns The extended audit result
  */
-export async function runManualAudit(startDate: string, endDate: string): Promise<AuditResult> {
+export async function runManualAudit(
+	startDate: string,
+	endDate: string
+): Promise<ExtendedAuditResult> {
 	logger.info(`Running manual audit from ${startDate} to ${endDate}`, LOG_CONTEXT);
 
 	const result = await performAudit(startDate, endDate);
