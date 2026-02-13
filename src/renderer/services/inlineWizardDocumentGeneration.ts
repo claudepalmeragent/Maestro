@@ -848,7 +848,7 @@ export async function generateInlineDocuments(
 
 				// Set up exit listener
 				exitListenerCleanup = window.maestro.process.onExit(
-					(receivedSessionId: string, code: number) => {
+					(receivedSessionId: string, code: number, _resultEmitted: boolean) => {
 						if (receivedSessionId === sessionId) {
 							clearTimeout(timeoutId);
 							cleanupAll();

@@ -856,69 +856,71 @@ class PhaseGenerator {
 			});
 
 			// Set up exit listener
-			this.exitListenerCleanup = window.maestro.process.onExit((sid: string, code: number) => {
-				if (sid === sessionId) {
-					clearTimeout(timeoutId);
-					this.cleanup();
-					if (fileWatcherCleanup) {
-						fileWatcherCleanup();
-					}
+			this.exitListenerCleanup = window.maestro.process.onExit(
+				(sid: string, code: number, _resultEmitted: boolean) => {
+					if (sid === sessionId) {
+						clearTimeout(timeoutId);
+						this.cleanup();
+						if (fileWatcherCleanup) {
+							fileWatcherCleanup();
+						}
 
-					const elapsed = Date.now() - startTime;
-					console.log('[PhaseGenerator] Agent exited:', {
-						sessionId,
-						exitCode: code,
-						elapsedMs: elapsed,
-						totalChunks: dataChunks,
-						bufferSize: this.outputBuffer.length,
-					});
-
-					wizardDebugLogger.log('exit', `Agent exited with code ${code}`, {
-						exitCode: code,
-						elapsedMs: elapsed,
-						totalChunks: dataChunks,
-						bufferSize: this.outputBuffer.length,
-					});
-
-					if (code === 0) {
-						// Try to extract result from stream-json format
-						const extracted = extractResultFromStreamJson(this.outputBuffer);
-						const output = extracted || this.outputBuffer;
-
-						console.log('[PhaseGenerator] Extraction result:', {
-							hadExtraction: !!extracted,
-							outputLength: output.length,
-						});
-
-						wizardDebugLogger.log('info', 'Agent completed successfully', {
-							hadExtraction: !!extracted,
-							outputLength: output.length,
-						});
-
-						resolve({
-							success: true,
-							rawOutput: output,
-						});
-					} else {
-						console.error('[PhaseGenerator] Agent failed with code:', code);
-						console.error(
-							'[PhaseGenerator] Output buffer preview:',
-							this.outputBuffer.slice(0, 500)
-						);
-
-						wizardDebugLogger.log('error', `Agent failed with exit code ${code}`, {
+						const elapsed = Date.now() - startTime;
+						console.log('[PhaseGenerator] Agent exited:', {
+							sessionId,
 							exitCode: code,
-							bufferPreview: this.outputBuffer.slice(0, 1000),
+							elapsedMs: elapsed,
+							totalChunks: dataChunks,
+							bufferSize: this.outputBuffer.length,
 						});
 
-						resolve({
-							success: false,
-							error: `Agent exited with code ${code}`,
-							rawOutput: this.outputBuffer,
+						wizardDebugLogger.log('exit', `Agent exited with code ${code}`, {
+							exitCode: code,
+							elapsedMs: elapsed,
+							totalChunks: dataChunks,
+							bufferSize: this.outputBuffer.length,
 						});
+
+						if (code === 0) {
+							// Try to extract result from stream-json format
+							const extracted = extractResultFromStreamJson(this.outputBuffer);
+							const output = extracted || this.outputBuffer;
+
+							console.log('[PhaseGenerator] Extraction result:', {
+								hadExtraction: !!extracted,
+								outputLength: output.length,
+							});
+
+							wizardDebugLogger.log('info', 'Agent completed successfully', {
+								hadExtraction: !!extracted,
+								outputLength: output.length,
+							});
+
+							resolve({
+								success: true,
+								rawOutput: output,
+							});
+						} else {
+							console.error('[PhaseGenerator] Agent failed with code:', code);
+							console.error(
+								'[PhaseGenerator] Output buffer preview:',
+								this.outputBuffer.slice(0, 500)
+							);
+
+							wizardDebugLogger.log('error', `Agent failed with exit code ${code}`, {
+								exitCode: code,
+								bufferPreview: this.outputBuffer.slice(0, 1000),
+							});
+
+							resolve({
+								success: false,
+								error: `Agent exited with code ${code}`,
+								rawOutput: this.outputBuffer,
+							});
+						}
 					}
 				}
-			});
+			);
 
 			// Set up file system watcher for Auto Run Docs folder (including subfolder if specified)
 			// This detects when the agent creates files and resets the timeout

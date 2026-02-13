@@ -203,9 +203,15 @@ export function createProcessApi() {
 
 		/**
 		 * Subscribe to process exit events
+		 * @param callback - Called with sessionId, exit code, and resultEmitted flag
+		 *   resultEmitted indicates whether a result message was sent before exit
+		 *   (used for synopsis timing - only trigger synopsis if result was emitted)
 		 */
-		onExit: (callback: (sessionId: string, code: number) => void): (() => void) => {
-			const handler = (_: unknown, sessionId: string, code: number) => callback(sessionId, code);
+		onExit: (
+			callback: (sessionId: string, code: number, resultEmitted: boolean) => void
+		): (() => void) => {
+			const handler = (_: unknown, sessionId: string, code: number, resultEmitted: boolean) =>
+				callback(sessionId, code, resultEmitted);
 			ipcRenderer.on('process:exit', handler);
 			return () => ipcRenderer.removeListener('process:exit', handler);
 		},

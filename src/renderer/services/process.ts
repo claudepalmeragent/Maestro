@@ -13,7 +13,7 @@ export interface ProcessDataHandler {
 }
 
 export interface ProcessExitHandler {
-	(sessionId: string, code: number): void;
+	(sessionId: string, code: number, resultEmitted: boolean): void;
 }
 
 export interface ProcessSessionIdHandler {

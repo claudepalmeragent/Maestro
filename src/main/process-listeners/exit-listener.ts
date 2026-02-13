@@ -54,7 +54,7 @@ export function setupExitListener(
 	} = deps;
 	const { REGEX_MODERATOR_SESSION } = patterns;
 
-	processManager.on('exit', (sessionId: string, code: number) => {
+	processManager.on('exit', (sessionId: string, code: number, resultEmitted?: boolean) => {
 		// Remove power block reason for this session
 		// This allows system sleep when no AI sessions are active
 		powerManager.removeBlockReason(`session:${sessionId}`);
@@ -409,7 +409,7 @@ export function setupExitListener(
 			return;
 		}
 
-		safeSend('process:exit', sessionId, code);
+		safeSend('process:exit', sessionId, code, resultEmitted ?? false);
 
 		// Broadcast exit to web clients
 		const webServer = getWebServer();

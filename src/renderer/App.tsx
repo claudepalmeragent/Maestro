@@ -1870,11 +1870,12 @@ function MaestroConsoleInner() {
 
 		// Handle process exit
 		const unsubscribeExit = window.maestro.process.onExit(
-			async (sessionId: string, code: number) => {
+			async (sessionId: string, code: number, resultEmitted: boolean) => {
 				// Log all exit events to help diagnose thinking pill disappearing prematurely
 				console.log('[onExit] Process exit event received:', {
 					rawSessionId: sessionId,
 					exitCode: code,
+					resultEmitted,
 					timestamp: new Date().toISOString(),
 				});
 
@@ -1977,6 +1978,11 @@ function MaestroConsoleInner() {
 						customEnvVars?: Record<string, string>;
 						customModel?: string;
 						customContextWindow?: number;
+						sessionSshRemoteConfig?: {
+							enabled: boolean;
+							remoteId: string | null;
+							workingDirOverride?: string;
+						};
 					};
 				} | null = null;
 
@@ -2123,7 +2129,12 @@ function MaestroConsoleInner() {
 						// 1. Tab has saveToHistory enabled, OR
 						// 2. This was a custom AI command (pendingAICommandForSynopsis)
 						// Only trigger when queue is empty (final task complete) and we have a agentSessionId
+						// IMPORTANT: Only trigger if resultEmitted is true - this means Claude sent a
+						// complete result message before exiting. If resultEmitted is false, the process
+						// exited prematurely (e.g., during thinking/streaming over SSH) and synopsis
+						// would interfere with the ongoing conversation.
 						const shouldSynopsis =
+							resultEmitted &&
 							currentSession.executionQueue.length === 0 &&
 							(completedTab?.agentSessionId || currentSession.agentSessionId) &&
 							(completedTab?.saveToHistory || currentSession.pendingAICommandForSynopsis);
@@ -2146,6 +2157,7 @@ function MaestroConsoleInner() {
 									customEnvVars: currentSession.customEnvVars,
 									customModel: currentSession.customModel,
 									customContextWindow: currentSession.customContextWindow,
+									sessionSshRemoteConfig: currentSession.sessionSshRemoteConfig,
 								},
 							};
 						}
@@ -2522,6 +2534,17 @@ function MaestroConsoleInner() {
 					const startTime = Date.now();
 					const synopsisTime = Date.now(); // Capture time for updating lastSynopsisTime
 
+					// For SSH sessions, set synopsisInProgress flag to prevent message hijacking
+					// This causes new messages to be queued until synopsis completes
+					const isSSHSession = !!synopsisData.sessionConfig?.sessionSshRemoteConfig?.enabled;
+					if (isSSHSession) {
+						setSessions((prev) =>
+							prev.map((s) =>
+								s.id === synopsisData!.sessionId ? { ...s, synopsisInProgress: true } : s
+							)
+						);
+					}
+
 					spawnBackgroundSynopsisRef
 						.current(
 							synopsisData.sessionId,
@@ -2533,6 +2556,35 @@ function MaestroConsoleInner() {
 						)
 						.then((result) => {
 							const duration = Date.now() - startTime;
+
+							// UNCONDITIONALLY clear synopsisInProgress flag for SSH sessions
+							// This MUST happen regardless of result.success because for SSH,
+							// the synopsis response is hijacked by the chat and result.response is empty
+							if (isSSHSession) {
+								setSessions((prev) =>
+									prev.map((s) =>
+										s.id === synopsisData!.sessionId ? { ...s, synopsisInProgress: false } : s
+									)
+								);
+
+								// Process any queued messages that were held during synopsis
+								// Use setTimeout to allow the state update to propagate first
+								setTimeout(() => {
+									const freshSession = sessionsRef.current.find(
+										(s) => s.id === synopsisData!.sessionId
+									);
+									if (
+										freshSession &&
+										freshSession.executionQueue.length > 0 &&
+										freshSession.state === 'idle' &&
+										processQueuedItemRef.current
+									) {
+										const [nextItem] = freshSession.executionQueue;
+										processQueuedItemRef.current(synopsisData!.sessionId, nextItem);
+									}
+								}, 50);
+							}
+
 							if (result.success && result.response && addHistoryEntryRef.current) {
 								// IMPORTANT: Pass explicit sessionId and projectPath to prevent cross-agent bleed
 								// when user switches agents while synopsis is running in background
@@ -2590,6 +2642,30 @@ function MaestroConsoleInner() {
 						})
 						.catch((err) => {
 							console.error('[onProcessExit] Synopsis failed:', err);
+							// Clear synopsisInProgress flag on error (for SSH sessions)
+							if (isSSHSession) {
+								setSessions((prev) =>
+									prev.map((s) =>
+										s.id === synopsisData!.sessionId ? { ...s, synopsisInProgress: false } : s
+									)
+								);
+
+								// Process any queued messages that were held during synopsis
+								setTimeout(() => {
+									const freshSession = sessionsRef.current.find(
+										(s) => s.id === synopsisData!.sessionId
+									);
+									if (
+										freshSession &&
+										freshSession.executionQueue.length > 0 &&
+										freshSession.state === 'idle' &&
+										processQueuedItemRef.current
+									) {
+										const [nextItem] = freshSession.executionQueue;
+										processQueuedItemRef.current(synopsisData!.sessionId, nextItem);
+									}
+								}, 50);
+							}
 						});
 				}
 			}

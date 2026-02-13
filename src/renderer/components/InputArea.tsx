@@ -281,12 +281,15 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 		const readOnly = tabReadOnlyMode && session.inputMode === 'ai';
 		// Check if Auto Run is active - used for yellow border indication (queuing will happen for write messages)
 		const autoRunActive = isAutoModeActive && session.inputMode === 'ai';
-		// Show yellow border when: read-only mode is on OR Auto Run is active (both indicate special input handling)
+		// Check if synopsis is in progress (SSH sessions) - messages will be queued
+		const synopsisActive = session.synopsisInProgress === true && session.inputMode === 'ai';
+		// Show yellow border when: read-only mode is on OR Auto Run is active OR synopsis in progress
+		// (all indicate special input handling where messages may be queued)
 		return {
 			isReadOnlyMode: readOnly,
-			showQueueingBorder: readOnly || autoRunActive,
+			showQueueingBorder: readOnly || autoRunActive || synopsisActive,
 		};
-	}, [tabReadOnlyMode, isAutoModeActive, session.inputMode]);
+	}, [tabReadOnlyMode, isAutoModeActive, session.inputMode, session.synopsisInProgress]);
 
 	// Filter slash commands based on input and current mode
 	const isTerminalMode = session.inputMode === 'terminal';

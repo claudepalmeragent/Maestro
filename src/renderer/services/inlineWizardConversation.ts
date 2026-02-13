@@ -589,7 +589,7 @@ export async function sendWizardMessage(
 
 			// Set up exit listener
 			exitListenerCleanup = window.maestro.process.onExit(
-				(receivedSessionId: string, code: number) => {
+				(receivedSessionId: string, code: number, _resultEmitted: boolean) => {
 					if (receivedSessionId === session.sessionId) {
 						clearTimeout(timeoutId);
 						cleanupListeners();
