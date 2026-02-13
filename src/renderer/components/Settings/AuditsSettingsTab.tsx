@@ -11,7 +11,6 @@ import React, { useState, useEffect, useCallback } from 'react';
 import type { Theme } from '../../types';
 import { AuditHistoryTable, type ExtendedAuditResult } from './AuditHistoryTable';
 import { AuditResultModal } from '../AuditResultModal';
-import { ReconstructionPanel } from '../UsageDashboard/ReconstructionPanel';
 
 /**
  * Audit configuration settings for scheduled audits.
@@ -121,6 +120,20 @@ export function AuditsSettingsTab({ theme }: AuditsSettingsTabProps): React.Reac
 			setHistoryRefreshKey((prev) => prev + 1);
 		} catch (error) {
 			console.error('Failed to mark entries as reviewed:', error);
+		}
+	}, []);
+
+	const handleDeleteAudit = useCallback(async (audit: ExtendedAuditResult) => {
+		const confirmed = window.confirm(
+			`Delete audit from ${audit.period.start} to ${audit.period.end}?\n\nThis cannot be undone.`
+		);
+		if (!confirmed) return;
+
+		try {
+			await window.maestro.audit.delete(audit.generatedAt);
+			setHistoryRefreshKey((prev) => prev + 1);
+		} catch (error) {
+			console.error('Failed to delete audit:', error);
 		}
 	}, []);
 
@@ -303,12 +316,8 @@ export function AuditsSettingsTab({ theme }: AuditsSettingsTabProps): React.Reac
 					theme={theme}
 					key={historyRefreshKey}
 					onSelectAudit={handleSelectAudit}
+					onDeleteAudit={handleDeleteAudit}
 				/>
-			</section>
-
-			{/* Historical Data Reconstruction Section */}
-			<section className="pt-4 border-t" style={{ borderColor: theme.colors.border }}>
-				<ReconstructionPanel theme={theme} />
 			</section>
 
 			{/* Audit Result Modal */}
