@@ -160,6 +160,12 @@ export interface UseSettingsReturn {
 	setCustomThemeColors: (value: ThemeColors) => void;
 	customThemeBaseId: ThemeId;
 	setCustomThemeBaseId: (value: ThemeId) => void;
+	themeMode: 'manual' | 'system';
+	setThemeMode: (value: 'manual' | 'system') => void;
+	lightThemeId: ThemeId;
+	setLightThemeId: (value: ThemeId) => void;
+	darkThemeId: ThemeId;
+	setDarkThemeId: (value: ThemeId) => void;
 	enterToSendAI: boolean;
 	setEnterToSendAI: (value: boolean) => void;
 	enterToSendTerminal: boolean;
@@ -170,6 +176,10 @@ export interface UseSettingsReturn {
 	// Default thinking toggle
 	defaultShowThinking: boolean;
 	setDefaultShowThinking: (value: boolean) => void;
+
+	// Group Chat default thinking toggle (separate from AI tab thinking)
+	groupChatDefaultShowThinking: boolean;
+	setGroupChatDefaultShowThinking: (value: boolean) => void;
 	leftSidebarWidth: number;
 	rightPanelWidth: number;
 	markdownEditMode: boolean;
@@ -375,10 +385,14 @@ export function useSettings(): UseSettingsReturn {
 		DEFAULT_CUSTOM_THEME_COLORS
 	);
 	const [customThemeBaseId, setCustomThemeBaseIdState] = useState<ThemeId>('dracula');
+	const [themeMode, setThemeModeState] = useState<'manual' | 'system'>('manual');
+	const [lightThemeId, setLightThemeIdState] = useState<ThemeId>('github-light');
+	const [darkThemeId, setDarkThemeIdState] = useState<ThemeId>('dracula');
 	const [enterToSendAI, setEnterToSendAIState] = useState(false); // AI mode defaults to Command+Enter
 	const [enterToSendTerminal, setEnterToSendTerminalState] = useState(true); // Terminal defaults to Enter
 	const [defaultSaveToHistory, setDefaultSaveToHistoryState] = useState(true); // History toggle defaults to on
 	const [defaultShowThinking, setDefaultShowThinkingState] = useState(false); // Thinking toggle defaults to off
+	const [groupChatDefaultShowThinking, setGroupChatDefaultShowThinkingState] = useState(false); // Group Chat thinking defaults to off
 	const [leftSidebarWidth, setLeftSidebarWidthState] = useState(256);
 	const [rightPanelWidth, setRightPanelWidthState] = useState(384);
 	const [markdownEditMode, setMarkdownEditModeState] = useState(false);
@@ -564,6 +578,21 @@ export function useSettings(): UseSettingsReturn {
 		window.maestro.settings.set('customThemeBaseId', value);
 	}, []);
 
+	const setThemeMode = useCallback((value: 'manual' | 'system') => {
+		setThemeModeState(value);
+		window.maestro.settings.set('themeMode', value);
+	}, []);
+
+	const setLightThemeId = useCallback((value: ThemeId) => {
+		setLightThemeIdState(value);
+		window.maestro.settings.set('lightThemeId', value);
+	}, []);
+
+	const setDarkThemeId = useCallback((value: ThemeId) => {
+		setDarkThemeIdState(value);
+		window.maestro.settings.set('darkThemeId', value);
+	}, []);
+
 	const setEnterToSendAI = useCallback((value: boolean) => {
 		setEnterToSendAIState(value);
 		window.maestro.settings.set('enterToSendAI', value);
@@ -582,6 +611,11 @@ export function useSettings(): UseSettingsReturn {
 	const setDefaultShowThinking = useCallback((value: boolean) => {
 		setDefaultShowThinkingState(value);
 		window.maestro.settings.set('defaultShowThinking', value);
+	}, []);
+
+	const setGroupChatDefaultShowThinking = useCallback((value: boolean) => {
+		setGroupChatDefaultShowThinkingState(value);
+		window.maestro.settings.set('groupChatDefaultShowThinking', value);
 	}, []);
 
 	const setLeftSidebarWidth = useCallback((width: number) => {
@@ -1314,6 +1348,7 @@ export function useSettings(): UseSettingsReturn {
 				const savedEnterToSendTerminal = allSettings['enterToSendTerminal'];
 				const savedDefaultSaveToHistory = allSettings['defaultSaveToHistory'];
 				const savedDefaultShowThinking = allSettings['defaultShowThinking'];
+				const savedGroupChatDefaultShowThinking = allSettings['groupChatDefaultShowThinking'];
 
 				const savedLlmProvider = allSettings['llmProvider'];
 				const savedModelSlug = allSettings['modelSlug'];
@@ -1334,6 +1369,9 @@ export function useSettings(): UseSettingsReturn {
 				const savedActiveThemeId = allSettings['activeThemeId'];
 				const savedCustomThemeColors = allSettings['customThemeColors'];
 				const savedCustomThemeBaseId = allSettings['customThemeBaseId'];
+				const savedThemeMode = allSettings['themeMode'];
+				const savedLightThemeId = allSettings['lightThemeId'];
+				const savedDarkThemeId = allSettings['darkThemeId'];
 				const savedTerminalWidth = allSettings['terminalWidth'];
 				// These two still need separate calls as they go through the logger API
 				const savedLogLevel = await window.maestro.logger.getLogLevel();
@@ -1382,6 +1420,8 @@ export function useSettings(): UseSettingsReturn {
 					setDefaultSaveToHistoryState(savedDefaultSaveToHistory as boolean);
 				if (savedDefaultShowThinking !== undefined)
 					setDefaultShowThinkingState(savedDefaultShowThinking as boolean);
+				if (savedGroupChatDefaultShowThinking !== undefined)
+					setGroupChatDefaultShowThinkingState(savedGroupChatDefaultShowThinking as boolean);
 
 				if (savedLlmProvider !== undefined) setLlmProviderState(savedLlmProvider as LLMProvider);
 				if (savedModelSlug !== undefined) setModelSlugState(savedModelSlug as string);
@@ -1408,6 +1448,13 @@ export function useSettings(): UseSettingsReturn {
 					setCustomThemeColorsState(savedCustomThemeColors as ThemeColors);
 				if (savedCustomThemeBaseId !== undefined)
 					setCustomThemeBaseIdState(savedCustomThemeBaseId as ThemeId);
+				if (
+					savedThemeMode !== undefined &&
+					(savedThemeMode === 'manual' || savedThemeMode === 'system')
+				)
+					setThemeModeState(savedThemeMode as 'manual' | 'system');
+				if (savedLightThemeId !== undefined) setLightThemeIdState(savedLightThemeId as ThemeId);
+				if (savedDarkThemeId !== undefined) setDarkThemeIdState(savedDarkThemeId as ThemeId);
 				if (savedTerminalWidth !== undefined) setTerminalWidthState(savedTerminalWidth as number);
 				if (savedLogLevel !== undefined) setLogLevelState(savedLogLevel);
 				if (savedMaxLogBuffer !== undefined) setMaxLogBufferState(savedMaxLogBuffer);
@@ -1769,6 +1816,12 @@ export function useSettings(): UseSettingsReturn {
 			setCustomThemeColors,
 			customThemeBaseId,
 			setCustomThemeBaseId,
+			themeMode,
+			setThemeMode,
+			lightThemeId,
+			setLightThemeId,
+			darkThemeId,
+			setDarkThemeId,
 			enterToSendAI,
 			setEnterToSendAI,
 			enterToSendTerminal,
@@ -1777,6 +1830,8 @@ export function useSettings(): UseSettingsReturn {
 			setDefaultSaveToHistory,
 			defaultShowThinking,
 			setDefaultShowThinking,
+			groupChatDefaultShowThinking,
+			setGroupChatDefaultShowThinking,
 			leftSidebarWidth,
 			rightPanelWidth,
 			markdownEditMode,
@@ -1899,10 +1954,14 @@ export function useSettings(): UseSettingsReturn {
 			activeThemeId,
 			customThemeColors,
 			customThemeBaseId,
+			themeMode,
+			lightThemeId,
+			darkThemeId,
 			enterToSendAI,
 			enterToSendTerminal,
 			defaultSaveToHistory,
 			defaultShowThinking,
+			groupChatDefaultShowThinking,
 			leftSidebarWidth,
 			rightPanelWidth,
 			markdownEditMode,
@@ -1943,6 +2002,9 @@ export function useSettings(): UseSettingsReturn {
 			setActiveThemeId,
 			setCustomThemeColors,
 			setCustomThemeBaseId,
+			setThemeMode,
+			setLightThemeId,
+			setDarkThemeId,
 			setEnterToSendAI,
 			setEnterToSendTerminal,
 			setDefaultSaveToHistory,

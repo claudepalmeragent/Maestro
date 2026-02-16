@@ -12,6 +12,7 @@ import type {
 	ClaudeModelId,
 	ClaudeBillingMode,
 } from '../../shared/types';
+import type { ThemeId } from '../../shared/theme-types';
 
 // ============================================================================
 // Stored Session Type (minimal interface for main process storage)
@@ -77,6 +78,18 @@ export interface MaestroSettings {
 	sshStatsTimeoutMs?: number;
 	/** Auto-refresh interval for Global Stats in milliseconds (default: 900000 = 15 minutes) */
 	globalStatsRefreshIntervalMs?: number;
+	/** Last active session ID - restored on app startup */
+	lastActiveSessionId?: string;
+	/** Last active tab ID within the session - restored on app startup */
+	lastActiveTabId?: string;
+	/** Theme mode: manual selection or follow system */
+	themeMode?: 'manual' | 'system';
+	/** Theme to use when system is in light mode */
+	lightThemeId?: ThemeId;
+	/** Theme to use when system is in dark mode */
+	darkThemeId?: ThemeId;
+	/** Show thinking bubbles by default in Group Chat (separate from AI tab thinking default) */
+	groupChatDefaultShowThinking?: boolean;
 }
 
 // ============================================================================

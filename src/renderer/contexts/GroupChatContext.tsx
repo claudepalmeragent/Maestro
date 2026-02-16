@@ -23,6 +23,7 @@ import React, {
 	useContext,
 	useState,
 	useCallback,
+	useEffect,
 	useMemo,
 	ReactNode,
 	useRef,
@@ -201,8 +202,23 @@ export function GroupChatProvider({ children }: GroupChatProviderProps) {
 	// Group chat error state
 	const [groupChatError, setGroupChatError] = useState<GroupChatErrorState | null>(null);
 
-	// Show Thinking toggle for group chat
+	// Show Thinking toggle for group chat (initialized from saved setting)
 	const [groupChatShowThinking, setGroupChatShowThinking] = useState(false);
+
+	// Load the saved Group Chat thinking default on mount
+	useEffect(() => {
+		(async () => {
+			try {
+				const allSettings = (await window.maestro.settings.getAll()) as Record<string, unknown>;
+				const saved = allSettings['groupChatDefaultShowThinking'];
+				if (saved !== undefined) {
+					setGroupChatShowThinking(saved as boolean);
+				}
+			} catch {
+				// Settings not available yet, keep default
+			}
+		})();
+	}, []);
 
 	// Streaming thinking content per participant
 	const [groupChatThinkingContent, setGroupChatThinkingContent] = useState<Map<string, string>>(
@@ -217,6 +233,22 @@ export function GroupChatProvider({ children }: GroupChatProviderProps) {
 	// Refs for focus management
 	const groupChatInputRef = useRef<HTMLTextAreaElement>(null);
 	const groupChatMessagesRef = useRef<GroupChatMessagesHandle>(null);
+
+	// Sync with global Group Chat setting when no chat is active
+	// This ensures new group chats respect the latest setting value
+	useEffect(() => {
+		if (!activeGroupChatId) {
+			(async () => {
+				try {
+					const allSettings = (await window.maestro.settings.getAll()) as Record<string, unknown>;
+					const saved = allSettings['groupChatDefaultShowThinking'];
+					setGroupChatShowThinking((saved as boolean) ?? false);
+				} catch {
+					// Settings not available, keep current value
+				}
+			})();
+		}
+	}, [activeGroupChatId]);
 
 	// Convenience method to clear group chat error and refocus input
 	const clearGroupChatError = useCallback(() => {

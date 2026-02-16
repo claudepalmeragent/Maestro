@@ -257,6 +257,8 @@ interface SettingsModalProps {
 	setDefaultSaveToHistory: (value: boolean) => void;
 	defaultShowThinking: boolean;
 	setDefaultShowThinking: (value: boolean) => void;
+	groupChatDefaultShowThinking: boolean;
+	setGroupChatDefaultShowThinking: (value: boolean) => void;
 	osNotificationsEnabled: boolean;
 	setOsNotificationsEnabled: (value: boolean) => void;
 	audioFeedbackEnabled: boolean;
@@ -342,6 +344,11 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 	const [shellsLoaded, setShellsLoaded] = useState(false);
 	const [shellConfigExpanded, setShellConfigExpanded] = useState(false);
 
+	// Theme system mode state
+	const [themeMode, setThemeMode] = useState<'manual' | 'system'>('manual');
+	const [lightThemeId, setLightThemeId] = useState<ThemeId>('github-light' as ThemeId);
+	const [darkThemeId, setDarkThemeId] = useState<ThemeId>('dracula' as ThemeId);
+
 	// Sync/storage location state
 	const [defaultStoragePath, setDefaultStoragePath] = useState<string>('');
 	const [_currentStoragePath, setCurrentStoragePath] = useState<string>('');
@@ -405,6 +412,21 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 
 			// Reset stats clear state
 			setStatsClearResult(null);
+
+			// Load theme mode settings
+			Promise.all([
+				window.maestro.settings.get('themeMode'),
+				window.maestro.settings.get('lightThemeId'),
+				window.maestro.settings.get('darkThemeId'),
+			])
+				.then(([mode, lightId, darkId]) => {
+					if (mode === 'manual' || mode === 'system') setThemeMode(mode);
+					if (lightId) setLightThemeId(lightId as ThemeId);
+					if (darkId) setDarkThemeId(darkId as ThemeId);
+				})
+				.catch((err) => {
+					console.error('Failed to load theme mode settings:', err);
+				});
 		}
 	}, [isOpen, initialTab]);
 
@@ -782,6 +804,22 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 		}
 	};
 
+	// Theme mode handlers
+	const handleThemeModeChange = (mode: 'manual' | 'system') => {
+		setThemeMode(mode);
+		window.maestro.settings.set('themeMode', mode);
+	};
+
+	const handleLightThemeChange = (id: ThemeId) => {
+		setLightThemeId(id);
+		window.maestro.settings.set('lightThemeId', id);
+	};
+
+	const handleDarkThemeChange = (id: ThemeId) => {
+		setDarkThemeId(id);
+		window.maestro.settings.set('darkThemeId', id);
+	};
+
 	// Theme picker JSX (not a separate component to avoid remount issues)
 	const themePickerContent = (
 		<div
@@ -790,6 +828,79 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 			tabIndex={0}
 			onKeyDown={handleThemePickerKeyDown}
 		>
+			{/* System Theme Toggle */}
+			<div
+				className="flex items-center justify-between mb-4 pb-4 border-b"
+				style={{ borderColor: theme.colors.border }}
+			>
+				<div>
+					<span style={{ color: theme.colors.textMain }}>Follow System Appearance</span>
+					<p className="text-xs mt-0.5" style={{ color: theme.colors.textDim }}>
+						Automatically switch between light and dark themes
+					</p>
+				</div>
+				<button
+					onClick={() => handleThemeModeChange(themeMode === 'system' ? 'manual' : 'system')}
+					className="w-11 h-6 rounded-full transition-colors relative"
+					style={{ backgroundColor: themeMode === 'system' ? theme.colors.accent : '#4b5563' }}
+					aria-label="Toggle follow system appearance"
+				>
+					<div
+						className={`w-5 h-5 rounded-full bg-white absolute top-0.5 transition-transform ${
+							themeMode === 'system' ? 'translate-x-5' : 'translate-x-0.5'
+						}`}
+					/>
+				</button>
+			</div>
+
+			{/* Light/Dark theme selectors when in system mode */}
+			{themeMode === 'system' && (
+				<div className="space-y-4 mb-4">
+					<div>
+						<label className="text-sm mb-2 block" style={{ color: theme.colors.textDim }}>
+							Light Mode Theme
+						</label>
+						<select
+							value={lightThemeId}
+							onChange={(e) => handleLightThemeChange(e.target.value as ThemeId)}
+							className="w-full p-2 rounded border"
+							style={{
+								backgroundColor: theme.colors.bgActivity,
+								borderColor: theme.colors.border,
+								color: theme.colors.textMain,
+							}}
+						>
+							{(groupedThemes['light'] || []).map((t: Theme) => (
+								<option key={t.id} value={t.id}>
+									{t.name}
+								</option>
+							))}
+						</select>
+					</div>
+					<div>
+						<label className="text-sm mb-2 block" style={{ color: theme.colors.textDim }}>
+							Dark Mode Theme
+						</label>
+						<select
+							value={darkThemeId}
+							onChange={(e) => handleDarkThemeChange(e.target.value as ThemeId)}
+							className="w-full p-2 rounded border"
+							style={{
+								backgroundColor: theme.colors.bgActivity,
+								borderColor: theme.colors.border,
+								color: theme.colors.textMain,
+							}}
+						>
+							{(groupedThemes['dark'] || []).map((t: Theme) => (
+								<option key={t.id} value={t.id}>
+									{t.name}
+								</option>
+							))}
+						</select>
+					</div>
+				</div>
+			)}
+
 			{['dark', 'light', 'vibe'].map((mode) => (
 				<div key={mode}>
 					<div
@@ -1426,6 +1537,17 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 								description="When enabled, new AI tabs will show streaming thinking/reasoning content as the AI works, instead of waiting for the final result"
 								checked={props.defaultShowThinking}
 								onChange={props.setDefaultShowThinking}
+								theme={theme}
+							/>
+
+							{/* Group Chat Thinking Default - SEPARATE from AI tab thinking above */}
+							<SettingCheckbox
+								icon={Brain}
+								sectionLabel="Group Chat Thinking"
+								title="Show Thinking in Group Chats"
+								description="Start group chats with thinking bubbles visible by default"
+								checked={props.groupChatDefaultShowThinking}
+								onChange={props.setGroupChatDefaultShowThinking}
 								theme={theme}
 							/>
 

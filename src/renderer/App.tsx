@@ -80,6 +80,7 @@ import {
 	useMobileLandscape,
 	// UI
 	useThemeStyles,
+	useThemeSync,
 	useAppHandlers,
 	// Auto Run
 	useAutoRunHandlers,
@@ -431,6 +432,9 @@ function MaestroConsoleInner() {
 		setCustomThemeColors,
 		customThemeBaseId,
 		setCustomThemeBaseId,
+		themeMode,
+		lightThemeId,
+		darkThemeId,
 		enterToSendAI,
 		setEnterToSendAI,
 		enterToSendTerminal,
@@ -439,6 +443,8 @@ function MaestroConsoleInner() {
 		setDefaultSaveToHistory,
 		defaultShowThinking,
 		setDefaultShowThinking,
+		groupChatDefaultShowThinking,
+		setGroupChatDefaultShowThinking,
 		leftSidebarWidth,
 		setLeftSidebarWidth,
 		rightPanelWidth,
@@ -1221,6 +1227,7 @@ function MaestroConsoleInner() {
 	// Load sessions and groups from electron-store on mount
 	// Use a ref to prevent duplicate execution in React Strict Mode
 	const sessionLoadStarted = useRef(false);
+	const hasRestoredLastSession = useRef(false);
 	useEffect(() => {
 		console.log('[App] Session load useEffect triggered');
 		// Guard against duplicate execution in React Strict Mode
@@ -1298,6 +1305,91 @@ function MaestroConsoleInner() {
 		};
 		loadSessionsAndGroups();
 	}, []);
+
+	// Save last active session on window close/reload
+	useEffect(() => {
+		const handleBeforeUnload = () => {
+			if (activeSession?.id) {
+				window.maestro.settings.set('lastActiveSessionId', activeSession.id);
+			}
+			const activeTab = activeSession?.aiTabs.find((t) => t.id === activeSession?.activeTabId);
+			if (activeTab?.id) {
+				window.maestro.settings.set('lastActiveTabId', activeTab.id);
+			}
+		};
+
+		window.addEventListener('beforeunload', handleBeforeUnload);
+		return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+	}, [activeSession?.id, activeSession?.activeTabId, activeSession?.aiTabs]);
+
+	// Also save when window loses focus (user switches apps/tabs)
+	useEffect(() => {
+		const handleLastSessionVisibilityChange = () => {
+			if (document.visibilityState === 'hidden') {
+				if (activeSession?.id) {
+					window.maestro.settings.set('lastActiveSessionId', activeSession.id);
+				}
+				const activeTab = activeSession?.aiTabs.find((t) => t.id === activeSession?.activeTabId);
+				if (activeTab?.id) {
+					window.maestro.settings.set('lastActiveTabId', activeTab.id);
+				}
+			}
+		};
+
+		document.addEventListener('visibilitychange', handleLastSessionVisibilityChange);
+		return () =>
+			document.removeEventListener('visibilitychange', handleLastSessionVisibilityChange);
+	}, [activeSession?.id, activeSession?.activeTabId, activeSession?.aiTabs]);
+
+	// Restore last active session on startup
+	useEffect(() => {
+		const restoreLastSession = async () => {
+			// Wait for sessions to be loaded first
+			if (!sessions || sessions.length === 0) return;
+
+			// Only restore once, not on every sessions change
+			if (hasRestoredLastSession.current) return;
+			hasRestoredLastSession.current = true;
+
+			// Don't restore if a session is already active (e.g., opened via command line)
+			if (activeSessionId) return;
+
+			try {
+				const lastSessionId = (await window.maestro.settings.get('lastActiveSessionId')) as
+					| string
+					| undefined;
+				const lastTabId = (await window.maestro.settings.get('lastActiveTabId')) as
+					| string
+					| undefined;
+
+				if (lastSessionId) {
+					const sessionExists = sessions.find((s) => s.id === lastSessionId);
+					if (sessionExists) {
+						setActiveSessionId(lastSessionId);
+
+						// If we have a specific tab to restore, do that too
+						if (lastTabId && sessionExists.aiTabs?.some((t) => t.id === lastTabId)) {
+							setSessions((prev) =>
+								prev.map((s) =>
+									s.id === lastSessionId ? { ...s, activeTabId: lastTabId as string } : s
+								)
+							);
+						}
+
+						console.log('Restored last active session:', lastSessionId);
+					} else {
+						// Clear stored IDs if session no longer exists
+						await window.maestro.settings.set('lastActiveSessionId', undefined);
+						await window.maestro.settings.set('lastActiveTabId', undefined);
+					}
+				}
+			} catch (error) {
+				console.error('Failed to restore last session:', error);
+			}
+		};
+
+		restoreLastSession();
+	}, [sessions]); // Trigger when sessions are loaded
 
 	// Hide splash screen only when both settings and sessions have fully loaded
 	// This prevents theme flash on initial render
@@ -3881,6 +3973,14 @@ function MaestroConsoleInner() {
 		setConfirmModalOpen,
 	});
 
+	// Theme system sync - automatically switch theme based on system dark/light mode
+	useThemeSync({
+		themeMode: themeMode || 'manual',
+		lightThemeId: lightThemeId || 'github-light',
+		darkThemeId: darkThemeId || 'dracula',
+		setActiveThemeId,
+	});
+
 	// Use custom colors when custom theme is selected, otherwise use the standard theme
 	const theme = useMemo(() => {
 		if (activeThemeId === 'custom') {
@@ -6083,7 +6183,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 
 	// Initialize batch processor (supports parallel batches per session)
 	const {
-		batchRunStates: _batchRunStates,
+		batchRunStates,
 		getBatchState,
 		activeBatchSessionIds,
 		startBatchRun,
@@ -11884,6 +11984,8 @@ You are taking over this conversation. Based on the context above, provide a bri
 		groupChatInputRef,
 		groupChatStagedImages,
 		setGroupChatRightTab,
+		groupChatShowThinking,
+		setGroupChatShowThinking,
 		// Navigation handlers from useKeyboardNavigation hook
 		handleSidebarNavigation,
 		handleTabNavigation,
@@ -12805,6 +12907,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 					onCloseProcessMonitor={handleCloseProcessMonitor}
 					onNavigateToSession={handleProcessMonitorNavigateToSession}
 					onNavigateToGroupChat={handleProcessMonitorNavigateToGroupChat}
+					batchRunStates={batchRunStates}
 					usageDashboardOpen={usageDashboardOpen}
 					onCloseUsageDashboard={() => setUsageDashboardOpen(false)}
 					defaultStatsTimeRange={defaultStatsTimeRange}
@@ -13492,6 +13595,8 @@ You are taking over this conversation. Based on the context above, provide a bri
 					setDefaultSaveToHistory={setDefaultSaveToHistory}
 					defaultShowThinking={defaultShowThinking}
 					setDefaultShowThinking={setDefaultShowThinking}
+					groupChatDefaultShowThinking={groupChatDefaultShowThinking}
+					setGroupChatDefaultShowThinking={setGroupChatDefaultShowThinking}
 					fontFamily={fontFamily}
 					setFontFamily={setFontFamily}
 					fontSize={fontSize}

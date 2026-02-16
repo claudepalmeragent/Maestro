@@ -201,6 +201,10 @@ const createDefaultProps = (overrides = {}) => ({
 	setEnterToSendTerminal: vi.fn(),
 	defaultSaveToHistory: true,
 	setDefaultSaveToHistory: vi.fn(),
+	defaultShowThinking: false,
+	setDefaultShowThinking: vi.fn(),
+	groupChatDefaultShowThinking: false,
+	setGroupChatDefaultShowThinking: vi.fn(),
 	osNotificationsEnabled: true,
 	setOsNotificationsEnabled: vi.fn(),
 	audioFeedbackEnabled: false,
@@ -1059,6 +1063,121 @@ describe('SettingsModal', () => {
 
 			// Should move to next theme (github-light in this case, or next in the list)
 			expect(setActiveThemeId).toHaveBeenCalled();
+		});
+
+		it('should display Follow System Appearance toggle', async () => {
+			render(<SettingsModal {...createDefaultProps({ initialTab: 'theme' })} />);
+
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(100);
+			});
+
+			expect(screen.getByText('Follow System Appearance')).toBeInTheDocument();
+			expect(screen.getByLabelText('Toggle follow system appearance')).toBeInTheDocument();
+		});
+
+		it('should toggle theme mode when Follow System Appearance is clicked', async () => {
+			render(<SettingsModal {...createDefaultProps({ initialTab: 'theme' })} />);
+
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(100);
+			});
+
+			const toggle = screen.getByLabelText('Toggle follow system appearance');
+			fireEvent.click(toggle);
+
+			expect(window.maestro.settings.set).toHaveBeenCalledWith('themeMode', 'system');
+		});
+
+		it('should not show light/dark selectors when in manual mode', async () => {
+			render(<SettingsModal {...createDefaultProps({ initialTab: 'theme' })} />);
+
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(100);
+			});
+
+			expect(screen.queryByText('Light Mode Theme')).not.toBeInTheDocument();
+			expect(screen.queryByText('Dark Mode Theme')).not.toBeInTheDocument();
+		});
+
+		it('should show light/dark selectors when toggled to system mode', async () => {
+			render(<SettingsModal {...createDefaultProps({ initialTab: 'theme' })} />);
+
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(100);
+			});
+
+			// Toggle to system mode
+			const toggle = screen.getByLabelText('Toggle follow system appearance');
+			fireEvent.click(toggle);
+
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(50);
+			});
+
+			expect(screen.getByText('Light Mode Theme')).toBeInTheDocument();
+			expect(screen.getByText('Dark Mode Theme')).toBeInTheDocument();
+		});
+
+		it('should save lightThemeId when light theme selector changes', async () => {
+			render(<SettingsModal {...createDefaultProps({ initialTab: 'theme' })} />);
+
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(100);
+			});
+
+			// Toggle to system mode first
+			const toggle = screen.getByLabelText('Toggle follow system appearance');
+			fireEvent.click(toggle);
+
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(50);
+			});
+
+			const lightSelect = screen.getByDisplayValue('GitHub Light');
+			fireEvent.change(lightSelect, { target: { value: 'github-light' } });
+
+			expect(window.maestro.settings.set).toHaveBeenCalledWith('lightThemeId', 'github-light');
+		});
+
+		it('should save darkThemeId when dark theme selector changes', async () => {
+			render(<SettingsModal {...createDefaultProps({ initialTab: 'theme' })} />);
+
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(100);
+			});
+
+			// Toggle to system mode first
+			const toggle = screen.getByLabelText('Toggle follow system appearance');
+			fireEvent.click(toggle);
+
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(50);
+			});
+
+			const darkSelect = screen.getByDisplayValue('Dracula');
+			fireEvent.change(darkSelect, { target: { value: 'dracula' } });
+
+			expect(window.maestro.settings.set).toHaveBeenCalledWith('darkThemeId', 'dracula');
+		});
+
+		it('should load theme mode settings on open', async () => {
+			vi.mocked(window.maestro.settings.get).mockImplementation((key: string) => {
+				if (key === 'themeMode') return Promise.resolve('system');
+				if (key === 'lightThemeId') return Promise.resolve('github-light');
+				if (key === 'darkThemeId') return Promise.resolve('dracula');
+				return Promise.resolve(undefined);
+			});
+
+			render(<SettingsModal {...createDefaultProps({ initialTab: 'theme' })} />);
+
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(100);
+			});
+
+			// After loading, system mode should be active and selectors should appear
+			expect(screen.getByText('Light Mode Theme')).toBeInTheDocument();
+			expect(screen.getByText('Dark Mode Theme')).toBeInTheDocument();
 		});
 	});
 

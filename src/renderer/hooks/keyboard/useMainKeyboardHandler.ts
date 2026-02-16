@@ -289,6 +289,10 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
 					ctx.setFuzzyFileSearchOpen(true);
 					trackShortcut('fuzzyFileSearch');
 				}
+			} else if (ctx.isShortcut(e, 'saveToKnowledgeGraph')) {
+				e.preventDefault();
+				ctx.handleSaveToKnowledgeGraph?.();
+				trackShortcut('saveToKnowledgeGraph');
 			} else if (ctx.isShortcut(e, 'toggleBookmark')) {
 				e.preventDefault();
 				if (ctx.activeSession) {
@@ -460,6 +464,11 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
 						(t: AITab) => t.id === ctx.activeSession.activeTabId
 					);
 
+					// Skip if tab is locked
+					if (activeTab?.locked) {
+						return;
+					}
+
 					// Check if this is a wizard tab - show confirmation before closing
 					if (activeTab && ctx.hasActiveWizard && ctx.hasActiveWizard(activeTab)) {
 						ctx.setConfirmModalMessage(
@@ -576,41 +585,49 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
 				}
 				if (ctx.isTabShortcut(e, 'toggleShowThinking')) {
 					e.preventDefault();
-					ctx.setSessions((prev: Session[]) =>
-						prev.map((s: Session) => {
-							if (s.id !== ctx.activeSession!.id) return s;
-							return {
-								...s,
-								aiTabs: s.aiTabs.map((tab: AITab) => {
-									if (tab.id !== s.activeTabId) return tab;
-									// Check if wizard is active on this tab - toggle wizard thinking instead
-									if (tab.wizardState?.isActive) {
-										return {
-											...tab,
-											wizardState: {
-												...tab.wizardState,
-												showWizardThinking: !tab.wizardState.showWizardThinking,
-												// Clear thinking content when turning off
-												thinkingContent: !tab.wizardState.showWizardThinking
-													? ''
-													: tab.wizardState.thinkingContent,
-											},
-										};
-									}
-									// Regular tab: toggle showThinking
-									// When turning OFF, also clear any existing thinking/tool logs
-									if (tab.showThinking) {
-										return {
-											...tab,
-											showThinking: false,
-											logs: tab.logs.filter((l) => l.source !== 'thinking' && l.source !== 'tool'),
-										};
-									}
-									return { ...tab, showThinking: true };
-								}),
-							};
-						})
-					);
+					if (ctx.activeGroupChatId) {
+						// Group chat context - toggle group chat thinking
+						ctx.setGroupChatShowThinking?.(!ctx.groupChatShowThinking);
+					} else {
+						// AI tab context
+						ctx.setSessions((prev: Session[]) =>
+							prev.map((s: Session) => {
+								if (s.id !== ctx.activeSession!.id) return s;
+								return {
+									...s,
+									aiTabs: s.aiTabs.map((tab: AITab) => {
+										if (tab.id !== s.activeTabId) return tab;
+										// Check if wizard is active on this tab - toggle wizard thinking instead
+										if (tab.wizardState?.isActive) {
+											return {
+												...tab,
+												wizardState: {
+													...tab.wizardState,
+													showWizardThinking: !tab.wizardState.showWizardThinking,
+													// Clear thinking content when turning off
+													thinkingContent: !tab.wizardState.showWizardThinking
+														? ''
+														: tab.wizardState.thinkingContent,
+												},
+											};
+										}
+										// Regular tab: toggle showThinking
+										// When turning OFF, also clear any existing thinking/tool logs
+										if (tab.showThinking) {
+											return {
+												...tab,
+												showThinking: false,
+												logs: tab.logs.filter(
+													(l) => l.source !== 'thinking' && l.source !== 'tool'
+												),
+											};
+										}
+										return { ...tab, showThinking: true };
+									}),
+								};
+							})
+						);
+					}
 					trackShortcut('toggleShowThinking');
 				}
 				if (ctx.isTabShortcut(e, 'filterUnreadTabs')) {
@@ -622,6 +639,19 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
 					e.preventDefault();
 					ctx.toggleTabUnread();
 					trackShortcut('toggleTabUnread');
+				}
+				if (ctx.isTabShortcut(e, 'toggleTabLock')) {
+					e.preventDefault();
+					if (!ctx.activeSession) return;
+
+					const activeTab = ctx.activeSession.aiTabs.find(
+						(t: AITab) => t.id === ctx.activeSession.activeTabId
+					);
+
+					if (activeTab && ctx.handleTabLock) {
+						ctx.handleTabLock(activeTab.id, !activeTab.locked);
+						trackShortcut('toggleTabLock');
+					}
 				}
 				if (ctx.isTabShortcut(e, 'nextTab')) {
 					e.preventDefault();
