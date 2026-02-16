@@ -14,6 +14,7 @@ import type { ProcessListenerDependencies } from '../../../main/process-listener
 // Mock the pricing resolver to control billing mode resolution
 vi.mock('../../../main/utils/pricing-resolver', () => ({
 	resolveBillingMode: vi.fn(() => 'api'),
+	resolveBillingModeAsync: vi.fn(() => Promise.resolve('api')),
 	resolveModelForPricing: vi.fn(() => 'claude-sonnet-4-20250514'),
 }));
 
@@ -356,9 +357,9 @@ describe('Stats Listener', () => {
 		});
 
 		it('should resolve billing mode for Claude agents even when model is not detected', async () => {
-			// Mock resolveBillingMode to return 'max' for this test
-			const { resolveBillingMode } = await import('../../../main/utils/pricing-resolver');
-			vi.mocked(resolveBillingMode).mockReturnValue('max');
+			// Mock resolveBillingModeAsync to return 'max' for this test
+			const { resolveBillingModeAsync } = await import('../../../main/utils/pricing-resolver');
+			vi.mocked(resolveBillingModeAsync).mockResolvedValue('max');
 
 			setupStatsListener(mockProcessManager, {
 				safeSend: mockSafeSend,
@@ -390,6 +391,117 @@ describe('Stats Listener', () => {
 					})
 				);
 			});
+		});
+	});
+
+	describe('dual cost calculation with short-form model IDs', () => {
+		it('should calculate non-zero maestro cost for short-form model ID', async () => {
+			setupStatsListener(mockProcessManager, {
+				safeSend: mockSafeSend,
+				getStatsDB: () => mockStatsDB,
+				logger: mockLogger,
+			});
+
+			const queryCompleteHandler = eventHandlers.get('query-complete');
+			expect(queryCompleteHandler).toBeDefined();
+
+			const queryData: QueryCompleteData = {
+				sessionId: 'test-session',
+				agentType: 'claude-code',
+				source: 'user',
+				startTime: Date.now() - 5000,
+				duration: 5000,
+				inputTokens: 1000,
+				outputTokens: 500,
+				cacheReadInputTokens: 200,
+				cacheCreationInputTokens: 100,
+				totalCostUsd: 0,
+				detectedModel: 'claude-opus-4-6',
+			};
+
+			queryCompleteHandler!('test-session', queryData);
+
+			// Wait for async processing
+			await new Promise((resolve) => setTimeout(resolve, 200));
+
+			expect(mockStatsDB.insertQueryEvent).toHaveBeenCalled();
+			const insertedEvent = (mockStatsDB.insertQueryEvent as ReturnType<typeof vi.fn>).mock
+				.calls[0][0];
+
+			// maestro_cost_usd should be non-zero (calculated from tokens)
+			expect(insertedEvent.maestroCostUsd).toBeGreaterThan(0);
+			// maestro_billing_mode should NOT be 'free'
+			expect(insertedEvent.maestroBillingMode).not.toBe('free');
+			// maestro_pricing_model should be the resolved full model ID
+			expect(insertedEvent.maestroPricingModel).toBe('claude-opus-4-6-20260115');
+		});
+
+		it('should calculate non-zero anthropic cost when reported cost is 0 but tokens exist', async () => {
+			setupStatsListener(mockProcessManager, {
+				safeSend: mockSafeSend,
+				getStatsDB: () => mockStatsDB,
+				logger: mockLogger,
+			});
+
+			const queryCompleteHandler = eventHandlers.get('query-complete');
+			expect(queryCompleteHandler).toBeDefined();
+
+			const queryData: QueryCompleteData = {
+				sessionId: 'test-session-2',
+				agentType: 'claude-code',
+				source: 'user',
+				startTime: Date.now() - 5000,
+				duration: 5000,
+				inputTokens: 10000,
+				outputTokens: 5000,
+				totalCostUsd: 0,
+				detectedModel: 'claude-opus-4-6',
+			};
+
+			queryCompleteHandler!('test-session-2', queryData);
+
+			await new Promise((resolve) => setTimeout(resolve, 200));
+
+			expect(mockStatsDB.insertQueryEvent).toHaveBeenCalled();
+			const insertedEvent = (mockStatsDB.insertQueryEvent as ReturnType<typeof vi.fn>).mock
+				.calls[0][0];
+
+			// anthropic_cost_usd should be non-zero (fallback calculated from tokens at API pricing)
+			expect(insertedEvent.anthropicCostUsd).toBeGreaterThan(0);
+		});
+
+		it('should preserve non-zero anthropic cost when Claude Code reports it', async () => {
+			setupStatsListener(mockProcessManager, {
+				safeSend: mockSafeSend,
+				getStatsDB: () => mockStatsDB,
+				logger: mockLogger,
+			});
+
+			const queryCompleteHandler = eventHandlers.get('query-complete');
+			expect(queryCompleteHandler).toBeDefined();
+
+			const queryData: QueryCompleteData = {
+				sessionId: 'test-session-3',
+				agentType: 'claude-code',
+				source: 'user',
+				startTime: Date.now() - 5000,
+				duration: 5000,
+				inputTokens: 10000,
+				outputTokens: 5000,
+				totalCostUsd: 0.5,
+				detectedModel: 'claude-opus-4-6',
+			};
+
+			queryCompleteHandler!('test-session-3', queryData);
+
+			await new Promise((resolve) => setTimeout(resolve, 200));
+
+			expect(mockStatsDB.insertQueryEvent).toHaveBeenCalled();
+			const insertedEvent = (mockStatsDB.insertQueryEvent as ReturnType<typeof vi.fn>).mock
+				.calls[0][0];
+
+			// anthropic_cost_usd should be the original reported value (0.5), NOT overwritten
+			expect(insertedEvent.anthropicCostUsd).toBe(0.5);
 		});
 	});
 });

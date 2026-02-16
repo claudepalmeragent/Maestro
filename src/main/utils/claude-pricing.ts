@@ -171,6 +171,18 @@ export const MODEL_ALIASES: Record<string, ClaudeModelId> = {
 	haiku_4_5: 'claude-haiku-4-5-20251001',
 	haiku_3_5: 'claude-haiku-3-5-20241022',
 	haiku_3: 'claude-3-haiku-20240307',
+
+	// Short-form model IDs (without date suffix)
+	// Claude Code emits these via msg.message.model field
+	'claude-opus-4-6': 'claude-opus-4-6-20260115',
+	'claude-opus-4-5': 'claude-opus-4-5-20251101',
+	'claude-opus-4-1': 'claude-opus-4-1-20250319',
+	'claude-opus-4': 'claude-opus-4-20250514',
+	'claude-sonnet-4-5': 'claude-sonnet-4-5-20250929',
+	'claude-sonnet-4': 'claude-sonnet-4-20250514',
+	'claude-haiku-4-5': 'claude-haiku-4-5-20251001',
+	'claude-haiku-3-5': 'claude-haiku-3-5-20241022',
+	'claude-3-haiku': 'claude-3-haiku-20240307',
 };
 
 /**

@@ -25,7 +25,7 @@ import {
 	StatsFilters,
 } from '../../../shared/stats-types';
 import { calculateClaudeCostWithModel } from '../../utils/pricing';
-import { isClaudeModelId } from '../../utils/claude-pricing';
+import { isClaudeModelId, resolveModelAlias } from '../../utils/claude-pricing';
 import { detectLocalAuth, detectRemoteAuthCached } from '../../utils/claude-auth-detector';
 import { getSshRemoteById } from '../../stores/getters';
 import { getAgentConfigsStore } from '../../stores/getters';
@@ -93,7 +93,7 @@ async function calculateAndEnrichEvent(
 	let anthropicCostUsd = 0;
 	let maestroCostUsd = 0;
 	let maestroBillingMode: 'api' | 'max' | 'free' = 'api';
-	const maestroPricingModel: string | null = anthropicModel;
+	let maestroPricingModel: string | null = anthropicModel;
 	const maestroCalculatedAt = Date.now();
 
 	// Calculate both costs from tokens for Claude agents
@@ -139,19 +139,26 @@ async function calculateAndEnrichEvent(
 			};
 
 			if (anthropicModel) {
-				if (!isClaudeModelId(anthropicModel)) {
+				// Try to resolve the model (handles aliases, short-form IDs, and full IDs)
+				const resolvedModel =
+					resolveModelAlias(anthropicModel) ||
+					(isClaudeModelId(anthropicModel) ? anthropicModel : null);
+
+				if (!resolvedModel) {
 					// Non-Claude models (Ollama, local) are free
 					maestroBillingMode = 'free';
 					anthropicCostUsd = 0;
 					maestroCostUsd = 0;
 				} else {
+					maestroPricingModel = resolvedModel;
+
 					// Calculate anthropic_cost_usd with API pricing (cache tokens charged)
-					anthropicCostUsd = calculateClaudeCostWithModel(tokens, anthropicModel, 'api');
+					anthropicCostUsd = calculateClaudeCostWithModel(tokens, resolvedModel, 'api');
 					// Calculate maestro_cost_usd with resolved billing mode (Max = cache tokens free)
 					// Cast is safe: 'free' is only set for non-Claude models, handled in the if-branch above
 					maestroCostUsd = calculateClaudeCostWithModel(
 						tokens,
-						anthropicModel,
+						resolvedModel,
 						maestroBillingMode as 'api' | 'max'
 					);
 				}

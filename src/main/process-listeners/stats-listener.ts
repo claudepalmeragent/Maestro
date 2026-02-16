@@ -13,7 +13,7 @@ import type { ProcessListenerDependencies } from './types';
 import type { QueryEvent } from '../../shared/stats-types';
 import { resolveBillingModeAsync } from '../utils/pricing-resolver';
 import { calculateClaudeCostWithModel } from '../utils/pricing';
-import { isClaudeModelId } from '../utils/claude-pricing';
+import { isClaudeModelId, resolveModelAlias } from '../utils/claude-pricing';
 import { getSessionsStore } from '../stores';
 
 /**
@@ -55,7 +55,7 @@ async function calculateDualCosts(
 	maestroCalculatedAt: number;
 }> {
 	// Default values - use Anthropic's reported cost
-	const anthropicCostUsd = queryData.totalCostUsd || 0;
+	let anthropicCostUsd = queryData.totalCostUsd || 0;
 	const anthropicModel = queryData.detectedModel || null;
 
 	// Default Maestro values (same as Anthropic for non-Claude agents)
@@ -90,8 +90,12 @@ async function calculateDualCosts(
 		// Calculate cost if model is detected
 		if (anthropicModel) {
 			try {
-				// Check if this is a non-Claude model (Ollama, local models, etc.)
-				if (!isClaudeModelId(anthropicModel)) {
+				// Try to resolve the model (handles aliases, short-form IDs, and full IDs)
+				const resolvedModel =
+					resolveModelAlias(anthropicModel) ||
+					(isClaudeModelId(anthropicModel) ? anthropicModel : null);
+
+				if (!resolvedModel) {
 					// Non-Claude models are free (Ollama, local, etc.)
 					maestroBillingMode = 'free';
 					maestroCostUsd = 0;
@@ -102,7 +106,7 @@ async function calculateDualCosts(
 						model: anthropicModel,
 					});
 				} else {
-					maestroPricingModel = anthropicModel;
+					maestroPricingModel = resolvedModel;
 
 					// Calculate cost with proper billing mode
 					const tokens = {
@@ -112,7 +116,26 @@ async function calculateDualCosts(
 						cacheCreationTokens: queryData.cacheCreationInputTokens || 0,
 					};
 
-					maestroCostUsd = calculateClaudeCostWithModel(tokens, anthropicModel, maestroBillingMode);
+					maestroCostUsd = calculateClaudeCostWithModel(tokens, resolvedModel, maestroBillingMode);
+
+					// Fallback for anthropicCostUsd: if Anthropic didn't report a cost
+					// but we have tokens and a valid model, calculate at API pricing
+					// (anthropic_cost_usd represents standard API rates, not Max discounts)
+					if (anthropicCostUsd === 0 && (tokens.inputTokens > 0 || tokens.outputTokens > 0)) {
+						anthropicCostUsd = calculateClaudeCostWithModel(tokens, resolvedModel, 'api');
+
+						logger.debug(
+							'[stats-listener] Anthropic cost was 0, calculated fallback from tokens',
+							'[Stats]',
+							{
+								sessionId: queryData.sessionId,
+								model: resolvedModel,
+								calculatedCost: anthropicCostUsd.toFixed(6),
+								inputTokens: tokens.inputTokens,
+								outputTokens: tokens.outputTokens,
+							}
+						);
+					}
 				}
 			} catch (error) {
 				// Fall back to Anthropic cost on any error

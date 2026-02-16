@@ -35,6 +35,48 @@ vi.mock('../../../../main/utils/logger', () => ({
 	},
 }));
 
+// Mock the pricing module
+vi.mock('../../../../main/utils/pricing', () => ({
+	calculateClaudeCostWithModel: vi.fn((tokens, model, billingMode) => {
+		// Simple mock: return a predictable non-zero cost based on tokens
+		const input = tokens.inputTokens || 0;
+		const output = tokens.outputTokens || 0;
+		// ~$5/MTok input, ~$25/MTok output (simplified Opus 4.6 pricing)
+		return (input * 5 + output * 25) / 1_000_000;
+	}),
+}));
+
+// Mock the claude-pricing module
+vi.mock('../../../../main/utils/claude-pricing', () => ({
+	isClaudeModelId: vi.fn((id: string) => {
+		// Only full-form IDs are "real" Claude model IDs
+		return id.includes('-202');
+	}),
+	resolveModelAlias: vi.fn((alias: string) => {
+		// Simulate short-form alias resolution
+		const aliases: Record<string, string> = {
+			'claude-opus-4-6': 'claude-opus-4-6-20260115',
+			'claude-opus-4-5': 'claude-opus-4-5-20251101',
+			'claude-sonnet-4-5': 'claude-sonnet-4-5-20250929',
+		};
+		return aliases[alias] || null;
+	}),
+}));
+
+// Mock the claude-auth-detector module
+vi.mock('../../../../main/utils/claude-auth-detector', () => ({
+	detectLocalAuth: vi.fn(() => Promise.resolve({ billingMode: 'api' })),
+	detectRemoteAuthCached: vi.fn(() => Promise.resolve({ billingMode: 'api' })),
+}));
+
+// Mock the stores/getters module
+vi.mock('../../../../main/stores/getters', () => ({
+	getSshRemoteById: vi.fn(() => null),
+	getAgentConfigsStore: vi.fn(() => ({
+		get: vi.fn(() => ({})),
+	})),
+}));
+
 describe('stats IPC handlers', () => {
 	let handlers: Map<string, Function>;
 	let mockStatsDB: Partial<StatsDB>;
@@ -148,7 +190,9 @@ describe('stats IPC handlers', () => {
 
 				await handler!({} as any, queryEvent);
 
-				expect(mockStatsDB.insertQueryEvent).toHaveBeenCalledWith(queryEvent);
+				expect(mockStatsDB.insertQueryEvent).toHaveBeenCalledWith(
+					expect.objectContaining(queryEvent)
+				);
 				expect(mockMainWindow.webContents.send).toHaveBeenCalledWith('stats:updated');
 				expect(mockMainWindow.webContents.send).toHaveBeenCalledTimes(1);
 			});
@@ -501,6 +545,111 @@ describe('stats IPC handlers', () => {
 				// Should not broadcast on failure
 				expect(mockMainWindow.webContents.send).not.toHaveBeenCalled();
 			});
+		});
+	});
+
+	describe('calculateAndEnrichEvent - short-form model alias resolution', () => {
+		it('should resolve short-form model ID and calculate non-zero costs', async () => {
+			const handler = handlers.get('stats:record-query');
+			const queryEvent = {
+				sessionId: 'test-alias-session',
+				agentType: 'claude-code',
+				source: 'user' as const,
+				startTime: Date.now(),
+				duration: 5000,
+				inputTokens: 10000,
+				outputTokens: 5000,
+				cacheReadInputTokens: 200,
+				cacheCreationInputTokens: 100,
+				detectedModel: 'claude-opus-4-6',
+			};
+
+			await handler!({} as any, queryEvent);
+
+			expect(mockStatsDB.insertQueryEvent).toHaveBeenCalled();
+			const insertedEvent = (mockStatsDB.insertQueryEvent as ReturnType<typeof vi.fn>).mock
+				.calls[0][0];
+
+			// maestro_pricing_model should be the RESOLVED full-form model ID
+			expect(insertedEvent.maestroPricingModel).toBe('claude-opus-4-6-20260115');
+			// maestro_billing_mode should NOT be 'free'
+			expect(insertedEvent.maestroBillingMode).not.toBe('free');
+			// Both costs should be non-zero (we have tokens)
+			expect(insertedEvent.maestroCostUsd).toBeGreaterThan(0);
+			expect(insertedEvent.anthropicCostUsd).toBeGreaterThan(0);
+		});
+
+		it('should mark non-Claude models as free even after alias resolution', async () => {
+			const handler = handlers.get('stats:record-query');
+			const queryEvent = {
+				sessionId: 'test-non-claude-session',
+				agentType: 'claude-code',
+				source: 'user' as const,
+				startTime: Date.now(),
+				duration: 5000,
+				inputTokens: 10000,
+				outputTokens: 5000,
+				detectedModel: 'llama-3.1-70b',
+			};
+
+			await handler!({} as any, queryEvent);
+
+			expect(mockStatsDB.insertQueryEvent).toHaveBeenCalled();
+			const insertedEvent = (mockStatsDB.insertQueryEvent as ReturnType<typeof vi.fn>).mock
+				.calls[0][0];
+
+			// Non-Claude models should still be marked as free
+			expect(insertedEvent.maestroBillingMode).toBe('free');
+			expect(insertedEvent.maestroCostUsd).toBe(0);
+			expect(insertedEvent.anthropicCostUsd).toBe(0);
+		});
+
+		it('should use resolvedModel (not raw anthropicModel) in cost calculations', async () => {
+			const { calculateClaudeCostWithModel } = await import('../../../../main/utils/pricing');
+
+			const handler = handlers.get('stats:record-query');
+			const queryEvent = {
+				sessionId: 'test-resolved-model-session',
+				agentType: 'claude-code',
+				source: 'user' as const,
+				startTime: Date.now(),
+				duration: 5000,
+				inputTokens: 10000,
+				outputTokens: 5000,
+				detectedModel: 'claude-opus-4-6',
+			};
+
+			await handler!({} as any, queryEvent);
+
+			// Verify calculateClaudeCostWithModel was called with the RESOLVED model ID, not the short-form
+			expect(calculateClaudeCostWithModel).toHaveBeenCalledWith(
+				expect.objectContaining({ inputTokens: 10000, outputTokens: 5000 }),
+				'claude-opus-4-6-20260115',
+				'api'
+			);
+		});
+
+		it('should handle already-populated model fields by skipping enrichment', async () => {
+			const handler = handlers.get('stats:record-query');
+			const queryEvent = {
+				sessionId: 'test-pre-enriched',
+				agentType: 'claude-code',
+				source: 'user' as const,
+				startTime: Date.now(),
+				duration: 5000,
+				anthropicModel: 'claude-opus-4-6-20260115',
+				maestroCostUsd: 0.42,
+			};
+
+			await handler!({} as any, queryEvent);
+
+			expect(mockStatsDB.insertQueryEvent).toHaveBeenCalled();
+			const insertedEvent = (mockStatsDB.insertQueryEvent as ReturnType<typeof vi.fn>).mock
+				.calls[0][0];
+
+			// Should preserve the pre-existing values, not overwrite them
+			expect(insertedEvent.anthropicModel).toBe('claude-opus-4-6-20260115');
+			expect(insertedEvent.maestroCostUsd).toBe(0.42);
 		});
 	});
 });

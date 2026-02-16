@@ -97,6 +97,18 @@ describe('claude-pricing', () => {
 			expect(MODEL_ALIASES.sonnet_4).toBe('claude-sonnet-4-20250514');
 			expect(MODEL_ALIASES.haiku_3).toBe('claude-3-haiku-20240307');
 		});
+
+		it('should have short-form model ID aliases (without date suffix)', () => {
+			expect(MODEL_ALIASES['claude-opus-4-6']).toBe('claude-opus-4-6-20260115');
+			expect(MODEL_ALIASES['claude-opus-4-5']).toBe('claude-opus-4-5-20251101');
+			expect(MODEL_ALIASES['claude-opus-4-1']).toBe('claude-opus-4-1-20250319');
+			expect(MODEL_ALIASES['claude-opus-4']).toBe('claude-opus-4-20250514');
+			expect(MODEL_ALIASES['claude-sonnet-4-5']).toBe('claude-sonnet-4-5-20250929');
+			expect(MODEL_ALIASES['claude-sonnet-4']).toBe('claude-sonnet-4-20250514');
+			expect(MODEL_ALIASES['claude-haiku-4-5']).toBe('claude-haiku-4-5-20251001');
+			expect(MODEL_ALIASES['claude-haiku-3-5']).toBe('claude-haiku-3-5-20241022');
+			expect(MODEL_ALIASES['claude-3-haiku']).toBe('claude-3-haiku-20240307');
+		});
 	});
 
 	describe('DEFAULT_MODEL_ID', () => {
@@ -104,8 +116,8 @@ describe('claude-pricing', () => {
 			expect(isClaudeModelId(DEFAULT_MODEL_ID)).toBe(true);
 		});
 
-		it('should be Sonnet 4', () => {
-			expect(DEFAULT_MODEL_ID).toBe('claude-sonnet-4-20250514');
+		it('should be Opus 4.5', () => {
+			expect(DEFAULT_MODEL_ID).toBe('claude-opus-4-5-20251101');
 		});
 	});
 
@@ -140,6 +152,13 @@ describe('claude-pricing', () => {
 			const pricing = getPricingForModel('unknown-model');
 			expect(pricing).toBeNull();
 		});
+
+		it('should return pricing for short-form model ID (without date suffix)', () => {
+			const pricing = getPricingForModel('claude-opus-4-6');
+			expect(pricing).not.toBeNull();
+			expect(pricing?.INPUT_PER_MILLION).toBe(5);
+			expect(pricing?.OUTPUT_PER_MILLION).toBe(25);
+		});
 	});
 
 	describe('resolveModelAlias', () => {
@@ -165,6 +184,14 @@ describe('claude-pricing', () => {
 		it('should handle case insensitivity', () => {
 			expect(resolveModelAlias('OPUS')).toBe('claude-opus-4-5-20251101');
 			expect(resolveModelAlias('Sonnet')).toBe('claude-sonnet-4-20250514');
+		});
+
+		it('should resolve short-form model IDs (without date suffix)', () => {
+			expect(resolveModelAlias('claude-opus-4-6')).toBe('claude-opus-4-6-20260115');
+			expect(resolveModelAlias('claude-opus-4-5')).toBe('claude-opus-4-5-20251101');
+			expect(resolveModelAlias('claude-sonnet-4-5')).toBe('claude-sonnet-4-5-20250929');
+			expect(resolveModelAlias('claude-haiku-4-5')).toBe('claude-haiku-4-5-20251001');
+			expect(resolveModelAlias('claude-3-haiku')).toBe('claude-3-haiku-20240307');
 		});
 	});
 
