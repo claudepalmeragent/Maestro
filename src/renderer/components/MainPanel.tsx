@@ -190,6 +190,7 @@ interface MainPanelProps {
 	onRequestTabRename?: (tabId: string) => void;
 	onTabReorder?: (fromIndex: number, toIndex: number) => void;
 	onTabStar?: (tabId: string, starred: boolean) => void;
+	onTabLock?: (tabId: string, locked: boolean) => void;
 	onTabMarkUnread?: (tabId: string) => void;
 	onUpdateTabByClaudeSessionId?: (
 		agentSessionId: string,
@@ -216,6 +217,10 @@ interface MainPanelProps {
 	onOpenPromptComposer?: () => void;
 	// Replay a user message (AI mode)
 	onReplayMessage?: (text: string, images?: string[]) => void;
+	// Save message to prompt library (USER messages only)
+	onSaveToPromptLibrary?: (text: string, images?: string[]) => void;
+	// Rate AI response (like/dislike)
+	onRateResponse?: (logId: string, rating: 'liked' | 'disliked' | null) => void;
 	// File tree for linking file references in AI responses
 	fileTree?: import('../types/fileTree').FileNode[];
 	// Callback when a file link is clicked in AI response
@@ -279,6 +284,8 @@ interface MainPanelProps {
 	// Gist publishing
 	ghCliAvailable?: boolean;
 	onPublishGist?: () => void;
+	// Knowledge Graph
+	onSaveToKnowledgeGraph?: () => void;
 	/** Whether the current preview file has been published as a gist */
 	hasGist?: boolean;
 
@@ -452,6 +459,7 @@ export const MainPanel = React.memo(
 			onRequestTabRename,
 			onTabReorder,
 			onTabStar,
+			onTabLock,
 			onTabMarkUnread,
 			showUnreadOnly,
 			onToggleUnreadFilter,
@@ -1382,6 +1390,7 @@ export const MainPanel = React.memo(
 									onRequestRename={onRequestTabRename}
 									onTabReorder={onTabReorder}
 									onTabStar={onTabStar}
+									onTabLock={onTabLock}
 									onTabMarkUnread={onTabMarkUnread}
 									onMergeWith={onMergeWith}
 									onSendToAgent={onSendToAgent}
@@ -1389,6 +1398,7 @@ export const MainPanel = React.memo(
 									onCopyContext={onCopyContext}
 									onExportHtml={onExportHtml}
 									onPublishGist={props.onPublishTabGist}
+									onSaveToKnowledgeGraph={props.onSaveToKnowledgeGraph}
 									ghCliAvailable={props.ghCliAvailable}
 									showUnreadOnly={showUnreadOnly}
 									onToggleUnreadFilter={onToggleUnreadFilter}
@@ -1611,6 +1621,7 @@ export const MainPanel = React.memo(
 											markdownEditMode={markdownEditMode}
 											setMarkdownEditMode={setMarkdownEditMode}
 											onReplayMessage={props.onReplayMessage}
+											onSaveToPromptLibrary={props.onSaveToPromptLibrary}
 											fileTree={props.fileTree}
 											cwd={
 												activeSession.cwd.startsWith(activeSession.fullPath)
@@ -1620,6 +1631,7 @@ export const MainPanel = React.memo(
 											projectRoot={activeSession.fullPath}
 											onFileClick={props.onFileClick}
 											onShowErrorDetails={props.onShowAgentErrorModal}
+											onRateResponse={props.onRateResponse}
 										/>
 									)}
 								</div>

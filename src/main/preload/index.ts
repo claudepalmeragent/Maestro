@@ -50,6 +50,8 @@ import { createGitApi } from './git';
 import { createFsApi } from './fs';
 import { createAgentsApi } from './agents';
 import { createProjectFoldersApi } from './projectFolders';
+import { createKnowledgeGraphApi } from './knowledgeGraph';
+import { createFeedbackApi } from './feedback';
 
 // Expose protected methods that allow the renderer process to use
 // the ipcRenderer without exposing the entire object
@@ -188,6 +190,12 @@ contextBridge.exposeInMainWorld('maestro', {
 
 	// Prompt Library API
 	promptLibrary: createPromptLibraryApi(),
+
+	// Knowledge Graph API
+	knowledgeGraph: createKnowledgeGraphApi(),
+
+	// Feedback API
+	feedback: createFeedbackApi(),
 });
 
 // Re-export factory functions for external consumers (e.g., tests)
@@ -261,6 +269,10 @@ export {
 	createProjectFoldersApi,
 	// Prompt Library
 	createPromptLibraryApi,
+	// Knowledge Graph
+	createKnowledgeGraphApi,
+	// Feedback
+	createFeedbackApi,
 };
 
 // Re-export types for TypeScript consumers
@@ -457,3 +469,11 @@ export type {
 	PromptLibraryApi,
 	PromptLibraryEntry,
 } from './promptLibrary';
+export type {
+	// From knowledgeGraph
+	KnowledgeGraphApi,
+} from './knowledgeGraph';
+export type {
+	// From feedback
+	FeedbackApi,
+} from './feedback';

@@ -5432,6 +5432,21 @@ You are taking over this conversation. Based on the context above, provide a bri
 		[]
 	);
 
+	const handleTabLock = useCallback((tabId: string, locked: boolean) => {
+		const session = sessionsRef.current.find((s) => s.id === activeSessionIdRef.current);
+		if (!session) return;
+		setSessions((prev) =>
+			prev.map((s) =>
+				s.id === activeSessionIdRef.current
+					? {
+							...s,
+							aiTabs: s.aiTabs.map((t) => (t.id === tabId ? { ...t, locked } : t)),
+						}
+					: s
+			)
+		);
+	}, []);
+
 	const handleTabStar = useCallback((tabId: string, starred: boolean) => {
 		const session = sessionsRef.current.find((s) => s.id === activeSessionIdRef.current);
 		if (!session) return;
@@ -5605,6 +5620,153 @@ You are taking over this conversation. Based on the context above, provide a bri
 		},
 		[setStagedImages]
 	);
+
+	const handleSaveToPromptLibrary = useCallback(
+		async (text: string, _images?: string[]) => {
+			if (!activeSession) return;
+
+			// Generate title from first line or first N words
+			const firstLine = text.split('\n')[0].trim();
+			const title = firstLine.length > 50 ? firstLine.substring(0, 47) + '...' : firstLine;
+
+			// Get project info
+			const folderId = activeSession.projectFolderIds?.[0];
+			const folder = folderId ? getFolderById(folderId) : undefined;
+			const projectName = folder
+				? folder.emoji
+					? `${folder.emoji} ${folder.name}`
+					: folder.name
+				: 'Unassigned';
+			const projectPath = activeSession.fullPath || activeSession.cwd || '';
+
+			const entry = {
+				title,
+				prompt: text,
+				description: '',
+				projectName,
+				projectPath,
+				projectFolderColor: folder?.highlightColor,
+				agentId: activeSession.id,
+				agentName: activeSession.name || 'Unknown Agent',
+				agentSessionId:
+					activeSession.aiTabs?.find((t) => t.id === activeSession.activeTabId)?.agentSessionId ||
+					undefined,
+				tags: [],
+			};
+
+			try {
+				await window.maestro.promptLibrary.add(entry);
+				showSuccessFlash('Prompt saved to library');
+			} catch (error) {
+				console.error('Failed to save prompt to library:', error);
+			}
+		},
+		[activeSession, getFolderById, showSuccessFlash]
+	);
+
+	const handleRateResponse = useCallback(
+		async (logId: string, rating: 'liked' | 'disliked' | null) => {
+			const currentSession = sessionsRef.current.find((s) => s.id === activeSessionIdRef.current);
+			if (!currentSession) return;
+
+			const activeTab = currentSession.aiTabs.find((t) => t.id === currentSession.activeTabId);
+			if (!activeTab) return;
+
+			const logs = activeTab.logs || [];
+			const logIndex = logs.findIndex((l) => l.id === logId);
+			const logEntry = logs[logIndex];
+			if (!logEntry) return;
+
+			// Find the previous user message for context
+			let userQuery = '';
+			for (let i = logIndex - 1; i >= 0; i--) {
+				if (logs[i].source === 'user') {
+					userQuery = logs[i].text;
+					break;
+				}
+			}
+
+			// Update the log entry's rating in state
+			setSessions((prev) =>
+				prev.map((s) => {
+					if (s.id !== currentSession.id) return s;
+					return {
+						...s,
+						aiTabs: s.aiTabs.map((tab) =>
+							tab.id === activeTab.id
+								? {
+										...tab,
+										logs: tab.logs.map((l) => (l.id === logId ? { ...l, rating } : l)),
+									}
+								: tab
+						),
+					};
+				})
+			);
+
+			// Record to feedback file if rating is set (not removed)
+			if (rating) {
+				try {
+					await window.maestro.feedback.record({
+						rating,
+						sessionId: currentSession.id,
+						agentType: currentSession.toolType || 'claude-code',
+						userQuery,
+						aiResponse: logEntry.text,
+						timestamp: Date.now(),
+					});
+					showSuccessFlash(`Response ${rating}`);
+				} catch (error) {
+					console.error('Failed to record feedback:', error);
+				}
+			}
+		},
+		[setSessions, showSuccessFlash]
+	);
+
+	const handleSaveToKnowledgeGraph = useCallback(async () => {
+		if (!activeSession) {
+			addToast({ type: 'error', title: 'No active session', message: '' });
+			return;
+		}
+
+		const activeTab = activeSession.aiTabs.find((t) => t.id === activeSession.activeTabId);
+		if (!activeTab) {
+			addToast({ type: 'error', title: 'No active tab', message: '' });
+			return;
+		}
+
+		const folderId = activeSession.projectFolderIds?.[0];
+		const folder = folderId ? getFolderById(folderId) : undefined;
+
+		// Build a summary from the last few AI logs
+		const aiLogs = activeTab.logs?.filter((l) => l.source === 'ai') || [];
+		const lastLogContent = aiLogs.length > 0 ? aiLogs[aiLogs.length - 1].text : '';
+		const summary = lastLogContent.split('\n').slice(0, 3).join('\n') || '';
+
+		const entry = {
+			sessionName: activeSession.name || activeTab.name || 'Unnamed Session',
+			sessionId: activeSession.id,
+			agentType: activeSession.toolType || 'claude-code',
+			projectPath: activeSession.fullPath || activeSession.cwd || '',
+			projectName: folder?.name || 'Unassigned',
+			summary,
+			detailedLearnings: lastLogContent,
+			totalQueries: aiLogs.length,
+			totalCost: activeTab.usageStats?.totalCostUsd,
+			contextUsage: activeSession.contextUsage,
+			timestamp: Date.now(),
+		};
+
+		try {
+			const filepath = await window.maestro.knowledgeGraph.save(entry);
+			showSuccessFlash('Saved to Knowledge Graph');
+			console.log('Knowledge graph entry saved to:', filepath);
+		} catch (error) {
+			console.error('Failed to save to knowledge graph:', error);
+			addToast({ type: 'error', title: 'Failed to save to Knowledge Graph', message: '' });
+		}
+	}, [activeSession, getFolderById, showSuccessFlash, addToast]);
 
 	const handleOpenTabSearch = useCallback(() => {
 		setTabSwitcherOpen(true);
@@ -11708,6 +11870,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 		handleSetLightboxImage,
 		setMarkdownEditMode,
 		toggleTabStar,
+		handleTabLock,
 		toggleTabUnread,
 		setPromptComposerOpen,
 		openWizardModal,
@@ -11759,6 +11922,9 @@ You are taking over this conversation. Based on the context above, provide a bri
 
 		// Session bookmark toggle
 		toggleBookmark,
+
+		// Knowledge graph
+		handleSaveToKnowledgeGraph,
 	};
 
 	// Update flat file list when active session's tree, expanded folders, filter, or hidden files setting changes
@@ -12231,6 +12397,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 		handleTabReorder,
 		handleUpdateTabByClaudeSessionId,
 		handleTabStar,
+		handleTabLock,
 		handleTabMarkUnread,
 		handleToggleTabReadOnlyMode,
 		handleToggleTabSaveToHistory,
@@ -12246,6 +12413,8 @@ You are taking over this conversation. Based on the context above, provide a bri
 		handleMainPanelInputBlur,
 		handleOpenPromptComposer,
 		handleReplayMessage,
+		handleSaveToPromptLibrary,
+		handleRateResponse,
 		handleMainPanelFileClick,
 		handleNavigateBack,
 		handleNavigateForward,
@@ -12262,6 +12431,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 		handleCopyContext,
 		handleExportHtml,
 		handlePublishTabGist,
+		handleSaveToKnowledgeGraph,
 		cancelTab,
 		cancelMergeTab,
 		recordShortcutUsage,

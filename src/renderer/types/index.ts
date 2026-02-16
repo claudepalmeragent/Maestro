@@ -190,6 +190,8 @@ export interface LogEntry {
 			output?: unknown;
 		};
 	};
+	/** User rating for AI responses */
+	rating?: 'liked' | 'disliked' | null;
 }
 
 // Queued item for the session-level execution queue
@@ -473,6 +475,8 @@ export interface AITab {
 	agentSessionId: string | null; // Agent session UUID (null for new tabs)
 	name: string | null; // User-defined name (null = show UUID octet)
 	starred: boolean; // Whether session is starred (for pill display)
+	/** Prevents tab closure when true */
+	locked?: boolean;
 	logs: LogEntry[]; // Conversation history
 	agentError?: AgentError; // Tab-specific agent error (shown in banner)
 	inputValue: string; // Pending input text for this tab
@@ -941,4 +945,19 @@ export interface ContextManagementSettings {
 	contextWarningsEnabled: boolean; // Enable context consumption warnings (default: true)
 	contextWarningYellowThreshold: number; // Yellow warning threshold percentage (default: 60)
 	contextWarningRedThreshold: number; // Red warning threshold percentage (default: 80)
+}
+
+/** Knowledge Graph entry for storing session learnings */
+export interface KnowledgeGraphEntry {
+	sessionName: string;
+	sessionId: string;
+	agentType: string;
+	projectPath: string;
+	projectName: string;
+	summary: string;
+	detailedLearnings: string;
+	totalQueries?: number;
+	totalCost?: number;
+	contextUsage?: number;
+	timestamp: number;
 }

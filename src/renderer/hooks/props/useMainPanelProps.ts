@@ -207,6 +207,7 @@ export interface UseMainPanelPropsDeps {
 		updates: { name?: string | null; starred?: boolean }
 	) => void;
 	handleTabStar: (tabId: string, starred: boolean) => void;
+	handleTabLock: (tabId: string, locked: boolean) => void;
 	handleTabMarkUnread: (tabId: string) => void;
 	handleToggleTabReadOnlyMode: () => void;
 	handleToggleTabSaveToHistory: () => void;
@@ -222,6 +223,8 @@ export interface UseMainPanelPropsDeps {
 	handleMainPanelInputBlur: () => void;
 	handleOpenPromptComposer: () => void;
 	handleReplayMessage: (text: string, images?: string[]) => void;
+	handleSaveToPromptLibrary: (text: string, images?: string[]) => void;
+	handleRateResponse: (logId: string, rating: 'liked' | 'disliked' | null) => void;
 	handleMainPanelFileClick: (relativePath: string) => void;
 	handleNavigateBack: () => void;
 	handleNavigateForward: () => void;
@@ -238,6 +241,7 @@ export interface UseMainPanelPropsDeps {
 	handleCopyContext: (tabId: string) => void;
 	handleExportHtml: (tabId: string) => void;
 	handlePublishTabGist: (tabId: string) => void;
+	handleSaveToKnowledgeGraph: () => void;
 	cancelTab: (tabId: string) => void;
 	cancelMergeTab: (tabId: string) => void;
 	recordShortcutUsage: (shortcutId: string) => { newLevel: number | null };
@@ -388,6 +392,7 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 			onTabReorder: deps.handleTabReorder,
 			onUpdateTabByClaudeSessionId: deps.handleUpdateTabByClaudeSessionId,
 			onTabStar: deps.handleTabStar,
+			onTabLock: deps.handleTabLock,
 			onTabMarkUnread: deps.handleTabMarkUnread,
 			onToggleTabReadOnlyMode: deps.handleToggleTabReadOnlyMode,
 			showUnreadOnly: deps.showUnreadOnly,
@@ -404,6 +409,8 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 			onInputBlur: deps.handleMainPanelInputBlur,
 			onOpenPromptComposer: deps.handleOpenPromptComposer,
 			onReplayMessage: deps.handleReplayMessage,
+			onSaveToPromptLibrary: deps.handleSaveToPromptLibrary,
+			onRateResponse: deps.handleRateResponse,
 			fileTree: deps.fileTree,
 			onFileClick: deps.handleMainPanelFileClick,
 			canGoBack: deps.canGoBack,
@@ -431,6 +438,7 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 			onCopyContext: deps.handleCopyContext,
 			onExportHtml: deps.handleExportHtml,
 			onPublishTabGist: deps.handlePublishTabGist,
+			onSaveToKnowledgeGraph: deps.handleSaveToKnowledgeGraph,
 			// Context warning sash settings
 			contextWarningsEnabled: deps.contextWarningsEnabled,
 			contextWarningYellowThreshold: deps.contextWarningYellowThreshold,
@@ -610,6 +618,7 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 			deps.handleTabReorder,
 			deps.handleUpdateTabByClaudeSessionId,
 			deps.handleTabStar,
+			deps.handleTabLock,
 			deps.handleTabMarkUnread,
 			deps.handleToggleTabReadOnlyMode,
 			deps.handleToggleTabSaveToHistory,
@@ -625,6 +634,8 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 			deps.handleMainPanelInputBlur,
 			deps.handleOpenPromptComposer,
 			deps.handleReplayMessage,
+			deps.handleSaveToPromptLibrary,
+			deps.handleRateResponse,
 			deps.handleMainPanelFileClick,
 			deps.handleNavigateBack,
 			deps.handleNavigateForward,
@@ -641,6 +652,7 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 			deps.handleCopyContext,
 			deps.handleExportHtml,
 			deps.handlePublishTabGist,
+			deps.handleSaveToKnowledgeGraph,
 			deps.cancelTab,
 			deps.cancelMergeTab,
 			deps.recordShortcutUsage,

@@ -2806,6 +2806,24 @@ interface MaestroAPI {
 			} | null;
 		}>;
 	};
+	knowledgeGraph: {
+		save: (entry: import('./types').KnowledgeGraphEntry) => Promise<string>;
+		list: () => Promise<string[]>;
+		read: (filename: string) => Promise<string>;
+		delete: (filename: string) => Promise<boolean>;
+	};
+	feedback: {
+		record: (entry: {
+			rating: 'liked' | 'disliked';
+			sessionId: string;
+			agentType: string;
+			userQuery: string;
+			aiResponse: string;
+			timestamp: number;
+			reason?: string;
+		}) => Promise<boolean>;
+		getAll: () => Promise<string>;
+	};
 }
 
 declare global {

@@ -56,6 +56,8 @@ import { registerNotificationsHandlers } from './notifications';
 import { registerAgentErrorHandlers } from './agent-error';
 import { registerProjectFoldersHandlers } from './projectFolders';
 import { registerPromptLibraryHandlers } from './prompt-library';
+import { registerKnowledgeGraphHandlers } from './knowledge-graph';
+import { registerFeedbackHandlers } from './feedback';
 import { AgentDetector } from '../../agents';
 import { ProcessManager } from '../../process-manager';
 import { WebServer } from '../../web-server';
@@ -100,6 +102,8 @@ export { registerNotificationsHandlers };
 export { registerAgentErrorHandlers };
 export { registerProjectFoldersHandlers };
 export { registerPromptLibraryHandlers };
+export { registerKnowledgeGraphHandlers };
+export { registerFeedbackHandlers };
 export type { AgentsHandlerDependencies };
 export type { ProcessHandlerDependencies };
 export type { PersistenceHandlerDependencies };
@@ -267,6 +271,10 @@ export function registerAllHandlers(deps: HandlerDependencies): void {
 	registerProjectFoldersHandlers();
 	// Register prompt library handlers (no dependencies - uses manager directly)
 	registerPromptLibraryHandlers();
+	// Register knowledge graph handlers (no dependencies - uses userData path directly)
+	registerKnowledgeGraphHandlers();
+	// Register feedback handlers (no dependencies - uses userData path directly)
+	registerFeedbackHandlers();
 	// Setup logger event forwarding to renderer
 	setupLoggerEventForwarding(deps.getMainWindow);
 }

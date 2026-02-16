@@ -12,6 +12,9 @@ import {
 	FileText,
 	RotateCcw,
 	AlertCircle,
+	BookmarkPlus,
+	ThumbsUp,
+	ThumbsDown,
 } from 'lucide-react';
 import type { Session, Theme, LogEntry, FocusArea } from '../types';
 import type { FileNode } from '../types/fileTree';
@@ -86,6 +89,8 @@ interface LogItemProps {
 	onToggleMarkdownEditMode: () => void;
 	// Replay message callback (AI mode only)
 	onReplayMessage?: (text: string, images?: string[]) => void;
+	// Save message to prompt library (USER messages only)
+	onSaveToPromptLibrary?: (text: string, images?: string[]) => void;
 	// File linking support
 	fileTree?: FileNode[];
 	cwd?: string;
@@ -93,6 +98,8 @@ interface LogItemProps {
 	onFileClick?: (path: string) => void;
 	// Error details callback
 	onShowErrorDetails?: () => void;
+	// Rate AI response callback
+	onRateResponse?: (logId: string, rating: 'liked' | 'disliked' | null) => void;
 }
 
 const LogItemComponent = memo(
@@ -129,11 +136,13 @@ const LogItemComponent = memo(
 		markdownEditMode,
 		onToggleMarkdownEditMode,
 		onReplayMessage,
+		onSaveToPromptLibrary,
 		fileTree,
 		cwd,
 		projectRoot,
 		onFileClick,
 		onShowErrorDetails,
+		onRateResponse,
 	}: LogItemProps) => {
 		// Ref for the log item container - used for scroll-into-view on expand
 		const logItemRef = useRef<HTMLDivElement>(null);
@@ -805,6 +814,50 @@ const LogItemComponent = memo(
 								<RotateCcw className="w-3.5 h-3.5" />
 							</button>
 						)}
+						{/* Save to Prompt Library button - USER messages only */}
+						{isUserMessage && isAIMode && onSaveToPromptLibrary && (
+							<button
+								onClick={() => onSaveToPromptLibrary(log.text, log.images)}
+								className="p-1.5 rounded opacity-0 group-hover:opacity-50 hover:!opacity-100"
+								style={{ color: theme.colors.textDim }}
+								title="Save to Prompt Library"
+							>
+								<BookmarkPlus className="w-3.5 h-3.5" />
+							</button>
+						)}
+						{/* Rating buttons - AI messages only */}
+						{(log.source === 'ai' || log.source === 'stdout') && isAIMode && onRateResponse && (
+							<>
+								<button
+									onClick={() => onRateResponse(log.id, log.rating === 'liked' ? null : 'liked')}
+									className={`p-1.5 rounded hover:bg-white/10 transition-colors ${log.rating !== 'liked' ? 'opacity-0 group-hover:opacity-50 hover:!opacity-100' : ''}`}
+									style={{
+										color: log.rating === 'liked' ? theme.colors.success : theme.colors.textDim,
+									}}
+									title={log.rating === 'liked' ? 'Remove like' : 'Like response'}
+								>
+									<ThumbsUp
+										className="w-3.5 h-3.5"
+										fill={log.rating === 'liked' ? 'currentColor' : 'none'}
+									/>
+								</button>
+								<button
+									onClick={() =>
+										onRateResponse(log.id, log.rating === 'disliked' ? null : 'disliked')
+									}
+									className={`p-1.5 rounded hover:bg-white/10 transition-colors ${log.rating !== 'disliked' ? 'opacity-0 group-hover:opacity-50 hover:!opacity-100' : ''}`}
+									style={{
+										color: log.rating === 'disliked' ? theme.colors.error : theme.colors.textDim,
+									}}
+									title={log.rating === 'disliked' ? 'Remove dislike' : 'Dislike response'}
+								>
+									<ThumbsDown
+										className="w-3.5 h-3.5"
+										fill={log.rating === 'disliked' ? 'currentColor' : 'none'}
+									/>
+								</button>
+							</>
+						)}
 						{/* Copy to Clipboard Button */}
 						<button
 							onClick={() => copyToClipboard(log.text)}
@@ -888,6 +941,7 @@ const LogItemComponent = memo(
 			prevProps.log.text === nextProps.log.text &&
 			prevProps.log.delivered === nextProps.log.delivered &&
 			prevProps.log.readOnly === nextProps.log.readOnly &&
+			prevProps.log.rating === nextProps.log.rating &&
 			prevProps.isExpanded === nextProps.isExpanded &&
 			prevProps.localFilterQuery === nextProps.localFilterQuery &&
 			prevProps.filterMode.mode === nextProps.filterMode.mode &&
@@ -974,11 +1028,13 @@ interface TerminalOutputProps {
 	markdownEditMode: boolean; // Whether to show raw markdown or rendered markdown for AI responses
 	setMarkdownEditMode: (value: boolean) => void; // Toggle markdown mode
 	onReplayMessage?: (text: string, images?: string[]) => void; // Replay a user message
+	onSaveToPromptLibrary?: (text: string, images?: string[]) => void; // Save message to prompt library
 	fileTree?: FileNode[]; // File tree for linking file references
 	cwd?: string; // Current working directory for proximity-based matching
 	projectRoot?: string; // Project root absolute path for converting absolute paths to relative
 	onFileClick?: (path: string) => void; // Callback when a file link is clicked
 	onShowErrorDetails?: () => void; // Callback to show the error modal (for error log entries)
+	onRateResponse?: (logId: string, rating: 'liked' | 'disliked' | null) => void; // Rate AI response
 }
 
 // PERFORMANCE: Wrap in React.memo to prevent re-renders when parent re-renders
@@ -1010,11 +1066,13 @@ export const TerminalOutput = memo(
 			markdownEditMode,
 			setMarkdownEditMode,
 			onReplayMessage,
+			onSaveToPromptLibrary,
 			fileTree,
 			cwd,
 			projectRoot,
 			onFileClick,
 			onShowErrorDetails,
+			onRateResponse,
 		} = props;
 
 		// Use the forwarded ref if provided, otherwise create a local one
@@ -1691,11 +1749,13 @@ export const TerminalOutput = memo(
 							markdownEditMode={markdownEditMode}
 							onToggleMarkdownEditMode={toggleMarkdownEditMode}
 							onReplayMessage={onReplayMessage}
+							onSaveToPromptLibrary={onSaveToPromptLibrary}
 							fileTree={fileTree}
 							cwd={cwd}
 							projectRoot={projectRoot}
 							onFileClick={onFileClick}
 							onShowErrorDetails={onShowErrorDetails}
+							onRateResponse={onRateResponse}
 						/>
 					))}
 
