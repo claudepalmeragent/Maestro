@@ -1,7 +1,7 @@
 # Investigation: Claude.ai Global Token Usage Statistics
 
 **Created:** 2026-02-14
-**Updated:** 2026-02-14 (Major Revision: Honeycomb/OTEL approach replaces CLI approach)
+**Updated:** 2026-02-15 (Added Section 13: Honeycomb Audit of Calculated Fields & Board Queries)
 **Author:** maestro-planner (claude cloud)
 **Status:** Investigation Complete - Revised Approach via Honeycomb - Ready for Planning Review
 **Priority:** High (Foundation for Auto Run and Parallel Agent efficiency)
@@ -19,6 +19,8 @@ This investigation analyzes the feasibility of implementing real-time Claude.ai 
 | 2026-02-14 (AM) | Initial investigation: proposed `claude /usage` CLI approach |
 | 2026-02-14 (PM) | **BLOCKED:** `/usage` is interactive-only, no programmatic CLI access |
 | 2026-02-14 (PM) | **PIVOT:** Honeycomb + OTEL telemetry approach adopted |
+| 2026-02-15 | **AUDIT:** Full audit of 5 calculated fields + 13 board queries (Section 13) |
+| 2026-02-15 | **FINDING:** OTEL flush gap confirmed — idle sessions don't flush (Q#9, Q#11, Section 13.5) |
 
 ### Original Approach (BLOCKED)
 
@@ -37,11 +39,12 @@ A Honeycomb MCP server and OTEL telemetry pipeline have been set up to send toke
 4. **Empirical limit discovery** — observe when rate limiting occurs to determine actual ceilings
 
 **Key Findings:**
-1. **Feasible via Honeycomb** - OTEL telemetry pipeline active with token data flowing
-2. **5 calculated fields** already computing cost, quota %, burn rate, and forecast
-3. **$150/month budget** used as ceiling for quota calculations
-4. **MCP tools available** for querying Honeycomb from Maestro
-5. **Data is early** — limited historical data, needs accumulation for reliable estimates
+1. **Feasible via Honeycomb** — OTEL telemetry pipeline active with token data flowing (verified Feb 14)
+2. **5 calculated fields** already built — but audit (Section 13) found 3 of 5 need rework
+3. **13-query ROI board** exists — but all queries use 2h default time range (needs 30d+)
+4. **$150/month budget** used as ceiling — needs splitting into BURST/WEEKLY/MONTHLY dimensions
+5. **MCP tools available** for querying Honeycomb from Maestro
+6. **Data is early** — historical backfill from stats DB/JSONL planned; empirical limit discovery pending
 
 ---
 
@@ -57,6 +60,7 @@ A Honeycomb MCP server and OTEL telemetry pipeline have been set up to send toke
 8. [Recommendations](#8-recommendations)
 9. [Open Questions](#9-open-questions)
 10. [Appendix: Reference Materials](#appendix-reference-materials)
+13. [Honeycomb Audit: Calculated Fields & Board Queries](#13-honeycomb-audit-calculated-fields--board-queries)
 
 ---
 
@@ -651,8 +655,9 @@ src/renderer/components/
 | # | Question | Status | Notes |
 |---|----------|--------|-------|
 | 8 | **Hardcoded epoch in calculated fields** — `daily_burn_rate` and `forecast_days_remaining` use hardcoded epoch `1738281600` (Jan 31, 2025). Need a dynamic Honeycomb calculated field or query-time approach that doesn't require manual date updates. | **OPEN — NEEDS FIX** | Options: (a) use `time_range` in queries instead of calculated field math, (b) create a Honeycomb Custom Query with relative time, (c) periodically update the epoch in the calculated field |
-| 9 | **Observability chain latency** — There will be delay between a Claude event occurring on a VM and it appearing in Honeycomb query results (OTEL batching + Honeycomb ingestion + query execution). When an agent needs to check remaining capacity *before* consuming tokens on the next task, this lag could mean the data is stale by seconds or minutes. | **OPEN — NEEDS MEASUREMENT** | Must measure actual end-to-end latency. Mitigation: (a) add a safety margin buffer to estimates, (b) track "tokens committed but not yet in Honeycomb" locally in Maestro, (c) accept some staleness and document it |
+| 9 | **Observability chain latency — CONFIRMED** — Observed Feb 15: idle Claude Code sessions do NOT flush OTEL telemetry. Each session runs its own OTEL batch exporter process. When a session is idle (waiting for user input), the batch timer does not fire — events accumulate locally and only flush when the session next processes a message. This means Honeycomb queries will **undercount actual consumption** by the amount of unflushed events across all idle sessions. Active sessions flush promptly. | **CONFIRMED — NEEDS MITIGATION** | Confirmed by observing two sessions on same VM with same env vars: only the active session's events appeared in Honeycomb; the idle session's events were missing until it received its next message. See Q#11 for mitigation strategy. |
 | 10 | **$150 ceiling is placeholder** — The `max_quota_percent` and `forecast_days_remaining` fields use $150 as the Max plan budget. This is a rough estimate, not a confirmed limit. Need to define separate configurable ceilings for: **BURST** (5-hour window), **WEEKLY** (7-day rolling), and **MONTHLY** (billing cycle). These are three different limit dimensions, not one number. | **OPEN — NEEDS RESEARCH** | Approach: (a) make all three configurable in Maestro Settings with sensible defaults, (b) discover empirically by correlating usage with rate-limit events in Honeycomb, (c) update Honeycomb calculated fields once values are known, (d) community research for best-known estimates per plan tier |
+| 11 | **Unflushed token tracking across sessions** — Because idle sessions hold unflushed OTEL events (Q#9), Honeycomb alone cannot provide an accurate real-time view of total consumption. Maestro needs a complementary mechanism to track "committed but not yet in Honeycomb" tokens. This is critical for pre-task capacity checks — without it, an agent could approve a large task based on stale Honeycomb data while other sessions have already consumed significant unreported tokens. | **OPEN — NEEDS DESIGN** | See Section 13.5 for proposed mitigation strategies. |
 
 ---
 
@@ -735,10 +740,21 @@ src/renderer/hooks/batch/useBatchProcessor.ts # Pre-task refresh trigger
 
 | Dataset | Columns | Purpose |
 |---------|---------|---------|
-| `claude-code` | 53 (48 raw + 5 calculated) | Primary aggregated dataset |
-| `claude-code-worker-$(hostname)` | 37 (all raw) | Per-VM telemetry |
+| `claude-code` | 63 (58 raw + 5 calculated) | Primary aggregated dataset |
+| `claude-code-test` | — | Test dataset |
+| `claude-code-worker-$(hostname)` | 37 (all raw) | Per-VM telemetry (being eliminated) |
 
-**Data flowing since:** 2025-12-16
+**Data flowing since:** 2025-12-17 (oldest event)
+**Latest event:** 2026-02-15 (resource attributes actively writing)
+
+**Resource Attributes (added Feb 2026):**
+- `host.name` — VM hostname
+- `host.image.id`, `host.image.name` — VM image identifiers
+- `vm.node` — e.g., `apple-silicon`
+- `swarm.id` — e.g., `maestro`
+- `agent.index` — agent number within swarm
+- `plan.type` — e.g., `max`
+- `plan.limit` — e.g., `max_burst`
 
 ### 10.2 Available Token Fields
 
@@ -811,7 +827,7 @@ cache_read_tokens / (input_tokens + cache_read_tokens)
 | **Actual limit values** | $150 is hardcoded, may not match real limits | Need empirical observation or configurable setting |
 | **String-typed token fields** | `input_tokens`, etc. are `string` not `float` | Honeycomb auto-casts in expressions, but dedicated numeric columns would be cleaner |
 | **Per-VM breakdown** | `claude-code-worker-$(hostname)` has no calculated fields | Mirror calculated fields or use cross-dataset queries |
-| **Boards** | No Honeycomb boards created | Create monitoring boards for visual tracking |
+| **Boards** | ROI board created but needs time_range fixes | Fix all 13 queries per Section 13 audit |
 | **Triggers/Alerts** | No alerts when approaching limits | Create Honeycomb triggers at 75% and 90% thresholds |
 
 ### 10.5 Revised Architecture: Honeycomb as Data Source
@@ -1023,11 +1039,217 @@ Since exact limits are unknown, we need a strategy to determine them:
 | Risk | Likelihood | Impact | Mitigation |
 |------|------------|--------|------------|
 | OTEL data missing token fields | Low | High | Validate data quality early; check for nulls |
+| **OTEL flush gap (CONFIRMED)** | **High** | **High** | **Local token ledger + safety margin buffer (Section 13.5)** |
 | Honeycomb query latency (>5s) | Medium | Medium | Aggressive caching, async refresh |
 | Empirical limits change over time | Medium | Medium | Configurable values, periodic re-calibration |
 | MCP connection to Honeycomb drops | Low | Medium | Fallback to cached values with "stale" indicator |
 | String-typed token fields cause issues | Low | Low | Honeycomb auto-casts; can create float copies |
 | $150 budget assumption is wrong | Medium | Medium | Make configurable, document as estimate |
+
+---
+
+## 13. Honeycomb Audit: Calculated Fields & Board Queries
+
+> **Audit Date:** 2026-02-15
+> **Dataset:** `claude-code` (63 columns: 58 raw + 5 calculated)
+> **Board:** "Claude Code - ROI & Cost Monitoring" (ID: `km4k4GU5bzx`, 13 queries)
+
+### 13.1 Calculated Fields Audit
+
+#### CF-1: `total_usage_cost` — OK (with caveat)
+
+**Expression:**
+```
+($input_tokens / 1M * 5) + ($output_tokens / 1M * 25) +
+($cache_creation_tokens / 1M * 10) + ($cache_read_tokens / 1M * 0.50)
+```
+
+**Assessment:** Correct for Opus API-equivalent pricing ($5/$25/$10/$0.50 per 1M tokens). However, this uses a single pricing model for all events regardless of model. Sonnet events (cheaper: $3/$15 per 1M) will be **overstated** by ~40-67%. For a cost ceiling tracker this is conservative (over-estimates usage), which is arguably safe. To improve accuracy, a model-aware calculated field would use `IF(CONTAINS($model, "opus"), <opus_rates>, <sonnet_rates>)`.
+
+**Verdict:** Acceptable as-is. Conservative overestimate is preferable to underestimate for limit tracking.
+
+#### CF-2: `max_quota_percent` — Per-Event, Not Cumulative
+
+**Expression:**
+```
+((total_usage_cost) / 150) * 100
+```
+
+**Assessment:** This computes the percentage of $150 that a **single event** costs — producing values like 0.001% per event. It does NOT show cumulative spend as a percentage of budget. To get actual quota utilization, use a query-time `SUM(total_usage_cost)` over the desired window, then divide by the ceiling in application code or a board formula.
+
+**Verdict:** Misleading as a raw column. Only useful if wrapped in `SUM()` at query time (which would sum the per-event percentages, mathematically equivalent to `SUM(cost)/150*100`). Recommend renaming to `event_quota_percent` or replacing with query-time aggregation.
+
+#### CF-3: `daily_burn_rate` — Per-Event, Hardcoded Epoch
+
+**Expression:**
+```
+IF(GT(SUB(DIV(UNIX_TIMESTAMP(EVENT_TIMESTAMP()), 1000), 1738281600), 3600),
+   DIV(total_usage_cost / (days_since_epoch), days_since_epoch),
+   0)
+```
+
+**Assessment:** Two issues:
+1. **Per-event:** Divides a single event's cost by days since epoch. A single event's "daily burn rate" is meaningless — burn rate is only meaningful as an aggregate across all events.
+2. **Hardcoded epoch:** `1738281600` = Jan 31, 2025. This must be updated manually or replaced with a query using relative `time_range`.
+
+**Verdict:** Not useful as-is. Replace with query-time approach: `SUM(total_usage_cost)` over `time_range: "30d"` divided by 30 in application code.
+
+#### CF-4: `forecast_days_remaining` — Per-Event, Hardcoded Epoch
+
+**Expression:**
+```
+(150 - total_usage_cost) / (total_usage_cost / days_since_epoch)
+```
+
+**Assessment:** Same two issues as CF-3. Computes per-event: `(150 - $0.003) / ($0.003 / 400)` = astronomical number of days. Only meaningful as an aggregate. Also inherits the hardcoded epoch problem.
+
+**Verdict:** Not useful as-is. Replace with query-time approach using cumulative SUM values.
+
+#### CF-5: `cache_hit_ratio_event` — OK
+
+**Expression:**
+```
+IF(GT(($input_tokens + $cache_read_tokens), 0),
+   DIV($cache_read_tokens, ($input_tokens + $cache_read_tokens)),
+   0)
+```
+
+**Assessment:** Correct per-event cache hit ratio. Properly handles division by zero. Useful both as raw column and when aggregated via `AVG(cache_hit_ratio_event)`.
+
+**Verdict:** Good. Works as intended.
+
+### 13.2 Calculated Fields Summary
+
+| # | Field | Status | Issue | Recommendation |
+|---|-------|--------|-------|----------------|
+| 1 | `total_usage_cost` | **OK** | Opus-only pricing; Sonnet overstated ~40-67% | Acceptable (conservative). Optionally add model-aware pricing. |
+| 2 | `max_quota_percent` | **Misleading** | Per-event, not cumulative | Rename or replace with query-time `SUM(total_usage_cost)/150*100` |
+| 3 | `daily_burn_rate` | **Not Useful** | Per-event + hardcoded epoch | Replace with query-time `SUM(cost)/days` over rolling window |
+| 4 | `forecast_days_remaining` | **Not Useful** | Per-event + hardcoded epoch | Replace with query-time `(ceiling - SUM(cost)) / burn_rate` |
+| 5 | `cache_hit_ratio_event` | **OK** | None | Keep as-is |
+
+### 13.3 Board Queries Audit
+
+**Board:** "Claude Code - ROI & Cost Monitoring" (13 queries)
+
+#### Critical Issue: All Queries Use `time_range: 7200` (2 Hours)
+
+Every query on the board uses the default `time_range: 7200` seconds (2 hours). Combined with daily or weekly granularity settings, this produces **0-1 data points per time bucket**, making trends invisible. This appears to be a board template default that was not adjusted after creation.
+
+**Required Fix:** Change `time_range` per query:
+- Daily trend queries → `time_range: "30d"` (30 days)
+- Weekly trend queries → `time_range: "12w"` (12 weeks / ~90 days)
+- Snapshot/current queries → `time_range: "7d"` (7 days)
+- 5-hour window queries → `time_range: "5h"`
+
+#### Per-Query Assessment
+
+| # | Query | time_range | Granularity | Issue | Fix |
+|---|-------|-----------|-------------|-------|-----|
+| 1 | Total Spend | 2h | — | Too short for meaningful total | → 30d |
+| 2 | Cost Trends Over Time | 2h | daily | 0-1 data points | → 30d |
+| 3 | Cost per User (Top 20) | 2h | daily | 0-1 data points | → 30d |
+| 4 | Cost per Session | 2h | daily | 0-1 data points | → 30d |
+| 5 | Active Time per Dollar | 2h | daily | 0-1 data points | → 30d |
+| 6 | Cost Efficiency Trend | 2h | weekly | 0-1 data points | → 12w |
+| 7 | Model Usage & Cost Breakdown | 2h | daily | 0-1 data points | → 30d |
+| 8 | Token Usage by Type | 2h | daily | 0-1 data points | → 30d |
+| 9 | Lines of Code Trends | 2h | daily | 0-1 data points | → 30d |
+| 10 | Total Active Time Trends | 2h | daily | 0-1 data points | → 30d |
+| 11 | Tool Acceptance Rate | 2h | daily | 0-1 data points | → 30d |
+| 12 | Session Count Trends | 2h | daily | 0-1 data points | → 30d |
+| 13 | Active Time vs Cost by User | 2h | — | Too short for user comparison | → 30d |
+
+#### Other Board Query Observations
+
+1. **Template boilerplate:** All queries include inline calculated fields (e.g., `cost_per_event`, `active_time_hours`) that duplicate dataset-level calculated fields. Not harmful but adds maintenance overhead.
+2. **UUID breakdowns:** Some queries break down by `user.id` (UUID) rather than `user.email`. For readability, prefer `user.email`.
+3. **New resource attributes available:** Queries don't yet use `host.name`, `vm.node`, `agent.index`, `swarm.id`, `plan.type`, or `plan.limit` — these were added more recently and could enable per-VM and per-agent breakdowns.
+
+### 13.4 Recommended Actions
+
+**Immediate (fix the board):**
+1. Update all 13 query `time_range` values from 2h to 30d/12w as listed above
+2. Switch `user.id` breakdowns to `user.email` for readability
+3. Add `host.name` breakdown to relevant queries for per-VM visibility
+
+**Short-term (improve calculated fields):**
+4. Rename `max_quota_percent` → `event_quota_percent` (or remove; use query-time aggregation)
+5. Remove or mark `daily_burn_rate` and `forecast_days_remaining` as deprecated — replace with query-time computations using relative `time_range`
+6. Optionally add model-aware pricing to `total_usage_cost`
+
+**Medium-term (Maestro integration queries):**
+7. Build the 4 Maestro integration queries from Section 10.6 (5h window, 7d window, 7d Opus-only, per-model breakdown)
+8. These queries should use `total_usage_cost` with `SUM()` aggregation, avoiding the problematic per-event calculated fields
+
+### 13.5 OTEL Flush Gap: Unflushed Token Mitigation Strategies
+
+> **Finding Date:** 2026-02-15
+> **Severity:** High — directly impacts accuracy of pre-task capacity checks
+> **Related:** Open Questions #9 (confirmed) and #11
+
+#### The Problem
+
+Claude Code's OTEL batch exporter only flushes when the session is actively processing (handling messages, running tools). Idle sessions accumulate events locally. In a Maestro swarm with N parallel agents, at any given moment some agents are active and some are idle. Honeycomb only reflects the active agents' consumption — the idle agents' unreported tokens create a **blind spot**.
+
+**Worst case scenario:** Agent A queries Honeycomb, sees 60% of weekly limit consumed, approves a large task. Meanwhile Agents B, C, D have collectively consumed another 25% that hasn't flushed yet. Agent A's task pushes total to >100%, triggering rate limiting mid-task.
+
+#### Mitigation Strategies
+
+**Strategy A: Safety Margin Buffer (Simplest)**
+- Reserve a configurable percentage (e.g., 15-20%) of each limit as a buffer
+- Pre-task check: `if (honeycomb_usage + buffer) > threshold → warn/pause`
+- Buffer accounts for unflushed events across all sessions
+- Scale buffer with number of active agents: `buffer = base_pct + (N_agents * per_agent_pct)`
+- **Pro:** Zero additional infrastructure. **Con:** Wastes capacity; buffer may be too conservative or too aggressive.
+
+**Strategy B: Local Token Ledger in Maestro (Recommended)**
+- Maestro already parses token counts from each agent's output stream (via `claude-output-parser.ts` and `usage-aggregator.ts`)
+- Maintain a local in-memory ledger: `Map<sessionId, { tokensConsumed, lastFlushedAt }>`
+- On each agent response: increment local ledger immediately
+- On pre-task check: `actual_usage = honeycomb_sum + SUM(local_ledger_unflushed)`
+- Periodically reconcile: when Honeycomb data catches up, zero out the local ledger for that session
+- **Pro:** Accurate, real-time, uses existing parser infrastructure. **Con:** Requires Maestro code changes; ledger lives in memory (lost on restart, but restart also restarts sessions).
+
+**Strategy C: Cross-Session Flush Coordination (Complex)**
+- Before a pre-task capacity check, Maestro sends a "flush request" to all active agents
+- Each agent triggers its session to process a lightweight message, forcing an OTEL flush
+- Wait a short interval (2-5 seconds) for Honeycomb ingestion
+- Then query Honeycomb for the now-up-to-date totals
+- **Pro:** Gets true Honeycomb accuracy. **Con:** Adds latency to every pre-task check; requires a mechanism to trigger flushes; may not be possible without Claude Code supporting explicit OTEL flush.
+
+**Strategy D: Hybrid A+B (Recommended for Implementation)**
+- Implement Strategy B (local token ledger) as the primary mechanism
+- Use Strategy A (safety margin) as a secondary safeguard for edge cases (e.g., tokens consumed before Maestro parser captured them, or during app restart)
+- Default safety margin: 10% when local ledger is active, 20% when local ledger is unavailable
+- Pre-task formula: `estimated_total = honeycomb_sum + local_unflushed + safety_margin`
+
+#### Impact on Architecture
+
+This finding means the Maestro integration (Phases 3-5 in Section 11) needs an additional component:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Maestro Main Process                          │
+│                                                                  │
+│  ┌──────────────────┐    ┌──────────────────┐                    │
+│  │ HoneycombService  │    │ LocalTokenLedger │ ◄── parser events │
+│  │ (query remote)    │    │ (track local)    │                    │
+│  └────────┬─────────┘    └────────┬─────────┘                    │
+│           │                        │                             │
+│           ▼                        ▼                             │
+│  ┌─────────────────────────────────────────────┐                 │
+│  │ UsageAggregator                              │                 │
+│  │ total = honeycomb + local_unflushed + buffer │                 │
+│  └──────────────────────┬──────────────────────┘                 │
+│                          │                                        │
+│                          ▼                                        │
+│  ┌──────────────────────────────────────────┐                    │
+│  │ Pre-task check: can_proceed(task_estimate)│                    │
+│  │ → YES / WARN / BLOCK                     │                    │
+│  └──────────────────────────────────────────┘                    │
+└─────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
@@ -1044,12 +1266,13 @@ The **Honeycomb + OTEL telemetry approach** is the viable alternative:
 5. **Data needs maturation** — 1-2 weeks of accumulation for reliable baselines
 
 **Immediate Next Steps:**
-1. User reviews this revised investigation
-2. Validate data quality in Honeycomb (are token fields populated correctly?)
-3. Create Honeycomb monitoring board
-4. Wait for sufficient data accumulation
-5. Begin empirical limit discovery
-6. Implement Maestro integration (Phases 3-5)
+1. **Fix board query time ranges** — All 13 queries use 2h default; change to 30d/12w (see Section 13.4)
+2. **Fix/remove per-event calculated fields** — CF #2-4 are misleading; replace with query-time aggregations
+3. Backfill historical data from stats DB and JSONL files (user in progress)
+4. Wait for sufficient data accumulation (1-2 weeks)
+5. Begin empirical limit discovery (correlate usage with rate-limit events)
+6. Build Maestro integration queries (Section 10.6)
+7. Implement Maestro code integration (Phases 3-5)
 
 ---
 
