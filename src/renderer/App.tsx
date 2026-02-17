@@ -3096,6 +3096,28 @@ function MaestroConsoleInner() {
 					return;
 				}
 
+				// Background operations (detection, file explorer, git, stats) run independently
+				// of the user's session. Their SSH errors should not show modals or pollute chat logs.
+				// These errors are logged to console only for debugging.
+				// Use source tagging if available, fall back to session ID matching
+				if (
+					error.errorContext === 'background' ||
+					sessionId.includes('-detection-') ||
+					sessionId.includes('-explorer-') ||
+					sessionId.includes('-git-') ||
+					sessionId.includes('-stats-') ||
+					sessionId.includes('-file-') ||
+					sessionId.includes('-remote-fs-')
+				) {
+					console.log('[onAgentError] Ignoring background operation error:', {
+						rawSessionId: sessionId,
+						errorType: error.type,
+						message: error.message,
+						recoverable: error.recoverable,
+					});
+					return;
+				}
+
 				// Parse sessionId to get actual session ID (strip suffixes)
 				let actualSessionId: string;
 				let tabIdFromSession: string | undefined;
@@ -3158,6 +3180,17 @@ function MaestroConsoleInner() {
 							return {
 								...s,
 								aiTabs: updatedAiTabs,
+							};
+						}
+
+						// For recoverable SSH errors (timeouts, connection issues), don't block the session.
+						// The connection will likely recover automatically via ControlMaster + health monitor.
+						if (agentError.recoverable && agentError.type === 'network_error') {
+							return {
+								...s,
+								aiTabs: updatedAiTabs,
+								// Don't set agentError, agentErrorPaused, or error state
+								// Let the session continue — connection will auto-recover
 							};
 						}
 

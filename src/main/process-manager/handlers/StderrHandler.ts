@@ -72,6 +72,7 @@ export class StderrHandler {
 					raw: {
 						stderr: stderrData,
 					},
+					errorContext: managedProcess.spawnContext,
 				};
 				logger.debug('[ProcessManager] SSH error detected from stderr', 'ProcessManager', {
 					sessionId,

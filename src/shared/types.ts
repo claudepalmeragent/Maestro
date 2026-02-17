@@ -232,6 +232,13 @@ export interface AgentError {
 
 	/** Parsed JSON error details (if the error contains structured JSON) */
 	parsedJson?: unknown;
+
+	/**
+	 * Context in which the error occurred.
+	 * Used for intelligent error routing — background errors are logged silently,
+	 * interactive errors show modals, etc.
+	 */
+	errorContext?: 'interactive' | 'background' | 'batch' | 'synopsis';
 }
 
 /**

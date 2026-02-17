@@ -179,6 +179,7 @@ export class StdoutHandler {
 					sessionId,
 					timestamp: Date.now(),
 					raw: { errorLine: line },
+					errorContext: managedProcess.spawnContext,
 				};
 				logger.debug('[ProcessManager] SSH error detected from output', 'ProcessManager', {
 					sessionId,

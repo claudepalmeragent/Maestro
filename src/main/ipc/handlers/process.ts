@@ -328,6 +328,16 @@ export function registerProcessHandlers(deps: ProcessHandlerDependencies): void 
 					}
 				}
 
+				// Determine spawn context for error routing
+				// Batch mode sessions have '-batch-' suffix, synopsis have '-synopsis-'
+				const spawnContext: 'interactive' | 'batch' | 'synopsis' = config.sessionId.match(
+					/-batch-\d+$/
+				)
+					? 'batch'
+					: config.sessionId.match(/-synopsis-\d+$/)
+						? 'synopsis'
+						: 'interactive';
+
 				const result = processManager.spawn({
 					...config,
 					command: commandToSpawn,
@@ -356,6 +366,8 @@ export function registerProcessHandlers(deps: ProcessHandlerDependencies): void 
 					// SSH remote context (for SSH-specific error messages)
 					sshRemoteId: sshRemoteUsed?.id,
 					sshRemoteHost: sshRemoteUsed?.host,
+					// Error routing context
+					spawnContext,
 				});
 
 				logger.info(`Process spawned successfully`, LOG_CONTEXT, {

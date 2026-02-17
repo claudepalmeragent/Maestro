@@ -28,6 +28,8 @@ export interface ProcessConfig {
 	querySource?: 'user' | 'auto';
 	tabId?: string;
 	projectPath?: string;
+	/** Context for error routing — determines how errors from this process are handled */
+	spawnContext?: 'interactive' | 'background' | 'batch' | 'synopsis';
 }
 
 /**
@@ -66,6 +68,8 @@ export interface ManagedProcess {
 	sshRemoteHost?: string;
 	dataBuffer?: string;
 	dataBufferTimeout?: NodeJS.Timeout;
+	/** Context for error routing — determines how errors from this process are handled */
+	spawnContext?: 'interactive' | 'background' | 'batch' | 'synopsis';
 }
 
 export interface UsageTotals {

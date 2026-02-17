@@ -152,6 +152,7 @@ export class ExitHandler {
 						exitCode: code,
 						stderr: stderrToCheck,
 					},
+					errorContext: managedProcess.spawnContext,
 				};
 				logger.debug('[ProcessManager] SSH error detected at exit', 'ProcessManager', {
 					sessionId,
