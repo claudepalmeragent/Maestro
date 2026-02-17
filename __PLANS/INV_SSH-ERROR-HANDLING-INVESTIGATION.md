@@ -1,7 +1,7 @@
 # SSH Error Handling Investigation & Remediation Plan
 
-**Date**: 2026-02-13
-**Status**: Investigation Complete - **CRITICAL ROOT CAUSE IDENTIFIED**
+**Date**: 2026-02-13 (Original) | 2026-02-17 (Revalidated & Expanded, plan fully verified)
+**Status**: Phase 0 PARTIALLY IMPLEMENTED - Critical gaps found in revalidation
 **Priority**: High
 **Type**: Bug Fix / Architecture Improvement
 
@@ -11,454 +11,402 @@
 
 SSH connection errors in Maestro appear in multiple UI locations (chat logs, synopsis messages, error alert modals, toasts) and interrupt workflows during both Auto Run and interactive sessions.
 
-### Primary Root Cause: NO SSH CONNECTION SHARING
+### Phase 0 Revalidation (2026-02-17)
 
-**Maestro explicitly DISABLES SSH connection multiplexing** (`ssh-remote-manager.ts:71-73`):
+Phase 0 (SSH connection pooling) was implemented on 2026-02-13 but **only fixed 1 of 3 SSH code paths**. Two critical paths still create fresh TCP connections per operation, explaining why SSH errors persist.
+
+### Root Cause: ControlMaster Only Applied to `ssh-remote-manager.ts`
+
+Phase 0 correctly enabled ControlMaster in `ssh-remote-manager.ts`, but there are **three separate SSH code paths** in Maestro:
+
+| Code Path | File | Has ControlMaster? | Has Keep-Alives? | Used For |
+|-----------|------|-------------------|------------------|----------|
+| `ssh-remote-manager.ts` | `buildSshArgs()` | **YES** | **YES** | remote-fs (file explorer, stats), testConnection, audit service |
+| `SshCommandRunner.ts` | Own SSH args (lines 46-53) | **NO** | **NO** | Terminal commands on remote hosts |
+| `ssh-command-builder.ts` | `DEFAULT_SSH_OPTIONS` (lines 45-52) | **NO** | **NO** | Agent spawning, git operations, agent detection, group chat |
+
+**The two paths that handle agent execution, git operations, group chat, and agent detection are still opening fresh TCP connections for every operation.**
+
+---
+
+## Current State of SSH Code Paths
+
+### Path 1: `ssh-remote-manager.ts` — FIXED in Phase 0
 
 ```typescript
-ControlMaster: 'no',    // Disable connection multiplexing
-ControlPath: 'none',    // Ensure no ControlPath is used
-ControlPersist: 'no',   // Don't persist control connections
-```
-
-**This means EVERY SSH operation creates a NEW TCP connection**, including:
-- Each agent command execution
-- Each file explorer operation
-- Each git status check
-- Each stats collection call
-- Each "Test Connection" click
-- Synopsis generation
-
-For a host with multiple concurrent operations, this creates a **thundering herd** of SSH connections, which can:
-1. Overwhelm the SSH server's connection limit (`MaxStartups` in sshd_config)
-2. Cause race conditions in key agent authentication
-3. Trigger connection timeouts when the queue backs up
-
-### Secondary Issue: No Keep-Alives
-
-There are **no SSH keep-alives configured** (`ServerAliveInterval`, `ServerAliveCountMax`). Combined with no connection sharing, idle connections may be silently dropped by the network/firewall, but Maestro won't know until the next operation fails.
-
-### Why "Test Connection" Sometimes Helps
-
-Clicking "Test Connection" runs a fresh SSH handshake which:
-1. Validates the SSH key is in the agent
-2. "Warms up" any network path caching
-3. May clear stale state in ssh-agent
-
-But this is a **temporary fix** - the next burst of concurrent operations can still fail.
-
-### Your Environment: Local VMs
-
-Since your remotes are VMs on local vmnet (no real network latency/disruption), the errors are almost certainly caused by **connection concurrency issues**, not network problems. The 10-second timeout is being hit because:
-- Too many simultaneous connection attempts
-- SSH server throttling new connections
-- Connection queue backlog
-
----
-
-## Error Types Observed
-
-### 1. SSH Connection Timed Out
-```json
-{
-  "type": "network_error",
-  "message": "SSH connection timed out. Check network connectivity and firewall rules.",
-  "recoverable": true
-}
-```
-**Sources**:
-- `error-patterns.ts:606` - Pattern match for `ssh:.*connection timed out`
-- `agents.ts:132` - SSH timeout during agent detection (10s timeout)
-- `remote-fs.ts:121` - Recoverable error pattern for retry logic
-
-### 2. SSH Authentication Failed
-```json
-{
-  "type": "permission_denied",
-  "message": "SSH authentication failed. Check your SSH key configuration.",
-  "recoverable": false
-}
-```
-**Sources**:
-- `error-patterns.ts:564` - Pattern match for `ssh:.*permission denied`
-
----
-
-## Architecture Analysis
-
-### Error Detection Points
-
-SSH errors are detected at **three levels**:
-
-1. **StdoutHandler.ts** (lines 169-191)
-   - Checks agent stdout for SSH error patterns
-   - Emits `agent-error` event when detected
-
-2. **StderrHandler.ts** (lines 60-82)
-   - Checks agent stderr for SSH error patterns
-   - Emits `agent-error` event when detected
-
-3. **ExitHandler.ts** (lines 134-163)
-   - Checks accumulated stderr buffer on process exit
-   - Emits `agent-error` event when detected
-
-### Error Propagation Flow
-
-```
-SSH Error Detected (stdout/stderr/exit)
-        │
-        ▼
-ProcessManager.emit('agent-error', sessionId, agentError)
-        │
-        ▼
-error-listener.ts: safeSend('agent:error', sessionId, agentError)
-        │
-        ▼
-Renderer: window.maestro.process.onAgentError()
-        │
-        ▼
-App.tsx lines 2935-3157: Main error handler
-        │
-        ├─── Group Chat errors → setGroupChatError + message
-        │
-        ├─── Synopsis errors → IGNORED (line 3002-3009) ✓ Good
-        │
-        ├─── Batch mode errors → pauseBatchOnError + toast + history entry
-        │
-        └─── Interactive errors → Log entry + error modal + session state
-```
-
-### Problem: All Errors Go Through Same Pipeline
-
-**Background operations that can trigger SSH errors:**
-
-| Operation | Source Location | When Triggered |
-|-----------|-----------------|----------------|
-| Agent Detection | `agents.ts:109-199` | Settings modal, startup, "Test Connection" |
-| File Explorer | `remote-fs.ts` | Panel refresh, navigation |
-| Git Status | `git.ts` IPC handlers | Session creation, refresh |
-| Stats Collection | `parseRemoteClaudeStatsViaShell` | Usage tracking |
-| Synopsis | `useAgentExecution.ts` | After query completion |
-
-**Current Behavior**:
-- ALL these operations spawn SSH processes
-- SSH errors from ANY of these operations emit `agent-error` events
-- The `agent-error` handler in App.tsx treats them ALL as interactive session errors
-- Result: Error modals, log entries, and state changes for background operation failures
-
----
-
-## Specific Issues Identified
-
-### Issue 1: Background SSH Operations Treated as Agent Errors
-
-**Problem**: SSH operations for file explorer, git status, and stats collection go through the same error emission path as actual agent execution errors.
-
-**Evidence**: Error appearing during "thinking" time when no agent is actively executing.
-
-**Impact**:
-- Error modals appear unexpectedly
-- Session state set to 'error' incorrectly
-- Log entries added to chat that aren't relevant to the conversation
-
-### Issue 2: Inconsistent Session ID Patterns
-
-**Problem**: Background operations may use session IDs that don't match the expected patterns for filtering.
-
-**Current Filters** (App.tsx):
-- Group chat: `group-chat-{UUID}-moderator-{timestamp}` or `group-chat-{UUID}-{participant}-{timestamp}`
-- Synopsis: `*-synopsis-{timestamp}`
-- Batch: `*-batch-{timestamp}`
-
-**Missing Filters**:
-- File explorer operations
-- Git status checks
-- Stats collection
-- Agent detection (Test Connection)
-
-### Issue 3: Error Messages in History JSON
-
-**Problem**: The `errorLogEntry` (App.tsx:3039-3045) is added to the tab's `logs` array and persisted to `maestro-sessions.json`. This includes the full `agentError` object with `raw` data containing potentially large stderr output.
-
-**Evidence**: Your JSON sample shows `raw.errorLine` containing 1021+ lines of file content - this was likely a stats parsing operation that timed out.
-
-### Issue 4: No Distinction Between Transient and Fatal Errors
-
-**Problem**: Transient network errors (connection timeout, connection reset) and fatal errors (authentication failed) both trigger the same error modal flow.
-
-**Current Behavior**:
-- `recoverable: true` errors still show blocking error modal
-- User must manually dismiss even for transient issues
-- Auto Run pauses on recoverable errors
-
----
-
-## REVISED Solution Strategy
-
-Given the root cause (no connection sharing, no keep-alives), the solution should be **architectural**, not just error routing.
-
-### NEW Option D: SSH Connection Pool (RECOMMENDED)
-
-**Concept**: Implement SSH connection multiplexing via ControlMaster to share a single SSH connection per remote host.
-
-**Implementation**:
-```typescript
-// ssh-remote-manager.ts - REVISED defaults
+// Lines 65-79 — Phase 0 changes intact
 private readonly defaultSshOptions: Record<string, string> = {
   BatchMode: 'yes',
   StrictHostKeyChecking: 'accept-new',
   ConnectTimeout: '10',
   ClearAllForwardings: 'yes',
   RequestTTY: 'no',
-  // NEW: Enable connection sharing
-  ControlMaster: 'auto',           // Automatically create/use master connection
-  ControlPath: '/tmp/maestro-ssh-%r@%h:%p',  // Socket path for multiplexing
-  ControlPersist: '300',           // Keep connection alive for 5 minutes after last use
-  // NEW: Keep-alives
-  ServerAliveInterval: '30',       // Send keep-alive every 30 seconds
-  ServerAliveCountMax: '3',        // Fail after 3 missed responses (90s total)
+  ControlMaster: 'auto',           // ✅ Phase 0
+  ControlPath: '/tmp/maestro-ssh-%C',  // ✅ Phase 0
+  ControlPersist: '300',           // ✅ Phase 0
+  ServerAliveInterval: '30',       // ✅ Phase 0
+  ServerAliveCountMax: '3',        // ✅ Phase 0
 };
 ```
 
-**Benefits**:
-1. **Single TCP connection per host** - No more connection storms
-2. **Instant reconnect** - Subsequent operations reuse the master socket
-3. **Keep-alives** - Detect dead connections proactively
-4. **Built-in timeout** - ControlPersist handles idle cleanup
+**Consumers**: `remote-fs.ts` (file explorer, stats parsing, file read/write), `testConnection()`, `anthropic-audit-service.ts`
 
-**Why This Was Disabled Originally**:
-The comment says "prevent 'UNKNOWN port -1' errors when multiple agents connect to same server". This was likely a race condition when:
-- Multiple processes tried to become ControlMaster simultaneously
-- The socket file was corrupted or stale
+### Path 2: `SshCommandRunner.ts` — NOT FIXED
 
-**Mitigation for the original issue**:
-1. Use atomic socket creation with unique paths per Maestro instance
-2. Clean up stale sockets on startup
-3. Handle ControlMaster errors gracefully (fall back to direct connection)
+```typescript
+// Lines 46-53 — Missing ControlMaster, ControlPath, ControlPersist, ServerAliveInterval
+const sshOptions: Record<string, string> = {
+  BatchMode: 'yes',
+  StrictHostKeyChecking: 'accept-new',
+  ConnectTimeout: '10',
+  ClearAllForwardings: 'yes',
+  RequestTTY: 'no',
+};
+```
 
-**Risk**: Medium - Changes SSH behavior fundamentally, but this is how SSH is *designed* to work for concurrent operations.
+**Consumers**: `ProcessManager.ts` for terminal commands on remote hosts
 
----
+### Path 3: `ssh-command-builder.ts` — NOT FIXED
 
-### Option A: Source-Aware Error Routing (Secondary - Still Valuable)
+```typescript
+// Lines 45-52 — Missing ControlMaster, ControlPath, ControlPersist, ServerAliveInterval
+const DEFAULT_SSH_OPTIONS: Record<string, string> = {
+  BatchMode: 'yes',
+  StrictHostKeyChecking: 'accept-new',
+  ConnectTimeout: '10',
+  ClearAllForwardings: 'yes',
+  RequestTTY: 'force',
+  LogLevel: 'ERROR',
+};
+```
 
-**Concept**: Tag SSH operations with their source/context and route errors differently based on source.
-
-**Implementation**:
-1. Add `errorSource` field to AgentError type: `'agent' | 'background' | 'synopsis' | 'batch' | 'detection'`
-2. Set source when spawning processes (already have `querySource` for some operations)
-3. Route errors based on source:
-   - `agent` → Current behavior (modal + log + state)
-   - `background` → Log only (debug level) + optional toast
-   - `synopsis` → Already ignored correctly
-   - `batch` → Pause + toast (current behavior)
-   - `detection` → Toast only (no modal, no log)
-
-**Pros**: Clean separation, maintains audit trail, minimal disruption
-**Cons**: Requires changes to spawn parameters and error handling
-
-### Option B: Separate Error Channels
-
-**Concept**: Create separate IPC channels for different error types.
-
-**Implementation**:
-1. `agent:error` - Interactive session errors (current)
-2. `agent:background-error` - File explorer, git, stats errors
-3. `agent:detection-error` - Agent detection errors
-
-**Pros**: Very explicit, no changes to existing error handler
-**Cons**: Code duplication, more IPC surface area
-
-### Option C: Error Severity/Context in Current Flow
-
-**Concept**: Enhance current error handling with severity and context checks.
-
-**Implementation**:
-1. Add `severity` to AgentError: `'blocking' | 'warning' | 'info'`
-2. Add `context` to AgentError: `'interactive' | 'background'`
-3. Modify App.tsx handler to check these fields
-4. Only show modal for `blocking` + `interactive` errors
-
-**Pros**: Minimal structural changes
-**Cons**: Still funnels all errors through same path, just filters at the end
+**Consumers**:
+- `ssh-spawn-helper.ts` → `wrapSpawnWithSsh()` → group chat agents, group chat router
+- `agents.ts` → agent detection on remote hosts
+- `process.ts` → session spawning on remotes
+- `remote-git.ts` → all git operations (worktree setup/checkout, repo root, etc.)
 
 ---
 
-## REVISED Recommended Implementation Plan
+## Phase 0 Supporting Infrastructure — Intact
 
-### Phase 0: SSH Connection Pool (HIGH PRIORITY - Fixes Root Cause)
+| Component | File | Status |
+|-----------|------|--------|
+| Socket cleanup on startup | `ssh-socket-cleanup.ts:cleanupStaleSshSockets()` | ✅ Working |
+| Socket close on shutdown | `ssh-socket-cleanup.ts:closeSshConnections()` | ✅ Working |
+| Quit handler integration | `quit-handler.ts:197` | ✅ Working |
+| Startup integration | `index.ts:103` | ✅ Working |
 
-**Goal**: Eliminate connection storms by sharing SSH connections
+---
 
-**Files to Modify**:
+## Minor Issue: `anthropic-audit-service.ts`
+
+Line 259 creates a NEW `SshRemoteManager()` instance per call (rather than using the singleton). While it does get ControlMaster options, line 276 uses shell string interpolation (`ssh ${sshArgs.join(' ')}`) via `execAsync`, which is fragile for paths with special characters. Should use the singleton and `execFileNoThrow` for consistency.
+
+---
+
+## REVISED Implementation Plan
+
+### Phase 0B: Complete ControlMaster Coverage (HIGH PRIORITY)
+
+**Goal**: Apply ControlMaster + keep-alives to ALL SSH code paths
+
+**Strategy**: Rather than maintaining SSH options in 3 separate places, centralize them. Import and reuse the options from `ssh-remote-manager.ts`.
+
+**Option A — Centralize via shared constants module (RECOMMENDED)**:
+Create `src/main/utils/ssh-options.ts` with typed option sets and import in all three locations:
+
+```typescript
+// src/main/utils/ssh-options.ts
+
+/** Base options shared by ALL SSH operations */
+export const BASE_SSH_OPTIONS: Record<string, string> = {
+    BatchMode: 'yes',
+    StrictHostKeyChecking: 'accept-new',
+    ConnectTimeout: '10',
+    ClearAllForwardings: 'yes',
+    ControlMaster: 'auto',
+    ControlPath: '/tmp/maestro-ssh-%C',
+    ControlPersist: '300',
+    ServerAliveInterval: '30',
+    ServerAliveCountMax: '3',
+};
+
+/** For non-interactive commands (file ops, stats, terminal, git) */
+export const COMMAND_SSH_OPTIONS: Record<string, string> = {
+    ...BASE_SSH_OPTIONS,
+    RequestTTY: 'no',
+};
+
+/** For agent spawning (needs TTY for --print mode) */
+export const AGENT_SSH_OPTIONS: Record<string, string> = {
+    ...BASE_SSH_OPTIONS,
+    RequestTTY: 'force',
+    LogLevel: 'ERROR',
+};
+```
+
+**Option B — Make all paths use `sshRemoteManager.buildSshArgs()`**:
+More invasive but eliminates duplication. `SshCommandRunner` and `ssh-command-builder` would need to call `buildSshArgs()` and then add their context-specific options (like `-tt` for TTY).
+
+#### Files to Modify
+
 | File | Changes |
 |------|---------|
-| `src/main/ssh-remote-manager.ts` | Enable ControlMaster, ControlPath, ControlPersist, ServerAliveInterval |
-| `src/main/index.ts` | Add startup cleanup for stale SSH sockets |
-| `src/main/utils/ssh-socket-cleanup.ts` | New file - socket management utilities |
+| `src/main/ssh-remote-manager.ts` | Export `defaultSshOptions` as a shared constant (or create a new shared module) |
+| `src/main/process-manager/runners/SshCommandRunner.ts` | Import and use shared SSH options (add ControlMaster, ControlPath, ControlPersist, ServerAliveInterval, ServerAliveCountMax) |
+| `src/main/utils/ssh-command-builder.ts` | Import and use shared SSH options (add ControlMaster, ControlPath, ControlPersist, ServerAliveInterval, ServerAliveCountMax). Note: Keep `RequestTTY: 'force'` and `LogLevel: 'ERROR'` as overrides since this path needs TTY for Claude Code `--print` mode |
+| `src/main/services/anthropic-audit-service.ts` | Use singleton `sshRemoteManager` instead of creating new instance; switch from `execAsync` shell string to `execFileNoThrow` |
 
-**Implementation Steps**:
+#### Specific Changes per File
 
-1. **Update SSH defaults** (`ssh-remote-manager.ts`):
-   ```typescript
-   ControlMaster: 'auto',
-   ControlPath: '/tmp/maestro-ssh-%C',  // %C = hash of connection params
-   ControlPersist: '300',               // 5 minute idle timeout
-   ServerAliveInterval: '30',
-   ServerAliveCountMax: '3',
-   ```
+**`SshCommandRunner.ts`** (lines 46-53) — Add these options:
+```typescript
+const sshOptions: Record<string, string> = {
+  BatchMode: 'yes',
+  StrictHostKeyChecking: 'accept-new',
+  ConnectTimeout: '10',
+  ClearAllForwardings: 'yes',
+  RequestTTY: 'no',
+  // ADD:
+  ControlMaster: 'auto',
+  ControlPath: '/tmp/maestro-ssh-%C',
+  ControlPersist: '300',
+  ServerAliveInterval: '30',
+  ServerAliveCountMax: '3',
+};
+```
 
-2. **Socket cleanup on startup**:
-   - Remove stale `/tmp/maestro-ssh-*` sockets from previous runs
-   - Handle graceful cleanup on app quit
+**`ssh-command-builder.ts`** (lines 45-52) — Add these options:
+```typescript
+const DEFAULT_SSH_OPTIONS: Record<string, string> = {
+  BatchMode: 'yes',
+  StrictHostKeyChecking: 'accept-new',
+  ConnectTimeout: '10',
+  ClearAllForwardings: 'yes',
+  RequestTTY: 'force',   // Keep - needed for Claude Code --print mode
+  LogLevel: 'ERROR',     // Keep - suppress SSH warnings
+  // ADD:
+  ControlMaster: 'auto',
+  ControlPath: '/tmp/maestro-ssh-%C',
+  ControlPersist: '300',
+  ServerAliveInterval: '30',
+  ServerAliveCountMax: '3',
+};
+```
 
-3. **Fallback handling**:
-   - If ControlMaster fails, retry with `ControlMaster: 'no'`
-   - Log warning about potential performance impact
-
-**Testing**:
-- Run 10 concurrent file explorer operations → should use 1 connection
-- Kill SSH daemon on VM → should detect via keep-alive within 90s
-- Restart Maestro → should clean up old sockets
-
-### Phase 1: Immediate Relief (Low Risk, Do in Parallel)
-
-**Goal**: Reduce error noise while Phase 0 is implemented
-
-1. **Add session ID patterns for background operations**
-   - File: `App.tsx` onAgentError handler
-   - Add filters for: `-git-`, `-explorer-`, `-stats-`, `-detection-`
-   - These would be silently logged but not shown in UI
-
-2. **Reduce error modal triggering for recoverable errors**
-   - File: `App.tsx` line 3154
-   - Only show modal for `recoverable: false` errors
-   - Show toast for `recoverable: true` errors instead
-
-### Phase 2: Proper Source Tagging (Medium Risk, Lower Priority Now)
-
-**Goal**: Enable intelligent error routing (less critical if Phase 0 works)
-
-1. **Add `errorContext` to AgentError type**
-   ```typescript
-   interface AgentError {
-     // ... existing fields
-     errorContext?: 'interactive' | 'background' | 'batch' | 'synopsis';
-   }
-   ```
-
-2. **Tag process spawns with context**
-   - Modify spawn options to include context
-   - Pass through to ManagedProcess
-   - Include in emitted errors
-
-3. **Update error handlers to use context**
-   - Filter by context in App.tsx
-   - Different handling per context
-
-### Phase 3: SSH Health Monitoring (UX Polish)
-
-**Goal**: Proactive SSH health visibility
-
-1. **Connection health indicator**
-   - Show SSH status icon per remote in session header
-   - Green = healthy, Yellow = reconnecting, Red = failed
-   - Tooltip shows last successful operation time
-
-2. **Proactive reconnection**
-   - If ControlMaster socket dies, recreate on next operation
-   - Optional "Reconnect All" button in Settings
-
-3. **Batch mode resilience**
-   - Already have retry logic in remote-fs.ts
-   - With connection pooling, retries will be much faster
-   - Configurable retry count in settings
+**Note on TTY and ControlMaster**: `ssh-command-builder.ts` uses `-tt` (force TTY) AND `RequestTTY: 'force'`. ControlMaster works with TTY allocation — the master connection handles the transport, and each multiplexed session can independently request a TTY. No conflict.
 
 ---
 
-## Answers to Your Questions
+### Phase 1: Proactive Connection Health Management (NEW)
 
-### Q1: Do all operations in Maestro share ONE SSH connection?
+**Goal**: Keep SSH connections alive automatically, detect and repair dead connections BEFORE they cause errors — no user intervention required.
 
-**No. Currently, EVERY SSH operation creates a NEW TCP connection.**
+#### Why Keep-Alives Alone Aren't Enough
 
-The code explicitly disables SSH multiplexing (`ssh-remote-manager.ts:71-73`):
+`ServerAliveInterval: '30'` (Phase 0) only exists in `ssh-remote-manager.ts`. Agent sessions spawned via `ssh-command-builder.ts` and `SshCommandRunner.ts` have **zero keep-alives**. During long agent cycles (10+ minutes), the SSH connection has no heartbeat — if TCP drops silently, the next write fails with "broken pipe". **Phase 0B fixes this by adding ServerAliveInterval to all code paths.**
+
+Even with keep-alives everywhere, they're reactive (detect death after 90s). Pre-flight checks are proactive (detect death before the operation).
+
+#### Timing: 60s Background + Pre-Flight Checks (Hybrid Approach)
+
+**Pre-flight check** (near-zero overhead):
+```
+Before any SSH operation:
+  1. stat('/tmp/maestro-ssh-%C') → does socket exist? (~0.1ms, local filesystem)
+  2. If yes: ssh -O check <host> → is socket alive? (~1ms, local unix IPC, no network)
+  3. If check fails: rm stale socket, let ControlMaster=auto create fresh one
+  4. If no socket: proceed (ControlMaster=auto handles creation)
+  5. Execute actual operation
+```
+
+`ssh -O check` talks to the **local ControlMaster process** via unix socket — it does NOT make a network round-trip. Overhead is <1ms per operation. This catches 100% of stale socket scenarios.
+
+**60s background sweep** (complementary):
+- Pre-warms connections that expired during idle (ControlPersist=300 = 5 min)
+- Logs health status for diagnostics
+- Detects host-level problems (SSH daemon down) before user triggers an operation
+
+**During long agent cycles**: With Phase 0B's `ServerAliveInterval: '30'` on all code paths, the SSH client sends keep-alive packets every 30s during the agent's execution. Combined with the VM's `tcp_keepalive_time=30`, the connection stays alive through idle periods. If the connection truly dies, SSH detects it within 90s (3 missed pings) and the process exits with an error — which the existing handlers catch and report.
+
+#### 1A: Pre-Flight Socket Validation
+
+Add a lightweight socket check before SSH operations. This is the primary defense against stale pipes.
+
+**Implementation**: Add to the shared `ssh-options.ts` module (Phase 0B):
+
 ```typescript
-ControlMaster: 'no',
-ControlPath: 'none',
-ControlPersist: 'no',
+/**
+ * Validate ControlMaster socket is alive before an SSH operation.
+ * Near-zero overhead (~1ms, local unix IPC only).
+ * Returns true if socket is healthy or doesn't exist yet.
+ * If stale, removes the socket file so ControlMaster=auto creates a fresh one.
+ */
+export async function validateSshSocket(config: SshRemoteConfig): Promise<boolean>
 ```
 
-### Q2: Does opening multiple SSH connections cause these errors?
+**Integration points** (add pre-flight call before SSH execution):
+- `remote-fs.ts` `execRemoteCommand()` — before line 186
+- `ssh-command-builder.ts` `buildSshCommand()` — before returning
+- `SshCommandRunner.ts` `run()` — before spawning
 
-**Yes, almost certainly.** With your local VM setup, there's no network latency to explain timeouts. The errors are caused by:
+#### 1B: Background Health Monitor Service
 
-1. **Connection storm**: File explorer, git status, stats, synopsis all fire SSH connections simultaneously
-2. **SSH server throttling**: `MaxStartups` in sshd_config limits concurrent handshakes (default: 10:30:100)
-3. **Connection queue backup**: Requests waiting for a free slot can timeout
-4. **Key agent contention**: Multiple processes querying ssh-agent simultaneously
+Create a background service for idle pre-warming and diagnostics.
 
-### Q3: Why does clicking "Test Connection" sometimes help?
+**New File**: `src/main/services/ssh-health-monitor.ts`
 
-**It "primes the pump" for that specific moment:**
+**Behavior**:
+- Runs a periodic health check loop (every 60 seconds)
+- For each configured SSH remote that has been used in the current session:
+  - Check if ControlMaster socket exists at `/tmp/maestro-ssh-%C`
+  - If socket exists, run `ssh -O check` to verify it's alive
+  - If socket is dead/stale: remove it and pre-warm a new connection
+  - If socket doesn't exist and remote was recently active: pre-warm a new connection
+- Pre-warming: spawn `ssh -fN -o ControlMaster=auto ...` to establish master connection
 
-1. Validates SSH key is loaded in agent
-2. Establishes that the host is reachable
-3. May clear any cached DNS/routing state
-4. Gives the SSH server a "fresh start" with that connection
+**Integration Points**:
+- Start on app startup (after initial socket cleanup)
+- Stop on app shutdown (before `closeSshConnections`)
+- Pause when all SSH remotes are disabled/removed
+- Resume when SSH remote is configured/enabled
 
-But it's ephemeral - the next burst of operations can still overwhelm the connection pool.
+#### 1C: Pre-Warm Connections on Config Change
 
-### Q4: Are keep-alives already implemented?
+When a user saves/tests an SSH remote config, immediately establish a ControlMaster connection so it's ready before any operation needs it.
 
-**No.** I searched the entire codebase:
-- No `ServerAliveInterval` configuration
-- No `ServerAliveCountMax` configuration
-- No application-level heartbeat for SSH connections
-- The only "heartbeat" is for WebSocket connections (web interface)
+**File**: `src/main/ipc/handlers/ssh-remote.ts`
+- After successful `ssh-remote:test` (line 267): the test already establishes a connection, and with ControlMaster it will persist
+- After `ssh-remote:saveConfig` (line 92): optionally pre-warm if the remote was previously working
 
-### Q5: Could we implement global connection sharing?
+#### 1D: Stale Socket Detection in `remote-fs.ts` Retry Logic
 
-**Yes! This is exactly what SSH ControlMaster is designed for.**
+Enhance the existing retry logic to detect stale ControlMaster sockets and remove them before retrying.
 
-With `ControlMaster: 'auto'`:
-- First SSH command to a host creates a "master" connection
-- All subsequent commands to that host multiplex over the same TCP socket
-- No new TCP handshakes, no new key exchanges
-- Sub-millisecond overhead per operation instead of 100ms+ per new connection
+**File**: `src/main/utils/remote-fs.ts`
 
-### Q6: Could we implement global background keep-alives?
+**Current**: `RECOVERABLE_SSH_ERRORS` triggers retry with backoff (lines 116-164)
+**Enhancement**: On first retry for `banner exchange` or `socket is not connected` errors (already in the pattern list, line 129-130), remove the ControlMaster socket before retrying. This forces SSH to establish a fresh master connection on the retry.
 
-**With ControlMaster + ServerAliveInterval, yes:**
-
+```typescript
+// In the retry loop, before retrying:
+if (isStaleSocketError(combinedOutput)) {
+  removeStaleSocket(config);  // rm /tmp/maestro-ssh-<hash>
+}
 ```
-ControlMaster: 'auto'
-ControlPersist: '300'        # Keep master alive 5 min after last use
-ServerAliveInterval: '30'    # Ping every 30 seconds
-ServerAliveCountMax: '3'     # Fail after 3 missed pongs (90s)
+
+#### 1E: Connection Health Event Emission
+
+The health monitor should emit events that the renderer can optionally display:
+
+```typescript
+// Events:
+'ssh:connection-healthy'    // (remoteId) — connection verified OK
+'ssh:connection-degraded'   // (remoteId) — socket missing, pre-warming
+'ssh:connection-failed'     // (remoteId, error) — pre-warm failed, host unreachable
+'ssh:connection-restored'   // (remoteId) — previously failed, now healthy
 ```
 
-This gives:
-- Automatic keep-alive on the shared connection
-- Proactive detection of dead connections
-- Automatic cleanup after idle period
+These events feed into Phase 3 (UI indicators) but are not blocking — the health monitor works silently regardless of UI.
 
-### Q7: Impact on Conclusions
+---
 
-**The original plan was treating symptoms. The real fix is architectural:**
+### Phase 2: Error Routing (Previously Phase 1)
 
-| Original Plan | Revised Plan |
-|---------------|--------------|
-| Filter/route errors differently | Fix the cause: connection pooling |
-| Show toasts instead of modals | Still useful for any remaining errors |
-| Add error context tags | Lower priority now |
-| Retry logic | Already exists, will work better with pooling |
+**Goal**: Reduce error noise for any remaining SSH errors that slip through
 
-**With connection pooling:**
-- 90%+ of "timeout" errors should disappear
-- Operations will be faster (no handshake overhead)
-- Keep-alives will detect dead connections proactively
-- Remaining errors will be genuine issues (auth, server down)
+**Changes to `App.tsx` onAgentError handler**:
+
+1. **Add session ID pattern filters** for background operations:
+   - `-git-`, `-explorer-`, `-stats-`, `-detection-`
+   - These should be silently logged but NOT shown in UI
+
+2. **Conditional modal vs toast** for recoverable errors:
+   - `recoverable: true` → toast notification (non-blocking)
+   - `recoverable: false` → error modal (current behavior)
+
+**Files to modify**:
+| File | Changes |
+|------|---------|
+| `src/renderer/App.tsx` | Add filters in onAgentError handler; conditional modal vs toast |
+
+---
+
+### Phase 3: Source Tagging (Previously Phase 2)
+
+**Goal**: Enable intelligent error routing based on operation context
+
+1. Add `errorContext` field to `AgentError` type in `src/shared/types.ts`:
+   ```typescript
+   errorContext?: 'interactive' | 'background' | 'batch' | 'synopsis';
+   ```
+
+2. Tag process spawns with context in `src/main/ipc/handlers/process.ts`
+
+3. Pass context through `ManagedProcess` in `src/main/process-manager/types.ts`
+
+4. Include context in emitted errors in `src/main/process-manager/handlers/*.ts`
+
+5. Route based on context in `src/renderer/App.tsx`
+
+---
+
+### Phase 4: SSH Health UI (Previously Phase 3, Expanded)
+
+**Goal**: Visual indicators for SSH connection health (nice-to-have since Phase 1 keeps things alive automatically)
+
+1. **Connection status indicator per remote** in session header
+   - Green = healthy (last health check passed)
+   - Yellow = reconnecting (pre-warming in progress)
+   - Red = failed (host unreachable)
+
+2. **"Reconnect All" button** in Settings (manual override)
+   - Clears all ControlMaster sockets
+   - Re-establishes connections
+
+3. **Connection status in Settings SSH panel**
+   - Show last health check timestamp per remote
+   - Show connection state (connected/disconnected/error)
+
+---
+
+## Implementation Priority
+
+| Phase | Priority | Risk | Effort | Impact |
+|-------|----------|------|--------|--------|
+| **0B: Complete ControlMaster Coverage** | **CRITICAL** | Low | Small (4 files, ~20 lines each) | Fixes the root cause for 2/3 of SSH paths |
+| **1: Proactive Health Management** | High | Medium | Medium (new service + integration) | Prevents errors before they happen |
+| **2: Error Routing** | Medium | Low | Small (1 file) | Reduces UI noise for remaining errors |
+| **3: Source Tagging** | Low | Low | Medium (5+ files) | Better error intelligence |
+| **4: SSH Health UI** | Low | Low | Medium (new components) | UX polish |
+
+**Recommendation**: Phase 0B is the most urgent — it's a small change that fixes the root cause. Phase 1 is the user's specific request (automatic health management). Phases 2-4 are polish.
+
+---
+
+## Testing Plan
+
+### Phase 0B Tests
+
+**Verification**:
+1. After changes, `grep -r "ControlMaster" src/main/` should show ALL three SSH code paths have it
+2. Run agent on remote → verify ControlMaster socket created at `/tmp/maestro-ssh-*`
+3. Run git operations on remote → verify reuses same socket (not new connection)
+4. Run group chat with remote agents → verify reuses same socket
+5. Run Auto Run on remote → monitor with `ss -tnp | grep ssh` — should see 1 connection per host, not N
+
+### Phase 1 Tests
+
+**Health Monitor**:
+1. Start Maestro with SSH remotes → verify health check runs every 60s in logs
+2. Kill ControlMaster socket (`rm /tmp/maestro-ssh-*`) → verify health monitor detects and pre-warms within 60s
+3. Stop SSH daemon on VM → verify `ssh:connection-failed` event emitted within 60s
+4. Restart SSH daemon → verify `ssh:connection-restored` event on next health check
+
+**Stale Socket Recovery**:
+1. Kill SSH daemon while Maestro is running → stale socket remains
+2. Restart SSH daemon → next remote-fs operation should detect stale socket, remove, retry, succeed
 
 ---
 
@@ -466,161 +414,98 @@ This gives:
 
 | Change | Risk | Mitigation |
 |--------|------|------------|
-| **Enabling ControlMaster** | Medium | Test thoroughly; keep fallback path |
-| Adding session ID filters | Low | Existing pattern, just adding more |
-| Changing modal trigger logic | Medium | Could hide real errors; add logging |
-| Adding errorContext field | Low | Backward compatible (optional field) |
-| Modifying spawn parameters | Medium | Affects many call sites; thorough testing |
-| Auto-retry for batch mode | Medium | Could mask persistent issues; limit retries |
+| Adding ControlMaster to `SshCommandRunner` | Low | Same approach already proven in `ssh-remote-manager` |
+| Adding ControlMaster to `ssh-command-builder` | Low | Same approach; `-tt` TTY works with ControlMaster |
+| Health monitor service | Medium | Lightweight; fire-and-forget checks; no impact if it fails |
+| Stale socket removal in retry | Low | Only removes Maestro sockets; already proven in startup cleanup |
 
 ---
 
-## Files to Modify
+## Appendix: All SSH Code Path Consumers
 
-### Phase 0 (SSH Connection Pool)
-| File | Changes |
-|------|---------|
-| `src/main/ssh-remote-manager.ts` | Enable ControlMaster, ControlPersist, ServerAliveInterval |
-| `src/main/index.ts` | Add socket cleanup on startup |
-| `src/main/utils/ssh-socket-cleanup.ts` | NEW: Socket management utilities |
+### `ssh-remote-manager.ts` buildSshArgs() — HAS ControlMaster
+- `remote-fs.ts` → all file operations (readDir, readFile, writeFile, stat, mkdir, delete, etc.)
+- `ssh-remote.ts` IPC → testConnection
+- `anthropic-audit-service.ts` → usage tracking (creates own instance — should use singleton)
 
-### Phase 1 (Error Routing)
-| File | Changes |
-|------|---------|
-| `src/renderer/App.tsx` | Add filters in onAgentError handler (~line 3000) |
-| `src/renderer/App.tsx` | Conditional modal vs toast (~line 3154) |
+### `ssh-command-builder.ts` buildSshCommand() — MISSING ControlMaster
+- `ssh-spawn-helper.ts` → `wrapSpawnWithSsh()`:
+  - `group-chat-agent.ts` → group chat agent execution
+  - `group-chat-router.ts` → group chat routing
+- `agents.ts` IPC → agent detection on remote hosts
+- `process.ts` IPC → session spawning on remotes
+- `remote-git.ts` → all git operations (worktree, checkout, status, etc.)
 
-### Phase 2 (Source Tagging - Lower Priority)
-| File | Changes |
-|------|---------|
-| `src/shared/types.ts` | Add `errorContext` to AgentError |
-| `src/main/process-manager/types.ts` | Add `spawnContext` to ManagedProcess |
-| `src/main/ipc/handlers/process.ts` | Pass context through spawn |
-| `src/main/process-manager/handlers/*.ts` | Include context in emitted errors |
-| `src/renderer/App.tsx` | Route based on context |
-
-### Phase 3 (SSH Health UI)
-| File | Changes |
-|------|---------|
-| `src/renderer/components/session-list/SessionItem.tsx` | SSH status indicator |
-| `src/renderer/hooks/batch/useBatchProcessor.ts` | Retry logic for SSH errors |
-| `src/main/utils/remote-fs.ts` | Already has retry logic - expose config |
+### `SshCommandRunner.ts` own args — MISSING ControlMaster
+- `ProcessManager.ts` → terminal commands executed on remote hosts
 
 ---
 
-## Testing Plan
+## SSH Error Persistence Flow (Verified)
 
-### Phase 0 Tests (Critical)
+How SSH errors end up in `maestro-sessions.json`:
 
-**Unit Tests**:
-- Socket path generation is consistent per host
-- Socket cleanup removes only Maestro sockets
-- Fallback to direct connection on ControlMaster error
+```
+SSH Error detected (StdoutHandler | StderrHandler | ExitHandler)
+    │ matchSshErrorPattern() → AgentError { type, message, recoverable, raw }
+    │ managedProcess.errorEmitted = true (prevents duplicate emission)
+    ▼
+ProcessManager.emit('agent-error', sessionId, agentError)
+    ▼
+error-listener.ts → safeSend('agent:error', sessionId, agentError) [IPC]
+    ▼
+App.tsx onAgentError handler (~line 3023)
+    │ Filters: group chat (routed separately), synopsis (IGNORED ✓)
+    │ Creates LogEntry: { id, timestamp, source: 'error', text, agentError }
+    │ setSessions → adds to aiTabs[activeTab].logs[]
+    │ Sets: session.state='error', agentErrorPaused=true
+    │ Shows: error modal via setAgentErrorModalSessionId()
+    ▼
+useDebouncedPersistence (2-second debounce)
+    │ prepareSessionForPersistence():
+    │   - Truncates to MAX 100 logs per tab (keeps newest)
+    │   - Clears runtime: agentError=undefined, state='idle'
+    │   - KEEPS errorLogEntry in logs[] array (with full agentError including raw.stderr)
+    ▼
+window.maestro.sessions.setAll() → IPC → sessionsStore.set()
+    ▼
+~/.config/Maestro/maestro-sessions.json
+```
 
-**Integration Tests**:
-- 10 concurrent file explorer operations → verify single SSH connection (`ss -tnp | grep ssh`)
-- SSH daemon restart → verify keep-alive detects and reconnects
-- App restart → verify old sockets cleaned up
-
-**Manual Tests**:
-1. Start Maestro with 5 SSH sessions → verify 5 master connections (not 50+)
-2. Open file explorer on remote → verify sub-second response (no handshake)
-3. Run Auto Run document → verify no timeout errors
-4. Kill VM SSH daemon → verify error within 90s (keep-alive)
-5. Restart VM SSH daemon → verify next operation reconnects automatically
-
-### Phase 1 Tests
-
-**Manual Tests**:
-1. Trigger background operation error → verify NO modal, log only
-2. Trigger agent error → verify modal appears
-3. `recoverable: true` error → verify toast (not modal)
-
----
-
-## Open Questions
-
-1. **Should background errors be logged at all in the session?**
-   - Current: Yes, with source='error'
-   - Proposed: No, log to debug/console only
-
-2. **What about persistent SSH failures?**
-   - After N retries, should we escalate to a modal?
-   - Should there be a "connection lost" state distinct from "error"?
-
-3. **Toast fatigue:**
-   - If SSH is flaky, could get many toasts
-   - Should we debounce/aggregate similar errors?
+**Key findings**:
+- `agentError` on the session object is **runtime-only** (cleared during persistence prep)
+- But the `errorLogEntry` in `logs[]` **persists permanently** with full `agentError` including `raw.stderr`
+- `SshCommandRunner.ts` does NOT emit `agent-error` — terminal SSH errors only log/emit stderr, they don't persist to sessions JSON and aren't shown as modals
+- There is NO filtering for background operation errors (file explorer, git, stats, detection) — they all hit the same modal+persist path as interactive agent errors
+- Max 100 logs per tab — error entries count toward this limit and can push out actual conversation content
 
 ---
 
-## Appendix: Code References
+## Existing Retry Logic (Verified)
 
-### Error Pattern Definitions
-- `/app/Maestro/src/main/parsers/error-patterns.ts:555-717` (SSH_ERROR_PATTERNS)
+`remote-fs.ts` has robust retry logic (lines 113-221) that ONLY covers file operations:
+- **13 recoverable error patterns**: connection closed/reset, broken pipe, network unreachable, timed out, ssh_exchange_identification, packet corrupt, protocol error, kex_exchange_identification, banner exchange, socket not connected
+- **Retry config**: 3 retries, 500ms base, 5000ms max, exponential backoff with 0-20% jitter
+- **Note**: `banner exchange` errors (line 129) are specifically called out as "often due to stale ControlMaster sockets"
 
-### Error Detection
-- `/app/Maestro/src/main/process-manager/handlers/StdoutHandler.ts:169-191`
-- `/app/Maestro/src/main/process-manager/handlers/StderrHandler.ts:60-82`
-- `/app/Maestro/src/main/process-manager/handlers/ExitHandler.ts:134-163`
-
-### Error Propagation
-- `/app/Maestro/src/main/process-listeners/error-listener.ts`
-
-### Error Handling
-- `/app/Maestro/src/renderer/App.tsx:2935-3157`
-
-### Remote FS Retry Logic
-- `/app/Maestro/src/main/utils/remote-fs.ts:116-164`
-
-### Agent Detection SSH
-- `/app/Maestro/src/main/ipc/handlers/agents.ts:109-199`
+**Gap**: Agent spawning (`ssh-command-builder.ts`), git operations (`remote-git.ts`), and terminal commands (`SshCommandRunner.ts`) have **NO retry logic**. If Phase 0B fixes connection sharing, retries become less critical for these paths since they'll share the healthy ControlMaster socket.
 
 ---
 
-## Summary
+## Recovery Hook: useAgentErrorRecovery (Verified)
 
-### Root Cause Identified
+`src/renderer/hooks/agent/useAgentErrorRecovery.tsx` provides recovery actions per error type:
+- `network_error` → "Retry Connection" button
+- `permission_denied` → "Try Again" button
+- `agent_crashed` → "Restart Agent" + "Start New Session"
+- `auth_expired` → "Use Terminal" / "Re-authenticate"
 
-The SSH errors are NOT caused by network issues - they're caused by **Maestro explicitly disabling SSH connection multiplexing** (`ControlMaster: 'no'`), resulting in:
-
-1. **Every operation creates a new TCP connection** (handshake overhead)
-2. **Connection storms** when multiple operations fire simultaneously
-3. **SSH server throttling** when too many connections queue up
-4. **No keep-alives** to detect dead connections proactively
-
-### Recommended Fix
-
-**Phase 0: Enable SSH Connection Pool** (fixes root cause)
-- Enable `ControlMaster: 'auto'` for connection sharing
-- Add `ControlPersist: '300'` for 5-minute idle connections
-- Add `ServerAliveInterval: '30'` for keep-alives
-- Clean up stale sockets on startup
-
-**Phase 1: Error Routing** (reduces remaining noise)
-- Filter background operation errors from UI
-- Show toasts instead of modals for recoverable errors
-
-### Expected Outcome
-
-With connection pooling:
-- **90%+ reduction in timeout errors**
-- **Faster operations** (no handshake per command)
-- **Proactive dead connection detection** (keep-alives)
-- **"Test Connection" no longer needed** as a workaround
-
-### Why ControlMaster Was Disabled
-
-The comment in code mentions "UNKNOWN port -1" errors. This was likely a race condition when multiple processes tried to become ControlMaster simultaneously. The fix is proper socket path uniqueness and startup cleanup, not disabling multiplexing entirely.
+This hook is functional but will be less frequently triggered once Phase 0B eliminates most SSH connection issues.
 
 ---
 
-## Decision Needed
+## Decision History
 
-Would you like me to:
-
-1. **Create Auto Run documents for Phase 0 + Phase 1** (recommended - addresses root cause)
-2. **Just Phase 1** (quick win, but doesn't fix root cause)
-3. **Discuss further** (if you have concerns about the ControlMaster approach)
-
-The Phase 0 change is ~20 lines of code but fundamentally changes how SSH connections work. I'd recommend testing on one remote first before rolling out.
+- **2026-02-13**: Investigation complete. Root cause: ControlMaster disabled. Phase 0 approved.
+- **2026-02-13**: Phase 0 implemented (commit `b6fd8fbe`). ControlMaster enabled in `ssh-remote-manager.ts`.
+- **2026-02-17**: Revalidation reveals Phase 0 only covered 1 of 3 SSH code paths. SSH errors persist because `SshCommandRunner.ts` and `ssh-command-builder.ts` still open fresh connections. Plan expanded with Phase 0B (complete coverage) and Phase 1 (proactive health management).
