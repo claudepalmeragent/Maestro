@@ -1,175 +1,157 @@
 # CLAUDE-FEATURES.md
 
-Feature documentation for Usage Dashboard and Document Graph. For the main guide, see [[CLAUDE.md]].
+> **Regenerated**: 2026-02-17
+> **Archived version**: `__MD_ARCHIVE/CLAUDE-FEATURES_20260217_182050.md`
+> **Cross-reference**: `Codebase_Context_20260217_180422.md`
 
-## Usage Dashboard
-
-The Usage Dashboard (`src/renderer/components/UsageDashboard/`) provides analytics and visualizations for AI agent usage.
-
-### Architecture
-
-```
-src/renderer/components/UsageDashboard/
-├── UsageDashboardModal.tsx      # Main modal with view tabs (Overview, Agents, Activity, AutoRun)
-├── SummaryCards.tsx             # Metric cards (queries, duration, cost, Auto Runs)
-├── AgentComparisonChart.tsx     # Bar chart comparing agent usage
-├── SourceDistributionChart.tsx  # Pie chart for user vs auto queries
-├── ActivityHeatmap.tsx          # Weekly activity heatmap (GitHub-style)
-├── DurationTrendsChart.tsx      # Line chart for duration over time
-├── AutoRunStats.tsx             # Auto Run-specific statistics
-├── ChartSkeletons.tsx           # Loading skeleton components
-├── ChartErrorBoundary.tsx       # Error boundary with retry
-└── EmptyState.tsx               # Empty state when no data
-```
-
-### Backend Components
-
-```
-src/main/
-├── stats-db.ts                  # SQLite database (better-sqlite3) with WAL mode
-│   ├── query_events table       # AI queries with duration, tokens, cost
-│   ├── auto_run_sessions table  # Auto Run session tracking
-│   ├── auto_run_tasks table     # Individual task tracking
-│   └── _migrations table        # Schema migration tracking
-├── ipc/handlers/stats.ts        # IPC handlers for stats operations
-└── utils/statsCache.ts          # Query result caching
-```
-
-### Key Patterns
-
-**Real-time Updates:**
-```typescript
-// Backend broadcasts after each database write
-mainWindow?.webContents.send('stats:updated');
-
-// Frontend subscribes with debouncing
-useEffect(() => {
-  const unsubscribe = window.maestro.stats.onStatsUpdated(() => {
-    debouncedRefresh();
-  });
-  return () => unsubscribe?.();
-}, []);
-```
-
-**Colorblind-Friendly Palettes:**
-```typescript
-import { COLORBLIND_AGENT_PALETTE, getColorBlindAgentColor } from '../constants/colorblindPalettes';
-// Wong-based palette with high contrast for accessibility
-```
-
-**Chart Error Boundaries:**
-```typescript
-<ChartErrorBoundary chartName="Agent Comparison" onRetry={handleRetry}>
-  <AgentComparisonChart data={data} colorBlindMode={colorBlindMode} />
-</ChartErrorBoundary>
-```
-
-### Related Settings
-
-```typescript
-// In useSettings.ts
-statsCollectionEnabled: boolean           // Enable/disable stats collection (default: true)
-defaultStatsTimeRange: 'day' | 'week' | 'month' | 'year' | 'all'  // Default time filter
-colorBlindMode: boolean                   // Use accessible color palettes
-preventSleepEnabled: boolean              // Prevent system sleep while agents are busy (default: false)
-```
+Feature documentation for Maestro v0.14.5.
 
 ---
 
-## Document Graph
+## 1. Usage Dashboard
 
-The Document Graph (`src/renderer/components/DocumentGraph/`) visualizes markdown file relationships and wiki-link connections using React Flow.
+### Backend
+
+The Usage Dashboard is backed by a SQLite database managed by `src/main/stats/stats-db.ts`. This is a multi-file module comprising **13 files** that handle schema management, migrations, query builders, aggregation logic, and IPC handlers.
+
+Real-time updates are broadcast to the renderer via the `stats:updated` IPC channel. When any stat changes (new session activity, cost accrual, token usage), the main process emits an event so that open dashboard views refresh without polling.
+
+### Chart Components (16 total)
+
+| Component | Description |
+|---|---|
+| `UsageDashboardModal` | Main modal container (~43KB). Orchestrates all sub-charts. |
+| `SummaryCards` | High-level KPI cards (total cost, sessions, tokens) |
+| `AgentComparisonChart` | Side-by-side comparison of agent performance |
+| `ActivityHeatmap` | Calendar-style heatmap of session activity |
+| `AgentCostGraph` | Cost breakdown per agent |
+| `AgentThroughputChart` | Tokens/sec throughput per agent |
+| `AgentUsageChart` | Usage volume per agent |
+| `AuditReportPanel` | Anthropic billing audit comparison |
+| `CostByModelGraph` | Cost segmented by model |
+| `CostOverTimeGraph` | Cost trend over time |
+| `LocationDistributionChart` | Geographic distribution of usage |
+| `PeakHoursChart` | Usage by hour of day |
+| `ReconstructionPanel` | Session reconstruction and replay |
+| `SessionStats` | Per-session statistics detail view |
+| `ThroughputTrendsChart` | Throughput trends over time |
+| `DataSourceToggle` | Switch between data sources for charts |
+
+### Design Considerations
+
+- **Colorblind-friendly palettes**: All charts use palettes tested against deuteranopia, protanopia, and tritanopia. Color is never the sole differentiator; patterns and labels are always present.
+- **ChartErrorBoundary**: Wraps each chart component. Uses key-based retry — when an error occurs, the boundary increments a key to force a fresh mount of the failed chart without losing the rest of the dashboard.
+- **Dual-cost model**: Supports both Anthropic API pricing and Maestro-specific pricing. Users can toggle between the two to compare what they would pay directly vs. through Maestro.
+
+---
+
+## 2. Document Graph
 
 ### Architecture
 
+The Document Graph uses a **canvas-based `MindMap` component** (`MindMap.tsx`, ~52KB). This is **NOT** built on React Flow — it is a custom canvas renderer with its own hit testing, pan/zoom, and node layout.
+
+### Layout Algorithms
+
+Layout algorithms are defined in `layoutAlgorithms.ts` and include:
+
+- **Force-directed**: Physics-based simulation for organic, flexible layouts.
+- **Hierarchical**: Tree-structured top-down or left-right layout for clear parent-child relationships.
+
+### Component Files
+
+| File | Description |
+|---|---|
+| `DocumentGraphView` | Main view container (~53KB), manages state and interactions |
+| `MindMap` | Canvas renderer (~52KB), handles drawing and user input |
+| `graphDataBuilder` | Transforms document data into graph node/edge structures |
+| `layoutAlgorithms` | Force-directed and hierarchical layout engines |
+| + 5 other files | Supporting utilities, types, and sub-components |
+
+### Configuration
+
+- **`DEFAULT_MAX_NODES = 200`**: Maximum number of nodes rendered in the graph to maintain performance. Beyond this, nodes are collapsed or filtered.
+- **Keyboard navigation**: Full keyboard support for traversing nodes, expanding/collapsing, and searching.
+- **File watching**: The graph updates in real-time when files change on disk via the file watcher system.
+- **Large file handling**: Files exceeding **1MB** are truncated or summarized to prevent memory issues during graph building.
+
+---
+
+## 3. Knowledge Graph
+
+The Knowledge Graph stores session learnings as individual `.md` files in the user data directory:
+
 ```
-src/renderer/components/DocumentGraph/
-├── DocumentGraphView.tsx        # Main modal with React Flow canvas
-├── DocumentNode.tsx             # Document file node component
-├── ExternalLinkNode.tsx         # External URL domain node
-├── NodeContextMenu.tsx          # Right-click context menu
-├── NodeBreadcrumb.tsx           # Path breadcrumb for selected node
-├── GraphLegend.tsx              # Collapsible legend explaining node/edge types
-├── graphDataBuilder.ts          # Scans directory, extracts links, builds graph data
-└── layoutAlgorithms.ts          # Force-directed and hierarchical layout algorithms
-
-src/renderer/utils/
-├── markdownLinkParser.ts        # Parses [[wiki-links]] and [markdown](links)
-└── documentStats.ts             # Computes document statistics (word count, etc.)
-
-src/main/ipc/handlers/
-└── documentGraph.ts             # Chokidar file watcher for real-time updates
-```
-
-### Key Patterns
-
-**Building Graph Data:**
-```typescript
-import { buildGraphData } from './graphDataBuilder';
-const { nodes, edges, stats } = await buildGraphData(
-  rootPath,
-  showExternalLinks,
-  maxNodes,
-  offset,
-  progressCallback
-);
-```
-
-**Layout Algorithms:**
-```typescript
-import { applyForceLayout, applyHierarchicalLayout, animateLayoutTransition } from './layoutAlgorithms';
-const positionedNodes = layoutMode === 'force'
-  ? applyForceLayout(nodes, edges)
-  : applyHierarchicalLayout(nodes, edges);
-animateLayoutTransition(currentNodes, positionedNodes, setNodes, savePositions);
+<userData>/knowledge_graph/
 ```
 
-**Node Animation (additions/removals):**
-```typescript
-import { diffNodes, animateNodesEntering, animateNodesExiting } from './layoutAlgorithms';
-const { added, removed, stable } = diffNodes(previousNodes, newNodes);
-animateNodesExiting(removed, () => animateNodesEntering(added));
+### IPC Methods
+
+| Method | Description |
+|---|---|
+| `knowledgeGraph.save` | Save a new learning entry |
+| `knowledgeGraph.list` | List all saved entries |
+| `knowledgeGraph.get` | Retrieve a specific entry |
+| `knowledgeGraph.delete` | Delete an entry |
+
+Entries are Markdown files containing structured learnings extracted from session conversations. They can be referenced by the AI agent in future sessions for context continuity.
+
+---
+
+## 4. Prompt Library
+
+The Prompt Library allows users to save, load, search, and categorize reusable prompts.
+
+### IPC Methods (9 total)
+
+CRUD operations for prompts, categories, search, import/export, and favorites.
+
+### Components
+
+| Component | Description |
+|---|---|
+| `PromptComposerModal` | Full prompt editor with metadata, categorization, and preview |
+| `PromptLibrarySearchBar` | Search bar with category filtering and full-text search |
+
+Prompts support variables (template placeholders), categories, tags, and favoriting. They can be inserted into the active tab input with a single click.
+
+---
+
+## 5. Project Folders
+
+Project Folders are organizational containers that sit above Groups in the hierarchy:
+
+```
+Project Folder → Group → Session → AITab
 ```
 
-**Real-time File Watching:**
-```typescript
-// Backend watches for .md file changes
-window.maestro.documentGraph.watchFolder(rootPath);
-window.maestro.documentGraph.onFilesChanged((changes) => {
-  debouncedRebuildGraph();
-});
-// Cleanup on modal close
-window.maestro.documentGraph.unwatchFolder(rootPath);
-```
+### Implementation
 
-**Keyboard Navigation:**
-```typescript
-// Arrow keys navigate to connected nodes (spatial detection)
-// Enter opens selected node
-// Tab cycles through connected nodes
-// Escape closes modal
-```
+- **IPC-backed CRUD**: All folder operations (create, read, update, delete, reorder) go through IPC to the main process for persistence.
+- **`ProjectFoldersContext` provider**: React context that manages folder state in the renderer. Provides folder list, active folder, and mutation methods to all consuming components.
 
-### Large File Handling
+Folders allow users to organize groups of related sessions (e.g., by client project, by repository, by team).
 
-Files over 1MB are truncated to first 100KB for link extraction to prevent UI blocking:
-```typescript
-const LARGE_FILE_THRESHOLD = 1 * 1024 * 1024;  // 1MB
-const LARGE_FILE_PARSE_LIMIT = 100 * 1024;      // 100KB
-```
+---
 
-### Pagination
+## 6. Anthropic Usage Audit
 
-Default limit of 50 nodes with "Load more" for large directories:
-```typescript
-const DEFAULT_MAX_NODES = 50;
-const LOAD_MORE_INCREMENT = 25;
-```
+The audit system compares Maestro's tracked usage against Anthropic's billing data to detect discrepancies.
 
-### Related Settings
+### Scheduling
 
-```typescript
-// In useSettings.ts
-documentGraphShowExternalLinks: boolean            // Show external link nodes (default: false)
-documentGraphMaxNodes: number                      // Initial pagination limit (50-1000, default: 50)
-```
+Audits can be configured on three schedules:
+
+- **Daily**: Runs once per day, compares the previous day.
+- **Weekly**: Runs once per week, compares the previous 7 days.
+- **Monthly**: Runs once per month, compares the previous calendar month.
+
+### Components
+
+| Component | Description |
+|---|---|
+| `AuditReportPanel` | Displays audit results with discrepancy highlighting |
+| `AuditHistoryTable` | Historical audit results with trend analysis |
+| `AuditsSettingsTab` | Configuration for audit schedules and thresholds |
+
+The audit system flags sessions where Maestro's tracked cost diverges from Anthropic's reported billing by more than a configurable threshold, helping users identify tracking issues or unexpected charges.

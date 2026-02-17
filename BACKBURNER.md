@@ -1,49 +1,76 @@
-# Backburner Features
+# BACKBURNER.md - Dormant & Disabled Features Tracker
 
-This document tracks dormant features that are implemented but disabled via feature flags. These features may be re-enabled in future releases.
+> **Regenerated**: 2026-02-17
+> **Archived version**: `__MD_ARCHIVE/BACKBURNER_20260217_182050.md`
+> **Cross-reference**: [`Codebase_Context_20260217_180422.md`](./Codebase_Context_20260217_180422.md)
 
-## LLM Settings Panel
+---
 
-**Status:** Disabled
-**Feature Flag:** `FEATURE_FLAGS.LLM_SETTINGS` in `src/renderer/components/SettingsModal.tsx`
-**Disabled Date:** 2024-11-26
+## 1. LLM Settings Panel
+
+| Field           | Value                                               |
+|-----------------|-----------------------------------------------------|
+| **Status**      | Disabled                                            |
+| **Disabled Since** | 2024-11-26                                       |
+| **Feature Flag**| `FEATURE_FLAGS.LLM_SETTINGS`                        |
+| **Location**    | `SettingsModal.tsx`                                  |
 
 ### Description
 
-The LLM Settings panel provides configuration options for connecting to various LLM providers directly from Maestro. This feature was designed to enable a built-in AI assistant for the scratchpad or other future AI-powered features within the application.
+The LLM Settings Panel provided direct LLM connectivity from within Maestro.
+It supported three providers:
 
-### Supported Providers
+- **OpenRouter** - Multi-model gateway with API key authentication.
+- **Anthropic** - Direct Claude API access with API key authentication.
+- **Ollama** - Local model hosting with configurable endpoint.
 
-- **OpenRouter** - API proxy supporting multiple models
-- **Anthropic** - Direct Claude API access
-- **Ollama** - Local LLM inference
-
-### Configuration Options
-
-- LLM Provider selection
-- Model slug/identifier
-- API key (stored locally)
-- Connection test functionality
-
-### Files Involved
-
-- `src/renderer/components/SettingsModal.tsx` - Main settings UI with LLM tab
-- Settings stored in electron-store: `llmProvider`, `modelSlug`, `apiKey`
-
-### Re-enabling
-
-To re-enable this feature:
-
-1. Open `src/renderer/components/SettingsModal.tsx`
-2. Find the `FEATURE_FLAGS` constant at the top of the file
-3. Set `LLM_SETTINGS: true`
-
-```typescript
-const FEATURE_FLAGS = {
-  LLM_SETTINGS: true,  // LLM provider configuration (OpenRouter, Anthropic, Ollama)
-};
-```
+The panel allowed users to configure provider credentials, select models,
+and interact with LLMs directly from the Maestro interface.
 
 ### Reason for Disabling
 
-Currently not in use as Maestro focuses on managing external AI coding agents (Claude Code, etc.) rather than providing built-in LLM functionality. May be re-enabled when there's a use case for direct LLM integration within Maestro.
+Maestro's core mission is **managing external AI coding agents**, not serving
+as a direct LLM interface. The LLM Settings Panel introduced scope overlap
+with the agents themselves and risked feature creep that would dilute the
+fleet management focus. The panel was disabled via feature flag rather than
+removed, preserving the implementation for potential future use.
+
+### Re-enabling Instructions
+
+1. Locate `FEATURE_FLAGS.LLM_SETTINGS` in the feature flags configuration.
+2. Set the flag value to `true`.
+3. The LLM Settings tab will reappear in `SettingsModal.tsx`.
+4. Verify provider configuration UI renders correctly.
+5. Test API key storage and model listing for all three providers.
+
+---
+
+## 2. Feature Flag Audit Note
+
+As of 2026-02-17, after **183 commits** of active development, no additional
+feature flags have been introduced for disabled features. `FEATURE_FLAGS.LLM_SETTINGS`
+remains the sole dormant feature flag in the codebase.
+
+---
+
+## 3. Relationship with Newer Features
+
+The LLM Settings Panel's concept of direct LLM connectivity is distinct from
+features added since January 31:
+
+- **Prompt Library** - Manages reusable prompts sent *to agents*, not direct
+  LLM calls. The Prompt Library operates at the agent orchestration layer.
+- **Anthropic Audit** - Provides cost tracking and usage analytics for
+  Anthropic API consumption *through agents*, not through direct panel
+  connectivity.
+
+The LLM Settings Panel remains a viable candidate for future re-enablement
+if direct LLM interaction (bypassing agents) becomes a desired capability.
+The existing provider infrastructure (OpenRouter, Anthropic, Ollama) would
+need updating to current API versions but the architectural foundation is
+intact.
+
+---
+
+*For full codebase context, see
+[Codebase_Context_20260217_180422.md](./Codebase_Context_20260217_180422.md).*

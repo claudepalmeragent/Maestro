@@ -1,69 +1,100 @@
-# Themes
+# Maestro v0.14.5 -- Visual Theme Showcase
 
-Maestro ships with a variety of themes that fall under three categories: Dark, Light, and "Vibes". Here are screenshots of the main window in each theme.
+Regenerated 2026-02-17, archived at `__MD_ARCHIVE/THEMES_20260217_182050.md`.
+Cross-ref `Codebase_Context_20260217_180422.md`.
 
-## Dark
-### Dracula
-<img width="3592" height="2302" alt="image" src="https://github.com/user-attachments/assets/bf76f858-e37d-48f5-966b-ee226f42cb76" />
+---
 
-### Monokai
-<img width="3592" height="2302" alt="image" src="https://github.com/user-attachments/assets/09db8891-4303-419a-b4ab-be729cf65e04" />
+## 1. Overview
 
-### Nord
-<img width="3592" height="2302" alt="image" src="https://github.com/user-attachments/assets/1c413246-5342-47d7-a012-4d50f7dd49ea" />
+Maestro ships with 17 built-in themes organized into three categories plus a custom theme builder.
 
-### Tokyo Night
-<img width="3592" height="2302" alt="image" src="https://github.com/user-attachments/assets/9ede9789-bf71-4c1c-beec-b242cdb89a22" />
+- **Theme source:** `src/shared/themes.ts`
+- **ThemeMode** supports `'light'`, `'dark'`, and `'vibe'`.
+- Separate `lightThemeId` and `darkThemeId` with system preference sync.
+- 14 `ThemeColors` properties (see Custom Theme section below).
 
-### Catppuccin Mocha
-<img width="3592" height="2302" alt="image" src="https://github.com/user-attachments/assets/64c6a699-cb64-4d5a-a245-69ab29cb59e3" />
+---
 
-### Gruvbox Dark
-<img width="3592" height="2302" alt="image" src="https://github.com/user-attachments/assets/3dab3ae6-ff18-4d66-aca5-ff5ef57096f2" />
+## 2. Dark Themes (6)
 
-## Light
+- **Dracula**
+  ![Dracula](https://raw.githubusercontent.com/pedramamini/Maestro/refs/heads/main/images/themes/dracula.png)
 
-### Github
-<img width="3592" height="2302" alt="image" src="https://github.com/user-attachments/assets/b09e466a-5dbf-4510-80b9-a84815c52d14" />
+- **Monokai**
+  ![Monokai](https://raw.githubusercontent.com/pedramamini/Maestro/refs/heads/main/images/themes/monokai.png)
 
-### Solarized
-<img width="3592" height="2302" alt="image" src="https://github.com/user-attachments/assets/a1848b27-f96d-44e1-85f5-8e383acde1e6" />
+- **Nord**
+  ![Nord](https://raw.githubusercontent.com/pedramamini/Maestro/refs/heads/main/images/themes/nord.png)
 
-### One Light
-<img width="3592" height="2302" alt="image" src="https://github.com/user-attachments/assets/ac7fd12c-f455-4b6f-9aa2-ad4fb4f1ea12" />
+- **Tokyo Night**
+  ![Tokyo Night](https://raw.githubusercontent.com/pedramamini/Maestro/refs/heads/main/images/themes/tokyo-night.png)
 
-### Gruvbox Light
-<img width="3592" height="2302" alt="image" src="https://github.com/user-attachments/assets/c0fd1590-93c7-4303-ba03-70d7ae7e25ee" />
+- **Catppuccin Mocha**
+  ![Catppuccin Mocha](https://raw.githubusercontent.com/pedramamini/Maestro/refs/heads/main/images/themes/catppuccin-mocha.png)
 
-### Catppuccin Latte
-<img width="3592" height="2302" alt="image" src="https://github.com/user-attachments/assets/33fcb801-7978-4af4-b10d-7e9d5c9301e6" />
+- **Gruvbox Dark**
+  ![Gruvbox Dark](https://raw.githubusercontent.com/pedramamini/Maestro/refs/heads/main/images/themes/gruvbox-dark.png)
 
-### Ayu Light
-<img width="3592" height="2302" alt="image" src="https://github.com/user-attachments/assets/ace98cd5-ef7d-4f52-bd5f-2d2af75f81a8" />
+---
 
-## Vibes
+## 3. Light Themes (6)
 
-### Pedurple
-Purple is Pedram's favorite color.
-<img width="3592" height="2302" alt="image" src="https://github.com/user-attachments/assets/15875d3e-37c1-4b6c-b967-551afd40b658" />
+- **GitHub**
+  ![GitHub](https://raw.githubusercontent.com/pedramamini/Maestro/refs/heads/main/images/themes/github.png)
 
-### Maestro's Choice
-We asked Maestro to make a theme for itself, this is what it came up with.
-<img width="3592" height="2302" alt="image" src="https://github.com/user-attachments/assets/2af219f3-220d-4587-b147-692580c2acf6" />
+- **Solarized**
+  ![Solarized](https://raw.githubusercontent.com/pedramamini/Maestro/refs/heads/main/images/themes/solarized.png)
 
-### Dre Synth
-It's a vibe.
-<img width="3592" height="2302" alt="image" src="https://github.com/user-attachments/assets/fc20b716-b959-47b9-b2f0-f78df2a63329" />
+- **One Light**
+  ![One Light](https://raw.githubusercontent.com/pedramamini/Maestro/refs/heads/main/images/themes/one-light.png)
 
-### InQuest
-An homage to InQuest.net, acquired by OPSWAT in 2024.
-<img width="3592" height="2302" alt="image" src="https://github.com/user-attachments/assets/7d10495d-6d66-41ce-83d9-36ba8681e3db" />
+- **Gruvbox Light**
+  ![Gruvbox Light](https://raw.githubusercontent.com/pedramamini/Maestro/refs/heads/main/images/themes/gruvbox-light.png)
 
+- **Catppuccin Latte**
+  ![Catppuccin Latte](https://raw.githubusercontent.com/pedramamini/Maestro/refs/heads/main/images/themes/catppuccin-latte.png)
 
+- **Ayu Light**
+  ![Ayu Light](https://raw.githubusercontent.com/pedramamini/Maestro/refs/heads/main/images/themes/ayu-light.png)
 
+---
 
+## 4. Vibes (4)
 
+- **Pedurple** -- Pedram's signature purple aesthetic.
+  ![Pedurple](https://raw.githubusercontent.com/pedramamini/Maestro/refs/heads/main/images/themes/pedurple.png)
 
+- **Maestro's Choice** -- The official Maestro brand theme.
+  ![Maestro's Choice](https://raw.githubusercontent.com/pedramamini/Maestro/refs/heads/main/images/themes/maestros-choice.png)
 
+- **Dre Synth** -- Synthwave-inspired neon palette.
+  ![Dre Synth](https://raw.githubusercontent.com/pedramamini/Maestro/refs/heads/main/images/themes/dre-synth.png)
 
+- **InQuest** -- Inspired by InQuest cybersecurity.
+  ![InQuest](https://raw.githubusercontent.com/pedramamini/Maestro/refs/heads/main/images/themes/inquest.png)
 
+---
+
+## 5. Custom Theme
+
+User-configurable via the **Custom Theme Builder** (`CustomThemeBuilder.tsx` component in Settings).
+
+Allows customizing all 14 `ThemeColors` properties:
+
+| # | Property          | Description              |
+|---|-------------------|--------------------------|
+| 1 | `background`      | Main background color    |
+| 2 | `foreground`      | Main text color          |
+| 3 | `headerBg`        | Header background        |
+| 4 | `headerFg`        | Header foreground        |
+| 5 | `sidebarBg`       | Sidebar background       |
+| 6 | `sidebarFg`       | Sidebar foreground       |
+| 7 | `inputBg`         | Input field background   |
+| 8 | `inputFg`         | Input field foreground   |
+| 9 | `highlightColor`  | Highlight / hover color  |
+|10 | `accentColor`     | Accent / brand color     |
+|11 | `scrollbarColor`  | Scrollbar track color    |
+|12 | `selectionBg`     | Selection background     |
+|13 | `selectionFg`     | Selection foreground     |
+|14 | `borderColor`     | Border / divider color   |
