@@ -20,6 +20,13 @@ export function getInitialRenameValue(tab: AITab): string {
 const MAX_CLOSED_TAB_HISTORY = 25;
 
 /**
+ * Check if a tab is locked (prevents closure)
+ */
+export function isTabLocked(tab: AITab | undefined | null): boolean {
+	return tab?.locked === true;
+}
+
+/**
  * Check if a tab has draft content (unsent input or staged images).
  * Used for determining if a tab should be shown in "unread only" filter mode.
  *

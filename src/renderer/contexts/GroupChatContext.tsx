@@ -234,10 +234,19 @@ export function GroupChatProvider({ children }: GroupChatProviderProps) {
 	const groupChatInputRef = useRef<HTMLTextAreaElement>(null);
 	const groupChatMessagesRef = useRef<GroupChatMessagesHandle>(null);
 
-	// Sync with global Group Chat setting when no chat is active
-	// This ensures new group chats respect the latest setting value
+	// Load the default thinking setting on mount and when preparing for new chats
+	const prevActiveGroupChatIdRef = useRef<string | null>(activeGroupChatId);
+
 	useEffect(() => {
-		if (!activeGroupChatId) {
+		const prevId = prevActiveGroupChatIdRef.current;
+		prevActiveGroupChatIdRef.current = activeGroupChatId;
+
+		// Load default setting when:
+		// 1. A chat is closed (transitioning to null)
+		// 2. A new chat is opened from null state (prevId was null, now has a value)
+		const shouldLoadSetting = !activeGroupChatId || prevId === null;
+
+		if (shouldLoadSetting) {
 			(async () => {
 				try {
 					const allSettings = (await window.maestro.settings.getAll()) as Record<string, unknown>;

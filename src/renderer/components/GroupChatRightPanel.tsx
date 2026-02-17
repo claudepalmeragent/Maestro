@@ -57,6 +57,8 @@ interface GroupChatRightPanelProps {
 	onColorsComputed?: (colors: Record<string, string>) => void;
 	/** Whether this is a Max subscriber (affects cost display) */
 	isMaxSubscriber?: boolean;
+	/** Resolved billing mode for cost tooltip display */
+	resolvedBillingMode?: 'api' | 'max' | 'auto';
 }
 
 export function GroupChatRightPanel({
@@ -81,6 +83,7 @@ export function GroupChatRightPanel({
 	onJumpToMessage,
 	onColorsComputed,
 	isMaxSubscriber,
+	resolvedBillingMode,
 }: GroupChatRightPanelProps): JSX.Element | null {
 	// Color preferences state
 	const [colorPreferences, setColorPreferences] = useState<Record<string, number>>({});
@@ -308,6 +311,7 @@ export function GroupChatRightPanel({
 						state={moderatorState}
 						color={participantColors['Moderator']}
 						isMaxSubscriber={isMaxSubscriber}
+						resolvedBillingMode={resolvedBillingMode}
 					/>
 
 					{/* Separator between moderator and participants */}
@@ -337,6 +341,7 @@ export function GroupChatRightPanel({
 									groupChatId={groupChatId}
 									onContextReset={handleContextReset}
 									isMaxSubscriber={isMaxSubscriber}
+									resolvedBillingMode={resolvedBillingMode}
 								/>
 							);
 						})

@@ -118,7 +118,7 @@ export function PeakHoursChart({
 		>
 			{/* Header */}
 			<div className="flex items-center justify-between mb-3">
-				<h3 className="text-sm font-medium" style={{ color: theme.colors.textMain }}>
+				<h3 className="text-2xl font-bold" style={{ color: theme.colors.textMain }}>
 					Peak Hours
 				</h3>
 				<div className="flex items-center gap-2">
@@ -202,12 +202,11 @@ export function PeakHoursChart({
 									{/* Tooltip on hover */}
 									{isHovered && value > 0 && (
 										<div
-											className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 rounded text-xs whitespace-nowrap z-10"
+											className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 rounded text-xs whitespace-nowrap z-10 shadow-lg"
 											style={{
 												backgroundColor: theme.colors.bgActivity,
 												color: theme.colors.textMain,
 												border: `1px solid ${theme.colors.border}`,
-												boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
 											}}
 										>
 											<div className="font-medium">{formatHour(h.hour)}</div>

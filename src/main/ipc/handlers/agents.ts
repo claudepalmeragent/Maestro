@@ -714,8 +714,10 @@ export function registerAgentsHandlers(deps: AgentsHandlerDependencies): void {
 		withIpcErrorLogging(
 			handlerOpts('getPricingConfig', CONFIG_LOG_CONTEXT),
 			async (agentId: string): Promise<AgentPricingConfig> => {
+				// Normalize legacy 'claude' to 'claude-code' for config lookup
+				const normalizedId = agentId === 'claude' ? 'claude-code' : agentId;
 				const allConfigs = agentConfigsStore.get('configs', {});
-				const config = allConfigs[agentId]?.pricingConfig as AgentPricingConfig | undefined;
+				const config = allConfigs[normalizedId]?.pricingConfig as AgentPricingConfig | undefined;
 				if (config && config.billingMode && config.pricingModel) {
 					return config;
 				}
@@ -730,14 +732,20 @@ export function registerAgentsHandlers(deps: AgentsHandlerDependencies): void {
 		withIpcErrorLogging(
 			handlerOpts('setPricingConfig', CONFIG_LOG_CONTEXT),
 			async (agentId: string, config: Partial<AgentPricingConfig>): Promise<boolean> => {
+				// Normalize legacy 'claude' to 'claude-code' for config storage
+				const normalizedId = agentId === 'claude' ? 'claude-code' : agentId;
 				const allConfigs = agentConfigsStore.get('configs', {});
-				if (!allConfigs[agentId]) {
-					allConfigs[agentId] = {};
+				if (!allConfigs[normalizedId]) {
+					allConfigs[normalizedId] = {};
 				}
-				const current = allConfigs[agentId].pricingConfig || {};
-				allConfigs[agentId].pricingConfig = { ...current, ...config };
+				const current = allConfigs[normalizedId].pricingConfig || {};
+				allConfigs[normalizedId].pricingConfig = { ...current, ...config };
 				agentConfigsStore.set('configs', allConfigs);
-				logger.info(`Updated pricing config for agent: ${agentId}`, CONFIG_LOG_CONTEXT, config);
+				logger.info(
+					`Updated pricing config for agent: ${normalizedId}`,
+					CONFIG_LOG_CONTEXT,
+					config
+				);
 				return true;
 			}
 		)

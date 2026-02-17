@@ -220,7 +220,7 @@ export function AgentCostGraph({
 			{/* Header with title, totals, and data source toggle */}
 			<div className="flex items-center justify-between mb-4">
 				<div>
-					<h3 className="text-sm font-medium" style={{ color: theme.colors.textMain }}>
+					<h3 className="text-2xl font-bold" style={{ color: theme.colors.textMain }}>
 						{title}
 					</h3>
 					<div className="text-sm" style={{ color: theme.colors.textDim }}>
@@ -287,7 +287,7 @@ export function AgentCostGraph({
 									y={yScale(tick)}
 									textAnchor="end"
 									dominantBaseline="middle"
-									fontSize={10}
+									fontSize={8}
 									fill={theme.colors.textDim}
 								>
 									{formatCurrency(tick)}
@@ -331,7 +331,7 @@ export function AgentCostGraph({
 										y={chartHeight - padding.bottom + 10}
 										textAnchor="end"
 										dominantBaseline="hanging"
-										fontSize={10}
+										fontSize={8}
 										fill={isHovered ? theme.colors.textMain : theme.colors.textDim}
 										transform={`rotate(-45, ${x + barWidth / 2}, ${chartHeight - padding.bottom + 10})`}
 										style={{ transition: 'fill 0.15s ease' }}
@@ -348,7 +348,7 @@ export function AgentCostGraph({
 							y={chartHeight / 2}
 							textAnchor="middle"
 							dominantBaseline="middle"
-							fontSize={11}
+							fontSize={8}
 							fill={theme.colors.textDim}
 							transform={`rotate(-90, 15, ${chartHeight / 2})`}
 						>

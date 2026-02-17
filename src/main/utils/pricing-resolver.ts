@@ -183,9 +183,34 @@ export async function resolveBillingModeAsync(
 		return agentConfig.detectedBillingMode;
 	}
 
-	// 4. Auto-detect from credentials file (same as agents:detectAuth IPC handler)
+	// 4. Auto-detect from credentials file and cache the result
 	try {
 		const auth = await detectLocalAuth();
+		// Cache detected billing mode in agent config store for future reads
+		try {
+			const store = getAgentConfigsStore();
+			const allConfigs = store.get('configs', {});
+			if (!allConfigs[agentId]) {
+				allConfigs[agentId] = {};
+			}
+			const current = allConfigs[agentId].pricingConfig || {};
+			allConfigs[agentId].pricingConfig = {
+				...current,
+				detectedBillingMode: auth.billingMode,
+				detectedAt: Date.now(),
+			};
+			store.set('configs', allConfigs);
+			logger.debug(
+				`${LOG_CONTEXT} Cached detectedBillingMode=${auth.billingMode} for ${agentId}`,
+				LOG_CONTEXT
+			);
+		} catch (cacheError) {
+			// Non-fatal: caching failure shouldn't break billing resolution
+			logger.warn(
+				`${LOG_CONTEXT} Failed to cache detected billing mode: ${cacheError}`,
+				LOG_CONTEXT
+			);
+		}
 		return auth.billingMode;
 	} catch (error) {
 		logger.warn(`${LOG_CONTEXT} Failed to detect local auth: ${error}`, LOG_CONTEXT);

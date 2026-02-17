@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import type { Theme } from '../types';
 import type { SubagentInfo } from '../types';
-import { formatRelativeTime, formatNumber } from '../utils/formatters';
+import { formatRelativeTime, formatNumber, getCostTooltip } from '../utils/formatters';
 
 interface SubagentListItemProps {
 	subagent: SubagentInfo;
@@ -22,6 +22,8 @@ interface SubagentListItemProps {
 	onResume?: () => void;
 	/** Whether this is a Max subscriber (affects cost display tooltip) */
 	isMaxSubscriber?: boolean;
+	/** Resolved billing mode for cost tooltip display */
+	resolvedBillingMode?: 'api' | 'max' | 'auto';
 }
 
 /**
@@ -74,7 +76,8 @@ export function SubagentListItem({
 	isSelected,
 	onClick,
 	onResume,
-	isMaxSubscriber,
+	isMaxSubscriber: _isMaxSubscriber,
+	resolvedBillingMode,
 }: SubagentListItemProps) {
 	const handleResumeClick = (e: React.MouseEvent) => {
 		e.stopPropagation();
@@ -175,7 +178,7 @@ export function SubagentListItem({
 				{/* Cost */}
 				<span
 					style={{ display: 'flex', alignItems: 'center', gap: '3px' }}
-					title={isMaxSubscriber ? 'Included in Max subscription' : 'API charges'}
+					title={getCostTooltip(resolvedBillingMode) || undefined}
 				>
 					<DollarSign size={11} />
 					{subagent.costUsd.toFixed(2)}

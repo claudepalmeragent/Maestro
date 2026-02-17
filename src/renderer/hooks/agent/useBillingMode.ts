@@ -33,13 +33,9 @@ export interface UseBillingModeResult {
  * Fetches the pricing config from the main process and resolves the effective billing mode.
  *
  * @param agentId - The agent ID (toolType) to get billing mode for
- * @param sshRemoteId - Optional SSH remote ID for remote agents
  * @returns The billing mode information
  */
-export function useBillingMode(
-	agentId: string | undefined,
-	sshRemoteId?: string
-): UseBillingModeResult {
+export function useBillingMode(agentId: string | undefined): UseBillingModeResult {
 	const [billingMode, setBillingMode] = useState<BillingModeValue>('auto');
 	const [detectedBillingMode, setDetectedBillingMode] = useState<ClaudeBillingMode | undefined>();
 	const [loading, setLoading] = useState(true);
@@ -51,8 +47,11 @@ export function useBillingMode(
 			return;
 		}
 
+		// Normalize legacy 'claude' toolType to 'claude-code'
+		const normalizedAgentId = agentId === 'claude' ? 'claude-code' : agentId;
+
 		// Only fetch billing mode for Claude agents
-		if (agentId !== 'claude-code') {
+		if (normalizedAgentId !== 'claude-code') {
 			setBillingMode('api');
 			setLoading(false);
 			return;
@@ -63,26 +62,22 @@ export function useBillingMode(
 		const fetchBillingMode = async () => {
 			setError(undefined);
 			try {
-				const [pricingConfig, detectedAuth] = await Promise.all([
-					window.maestro.agents.getPricingConfig(agentId),
-					window.maestro.agents.detectAuth(agentId, sshRemoteId),
-				]);
+				const pricingConfig = await window.maestro.agents.getPricingConfig(normalizedAgentId);
 
 				if (cancelled) return;
 
 				// Set the configured billing mode
 				setBillingMode(pricingConfig?.billingMode || 'auto');
 
-				// Set the detected billing mode from credentials
-				if (detectedAuth) {
-					setDetectedBillingMode(detectedAuth.billingMode);
+				// Set the detected billing mode from the cached value in the config store
+				if (pricingConfig?.detectedBillingMode) {
+					setDetectedBillingMode(pricingConfig.detectedBillingMode);
 				}
 			} catch (err) {
 				if (cancelled) return;
 				const errorMessage = err instanceof Error ? err.message : 'Failed to fetch billing mode';
 				console.error('Failed to fetch billing mode:', err);
 				setError(errorMessage);
-				// Fall back to safe defaults on error
 				setBillingMode('auto');
 				setDetectedBillingMode(undefined);
 			} finally {
@@ -97,7 +92,7 @@ export function useBillingMode(
 		return () => {
 			cancelled = true;
 		};
-	}, [agentId, sshRemoteId]);
+	}, [agentId]);
 
 	// Resolve the effective billing mode
 	// If set to 'auto', use the detected mode; otherwise use the configured mode

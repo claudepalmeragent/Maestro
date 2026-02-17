@@ -15,6 +15,8 @@ import { HistoryDetailModal } from './HistoryDetailModal';
 import { HistoryHelpModal } from './HistoryHelpModal';
 import { useThrottledCallback, useListNavigation } from '../hooks';
 import { formatElapsedTime } from '../utils/formatters';
+import { getDisplayCost, formatCost, getCostTooltip } from '../utils/costCalculation';
+import { useBillingMode } from '../hooks/agent/useBillingMode';
 import { stripMarkdown } from '../utils/textProcessing';
 
 // Double checkmark SVG component for validated entries
@@ -489,6 +491,8 @@ interface HistoryEntryItemProps {
 	onOpenDetailModal: (entry: HistoryEntry, index: number) => void;
 	onOpenSessionAsTab?: (agentSessionId: string) => void;
 	onOpenAboutModal?: () => void;
+	resolvedBillingMode?: 'api' | 'max';
+	isMaxSubscriber?: boolean;
 }
 
 const HistoryEntryItem = memo(function HistoryEntryItem({
@@ -499,6 +503,8 @@ const HistoryEntryItem = memo(function HistoryEntryItem({
 	onOpenDetailModal,
 	onOpenSessionAsTab,
 	onOpenAboutModal,
+	resolvedBillingMode,
+	isMaxSubscriber = false,
 }: HistoryEntryItemProps) {
 	// Get pill color based on type
 	const getPillColor = (type: HistoryEntryType) => {
@@ -681,7 +687,7 @@ const HistoryEntryItem = memo(function HistoryEntryItem({
 						</div>
 					)}
 					{/* Cost */}
-					{entry.usageStats && entry.usageStats.totalCostUsd > 0 && (
+					{entry.usageStats && getDisplayCost(entry.usageStats) > 0 && (
 						<span
 							className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-full"
 							style={{
@@ -689,8 +695,9 @@ const HistoryEntryItem = memo(function HistoryEntryItem({
 								color: theme.colors.success,
 								border: `1px solid ${theme.colors.success}30`,
 							}}
+							title={getCostTooltip(resolvedBillingMode) || undefined}
 						>
-							${entry.usageStats.totalCostUsd.toFixed(2)}
+							{formatCost(getDisplayCost(entry.usageStats), resolvedBillingMode, isMaxSubscriber)}
 						</span>
 					)}
 					{/* Achievement Action Button */}
@@ -732,6 +739,9 @@ export const HistoryPanel = React.memo(
 		},
 		ref
 	) {
+		// Billing mode for cost display
+		const { resolvedBillingMode, isMaxSubscriber } = useBillingMode(session.toolType);
+
 		const [historyEntries, setHistoryEntries] = useState<HistoryEntry[]>([]);
 		const [activeFilters, setActiveFilters] = useState<Set<HistoryEntryType>>(
 			new Set(['AUTO', 'USER'])
@@ -1283,6 +1293,8 @@ export const HistoryPanel = React.memo(
 											onOpenDetailModal={openDetailModal}
 											onOpenSessionAsTab={onOpenSessionAsTab}
 											onOpenAboutModal={onOpenAboutModal}
+											resolvedBillingMode={resolvedBillingMode}
+											isMaxSubscriber={isMaxSubscriber}
 										/>
 									</div>
 								);

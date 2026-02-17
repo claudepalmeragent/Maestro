@@ -7,3 +7,4 @@
 
 export { useSettings } from './useSettings';
 export type { UseSettingsReturn } from './useSettings';
+export { useThemeSync } from './useThemeSync';

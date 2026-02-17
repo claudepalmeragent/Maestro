@@ -1316,6 +1316,15 @@ export function EditAgentModal({
 					.then(([pConfig, dAuth]) => {
 						setPricingConfig(pConfig);
 						setDetectedAuth(dAuth);
+						// Cache detected billing mode in agent config store
+						if (dAuth?.billingMode) {
+							window.maestro.agents
+								.setPricingConfig(session.toolType, {
+									detectedBillingMode: dAuth.billingMode,
+									detectedAt: dAuth.detectedAt || Date.now(),
+								})
+								.catch(() => {}); // Non-fatal
+						}
 					})
 					.catch((err) => console.error('Failed to load pricing config:', err));
 			} else {

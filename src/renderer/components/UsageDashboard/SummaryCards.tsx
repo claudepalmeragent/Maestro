@@ -88,7 +88,7 @@ interface MetricCardProps {
 	/** Animation delay index for staggered entrance (0-based) */
 	animationIndex?: number;
 	/** Optional subtitle displayed below the value */
-	subtitle?: string;
+	subtitle?: React.ReactNode;
 	/** Optional tooltip shown on hover (supports newlines) */
 	tooltip?: string;
 }
@@ -175,14 +175,23 @@ export function SummaryCards({ data, theme, columns = 4 }: SummaryCardsProps) {
 		const totalInputOutput = (data.totalInputTokens || 0) + (data.totalOutputTokens || 0);
 		const totalTokens = totalInputOutput > 0 ? formatTokensCompact(totalInputOutput) : 'N/A';
 
-		// Cache tokens for subtitle
+		// Cache tokens for inline composition
 		const cacheRead = data.totalCacheReadInputTokens || 0;
 		const cacheWrite = data.totalCacheCreationInputTokens || 0;
 		const totalCache = cacheRead + cacheWrite;
-		const tokenSubtitle = totalCache > 0 ? `Cache: ${formatTokensCompact(totalCache)}` : undefined;
+		const inputTokens = data.totalInputTokens || 0;
+		const outputTokens = data.totalOutputTokens || 0;
+		const tokenSubtitle =
+			totalInputOutput > 0 ? (
+				<div className="flex gap-2" style={{ fontSize: '10px' }}>
+					<span>In: {formatTokensCompact(inputTokens)}</span>
+					<span>Out: {formatTokensCompact(outputTokens)}</span>
+					{totalCache > 0 && <span>Cache: {formatTokensCompact(totalCache)}</span>}
+				</div>
+			) : undefined;
 
 		// Detailed tooltip for tokens
-		const tokenTooltip = `Input: ${formatTokensCompact(data.totalInputTokens || 0)}\nOutput: ${formatTokensCompact(data.totalOutputTokens || 0)}\nCache Read: ${formatTokensCompact(cacheRead)}\nCache Write: ${formatTokensCompact(cacheWrite)}`;
+		const tokenTooltip = `Input: ${formatTokensCompact(inputTokens)}\nOutput: ${formatTokensCompact(outputTokens)}\nCache Read: ${formatTokensCompact(cacheRead)}\nCache Write: ${formatTokensCompact(cacheWrite)}`;
 
 		// Format total cost with dual display
 		const maestroCost = data.totalCostUsd || 0;

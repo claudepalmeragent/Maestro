@@ -469,7 +469,8 @@ describe('ThemePicker', () => {
 			);
 
 			// Each theme button should have a color preview with 3 color bars
-			const themeButtons = screen.getAllByRole('button');
+			// Filter out the system toggle button which doesn't have theme previews
+			const themeButtons = screen.getAllByRole('button').filter((b) => b.classList.contains('p-3'));
 			themeButtons.forEach((button) => {
 				// Each button should have the color bar container
 				const colorBars = button.querySelector('.flex.h-3.rounded.overflow-hidden');
@@ -783,7 +784,8 @@ describe('ThemePicker', () => {
 
 			expect(screen.getByText('Dracula')).toBeInTheDocument();
 			expect(screen.getByText('GitHub Light')).toBeInTheDocument();
-			expect(screen.getAllByRole('button')).toHaveLength(2);
+			// 2 theme buttons + 1 system toggle button
+			expect(screen.getAllByRole('button')).toHaveLength(3);
 		});
 
 		it('should use a light theme as the current theme', () => {
@@ -807,6 +809,10 @@ describe('ThemePicker', () => {
 	});
 
 	describe('Transition and Interaction Classes', () => {
+		/** Helper to get only theme buttons (excludes system toggle) */
+		const getThemeButtons = () =>
+			screen.getAllByRole('button').filter((b) => b.classList.contains('p-3'));
+
 		it('should have transition-all class on theme buttons', () => {
 			render(
 				<ThemePicker
@@ -817,7 +823,7 @@ describe('ThemePicker', () => {
 				/>
 			);
 
-			const buttons = screen.getAllByRole('button');
+			const buttons = getThemeButtons();
 			buttons.forEach((button) => {
 				expect(button).toHaveClass('transition-all');
 			});
@@ -833,7 +839,7 @@ describe('ThemePicker', () => {
 				/>
 			);
 
-			const buttons = screen.getAllByRole('button');
+			const buttons = getThemeButtons();
 			buttons.forEach((button) => {
 				expect(button).toHaveClass('rounded-lg');
 			});
@@ -849,7 +855,7 @@ describe('ThemePicker', () => {
 				/>
 			);
 
-			const buttons = screen.getAllByRole('button');
+			const buttons = getThemeButtons();
 			buttons.forEach((button) => {
 				expect(button).toHaveClass('text-left');
 			});
@@ -865,7 +871,7 @@ describe('ThemePicker', () => {
 				/>
 			);
 
-			const buttons = screen.getAllByRole('button');
+			const buttons = getThemeButtons();
 			buttons.forEach((button) => {
 				expect(button).toHaveClass('border');
 			});
@@ -881,7 +887,7 @@ describe('ThemePicker', () => {
 				/>
 			);
 
-			const buttons = screen.getAllByRole('button');
+			const buttons = getThemeButtons();
 			buttons.forEach((button) => {
 				expect(button).toHaveClass('p-3');
 			});
@@ -927,6 +933,265 @@ describe('ThemePicker', () => {
 
 			// Second child is the color preview
 			expect(children[1]).toHaveClass('flex', 'h-3', 'rounded');
+		});
+	});
+
+	describe('System Mode Theme Selectors', () => {
+		it('should show light/dark theme selectors when themeMode is system', () => {
+			render(
+				<ThemePicker
+					theme={currentTheme}
+					themes={mockThemes}
+					activeThemeId="dracula"
+					setActiveThemeId={setActiveThemeId}
+					themeMode="system"
+					lightThemeId="github-light"
+					darkThemeId="dracula"
+				/>
+			);
+
+			expect(screen.getByText('Light Mode Theme')).toBeInTheDocument();
+			expect(screen.getByText('Dark Mode Theme')).toBeInTheDocument();
+		});
+
+		it('should not show light/dark theme selectors when themeMode is manual', () => {
+			render(
+				<ThemePicker
+					theme={currentTheme}
+					themes={mockThemes}
+					activeThemeId="dracula"
+					setActiveThemeId={setActiveThemeId}
+					themeMode="manual"
+					lightThemeId="github-light"
+					darkThemeId="dracula"
+				/>
+			);
+
+			expect(screen.queryByText('Light Mode Theme')).not.toBeInTheDocument();
+			expect(screen.queryByText('Dark Mode Theme')).not.toBeInTheDocument();
+		});
+
+		it('should not show selectors when themeMode is undefined', () => {
+			render(
+				<ThemePicker
+					theme={currentTheme}
+					themes={mockThemes}
+					activeThemeId="dracula"
+					setActiveThemeId={setActiveThemeId}
+				/>
+			);
+
+			expect(screen.queryByText('Light Mode Theme')).not.toBeInTheDocument();
+			expect(screen.queryByText('Dark Mode Theme')).not.toBeInTheDocument();
+		});
+
+		it('should only show light themes in the light mode select', () => {
+			render(
+				<ThemePicker
+					theme={currentTheme}
+					themes={mockThemes}
+					activeThemeId="dracula"
+					setActiveThemeId={setActiveThemeId}
+					themeMode="system"
+					lightThemeId="github-light"
+					darkThemeId="dracula"
+				/>
+			);
+
+			const lightLabel = screen.getByText('Light Mode Theme');
+			const lightSelect = lightLabel.parentElement?.querySelector('select');
+			expect(lightSelect).toBeInTheDocument();
+
+			const lightOptions = Array.from(lightSelect!.querySelectorAll('option'));
+			const lightThemeNames = lightOptions.map((o) => o.textContent);
+
+			// All light themes should be listed
+			const expectedLightThemes = Object.values(mockThemes).filter((t) => t.mode === 'light');
+			expectedLightThemes.forEach((t) => {
+				expect(lightThemeNames).toContain(t.name);
+			});
+
+			// No dark themes should be in the light select
+			const darkThemeNames = Object.values(mockThemes)
+				.filter((t) => t.mode === 'dark')
+				.map((t) => t.name);
+			darkThemeNames.forEach((name) => {
+				expect(lightThemeNames).not.toContain(name);
+			});
+		});
+
+		it('should only show dark themes in the dark mode select', () => {
+			render(
+				<ThemePicker
+					theme={currentTheme}
+					themes={mockThemes}
+					activeThemeId="dracula"
+					setActiveThemeId={setActiveThemeId}
+					themeMode="system"
+					lightThemeId="github-light"
+					darkThemeId="dracula"
+				/>
+			);
+
+			const darkLabel = screen.getByText('Dark Mode Theme');
+			const darkSelect = darkLabel.parentElement?.querySelector('select');
+			expect(darkSelect).toBeInTheDocument();
+
+			const darkOptions = Array.from(darkSelect!.querySelectorAll('option'));
+			const darkThemeNames = darkOptions.map((o) => o.textContent);
+
+			// All dark themes should be listed
+			const expectedDarkThemes = Object.values(mockThemes).filter((t) => t.mode === 'dark');
+			expectedDarkThemes.forEach((t) => {
+				expect(darkThemeNames).toContain(t.name);
+			});
+
+			// No light themes should be in the dark select
+			const lightThemeNames = Object.values(mockThemes)
+				.filter((t) => t.mode === 'light')
+				.map((t) => t.name);
+			lightThemeNames.forEach((name) => {
+				expect(darkThemeNames).not.toContain(name);
+			});
+		});
+
+		it('should set the light select value to lightThemeId', () => {
+			render(
+				<ThemePicker
+					theme={currentTheme}
+					themes={mockThemes}
+					activeThemeId="dracula"
+					setActiveThemeId={setActiveThemeId}
+					themeMode="system"
+					lightThemeId="solarized-light"
+					darkThemeId="dracula"
+				/>
+			);
+
+			const lightLabel = screen.getByText('Light Mode Theme');
+			const lightSelect = lightLabel.parentElement?.querySelector('select') as HTMLSelectElement;
+			expect(lightSelect.value).toBe('solarized-light');
+		});
+
+		it('should set the dark select value to darkThemeId', () => {
+			render(
+				<ThemePicker
+					theme={currentTheme}
+					themes={mockThemes}
+					activeThemeId="dracula"
+					setActiveThemeId={setActiveThemeId}
+					themeMode="system"
+					lightThemeId="github-light"
+					darkThemeId="nord"
+				/>
+			);
+
+			const darkLabel = screen.getByText('Dark Mode Theme');
+			const darkSelect = darkLabel.parentElement?.querySelector('select') as HTMLSelectElement;
+			expect(darkSelect.value).toBe('nord');
+		});
+
+		it('should call onLightThemeChange when light select changes', () => {
+			const onLightThemeChange = vi.fn();
+
+			render(
+				<ThemePicker
+					theme={currentTheme}
+					themes={mockThemes}
+					activeThemeId="dracula"
+					setActiveThemeId={setActiveThemeId}
+					themeMode="system"
+					lightThemeId="github-light"
+					darkThemeId="dracula"
+					onLightThemeChange={onLightThemeChange}
+				/>
+			);
+
+			const lightLabel = screen.getByText('Light Mode Theme');
+			const lightSelect = lightLabel.parentElement?.querySelector('select')!;
+			fireEvent.change(lightSelect, { target: { value: 'solarized-light' } });
+
+			expect(onLightThemeChange).toHaveBeenCalledWith('solarized-light');
+		});
+
+		it('should call onDarkThemeChange when dark select changes', () => {
+			const onDarkThemeChange = vi.fn();
+
+			render(
+				<ThemePicker
+					theme={currentTheme}
+					themes={mockThemes}
+					activeThemeId="dracula"
+					setActiveThemeId={setActiveThemeId}
+					themeMode="system"
+					lightThemeId="github-light"
+					darkThemeId="dracula"
+					onDarkThemeChange={onDarkThemeChange}
+				/>
+			);
+
+			const darkLabel = screen.getByText('Dark Mode Theme');
+			const darkSelect = darkLabel.parentElement?.querySelector('select')!;
+			fireEvent.change(darkSelect, { target: { value: 'monokai' } });
+
+			expect(onDarkThemeChange).toHaveBeenCalledWith('monokai');
+		});
+
+		it('should default light select to github-light when lightThemeId is undefined', () => {
+			render(
+				<ThemePicker
+					theme={currentTheme}
+					themes={mockThemes}
+					activeThemeId="dracula"
+					setActiveThemeId={setActiveThemeId}
+					themeMode="system"
+					darkThemeId="dracula"
+				/>
+			);
+
+			const lightLabel = screen.getByText('Light Mode Theme');
+			const lightSelect = lightLabel.parentElement?.querySelector('select') as HTMLSelectElement;
+			expect(lightSelect.value).toBe('github-light');
+		});
+
+		it('should default dark select to dracula when darkThemeId is undefined', () => {
+			render(
+				<ThemePicker
+					theme={currentTheme}
+					themes={mockThemes}
+					activeThemeId="dracula"
+					setActiveThemeId={setActiveThemeId}
+					themeMode="system"
+					lightThemeId="github-light"
+				/>
+			);
+
+			const darkLabel = screen.getByText('Dark Mode Theme');
+			const darkSelect = darkLabel.parentElement?.querySelector('select') as HTMLSelectElement;
+			expect(darkSelect.value).toBe('dracula');
+		});
+
+		it('should style selectors with current theme colors', () => {
+			render(
+				<ThemePicker
+					theme={currentTheme}
+					themes={mockThemes}
+					activeThemeId="dracula"
+					setActiveThemeId={setActiveThemeId}
+					themeMode="system"
+					lightThemeId="github-light"
+					darkThemeId="dracula"
+				/>
+			);
+
+			const lightLabel = screen.getByText('Light Mode Theme');
+			const lightSelect = lightLabel.parentElement?.querySelector('select');
+
+			expect(lightSelect).toHaveStyle({
+				backgroundColor: currentTheme.colors.bgActivity,
+				borderColor: currentTheme.colors.border,
+				color: currentTheme.colors.textMain,
+			});
 		});
 	});
 

@@ -90,7 +90,7 @@ interface LogItemProps {
 	// Replay message callback (AI mode only)
 	onReplayMessage?: (text: string, images?: string[]) => void;
 	// Save message to prompt library (USER messages only)
-	onSaveToPromptLibrary?: (text: string, images?: string[]) => void;
+	onSaveToPromptLibrary?: (text: string, images?: string[], logId?: string) => void;
 	// File linking support
 	fileTree?: FileNode[];
 	cwd?: string;
@@ -817,12 +817,17 @@ const LogItemComponent = memo(
 						{/* Save to Prompt Library button - USER messages only */}
 						{isUserMessage && isAIMode && onSaveToPromptLibrary && (
 							<button
-								onClick={() => onSaveToPromptLibrary(log.text, log.images)}
-								className="p-1.5 rounded opacity-0 group-hover:opacity-50 hover:!opacity-100"
-								style={{ color: theme.colors.textDim }}
-								title="Save to Prompt Library"
+								onClick={() => onSaveToPromptLibrary(log.text, log.images, log.id)}
+								className={`p-1.5 rounded hover:bg-white/10 transition-colors ${!log.savedToLibrary ? 'opacity-0 group-hover:opacity-50 hover:!opacity-100' : ''}`}
+								style={{
+									color: log.savedToLibrary ? theme.colors.accent : theme.colors.textDim,
+								}}
+								title={log.savedToLibrary ? 'Remove from Prompt Library' : 'Save to Prompt Library'}
 							>
-								<BookmarkPlus className="w-3.5 h-3.5" />
+								<BookmarkPlus
+									className="w-3.5 h-3.5"
+									fill={log.savedToLibrary ? 'currentColor' : 'none'}
+								/>
 							</button>
 						)}
 						{/* Rating buttons - AI messages only */}
@@ -942,6 +947,8 @@ const LogItemComponent = memo(
 			prevProps.log.delivered === nextProps.log.delivered &&
 			prevProps.log.readOnly === nextProps.log.readOnly &&
 			prevProps.log.rating === nextProps.log.rating &&
+			prevProps.log.savedToLibrary === nextProps.log.savedToLibrary &&
+			prevProps.log.promptLibraryEntryId === nextProps.log.promptLibraryEntryId &&
 			prevProps.isExpanded === nextProps.isExpanded &&
 			prevProps.localFilterQuery === nextProps.localFilterQuery &&
 			prevProps.filterMode.mode === nextProps.filterMode.mode &&
@@ -1028,7 +1035,7 @@ interface TerminalOutputProps {
 	markdownEditMode: boolean; // Whether to show raw markdown or rendered markdown for AI responses
 	setMarkdownEditMode: (value: boolean) => void; // Toggle markdown mode
 	onReplayMessage?: (text: string, images?: string[]) => void; // Replay a user message
-	onSaveToPromptLibrary?: (text: string, images?: string[]) => void; // Save message to prompt library
+	onSaveToPromptLibrary?: (text: string, images?: string[], logId?: string) => void; // Save message to prompt library
 	fileTree?: FileNode[]; // File tree for linking file references
 	cwd?: string; // Current working directory for proximity-based matching
 	projectRoot?: string; // Project root absolute path for converting absolute paths to relative
@@ -1708,6 +1715,7 @@ export const TerminalOutput = memo(
 				{/* Native scroll log list */}
 				<div
 					ref={scrollContainerRef}
+					data-terminal-scroll-container
 					className="flex-1 overflow-y-auto scrollbar-thin"
 					onScroll={handleScroll}
 				>

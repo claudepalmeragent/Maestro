@@ -9,7 +9,7 @@ import { MessageSquare, Copy, Check, DollarSign, RotateCcw, Server } from 'lucid
 import { useState, useCallback } from 'react';
 import type { Theme, GroupChatParticipant, SessionState } from '../types';
 import { getStatusColor } from '../utils/theme';
-import { formatCost } from '../utils/formatters';
+import { formatCost, getCostTooltip } from '../utils/formatters';
 
 interface ParticipantCardProps {
 	theme: Theme;
@@ -20,6 +20,8 @@ interface ParticipantCardProps {
 	onContextReset?: (participantName: string) => void;
 	/** Whether this is a Max subscriber (affects cost display tooltip) */
 	isMaxSubscriber?: boolean;
+	/** Resolved billing mode for cost tooltip display */
+	resolvedBillingMode?: 'api' | 'max' | 'auto';
 }
 
 /**
@@ -40,7 +42,8 @@ export function ParticipantCard({
 	color,
 	groupChatId,
 	onContextReset,
-	isMaxSubscriber,
+	isMaxSubscriber: _isMaxSubscriber,
+	resolvedBillingMode,
 }: ParticipantCardProps): JSX.Element {
 	const [copied, setCopied] = useState(false);
 	const [isResetting, setIsResetting] = useState(false);
@@ -203,7 +206,7 @@ export function ParticipantCard({
 							backgroundColor: `${theme.colors.success}20`,
 							color: theme.colors.success,
 						}}
-						title={isMaxSubscriber ? 'Included in Max subscription' : 'Total cost'}
+						title={getCostTooltip(resolvedBillingMode) || 'Total cost'}
 					>
 						<DollarSign className="w-3 h-3" />
 						{formatCost(participant.totalCost).slice(1)}

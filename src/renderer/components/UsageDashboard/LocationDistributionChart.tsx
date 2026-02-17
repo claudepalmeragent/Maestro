@@ -215,7 +215,7 @@ export function LocationDistributionChart({
 		>
 			{/* Header with title */}
 			<div className="flex items-center justify-between mb-4">
-				<h3 className="text-sm font-medium" style={{ color: theme.colors.textMain }}>
+				<h3 className="text-2xl font-bold" style={{ color: theme.colors.textMain }}>
 					Session Location
 				</h3>
 			</div>

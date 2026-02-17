@@ -15,6 +15,7 @@ import {
 	ChevronLeft,
 	ChevronRight,
 	AlertTriangle,
+	Brain,
 } from 'lucide-react';
 import type { Theme, HistoryEntry } from '../types';
 import type { FileNode } from '../types/fileTree';
@@ -91,6 +92,7 @@ export function HistoryDetailModal({
 	onCloseRef.current = onClose;
 	const [copiedSessionId, setCopiedSessionId] = useState(false);
 	const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+	const [savedToKnowledgeGraph, setSavedToKnowledgeGraph] = useState(false);
 	const deleteButtonRef = useRef<HTMLButtonElement>(null);
 
 	// Generate prose styles for consistent markdown rendering (same as TerminalOutput)
@@ -118,6 +120,32 @@ export function HistoryDetailModal({
 			onNavigate(filteredEntries[newIndex], newIndex);
 		}
 	}, [hasNext, filteredEntries, currentIndex, onNavigate]);
+
+	const handleSaveToKnowledgeGraph = useCallback(async () => {
+		if (!entry) return;
+
+		const entryData = {
+			sessionName: entry.sessionName || 'History Entry',
+			sessionId: entry.agentSessionId || '',
+			agentType: 'claude-code',
+			projectPath: entry.projectPath || '',
+			projectName: entry.projectPath?.split('/').pop() || 'Unassigned',
+			summary: entry.summary?.split('\n').slice(0, 3).join('\n') || '',
+			detailedLearnings: entry.fullResponse || entry.summary || '',
+			totalQueries: undefined,
+			totalCost: entry.usageStats?.totalCostUsd,
+			contextUsage: entry.contextUsage,
+			timestamp: Date.now(),
+		};
+
+		try {
+			await window.maestro.knowledgeGraph.save(entryData);
+			setSavedToKnowledgeGraph(true);
+			setTimeout(() => setSavedToKnowledgeGraph(false), 2000);
+		} catch (error) {
+			console.error('Failed to save to knowledge graph:', error);
+		}
+	}, [entry]);
 
 	// Register layer on mount
 	useEffect(() => {
@@ -507,20 +535,43 @@ export function HistoryDetailModal({
 					className="flex items-center justify-between px-6 py-4 border-t shrink-0"
 					style={{ borderColor: theme.colors.border }}
 				>
-					{/* Delete button */}
-					<button
-						onClick={() => setShowDeleteConfirm(true)}
-						className="flex items-center gap-2 px-3 py-2 rounded text-sm font-medium transition-colors hover:opacity-90"
-						style={{
-							backgroundColor: theme.colors.error + '20',
-							color: theme.colors.error,
-							border: `1px solid ${theme.colors.error}40`,
-						}}
-						title="Delete this history entry"
-					>
-						<Trash2 className="w-4 h-4" />
-						Delete
-					</button>
+					<div className="flex items-center gap-2">
+						{/* Delete button */}
+						<button
+							onClick={() => setShowDeleteConfirm(true)}
+							className="flex items-center gap-2 px-3 py-2 rounded text-sm font-medium transition-colors hover:opacity-90"
+							style={{
+								backgroundColor: theme.colors.error + '20',
+								color: theme.colors.error,
+								border: `1px solid ${theme.colors.error}40`,
+							}}
+							title="Delete this history entry"
+						>
+							<Trash2 className="w-4 h-4" />
+							Delete
+						</button>
+
+						{/* Save to Knowledge Graph button */}
+						<button
+							onClick={handleSaveToKnowledgeGraph}
+							className="flex items-center gap-2 px-3 py-2 rounded text-sm font-medium transition-colors hover:opacity-90"
+							style={{
+								backgroundColor: savedToKnowledgeGraph
+									? theme.colors.success + '20'
+									: theme.colors.accent + '20',
+								color: savedToKnowledgeGraph ? theme.colors.success : theme.colors.accent,
+								border: `1px solid ${savedToKnowledgeGraph ? theme.colors.success : theme.colors.accent}40`,
+							}}
+							title="Save to Knowledge Graph"
+						>
+							{savedToKnowledgeGraph ? (
+								<Check className="w-4 h-4" />
+							) : (
+								<Brain className="w-4 h-4" />
+							)}
+							{savedToKnowledgeGraph ? 'Saved' : 'Save to Knowledge'}
+						</button>
+					</div>
 
 					{/* Prev/Next navigation buttons - centered */}
 					{canNavigate && (

@@ -31,7 +31,7 @@ import {
 	Zap,
 } from 'lucide-react';
 import type { Theme } from '../types';
-import { formatSize, formatRelativeTime } from '../utils/formatters';
+import { formatSize, formatRelativeTime, getCostTooltip } from '../utils/formatters';
 import type { ClaudeSession } from '../hooks';
 
 /**
@@ -94,6 +94,8 @@ export interface SessionListItemProps {
 	isLoadingSubagents?: boolean;
 	/** Whether this is a Max subscriber (for cost display tooltip) */
 	isMaxSubscriber?: boolean;
+	/** Resolved billing mode for cost tooltip display */
+	resolvedBillingMode?: 'api' | 'max' | 'auto';
 }
 
 /**
@@ -123,7 +125,8 @@ export function SessionListItem({
 	isExpanded,
 	hasSubagents,
 	isLoadingSubagents,
-	isMaxSubscriber,
+	isMaxSubscriber: _isMaxSubscriber,
+	resolvedBillingMode,
 }: SessionListItemProps) {
 	const isSelected = index === selectedIndex;
 	const isRenaming = renamingSessionId === session.sessionId;
@@ -324,7 +327,7 @@ export function SessionListItem({
 						<span
 							className="flex items-center gap-1 font-mono"
 							style={{ color: theme.colors.success }}
-							title={isMaxSubscriber ? 'Included in Max subscription' : 'API charges'}
+							title={getCostTooltip(resolvedBillingMode) || undefined}
 						>
 							<DollarSign className="w-3 h-3" />
 							{(displayCost ?? 0).toFixed(2)}

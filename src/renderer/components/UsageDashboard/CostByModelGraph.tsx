@@ -187,7 +187,7 @@ export function CostByModelGraph({
 			{/* Header with title and data source toggle */}
 			<div className="flex items-center justify-between mb-4">
 				<div>
-					<h3 className="text-sm font-medium" style={{ color: theme.colors.textMain }}>
+					<h3 className="text-2xl font-bold" style={{ color: theme.colors.textMain }}>
 						{title}
 					</h3>
 					<div className="text-sm" style={{ color: theme.colors.textDim }}>
@@ -232,7 +232,7 @@ export function CostByModelGraph({
 									x={xScale(tick)}
 									y={chartHeight - padding.bottom + 20}
 									textAnchor="middle"
-									fontSize={10}
+									fontSize={12}
 									fill={theme.colors.textDim}
 								>
 									{formatCurrency(tick)}
@@ -254,7 +254,7 @@ export function CostByModelGraph({
 										y={y + barHeight / 2}
 										textAnchor="end"
 										dominantBaseline="middle"
-										fontSize={11}
+										fontSize={12}
 										fill={isHovered ? theme.colors.textMain : theme.colors.textDim}
 										style={{ transition: 'fill 0.15s ease' }}
 									>
@@ -288,7 +288,7 @@ export function CostByModelGraph({
 											y={y + barHeight / 2}
 											textAnchor="end"
 											dominantBaseline="middle"
-											fontSize={10}
+											fontSize={12}
 											fill="white"
 											style={{
 												textShadow: '0 1px 2px rgba(0,0,0,0.3)',
@@ -308,7 +308,7 @@ export function CostByModelGraph({
 							x={chartWidth / 2}
 							y={chartHeight - 5}
 							textAnchor="middle"
-							fontSize={11}
+							fontSize={12}
 							fill={theme.colors.textDim}
 						>
 							Cost (USD)

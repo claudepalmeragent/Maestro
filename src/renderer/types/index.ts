@@ -192,6 +192,8 @@ export interface LogEntry {
 	};
 	/** User rating for AI responses */
 	rating?: 'liked' | 'disliked' | null;
+	savedToLibrary?: boolean;
+	promptLibraryEntryId?: string;
 }
 
 // Queued item for the session-level execution queue
@@ -870,6 +872,11 @@ export interface PromptLibraryEntry {
 
 	// Tags for future categorization
 	tags?: string[];
+
+	// Source log entry reference (for resetting savedToLibrary on delete)
+	sourceLogId?: string;
+	sourceSessionId?: string;
+	sourceTabId?: string;
 }
 
 // Prompt Library metadata for tracking version and state

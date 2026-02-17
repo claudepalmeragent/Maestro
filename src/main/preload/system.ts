@@ -191,6 +191,11 @@ export function createAppApi() {
 		cancelQuit: () => {
 			ipcRenderer.send('app:quitCancelled');
 		},
+		onSystemThemeChanged: (callback: (isDark: boolean) => void) => {
+			const handler = (_: any, isDark: boolean) => callback(isDark);
+			ipcRenderer.on('system-theme-changed', handler);
+			return () => ipcRenderer.removeListener('system-theme-changed', handler);
+		},
 	};
 }
 

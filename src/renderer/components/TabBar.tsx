@@ -17,6 +17,9 @@ import {
 	Share2,
 	ChevronsLeft,
 	ChevronsRight,
+	Lock,
+	Unlock,
+	Brain,
 } from 'lucide-react';
 import type { AITab, Theme } from '../types';
 import { hasDraft } from '../utils/tabHelpers';
@@ -31,6 +34,7 @@ interface TabBarProps {
 	onRequestRename?: (tabId: string) => void;
 	onTabReorder?: (fromIndex: number, toIndex: number) => void;
 	onTabStar?: (tabId: string, starred: boolean) => void;
+	onTabLock?: (tabId: string, locked: boolean) => void;
 	onTabMarkUnread?: (tabId: string) => void;
 	/** Handler to open merge session modal with this tab as source */
 	onMergeWith?: (tabId: string) => void;
@@ -57,6 +61,8 @@ interface TabBarProps {
 	onCloseTabsLeft?: () => void;
 	/** Handler to close tabs to the right of active tab */
 	onCloseTabsRight?: () => void;
+	/** Handler to save tab to knowledge graph */
+	onSaveToKnowledgeGraph?: (tabId: string) => void;
 }
 
 interface TabProps {
@@ -82,6 +88,8 @@ interface TabProps {
 	onRename: (tabId: string) => void;
 	/** Stable callback - receives tabId and starred boolean */
 	onStar?: (tabId: string, starred: boolean) => void;
+	/** Stable callback - receives tabId and locked boolean */
+	onLock?: (tabId: string, locked: boolean) => void;
 	/** Stable callback - receives tabId */
 	onMarkUnread?: (tabId: string) => void;
 	/** Stable callback - receives tabId */
@@ -96,6 +104,8 @@ interface TabProps {
 	onExportHtml?: (tabId: string) => void;
 	/** Stable callback - receives tabId */
 	onPublishGist?: (tabId: string) => void;
+	/** Stable callback - receives tabId */
+	onSaveToKnowledgeGraph?: (tabId: string) => void;
 	/** Stable callback - receives tabId */
 	onMoveToFirst?: (tabId: string) => void;
 	/** Stable callback - receives tabId */
@@ -185,6 +195,7 @@ const Tab = memo(function Tab({
 	isDragOver,
 	onRename,
 	onStar,
+	onLock,
 	onMarkUnread,
 	onMergeWith,
 	onSendToAgent,
@@ -192,6 +203,7 @@ const Tab = memo(function Tab({
 	onCopyContext,
 	onExportHtml,
 	onPublishGist,
+	onSaveToKnowledgeGraph,
 	onMoveToFirst,
 	onMoveToLast,
 	isFirstTab,
@@ -266,13 +278,13 @@ const Tab = memo(function Tab({
 	// Event handlers using stable tabId to avoid inline closure captures
 	const handleMouseDown = useCallback(
 		(e: React.MouseEvent) => {
-			// Middle-click to close
-			if (e.button === 1 && canClose) {
+			// Middle-click to close (blocked if locked)
+			if (e.button === 1 && canClose && !tab.locked) {
 				e.preventDefault();
 				onClose(tabId);
 			}
 		},
-		[canClose, onClose, tabId]
+		[canClose, onClose, tabId, tab.locked]
 	);
 
 	const handleCloseClick = useCallback(
@@ -395,13 +407,23 @@ const Tab = memo(function Tab({
 		[onPublishGist, tabId]
 	);
 
+	const handleSaveToKnowledgeGraphClick = useCallback(
+		(e: React.MouseEvent) => {
+			e.stopPropagation();
+			onSaveToKnowledgeGraph?.(tabId);
+			setOverlayOpen(false);
+		},
+		[onSaveToKnowledgeGraph, tabId]
+	);
+
 	const handleCloseTabClick = useCallback(
 		(e: React.MouseEvent) => {
 			e.stopPropagation();
+			if (tab.locked) return;
 			onClose(tabId);
 			setOverlayOpen(false);
 		},
-		[onClose, tabId]
+		[onClose, tabId, tab.locked]
 	);
 
 	const handleCloseOtherTabsClick = useCallback(
@@ -534,6 +556,9 @@ const Tab = memo(function Tab({
 				<Star className="w-3 h-3 fill-current shrink-0" style={{ color: theme.colors.warning }} />
 			)}
 
+			{/* Lock indicator - show lock icon when locked */}
+			{tab.locked && <Lock className="w-3 h-3 shrink-0" style={{ color: theme.colors.warning }} />}
+
 			{/* Draft indicator - pencil icon for tabs with unsent input or staged images */}
 			{hasDraft && (
 				<span title="Has draft message">
@@ -565,9 +590,18 @@ const Tab = memo(function Tab({
 			{/* Close button - visible on hover or when active, takes space of busy indicator when not busy */}
 			{canClose && (isHovered || isActive) && (
 				<button
-					onClick={handleCloseClick}
+					onClick={(e) => {
+						e.stopPropagation();
+						if (tab.locked) return;
+						onClose(tabId);
+					}}
 					className="p-0.5 rounded hover:bg-white/10 transition-colors shrink-0"
-					title="Close tab"
+					disabled={tab.locked}
+					style={{
+						opacity: tab.locked ? 0.3 : 1,
+						cursor: tab.locked ? 'not-allowed' : 'pointer',
+					}}
+					title={tab.locked ? 'Tab is locked - unlock to close' : 'Close tab'}
 				>
 					<X className="w-3 h-3" style={{ color: theme.colors.textDim }} />
 				</button>
@@ -667,6 +701,26 @@ const Tab = memo(function Tab({
 											style={{ color: tab.starred ? theme.colors.warning : theme.colors.textDim }}
 										/>
 										{tab.starred ? 'Unstar Session' : 'Star Session'}
+									</button>
+								)}
+
+								{/* Lock toggle button */}
+								{onLock && (
+									<button
+										onClick={(e) => {
+											e.stopPropagation();
+											onLock(tabId, !tab.locked);
+											setOverlayOpen(false);
+										}}
+										className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-white/10 transition-colors"
+										style={{ color: theme.colors.textMain }}
+									>
+										{tab.locked ? (
+											<Lock className="w-3.5 h-3.5" style={{ color: theme.colors.warning }} />
+										) : (
+											<Unlock className="w-3.5 h-3.5" style={{ color: theme.colors.textDim }} />
+										)}
+										{tab.locked ? 'Unlock Tab' : 'Lock Tab'}
 									</button>
 								)}
 
@@ -775,6 +829,18 @@ const Tab = memo(function Tab({
 									</button>
 								)}
 
+								{/* Save to Knowledge Graph - only show if tab has an agent session */}
+								{tab.agentSessionId && onSaveToKnowledgeGraph && (
+									<button
+										onClick={handleSaveToKnowledgeGraphClick}
+										className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-white/10 transition-colors"
+										style={{ color: theme.colors.textMain }}
+									>
+										<Brain className="w-3.5 h-3.5" style={{ color: theme.colors.textDim }} />
+										Save to Knowledge Graph
+									</button>
+								)}
+
 								{/* Tab Move Actions Section - divider and move options */}
 								{(onMoveToFirst || onMoveToLast) && (
 									<div className="my-1 border-t" style={{ borderColor: theme.colors.border }} />
@@ -814,13 +880,15 @@ const Tab = memo(function Tab({
 								<button
 									onClick={handleCloseTabClick}
 									className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs transition-colors ${
-										totalTabs === 1 ? 'opacity-40 cursor-default' : 'hover:bg-white/10'
+										totalTabs === 1 || tab.locked
+											? 'opacity-40 cursor-default'
+											: 'hover:bg-white/10'
 									}`}
 									style={{ color: theme.colors.textMain }}
-									disabled={totalTabs === 1}
+									disabled={totalTabs === 1 || tab.locked}
 								>
 									<X className="w-3.5 h-3.5" style={{ color: theme.colors.textDim }} />
-									Close Tab
+									{tab.locked ? 'Close Tab (Locked)' : 'Close Tab'}
 								</button>
 
 								{/* Close Other Tabs */}
@@ -896,6 +964,7 @@ function TabBarInner({
 	onRequestRename,
 	onTabReorder,
 	onTabStar,
+	onTabLock,
 	onTabMarkUnread,
 	onMergeWith,
 	onSendToAgent,
@@ -903,6 +972,7 @@ function TabBarInner({
 	onCopyContext,
 	onExportHtml,
 	onPublishGist,
+	onSaveToKnowledgeGraph,
 	ghCliAvailable,
 	showUnreadOnly: showUnreadOnlyProp,
 	onToggleUnreadFilter,
@@ -1056,6 +1126,13 @@ function TabBarInner({
 		[onTabStar]
 	);
 
+	const handleTabLock = useCallback(
+		(tabId: string, locked: boolean) => {
+			onTabLock?.(tabId, locked);
+		},
+		[onTabLock]
+	);
+
 	const handleTabMarkUnread = useCallback(
 		(tabId: string) => {
 			onTabMarkUnread?.(tabId);
@@ -1103,6 +1180,13 @@ function TabBarInner({
 			onPublishGist?.(tabId);
 		},
 		[onPublishGist]
+	);
+
+	const handleTabSaveToKnowledgeGraph = useCallback(
+		(tabId: string) => {
+			onSaveToKnowledgeGraph?.(tabId);
+		},
+		[onSaveToKnowledgeGraph]
 	);
 
 	const handleTabCloseOther = useCallback(
@@ -1231,6 +1315,7 @@ function TabBarInner({
 							isDragOver={dragOverTabId === tab.id}
 							onRename={handleRenameRequest}
 							onStar={onTabStar && tab.agentSessionId ? handleTabStar : undefined}
+							onLock={onTabLock ? handleTabLock : undefined}
 							onMarkUnread={onTabMarkUnread ? handleTabMarkUnread : undefined}
 							onMergeWith={onMergeWith && tab.agentSessionId ? handleTabMergeWith : undefined}
 							onSendToAgent={onSendToAgent && tab.agentSessionId ? handleTabSendToAgent : undefined}
@@ -1247,6 +1332,9 @@ function TabBarInner({
 								onPublishGist && ghCliAvailable && (tab.logs?.length ?? 0) >= 1
 									? handleTabPublishGist
 									: undefined
+							}
+							onSaveToKnowledgeGraph={
+								onSaveToKnowledgeGraph ? handleTabSaveToKnowledgeGraph : undefined
 							}
 							onMoveToFirst={!isFirstTab && onTabReorder ? handleMoveToFirst : undefined}
 							onMoveToLast={!isLastTab && onTabReorder ? handleMoveToLast : undefined}

@@ -117,17 +117,36 @@ async function calculateAndEnrichEvent(
 			} else {
 				// Fallback: detect based on whether remote or local agent
 				const sshRemoteId = (event as any).sshRemoteId;
+				let detectedAuth;
 				if (sshRemoteId) {
 					// Remote agent: SSH to VM for credentials
 					const sshConfig = getSshRemoteById(sshRemoteId);
 					if (sshConfig) {
-						const auth = await detectRemoteAuthCached(sshRemoteId, sshConfig);
-						maestroBillingMode = auth.billingMode;
+						detectedAuth = await detectRemoteAuthCached(sshRemoteId, sshConfig);
+						maestroBillingMode = detectedAuth.billingMode;
 					}
 				} else {
 					// Local agent: check local filesystem
-					const auth = await detectLocalAuth();
-					maestroBillingMode = auth.billingMode;
+					detectedAuth = await detectLocalAuth();
+					maestroBillingMode = detectedAuth.billingMode;
+				}
+				// Cache detected billing mode in agent config store for renderer
+				if (detectedAuth) {
+					try {
+						const cacheConfigs = store.get('configs', {});
+						if (!cacheConfigs[configKey]) {
+							cacheConfigs[configKey] = {};
+						}
+						const currentConfig = cacheConfigs[configKey].pricingConfig || {};
+						cacheConfigs[configKey].pricingConfig = {
+							...currentConfig,
+							detectedBillingMode: detectedAuth.billingMode,
+							detectedAt: Date.now(),
+						};
+						store.set('configs', cacheConfigs);
+					} catch (_) {
+						/* Non-fatal */
+					}
 				}
 			}
 

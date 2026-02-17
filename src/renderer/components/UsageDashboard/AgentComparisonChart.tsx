@@ -171,7 +171,7 @@ export function AgentComparisonChart({
 		>
 			{/* Header */}
 			<div className="flex items-center justify-between mb-4">
-				<h3 className="text-sm font-medium" style={{ color: theme.colors.textMain }}>
+				<h3 className="text-2xl font-bold" style={{ color: theme.colors.textMain }}>
 					Provider Comparison
 				</h3>
 			</div>
@@ -319,7 +319,7 @@ export function AgentComparisonChart({
 			{/* Legend */}
 			{agentData.length > 0 && (
 				<div
-					className="flex flex-wrap gap-3 mt-4 pt-3 border-t"
+					className="flex flex-wrap gap-4 mt-3 pt-3 border-t"
 					style={{ borderColor: theme.colors.border }}
 					role="list"
 					aria-label="Chart legend"

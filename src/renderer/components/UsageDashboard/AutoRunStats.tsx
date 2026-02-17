@@ -422,7 +422,7 @@ export function AutoRunStats({ timeRange, theme, columns = 6 }: AutoRunStatsProp
 				role="figure"
 				aria-label={`Tasks completed over time chart. ${tasksByDate.length} days of data.`}
 			>
-				<h3 className="text-sm font-medium mb-4" style={{ color: theme.colors.textMain }}>
+				<h3 className="text-2xl font-bold mb-4" style={{ color: theme.colors.textMain }}>
 					Tasks Completed Over Time
 				</h3>
 
@@ -441,7 +441,7 @@ export function AutoRunStats({ timeRange, theme, columns = 6 }: AutoRunStatsProp
 								return (
 									<div
 										key={day.date}
-										className="flex-1 min-w-[16px] max-w-[40px] rounded-t cursor-pointer transition-all duration-200"
+										className="flex-1 min-w-[16px] rounded-t cursor-pointer transition-all duration-200"
 										style={{
 											height: `${Math.max(height, 4)}%`,
 											backgroundColor: theme.colors.accent,

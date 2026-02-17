@@ -15,7 +15,7 @@ import {
 	Hash,
 	Play,
 } from 'lucide-react';
-import type { Session, Group, Theme, GroupChat } from '../types';
+import type { Session, Group, Theme, GroupChat, BatchRunState } from '../types';
 import { useLayerStack } from '../contexts/LayerStackContext';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 
@@ -27,6 +27,8 @@ interface ProcessMonitorProps {
 	onClose: () => void;
 	onNavigateToSession?: (sessionId: string, tabId?: string) => void;
 	onNavigateToGroupChat?: (groupChatId: string) => void;
+	/** Batch run states keyed by session ID */
+	batchRunStates?: Record<string, BatchRunState>;
 }
 
 interface ActiveProcess {
@@ -71,6 +73,13 @@ interface ProcessNode {
 	participantName?: string; // For group chat participant processes
 	command?: string; // The command used to spawn this process
 	args?: string[]; // The arguments passed to the command
+	/** Auto Run batch progress */
+	batchProgress?: {
+		completedTasks: number;
+		totalTasks: number;
+		completedDocs?: number;
+		totalDocs?: number;
+	};
 }
 
 // Format runtime in human readable format (e.g., "2m 30s", "1h 5m", "3d 2h")
@@ -120,6 +129,7 @@ export function ProcessMonitor(props: ProcessMonitorProps) {
 		onClose,
 		onNavigateToSession,
 		onNavigateToGroupChat,
+		batchRunStates,
 	} = props;
 	const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
 	const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -328,6 +338,34 @@ export function ProcessMonitor(props: ProcessMonitorProps) {
 	const parseTabId = (processSessionId: string): string | null => {
 		const match = processSessionId.match(/-ai-([^-]+)$/);
 		return match ? match[1] : null;
+	};
+
+	// Get batch progress for a process node
+	const getBatchProgress = (node: ProcessNode): ProcessNode['batchProgress'] | undefined => {
+		if (!node.isAutoRun || !batchRunStates) return undefined;
+
+		const sessionId = node.sessionId || node.id;
+		const batchState = batchRunStates[sessionId];
+
+		if (!batchState) return undefined;
+
+		const totalDocs = batchState.documents?.length || 0;
+		// Estimate completed docs from document index and current doc progress
+		const completedDocs =
+			totalDocs > 1
+				? batchState.currentDocumentIndex +
+					(batchState.currentDocTasksCompleted >= batchState.currentDocTasksTotal &&
+					batchState.currentDocTasksTotal > 0
+						? 1
+						: 0)
+				: undefined;
+
+		return {
+			completedTasks: batchState.completedTasksAcrossAllDocs || 0,
+			totalTasks: batchState.totalTasksAcrossAllDocs || 0,
+			completedDocs: totalDocs > 1 ? completedDocs : undefined,
+			totalDocs: totalDocs > 1 ? totalDocs : undefined,
+		};
 	};
 
 	// Build the process tree using real active processes
@@ -946,15 +984,42 @@ export function ProcessMonitor(props: ProcessMonitorProps) {
 						/>
 						<span className="text-sm flex-1 truncate">{node.label}</span>
 						{node.isAutoRun && (
-							<span
-								className="text-xs font-semibold px-1.5 py-0.5 rounded flex-shrink-0"
-								style={{
-									backgroundColor: theme.colors.accent + '20',
-									color: theme.colors.accent,
-								}}
-							>
-								AUTO
-							</span>
+							<div className="flex items-center gap-2 flex-shrink-0">
+								<span
+									className="text-[10px] px-1.5 py-0.5 rounded font-medium"
+									style={{
+										backgroundColor: `${theme.colors.accent}30`,
+										color: theme.colors.accent,
+									}}
+								>
+									AUTO
+								</span>
+								{(() => {
+									const progress = getBatchProgress(node);
+									if (progress && progress.totalTasks > 0) {
+										return (
+											<div className="flex items-center gap-2">
+												<span className="text-[10px]" style={{ color: theme.colors.textDim }}>
+													Task {progress.completedTasks}/{progress.totalTasks}
+												</span>
+												<div
+													className="w-16 h-1.5 rounded-full overflow-hidden"
+													style={{ backgroundColor: `${theme.colors.accent}20` }}
+												>
+													<div
+														className="h-full rounded-full transition-all duration-300"
+														style={{
+															width: `${(progress.completedTasks / progress.totalTasks) * 100}%`,
+															backgroundColor: theme.colors.accent,
+														}}
+													/>
+												</div>
+											</div>
+										);
+									}
+									return null;
+								})()}
+							</div>
 						)}
 						{/* Group Chat badges */}
 						{node.processType === 'moderator' && (

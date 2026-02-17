@@ -7,10 +7,31 @@ interface ThemePickerProps {
 	themes: Record<ThemeId, Theme>;
 	activeThemeId: ThemeId;
 	setActiveThemeId: (id: ThemeId) => void;
+	themeMode?: 'manual' | 'system';
+	lightThemeId?: ThemeId;
+	darkThemeId?: ThemeId;
+	onThemeModeChange?: (mode: 'manual' | 'system') => void;
+	onLightThemeChange?: (id: ThemeId) => void;
+	onDarkThemeChange?: (id: ThemeId) => void;
 }
 
-export function ThemePicker({ theme, themes, activeThemeId, setActiveThemeId }: ThemePickerProps) {
-	const grouped = Object.values(themes).reduce(
+export function ThemePicker({
+	theme,
+	themes,
+	activeThemeId,
+	setActiveThemeId,
+	themeMode,
+	lightThemeId,
+	darkThemeId,
+	onThemeModeChange,
+	onLightThemeChange,
+	onDarkThemeChange,
+}: ThemePickerProps) {
+	const themeList = Object.values(themes);
+	const lightThemes = themeList.filter((t) => t.mode === 'light' || t.mode === 'vibe');
+	const darkThemes = themeList.filter((t) => t.mode === 'dark' || t.mode === 'vibe');
+
+	const grouped = themeList.reduce(
 		(acc, t) => {
 			if (!acc[t.mode]) acc[t.mode] = [];
 			acc[t.mode].push(t);
@@ -21,6 +42,79 @@ export function ThemePicker({ theme, themes, activeThemeId, setActiveThemeId }: 
 
 	return (
 		<div className="space-y-6">
+			{/* System Theme Toggle */}
+			<div
+				className="flex items-center justify-between mb-4 pb-4 border-b"
+				style={{ borderColor: theme.colors.border }}
+			>
+				<div>
+					<span style={{ color: theme.colors.textMain }}>Follow System Appearance</span>
+					<p className="text-xs mt-0.5" style={{ color: theme.colors.textDim }}>
+						Automatically switch between light and dark themes
+					</p>
+				</div>
+				<button
+					aria-label="Follow System Appearance"
+					onClick={() => onThemeModeChange?.(themeMode === 'system' ? 'manual' : 'system')}
+					className="w-11 h-6 rounded-full transition-colors relative"
+					style={{ backgroundColor: themeMode === 'system' ? theme.colors.accent : '#4b5563' }}
+				>
+					<div
+						className={`w-5 h-5 rounded-full bg-white absolute top-0.5 transition-transform ${
+							themeMode === 'system' ? 'translate-x-5' : 'translate-x-0.5'
+						}`}
+					/>
+				</button>
+			</div>
+
+			{/* Light/Dark theme selectors when system mode is active */}
+			{themeMode === 'system' && (
+				<div className="space-y-4 mb-4">
+					<div>
+						<label className="text-sm mb-2 block" style={{ color: theme.colors.textDim }}>
+							Light Mode Theme
+						</label>
+						<select
+							value={lightThemeId || 'github-light'}
+							onChange={(e) => onLightThemeChange?.(e.target.value as ThemeId)}
+							className="w-full p-2 rounded border"
+							style={{
+								backgroundColor: theme.colors.bgActivity,
+								borderColor: theme.colors.border,
+								color: theme.colors.textMain,
+							}}
+						>
+							{lightThemes.map((t) => (
+								<option key={t.id} value={t.id}>
+									{t.name}
+								</option>
+							))}
+						</select>
+					</div>
+					<div>
+						<label className="text-sm mb-2 block" style={{ color: theme.colors.textDim }}>
+							Dark Mode Theme
+						</label>
+						<select
+							value={darkThemeId || 'dracula'}
+							onChange={(e) => onDarkThemeChange?.(e.target.value as ThemeId)}
+							className="w-full p-2 rounded border"
+							style={{
+								backgroundColor: theme.colors.bgActivity,
+								borderColor: theme.colors.border,
+								color: theme.colors.textMain,
+							}}
+						>
+							{darkThemes.map((t) => (
+								<option key={t.id} value={t.id}>
+									{t.name}
+								</option>
+							))}
+						</select>
+					</div>
+				</div>
+			)}
+
 			{['dark', 'light'].map((mode) => (
 				<div key={mode}>
 					<div

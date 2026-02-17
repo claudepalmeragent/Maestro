@@ -594,7 +594,7 @@ export function ActivityHeatmap({
 		>
 			{/* Header with title and metric toggle */}
 			<div className="flex items-center justify-between mb-4">
-				<h3 className="text-sm font-medium" style={{ color: theme.colors.textMain }}>
+				<h3 className="text-2xl font-bold" style={{ color: theme.colors.textMain }}>
 					Activity Heatmap
 				</h3>
 				<div className="flex items-center gap-2">
@@ -935,14 +935,13 @@ export function ActivityHeatmap({
 
 					return (
 						<div
-							className="fixed z-[99999] px-3 py-2 rounded text-xs whitespace-nowrap pointer-events-none"
+							className="fixed z-[99999] px-3 py-2 rounded text-xs whitespace-nowrap pointer-events-none shadow-lg"
 							style={{
 								left: `${left}px`,
 								top: `${top}px`,
 								backgroundColor: theme.colors.bgActivity,
 								color: theme.colors.textMain,
 								border: `1px solid ${theme.colors.border}`,
-								boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
 							}}
 						>
 							<div className="font-medium mb-0.5">

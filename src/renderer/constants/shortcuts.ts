@@ -68,6 +68,11 @@ export const DEFAULT_SHORTCUTS: Record<string, Shortcut> = {
 	openWizard: { id: 'openWizard', label: 'New Agent Wizard', keys: ['Meta', 'Shift', 'n'] },
 	fuzzyFileSearch: { id: 'fuzzyFileSearch', label: 'Fuzzy File Search', keys: ['Meta', 'g'] },
 	toggleBookmark: { id: 'toggleBookmark', label: 'Toggle Bookmark', keys: ['Meta', 'Shift', 'b'] },
+	saveToKnowledgeGraph: {
+		id: 'saveToKnowledgeGraph',
+		label: 'Save to Knowledge Graph',
+		keys: ['Alt', 'Meta', 'k'],
+	},
 };
 
 // Non-editable shortcuts (displayed in help but not configurable)
@@ -139,6 +144,7 @@ export const TAB_SHORTCUTS: Record<string, Shortcut> = {
 		label: 'Toggle Save to History',
 		keys: ['Meta', 's'],
 	},
+	toggleTabLock: { id: 'toggleTabLock', label: 'Toggle Tab Lock', keys: ['Meta', 'l'] },
 	toggleShowThinking: {
 		id: 'toggleShowThinking',
 		label: 'Toggle Show Thinking',

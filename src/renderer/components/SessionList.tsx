@@ -49,6 +49,8 @@ import type {
 import { getBadgeForTime } from '../constants/conductorBadges';
 import { getStatusColor, getContextColor, formatActiveTime } from '../utils/theme';
 import { formatShortcutKeys } from '../utils/shortcutFormatter';
+import { getDisplayCost, formatCost, getCostTooltip } from '../utils/costCalculation';
+import { useBillingMode } from '../hooks/agent/useBillingMode';
 import { SessionItem } from './SessionItem';
 import { GroupChatList } from './GroupChatList';
 import { ProjectFolderHeader } from './sidebar/ProjectFolderHeader';
@@ -830,6 +832,8 @@ interface SessionTooltipContentProps {
 	gitFileCount?: number;
 	groupName?: string; // Optional group name (for skinny mode)
 	isInBatch?: boolean; // Whether session is running in auto mode
+	resolvedBillingMode?: 'api' | 'max'; // Resolved billing mode for cost display
+	isMaxSubscriber?: boolean; // Whether agent uses Max subscription pricing
 }
 
 const SessionTooltipContent = memo(function SessionTooltipContent({
@@ -838,6 +842,8 @@ const SessionTooltipContent = memo(function SessionTooltipContent({
 	gitFileCount,
 	groupName,
 	isInBatch = false,
+	resolvedBillingMode,
+	isMaxSubscriber = false,
 }: SessionTooltipContentProps) {
 	return (
 		<>
@@ -982,11 +988,15 @@ const SessionTooltipContent = memo(function SessionTooltipContent({
 				)}
 
 				{/* Session Cost */}
-				{session.usageStats && session.usageStats.totalCostUsd > 0 && (
+				{session.usageStats && getDisplayCost(session.usageStats) > 0 && (
 					<div className="flex items-center justify-between text-[10px] pt-1">
 						<span style={{ color: theme.colors.textDim }}>Session Cost</span>
-						<span className="font-mono font-bold" style={{ color: theme.colors.success }}>
-							${session.usageStats.totalCostUsd.toFixed(2)}
+						<span
+							className="font-mono font-bold"
+							style={{ color: theme.colors.success }}
+							title={getCostTooltip(resolvedBillingMode) || undefined}
+						>
+							{formatCost(getDisplayCost(session.usageStats), resolvedBillingMode, isMaxSubscriber)}
 						</span>
 					</div>
 				)}
@@ -1272,6 +1282,9 @@ function SessionListInner(props: SessionListProps) {
 	const [filterModeInitialized, setFilterModeInitialized] = useState(false);
 	const [menuOpen, setMenuOpen] = useState(false);
 
+	// Billing mode for cost display (claude-code is the primary billing-mode-aware agent)
+	const { resolvedBillingMode, isMaxSubscriber } = useBillingMode('claude-code');
+
 	// Project Folders state and operations
 	const {
 		projectFolders,
@@ -1550,6 +1563,14 @@ function SessionListInner(props: SessionListProps) {
 									theme={theme}
 									gitFileCount={getFileCount(s.id)}
 									isInBatch={isInBatch}
+									resolvedBillingMode={
+										s.toolType === 'claude-code' || s.toolType === 'claude'
+											? resolvedBillingMode
+											: 'api'
+									}
+									isMaxSubscriber={
+										(s.toolType === 'claude-code' || s.toolType === 'claude') && isMaxSubscriber
+									}
 								/>
 							</div>
 						</div>
@@ -3526,6 +3547,15 @@ function SessionListInner(props: SessionListProps) {
 										gitFileCount={getFileCount(session.id)}
 										groupName={groups.find((g) => g.id === session.groupId)?.name}
 										isInBatch={isInBatch}
+										resolvedBillingMode={
+											session.toolType === 'claude-code' || session.toolType === 'claude'
+												? resolvedBillingMode
+												: 'api'
+										}
+										isMaxSubscriber={
+											(session.toolType === 'claude-code' || session.toolType === 'claude') &&
+											isMaxSubscriber
+										}
 									/>
 								</div>
 							</div>

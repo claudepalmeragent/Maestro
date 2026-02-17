@@ -469,6 +469,36 @@ export function AutoRunExpandedModal({
 							)}
 						</span>
 
+						{/* Visual Progress Bar - complements existing text display */}
+						{batchRunState.totalTasksAcrossAllDocs > 0 && (
+							<div className="flex items-center gap-2">
+								<div
+									className="w-32 h-2 rounded-full overflow-hidden"
+									style={{ backgroundColor: `${theme.colors.accent}20` }}
+								>
+									<div
+										className="h-full rounded-full transition-all duration-300 ease-out"
+										style={{
+											width: `${Math.min(
+												100,
+												Math.round(
+													(batchRunState.completedTasksAcrossAllDocs /
+														batchRunState.totalTasksAcrossAllDocs) *
+														100
+												)
+											)}%`,
+											backgroundColor: theme.colors.accent,
+										}}
+									/>
+								</div>
+								{batchRunState.documents && batchRunState.documents.length > 1 && (
+									<span className="text-xs" style={{ color: theme.colors.textDim }}>
+										Doc {batchRunState.currentDocumentIndex + 1}/{batchRunState.documents.length}
+									</span>
+								)}
+							</div>
+						)}
+
 						{/* Token stats - compact mode */}
 						<BatchRunStats batchRunState={batchRunState} theme={theme} compact />
 					</div>

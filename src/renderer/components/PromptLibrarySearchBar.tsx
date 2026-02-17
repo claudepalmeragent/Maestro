@@ -8,7 +8,7 @@ interface PromptLibrarySearchBarProps {
 	isOpen: boolean;
 	onClose: () => void;
 	onSelectPrompt: (prompt: PromptLibraryEntry) => void;
-	onDeletePrompt: (id: string) => void;
+	onDeletePrompt: (prompt: PromptLibraryEntry) => void;
 	onEditPrompt?: (prompt: PromptLibraryEntry) => void;
 	currentProjectName?: string;
 	currentAgentName?: string;
@@ -130,11 +130,15 @@ export function PromptLibrarySearchBar({
 		async (id: string, e: React.MouseEvent) => {
 			e.stopPropagation();
 			if (deleteConfirmId === id) {
+				// Find the prompt entry before deleting so we can pass it to the callback
+				const deletedPrompt = prompts.find((p) => p.id === id);
 				try {
 					await window.maestro.promptLibrary.delete(id);
 					setPrompts((prev) => prev.filter((p) => p.id !== id));
 					setFilteredPrompts((prev) => prev.filter((p) => p.id !== id));
-					onDeletePrompt(id);
+					if (deletedPrompt) {
+						onDeletePrompt(deletedPrompt);
+					}
 				} catch (error) {
 					console.error('Failed to delete prompt:', error);
 				}
@@ -145,7 +149,7 @@ export function PromptLibrarySearchBar({
 				setTimeout(() => setDeleteConfirmId(null), 3000);
 			}
 		},
-		[deleteConfirmId, onDeletePrompt]
+		[deleteConfirmId, onDeletePrompt, prompts]
 	);
 
 	const handleKeyDown = useCallback(

@@ -218,7 +218,7 @@ interface MainPanelProps {
 	// Replay a user message (AI mode)
 	onReplayMessage?: (text: string, images?: string[]) => void;
 	// Save message to prompt library (USER messages only)
-	onSaveToPromptLibrary?: (text: string, images?: string[]) => void;
+	onSaveToPromptLibrary?: (text: string, images?: string[], logId?: string) => void;
 	// Rate AI response (like/dislike)
 	onRateResponse?: (logId: string, rating: 'liked' | 'disliked' | null) => void;
 	// File tree for linking file references in AI responses

@@ -177,7 +177,7 @@ export function AgentSessionsBrowser({
 	});
 
 	// Billing mode hook for cost display (shows "(incl. in Max sub.)" for Max subscribers)
-	const { resolvedBillingMode, isMaxSubscriber } = useBillingMode(agentId, sshRemoteId);
+	const { resolvedBillingMode, isMaxSubscriber } = useBillingMode(agentId);
 
 	const [search, setSearch] = useState('');
 	const [searchMode, setSearchMode] = useState<SearchMode>('all');
@@ -785,10 +785,18 @@ export function AgentSessionsBrowser({
 					onClick={() => handleViewSubagent(sa)}
 					onResume={() => handleResumeSubagent(sa)}
 					isMaxSubscriber={isMaxSubscriber}
+					resolvedBillingMode={resolvedBillingMode}
 				/>
 			));
 		},
-		[theme, viewingSubagent, handleViewSubagent, handleResumeSubagent, isMaxSubscriber]
+		[
+			theme,
+			viewingSubagent,
+			handleViewSubagent,
+			handleResumeSubagent,
+			isMaxSubscriber,
+			resolvedBillingMode,
+		]
 	);
 
 	// Activity entries for the graph - cached in state to prevent re-renders during pagination
@@ -1804,6 +1812,7 @@ export function AgentSessionsBrowser({
 												hasSubagents={hasSubagents}
 												isLoadingSubagents={isLoadingSessionSubagents}
 												isMaxSubscriber={isMaxSubscriber}
+												resolvedBillingMode={resolvedBillingMode}
 											/>
 
 											{/* Subagent rows when expanded */}

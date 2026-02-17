@@ -52,6 +52,7 @@ interface PromptComposerModalProps {
 	currentAgentSessionId?: string;
 	autoSaveToLibrary?: boolean;
 	onToggleAutoSaveToLibrary?: () => void;
+	onPromptLibraryDelete?: (deletedPrompt: PromptLibraryEntry) => void;
 }
 
 export function PromptComposerModal({
@@ -85,6 +86,7 @@ export function PromptComposerModal({
 	currentAgentSessionId,
 	autoSaveToLibrary = false,
 	onToggleAutoSaveToLibrary,
+	onPromptLibraryDelete,
 }: PromptComposerModalProps) {
 	const [value, setValue] = useState(initialValue);
 	const [libraryOpen, setLibraryOpen] = useState(promptLibraryOpen);
@@ -181,9 +183,9 @@ export function PromptComposerModal({
 		}, 100);
 	};
 
-	const handleDeletePrompt = (_id: string) => {
-		// Prompt was deleted in the search bar component
-		// No additional action needed here
+	const handleDeletePrompt = (deletedPrompt: PromptLibraryEntry) => {
+		// Reset savedToLibrary flag on the source log entry
+		onPromptLibraryDelete?.(deletedPrompt);
 	};
 
 	const handleSaveToLibrary = async () => {

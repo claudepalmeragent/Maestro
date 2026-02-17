@@ -131,6 +131,7 @@ import type {
 	OpenSpecCommand,
 	LeaderboardRegistration,
 	CustomAICommand,
+	PromptLibraryEntry,
 } from './types';
 import { THEMES } from './constants/themes';
 import { generateId } from './utils/ids';
@@ -433,8 +434,11 @@ function MaestroConsoleInner() {
 		customThemeBaseId,
 		setCustomThemeBaseId,
 		themeMode,
+		setThemeMode,
 		lightThemeId,
+		setLightThemeId,
 		darkThemeId,
+		setDarkThemeId,
 		enterToSendAI,
 		setEnterToSendAI,
 		enterToSendTerminal,
@@ -1108,6 +1112,15 @@ function MaestroConsoleInner() {
 				}
 			}
 
+			// Migrate legacy 'claude' toolType to 'claude-code'
+			if (aiAgentType === 'claude') {
+				aiAgentType = 'claude-code' as ToolType;
+				correctedSession = {
+					...correctedSession,
+					toolType: 'claude-code' as ToolType,
+				};
+			}
+
 			// Get agent definitions for both processes
 			const agent = await window.maestro.agents.get(aiAgentType);
 			if (!agent) {
@@ -1227,7 +1240,6 @@ function MaestroConsoleInner() {
 	// Load sessions and groups from electron-store on mount
 	// Use a ref to prevent duplicate execution in React Strict Mode
 	const sessionLoadStarted = useRef(false);
-	const hasRestoredLastSession = useRef(false);
 	useEffect(() => {
 		console.log('[App] Session load useEffect triggered');
 		// Guard against duplicate execution in React Strict Mode
@@ -1250,14 +1262,48 @@ function MaestroConsoleInner() {
 				// Handle sessions
 				if (savedSessions && savedSessions.length > 0) {
 					const restoredSessions = await Promise.all(savedSessions.map((s) => restoreSession(s)));
-					setSessions(restoredSessions);
 					_hasSessionsLoaded = true;
-					// Set active session to first session if current activeSessionId is invalid
+
+					// Restore last active session, or default to first session
 					if (
 						restoredSessions.length > 0 &&
 						!restoredSessions.find((s) => s.id === activeSessionId)
 					) {
-						setActiveSessionId(restoredSessions[0].id);
+						try {
+							const lastSessionId = (await window.maestro.settings.get('lastActiveSessionId')) as
+								| string
+								| undefined;
+							const lastTabId = (await window.maestro.settings.get('lastActiveTabId')) as
+								| string
+								| undefined;
+
+							const lastSession = lastSessionId
+								? restoredSessions.find((s) => s.id === lastSessionId)
+								: undefined;
+
+							if (lastSession) {
+								setActiveSessionId(lastSession.id);
+								// Also restore the active tab within the session
+								if (lastTabId && lastSession.aiTabs?.some((t) => t.id === lastTabId)) {
+									const updatedSessions = restoredSessions.map((s) =>
+										s.id === lastSession.id ? { ...s, activeTabId: lastTabId } : s
+									);
+									setSessions(updatedSessions);
+								} else {
+									setSessions(restoredSessions);
+								}
+							} else {
+								// No saved session found or it no longer exists — default to first
+								setActiveSessionId(restoredSessions[0].id);
+								setSessions(restoredSessions);
+							}
+						} catch {
+							// Settings read failed — default to first session
+							setActiveSessionId(restoredSessions[0].id);
+							setSessions(restoredSessions);
+						}
+					} else {
+						setSessions(restoredSessions);
 					}
 
 					// For remote (SSH) sessions, fetch git info in background to avoid blocking
@@ -1340,56 +1386,6 @@ function MaestroConsoleInner() {
 		return () =>
 			document.removeEventListener('visibilitychange', handleLastSessionVisibilityChange);
 	}, [activeSession?.id, activeSession?.activeTabId, activeSession?.aiTabs]);
-
-	// Restore last active session on startup
-	useEffect(() => {
-		const restoreLastSession = async () => {
-			// Wait for sessions to be loaded first
-			if (!sessions || sessions.length === 0) return;
-
-			// Only restore once, not on every sessions change
-			if (hasRestoredLastSession.current) return;
-			hasRestoredLastSession.current = true;
-
-			// Don't restore if a session is already active (e.g., opened via command line)
-			if (activeSessionId) return;
-
-			try {
-				const lastSessionId = (await window.maestro.settings.get('lastActiveSessionId')) as
-					| string
-					| undefined;
-				const lastTabId = (await window.maestro.settings.get('lastActiveTabId')) as
-					| string
-					| undefined;
-
-				if (lastSessionId) {
-					const sessionExists = sessions.find((s) => s.id === lastSessionId);
-					if (sessionExists) {
-						setActiveSessionId(lastSessionId);
-
-						// If we have a specific tab to restore, do that too
-						if (lastTabId && sessionExists.aiTabs?.some((t) => t.id === lastTabId)) {
-							setSessions((prev) =>
-								prev.map((s) =>
-									s.id === lastSessionId ? { ...s, activeTabId: lastTabId as string } : s
-								)
-							);
-						}
-
-						console.log('Restored last active session:', lastSessionId);
-					} else {
-						// Clear stored IDs if session no longer exists
-						await window.maestro.settings.set('lastActiveSessionId', undefined);
-						await window.maestro.settings.set('lastActiveTabId', undefined);
-					}
-				}
-			} catch (error) {
-				console.error('Failed to restore last session:', error);
-			}
-		};
-
-		restoreLastSession();
-	}, [sessions]); // Trigger when sessions are loaded
 
 	// Hide splash screen only when both settings and sessions have fully loaded
 	// This prevents theme flash on initial render
@@ -5722,8 +5718,60 @@ You are taking over this conversation. Based on the context above, provide a bri
 	);
 
 	const handleSaveToPromptLibrary = useCallback(
-		async (text: string, _images?: string[]) => {
+		async (text: string, _images?: string[], logId?: string) => {
 			if (!activeSession) return;
+
+			// Toggle: if already saved, remove from library instead
+			if (logId) {
+				const currentSessions = sessionsRef.current;
+				const currentSession = currentSessions.find((s) => s.id === activeSession.id);
+				const currentTab = currentSession?.aiTabs.find((t) => t.id === currentSession?.activeTabId);
+				const currentLog = currentTab?.logs.find((l) => l.id === logId);
+
+				if (currentLog?.savedToLibrary && currentLog?.promptLibraryEntryId) {
+					try {
+						// Capture scroll position BEFORE async IPC call
+						const scrollContainer = document.querySelector('[data-terminal-scroll-container]');
+						const savedScrollTop = scrollContainer?.scrollTop ?? null;
+
+						await window.maestro.promptLibrary.delete(currentLog.promptLibraryEntryId);
+
+						setSessions((prev) =>
+							prev.map((s) => {
+								if (s.id !== activeSession.id) return s;
+								return {
+									...s,
+									aiTabs: s.aiTabs.map((tab) =>
+										tab.id === activeSession.activeTabId
+											? {
+													...tab,
+													logs: tab.logs.map((l) =>
+														l.id === logId
+															? { ...l, savedToLibrary: false, promptLibraryEntryId: undefined }
+															: l
+													),
+												}
+											: tab
+									),
+								};
+							})
+						);
+
+						if (savedScrollTop !== null) {
+							requestAnimationFrame(() => {
+								if (scrollContainer) {
+									scrollContainer.scrollTop = savedScrollTop;
+								}
+							});
+						}
+
+						showSuccessFlash('Prompt removed from library.');
+					} catch (err) {
+						console.error('Failed to remove from prompt library:', err);
+					}
+					return; // Exit early — removal done
+				}
+			}
 
 			// Generate title from first line or first N words
 			const firstLine = text.split('\n')[0].trim();
@@ -5752,16 +5800,101 @@ You are taking over this conversation. Based on the context above, provide a bri
 					activeSession.aiTabs?.find((t) => t.id === activeSession.activeTabId)?.agentSessionId ||
 					undefined,
 				tags: [],
+				// Source log entry reference (for resetting savedToLibrary on delete)
+				sourceLogId: logId,
+				sourceSessionId: activeSession.id,
+				sourceTabId: activeSession.activeTabId,
 			};
 
 			try {
-				await window.maestro.promptLibrary.add(entry);
-				showSuccessFlash('Prompt saved to library');
+				// Capture scroll position BEFORE async IPC call to prevent scroll pop
+				const scrollContainer = logId
+					? document.querySelector('[data-terminal-scroll-container]')
+					: null;
+				const savedScrollTop = scrollContainer?.scrollTop ?? null;
+
+				const savedEntry = await window.maestro.promptLibrary.add(entry);
+
+				// Mark the log entry as saved
+				if (logId && activeSession) {
+					setSessions((prev) =>
+						prev.map((s) => {
+							if (s.id !== activeSession.id) return s;
+							return {
+								...s,
+								aiTabs: s.aiTabs.map((tab) =>
+									tab.id === activeSession.activeTabId
+										? {
+												...tab,
+												logs: tab.logs.map((l) =>
+													l.id === logId
+														? { ...l, savedToLibrary: true, promptLibraryEntryId: savedEntry.id }
+														: l
+												),
+											}
+										: tab
+								),
+							};
+						})
+					);
+
+					if (savedScrollTop !== null) {
+						requestAnimationFrame(() => {
+							if (scrollContainer) {
+								scrollContainer.scrollTop = savedScrollTop;
+							}
+						});
+					}
+				}
+
+				showSuccessFlash('Prompt saved to library.');
 			} catch (error) {
 				console.error('Failed to save prompt to library:', error);
 			}
 		},
-		[activeSession, getFolderById, showSuccessFlash]
+		[activeSession, getFolderById, showSuccessFlash, setSessions]
+	);
+
+	const handlePromptLibraryDelete = useCallback(
+		(deletedPrompt: PromptLibraryEntry) => {
+			const logId = deletedPrompt?.sourceLogId;
+			const sessionId = deletedPrompt?.sourceSessionId;
+			const tabId = deletedPrompt?.sourceTabId;
+
+			if (!logId || !sessionId || !tabId) return;
+
+			// Preserve scroll position
+			const scrollContainer = document.querySelector('[data-terminal-scroll-container]');
+			const savedScrollTop = scrollContainer?.scrollTop ?? null;
+
+			setSessions((prev) =>
+				prev.map((s) => {
+					if (s.id !== sessionId) return s;
+					return {
+						...s,
+						aiTabs: s.aiTabs.map((tab) =>
+							tab.id === tabId
+								? {
+										...tab,
+										logs: tab.logs.map((l) =>
+											l.id === logId ? { ...l, savedToLibrary: false } : l
+										),
+									}
+								: tab
+						),
+					};
+				})
+			);
+
+			if (savedScrollTop !== null) {
+				requestAnimationFrame(() => {
+					if (scrollContainer) {
+						scrollContainer.scrollTop = savedScrollTop;
+					}
+				});
+			}
+		},
+		[setSessions]
 	);
 
 	const handleRateResponse = useCallback(
@@ -5786,6 +5919,10 @@ You are taking over this conversation. Based on the context above, provide a bri
 				}
 			}
 
+			// Save scroll position before state update
+			const scrollContainer = document.querySelector('[data-terminal-scroll-container]');
+			const savedScrollTop = scrollContainer?.scrollTop ?? null;
+
 			// Update the log entry's rating in state
 			setSessions((prev) =>
 				prev.map((s) => {
@@ -5803,6 +5940,15 @@ You are taking over this conversation. Based on the context above, provide a bri
 					};
 				})
 			);
+
+			// Restore scroll position after React renders
+			if (savedScrollTop !== null) {
+				requestAnimationFrame(() => {
+					if (scrollContainer) {
+						scrollContainer.scrollTop = savedScrollTop;
+					}
+				});
+			}
 
 			// Record to feedback file if rating is set (not removed)
 			if (rating) {
@@ -13157,6 +13303,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 						activeSession?.aiTabs?.find((t) => t.id === activeSession.activeTabId)
 							?.agentSessionId || undefined
 					}
+					onPromptLibraryDelete={handlePromptLibraryDelete}
 					queueBrowserOpen={queueBrowserOpen}
 					onCloseQueueBrowser={handleCloseQueueBrowser}
 					onRemoveQueueItem={handleRemoveQueueItem}
@@ -13625,6 +13772,12 @@ You are taking over this conversation. Based on the context above, provide a bri
 					setCrashReportingEnabled={setCrashReportingEnabled}
 					customAICommands={customAICommands}
 					setCustomAICommands={setCustomAICommands}
+					themeMode={themeMode || 'manual'}
+					onThemeModeChange={setThemeMode}
+					lightThemeId={lightThemeId || 'github-light'}
+					onLightThemeIdChange={setLightThemeId}
+					darkThemeId={darkThemeId || 'dracula'}
+					onDarkThemeIdChange={setDarkThemeId}
 					initialTab={settingsTab}
 					hasNoAgents={hasNoAgents}
 					onThemeImportError={(msg) => setFlashNotification(msg)}

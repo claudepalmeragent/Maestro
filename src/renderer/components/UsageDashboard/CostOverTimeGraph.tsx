@@ -241,7 +241,7 @@ export function CostOverTimeGraph({
 			{/* Header with title, totals, and data source toggle */}
 			<div className="flex items-center justify-between mb-4">
 				<div>
-					<h3 className="text-sm font-medium" style={{ color: theme.colors.textMain }}>
+					<h3 className="text-2xl font-bold" style={{ color: theme.colors.textMain }}>
 						{title}
 					</h3>
 					<div className="text-sm" style={{ color: theme.colors.textDim }}>
@@ -306,7 +306,7 @@ export function CostOverTimeGraph({
 									y={yScale(tick)}
 									textAnchor="end"
 									dominantBaseline="middle"
-									fontSize={10}
+									fontSize={12}
 									fill={theme.colors.textDim}
 								>
 									{formatCurrency(tick)}
@@ -334,7 +334,7 @@ export function CostOverTimeGraph({
 									x={xScale(idx)}
 									y={chartHeight - padding.bottom + 20}
 									textAnchor="middle"
-									fontSize={10}
+									fontSize={12}
 									fill={theme.colors.textDim}
 								>
 									{formatXAxisDate(point.date, timeRange)}
@@ -399,7 +399,7 @@ export function CostOverTimeGraph({
 							y={chartHeight / 2}
 							textAnchor="middle"
 							dominantBaseline="middle"
-							fontSize={11}
+							fontSize={12}
 							fill={theme.colors.textDim}
 							transform={`rotate(-90, 15, ${chartHeight / 2})`}
 						>

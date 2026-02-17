@@ -326,7 +326,7 @@ export function AgentThroughputChart({
 		>
 			{/* Header */}
 			<div className="flex items-center justify-between mb-4">
-				<h3 className="text-sm font-medium" style={{ color: theme.colors.textMain }}>
+				<h3 className="text-2xl font-bold" style={{ color: theme.colors.textMain }}>
 					Agent Throughput Over Time
 				</h3>
 				<span className="text-xs" style={{ color: theme.colors.textDim }}>
@@ -374,7 +374,7 @@ export function AgentThroughputChart({
 								textAnchor="end"
 								dominantBaseline="middle"
 								fill={theme.colors.textDim}
-								fontSize={10}
+								fontSize={8}
 							>
 								{tick}
 							</text>
@@ -387,7 +387,7 @@ export function AgentThroughputChart({
 							textAnchor="middle"
 							dominantBaseline="middle"
 							fill={theme.colors.textDim}
-							fontSize={10}
+							fontSize={8}
 							transform={`rotate(-90, 15, ${chartHeight / 2})`}
 						>
 							tok/s
@@ -406,7 +406,7 @@ export function AgentThroughputChart({
 									y={chartHeight - padding.bottom + 20}
 									textAnchor="middle"
 									fill={theme.colors.textDim}
-									fontSize={10}
+									fontSize={8}
 								>
 									{formatXAxisDate(day.date, timeRange)}
 								</text>
@@ -460,9 +460,9 @@ export function AgentThroughputChart({
 					allDates[hoveredDay.dayIndex] &&
 					createPortal(
 						<div
-							className="fixed z-[10000] px-3 py-2 rounded-lg shadow-lg text-xs pointer-events-none"
+							className="fixed z-[10000] px-3 py-2 rounded shadow-lg text-xs pointer-events-none"
 							style={{
-								backgroundColor: theme.colors.bgSidebar,
+								backgroundColor: theme.colors.bgActivity,
 								border: `1px solid ${theme.colors.border}`,
 								color: theme.colors.textMain,
 								left: tooltipPos.x,
@@ -499,7 +499,10 @@ export function AgentThroughputChart({
 
 			{/* Legend */}
 			{hasThroughputData && (
-				<div className="flex flex-wrap gap-x-4 gap-y-1 mt-4 justify-center">
+				<div
+					className="flex flex-wrap gap-x-4 gap-y-1 mt-3 pt-3 border-t justify-center"
+					style={{ borderColor: theme.colors.border }}
+				>
 					{agentIds.map((agentId, idx) => (
 						<div key={agentId} className="flex items-center gap-1.5">
 							<div

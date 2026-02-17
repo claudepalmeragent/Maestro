@@ -287,10 +287,28 @@ interface SettingsModalProps {
 	hasNoAgents?: boolean;
 	onThemeImportError?: (message: string) => void;
 	onThemeImportSuccess?: (message: string) => void;
+	themeMode: 'manual' | 'system';
+	onThemeModeChange: (mode: 'manual' | 'system') => void;
+	lightThemeId: ThemeId;
+	onLightThemeIdChange: (id: ThemeId) => void;
+	darkThemeId: ThemeId;
+	onDarkThemeIdChange: (id: ThemeId) => void;
 }
 
 export const SettingsModal = memo(function SettingsModal(props: SettingsModalProps) {
-	const { isOpen, onClose, theme, themes, initialTab } = props;
+	const {
+		isOpen,
+		onClose,
+		theme,
+		themes,
+		initialTab,
+		themeMode,
+		onThemeModeChange,
+		lightThemeId,
+		onLightThemeIdChange,
+		darkThemeId,
+		onDarkThemeIdChange,
+	} = props;
 
 	// Context management settings from useSettings hook
 	const {
@@ -343,11 +361,6 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 	const [shellsLoading, setShellsLoading] = useState(false);
 	const [shellsLoaded, setShellsLoaded] = useState(false);
 	const [shellConfigExpanded, setShellConfigExpanded] = useState(false);
-
-	// Theme system mode state
-	const [themeMode, setThemeMode] = useState<'manual' | 'system'>('manual');
-	const [lightThemeId, setLightThemeId] = useState<ThemeId>('github-light' as ThemeId);
-	const [darkThemeId, setDarkThemeId] = useState<ThemeId>('dracula' as ThemeId);
 
 	// Sync/storage location state
 	const [defaultStoragePath, setDefaultStoragePath] = useState<string>('');
@@ -412,21 +425,6 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 
 			// Reset stats clear state
 			setStatsClearResult(null);
-
-			// Load theme mode settings
-			Promise.all([
-				window.maestro.settings.get('themeMode'),
-				window.maestro.settings.get('lightThemeId'),
-				window.maestro.settings.get('darkThemeId'),
-			])
-				.then(([mode, lightId, darkId]) => {
-					if (mode === 'manual' || mode === 'system') setThemeMode(mode);
-					if (lightId) setLightThemeId(lightId as ThemeId);
-					if (darkId) setDarkThemeId(darkId as ThemeId);
-				})
-				.catch((err) => {
-					console.error('Failed to load theme mode settings:', err);
-				});
 		}
 	}, [isOpen, initialTab]);
 
@@ -757,10 +755,9 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 
 	if (!isOpen) return null;
 
-	// Group themes by mode for the ThemePicker (exclude 'custom' theme - it's handled separately)
+	// Group themes by mode for the dropdowns
 	const groupedThemes = Object.values(themes).reduce(
 		(acc: Record<string, Theme[]>, t: Theme) => {
-			if (t.id === 'custom') return acc; // Skip custom theme in regular grouping
 			if (!acc[t.mode]) acc[t.mode] = [];
 			acc[t.mode].push(t);
 			return acc;
@@ -806,18 +803,15 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 
 	// Theme mode handlers
 	const handleThemeModeChange = (mode: 'manual' | 'system') => {
-		setThemeMode(mode);
-		window.maestro.settings.set('themeMode', mode);
+		onThemeModeChange(mode);
 	};
 
 	const handleLightThemeChange = (id: ThemeId) => {
-		setLightThemeId(id);
-		window.maestro.settings.set('lightThemeId', id);
+		onLightThemeIdChange(id);
 	};
 
 	const handleDarkThemeChange = (id: ThemeId) => {
-		setDarkThemeId(id);
-		window.maestro.settings.set('darkThemeId', id);
+		onDarkThemeIdChange(id);
 	};
 
 	// Theme picker JSX (not a separate component to avoid remount issues)
@@ -875,6 +869,11 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 									{t.name}
 								</option>
 							))}
+							{themes.custom && (
+								<option key="custom" value="custom">
+									{themes.custom.name}
+								</option>
+							)}
 						</select>
 					</div>
 					<div>

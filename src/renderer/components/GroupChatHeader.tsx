@@ -8,6 +8,8 @@
 import { X, Info, Edit2, Columns, DollarSign } from 'lucide-react';
 import type { Theme, Shortcut } from '../types';
 import { formatShortcutKeys } from '../utils/shortcutFormatter';
+import { formatCost, getCostTooltip } from '../utils/costCalculation';
+import { useBillingMode } from '../hooks/agent/useBillingMode';
 
 interface GroupChatHeaderProps {
 	theme: Theme;
@@ -38,6 +40,9 @@ export function GroupChatHeader({
 	onToggleRightPanel,
 	shortcuts,
 }: GroupChatHeaderProps): JSX.Element {
+	// Get billing mode for cost display (group chats use claude-code as primary agent)
+	const { resolvedBillingMode } = useBillingMode('claude-code');
+
 	return (
 		<div
 			className="flex items-center justify-between px-6 h-16 border-b shrink-0"
@@ -85,12 +90,12 @@ export function GroupChatHeader({
 						}}
 						title={
 							costIncomplete
-								? 'Total accumulated cost (incomplete: not all agents report cost data)'
-								: 'Total accumulated cost'
+								? `Total accumulated cost (incomplete: not all agents report cost data)`
+								: getCostTooltip(resolvedBillingMode) || 'Total accumulated cost'
 						}
 					>
 						<DollarSign className="w-3 h-3" />
-						{totalCost.toFixed(2)}
+						{formatCost(totalCost, resolvedBillingMode).replace(/^\$/, '')}
 						{costIncomplete && '*'}
 					</span>
 				)}

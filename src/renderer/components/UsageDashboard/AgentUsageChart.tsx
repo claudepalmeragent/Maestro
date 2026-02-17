@@ -328,7 +328,7 @@ export function AgentUsageChart({
 		>
 			{/* Header with title and metric toggle */}
 			<div className="flex items-center justify-between mb-4">
-				<h3 className="text-sm font-medium" style={{ color: theme.colors.textMain }}>
+				<h3 className="text-2xl font-bold" style={{ color: theme.colors.textMain }}>
 					Agent Usage Over Time
 				</h3>
 				<div className="flex items-center gap-2">
@@ -402,7 +402,7 @@ export function AgentUsageChart({
 								y={yScale(tick)}
 								textAnchor="end"
 								dominantBaseline="middle"
-								fontSize={10}
+								fontSize={8}
 								fill={theme.colors.textDim}
 							>
 								{metricMode === 'count' ? tick : formatYAxisDuration(tick)}
@@ -424,7 +424,7 @@ export function AgentUsageChart({
 									x={xScale(idx)}
 									y={chartHeight - padding.bottom + 20}
 									textAnchor="middle"
-									fontSize={10}
+									fontSize={8}
 									fill={theme.colors.textDim}
 								>
 									{formatXAxisDate(day.date, timeRange)}
@@ -483,7 +483,7 @@ export function AgentUsageChart({
 							y={chartHeight / 2}
 							textAnchor="middle"
 							dominantBaseline="middle"
-							fontSize={11}
+							fontSize={8}
 							fill={theme.colors.textDim}
 							transform={`rotate(-90, 12, ${chartHeight / 2})`}
 						>

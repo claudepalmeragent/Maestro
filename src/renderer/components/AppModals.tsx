@@ -38,6 +38,8 @@ import type {
 	AgentError,
 	ToolType,
 	LeaderboardRegistration,
+	BatchRunState,
+	PromptLibraryEntry,
 } from '../types';
 import type { FileNode } from '../types/fileTree';
 import type { WizardStep } from './Wizard/WizardContext';
@@ -139,6 +141,8 @@ export interface AppInfoModalsProps {
 	groupChats: GroupChat[];
 	onNavigateToSession: (sessionId: string, tabId?: string) => void;
 	onNavigateToGroupChat: (groupChatId: string) => void;
+	/** Batch run states keyed by session ID for Process Monitor progress display */
+	batchRunStates?: Record<string, BatchRunState>;
 
 	// Usage Dashboard Modal
 	usageDashboardOpen: boolean;
@@ -191,6 +195,7 @@ export function AppInfoModals({
 	groupChats,
 	onNavigateToSession,
 	onNavigateToGroupChat,
+	batchRunStates,
 	// Usage Dashboard Modal
 	usageDashboardOpen,
 	onCloseUsageDashboard,
@@ -238,6 +243,7 @@ export function AppInfoModals({
 					onClose={onCloseProcessMonitor}
 					onNavigateToSession={onNavigateToSession}
 					onNavigateToGroupChat={onNavigateToGroupChat}
+					batchRunStates={batchRunStates}
 				/>
 			)}
 
@@ -896,6 +902,7 @@ export interface AppUtilityModalsProps {
 	promptLibraryAgentId?: string;
 	promptLibraryAgentName?: string;
 	promptLibraryAgentSessionId?: string;
+	onPromptLibraryDelete?: (deletedPrompt: PromptLibraryEntry) => void;
 
 	// ExecutionQueueBrowser
 	queueBrowserOpen: boolean;
@@ -1071,6 +1078,7 @@ export function AppUtilityModals({
 	promptLibraryAgentId,
 	promptLibraryAgentName,
 	promptLibraryAgentSessionId,
+	onPromptLibraryDelete,
 	// ExecutionQueueBrowser
 	queueBrowserOpen,
 	onCloseQueueBrowser,
@@ -1284,6 +1292,7 @@ export function AppUtilityModals({
 				currentAgentId={promptLibraryAgentId}
 				currentAgentName={promptLibraryAgentName}
 				currentAgentSessionId={promptLibraryAgentSessionId}
+				onPromptLibraryDelete={onPromptLibraryDelete}
 			/>
 
 			{/* --- EXECUTION QUEUE BROWSER --- */}
@@ -1722,6 +1731,8 @@ export interface AppModalsProps {
 	onCloseProcessMonitor: () => void;
 	onNavigateToSession: (sessionId: string, tabId?: string) => void;
 	onNavigateToGroupChat: (groupChatId: string) => void;
+	/** Batch run states keyed by session ID for Process Monitor progress display */
+	batchRunStates?: Record<string, BatchRunState>;
 	usageDashboardOpen: boolean;
 	onCloseUsageDashboard: () => void;
 	/** Default time range for the Usage Dashboard from settings */
@@ -1970,6 +1981,7 @@ export interface AppModalsProps {
 	promptLibraryAgentId?: string;
 	promptLibraryAgentName?: string;
 	promptLibraryAgentSessionId?: string;
+	onPromptLibraryDelete?: (deletedPrompt: PromptLibraryEntry) => void;
 	queueBrowserOpen: boolean;
 	onCloseQueueBrowser: () => void;
 	onRemoveQueueItem: (sessionId: string, itemId: string) => void;
@@ -2087,6 +2099,7 @@ export function AppModals(props: AppModalsProps) {
 		onCloseProcessMonitor,
 		onNavigateToSession,
 		onNavigateToGroupChat,
+		batchRunStates,
 		usageDashboardOpen,
 		onCloseUsageDashboard,
 		defaultStatsTimeRange,
@@ -2283,6 +2296,7 @@ export function AppModals(props: AppModalsProps) {
 		promptLibraryAgentId,
 		promptLibraryAgentName,
 		promptLibraryAgentSessionId,
+		onPromptLibraryDelete,
 		queueBrowserOpen,
 		onCloseQueueBrowser,
 		onRemoveQueueItem,
@@ -2361,6 +2375,7 @@ export function AppModals(props: AppModalsProps) {
 				groupChats={groupChats}
 				onNavigateToSession={onNavigateToSession}
 				onNavigateToGroupChat={onNavigateToGroupChat}
+				batchRunStates={batchRunStates}
 				usageDashboardOpen={usageDashboardOpen}
 				onCloseUsageDashboard={onCloseUsageDashboard}
 				defaultStatsTimeRange={defaultStatsTimeRange}
@@ -2592,6 +2607,7 @@ export function AppModals(props: AppModalsProps) {
 				promptLibraryAgentId={promptLibraryAgentId}
 				promptLibraryAgentName={promptLibraryAgentName}
 				promptLibraryAgentSessionId={promptLibraryAgentSessionId}
+				onPromptLibraryDelete={onPromptLibraryDelete}
 				queueBrowserOpen={queueBrowserOpen}
 				onCloseQueueBrowser={onCloseQueueBrowser}
 				onRemoveQueueItem={onRemoveQueueItem}

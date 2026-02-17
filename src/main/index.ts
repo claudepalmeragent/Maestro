@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, nativeTheme } from 'electron';
 import path from 'path';
 import crypto from 'crypto';
 // Sentry is imported dynamically below to avoid module-load-time access to electron.app
@@ -51,6 +51,8 @@ import {
 	registerNotificationsHandlers,
 	registerProjectFoldersHandlers,
 	registerPromptLibraryHandlers,
+	registerKnowledgeGraphHandlers,
+	registerFeedbackHandlers,
 	setupLoggerEventForwarding,
 	cleanupAllGroomingSessions,
 	getActiveGroomingSessionCount,
@@ -356,6 +358,14 @@ app.whenReady().then(async () => {
 	// Note: History file watching is handled by HistoryManager.startWatching() above
 	// which uses the new per-session file format in the history/ directory
 
+	// Listen for native theme changes and forward to renderer
+	// This provides native Electron integration alongside the CSS media query approach
+	nativeTheme.on('updated', () => {
+		if (mainWindow && !mainWindow.isDestroyed()) {
+			mainWindow.webContents.send('system-theme-changed', nativeTheme.shouldUseDarkColors);
+		}
+	});
+
 	// Start CLI activity watcher (Phase 4 refactoring)
 	cliWatcher.start();
 
@@ -637,6 +647,12 @@ function setupIpcHandlers() {
 
 	// Register prompt library handlers (extracted to handlers/prompt-library.ts)
 	registerPromptLibraryHandlers();
+
+	// Register knowledge graph handlers (no dependencies - uses userData path directly)
+	registerKnowledgeGraphHandlers();
+
+	// Register feedback handlers (no dependencies - uses userData path directly)
+	registerFeedbackHandlers();
 }
 
 // Handle process output streaming (set up after initialization)

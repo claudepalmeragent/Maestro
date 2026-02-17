@@ -350,7 +350,7 @@ export function ThroughputTrendsChart({
 		>
 			{/* Header with title and smoothing toggle */}
 			<div className="flex items-center justify-between mb-4">
-				<h3 className="text-sm font-medium" style={{ color: theme.colors.textMain }}>
+				<h3 className="text-2xl font-bold" style={{ color: theme.colors.textMain }}>
 					Throughput Trends
 				</h3>
 				<div className="flex items-center gap-2">
@@ -441,7 +441,7 @@ export function ThroughputTrendsChart({
 								y={yScaleLeft(tick)}
 								textAnchor="end"
 								dominantBaseline="middle"
-								fontSize={10}
+								fontSize={8}
 								fill={primaryColor}
 							>
 								{formatThroughput(tick)}
@@ -456,7 +456,7 @@ export function ThroughputTrendsChart({
 								y={yScaleRight(tick)}
 								textAnchor="start"
 								dominantBaseline="middle"
-								fontSize={10}
+								fontSize={8}
 								fill={secondaryColor}
 							>
 								{formatTokens(tick)}
@@ -482,7 +482,7 @@ export function ThroughputTrendsChart({
 									x={xScale(idx)}
 									y={chartHeight - padding.bottom + 20}
 									textAnchor="middle"
-									fontSize={10}
+									fontSize={8}
 									fill={theme.colors.textDim}
 								>
 									{formatXAxisDate(point.date, timeRange)}
@@ -558,7 +558,7 @@ export function ThroughputTrendsChart({
 							y={chartHeight / 2}
 							textAnchor="middle"
 							dominantBaseline="middle"
-							fontSize={11}
+							fontSize={8}
 							fill={primaryColor}
 							transform={`rotate(-90, 15, ${chartHeight / 2})`}
 						>
@@ -571,7 +571,7 @@ export function ThroughputTrendsChart({
 							y={chartHeight / 2}
 							textAnchor="middle"
 							dominantBaseline="middle"
-							fontSize={11}
+							fontSize={8}
 							fill={secondaryColor}
 							transform={`rotate(90, ${chartWidth - 15}, ${chartHeight / 2})`}
 						>

@@ -36,6 +36,8 @@ interface GroupChatParticipantsProps {
 	moderatorUsage?: { contextUsage: number; totalCost: number; tokenCount: number } | null;
 	/** Whether this is a Max subscriber (affects cost display) */
 	isMaxSubscriber?: boolean;
+	/** Resolved billing mode for cost tooltip display */
+	resolvedBillingMode?: 'api' | 'max' | 'auto';
 }
 
 export function GroupChatParticipants({
@@ -54,6 +56,7 @@ export function GroupChatParticipants({
 	moderatorState,
 	moderatorUsage,
 	isMaxSubscriber,
+	resolvedBillingMode,
 }: GroupChatParticipantsProps): JSX.Element | null {
 	// Generate consistent colors for all participants (including "Moderator" for the moderator card)
 	const participantColors = useMemo(() => {
@@ -157,6 +160,7 @@ export function GroupChatParticipants({
 					state={moderatorState}
 					color={participantColors['Moderator']}
 					isMaxSubscriber={isMaxSubscriber}
+					resolvedBillingMode={resolvedBillingMode}
 				/>
 
 				{/* Separator between moderator and participants */}
@@ -182,6 +186,7 @@ export function GroupChatParticipants({
 							groupChatId={groupChatId}
 							onContextReset={handleContextReset}
 							isMaxSubscriber={isMaxSubscriber}
+							resolvedBillingMode={resolvedBillingMode}
 						/>
 					))
 				)}
