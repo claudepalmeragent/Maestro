@@ -12,6 +12,8 @@ import { shellEscape, buildShellCommand, shellEscapeForDoubleQuotes } from './sh
 import { expandTilde } from '../../shared/pathUtils';
 import { logger } from './logger';
 import { resolveSshPath } from './cliDetection';
+import { AGENT_SSH_OPTIONS } from './ssh-options';
+import { validateSshSocket } from './ssh-socket-cleanup';
 
 /**
  * Result of building an SSH command.
@@ -43,12 +45,7 @@ export interface RemoteCommandOptions {
  * These options ensure non-interactive, key-based authentication.
  */
 const DEFAULT_SSH_OPTIONS: Record<string, string> = {
-	BatchMode: 'yes', // Disable password prompts (key-only)
-	StrictHostKeyChecking: 'accept-new', // Auto-accept new host keys
-	ConnectTimeout: '10', // Connection timeout in seconds
-	ClearAllForwardings: 'yes', // Disable port forwarding from SSH config (avoids "Address already in use" errors)
-	RequestTTY: 'force', // Force TTY allocation - required for Claude Code's --print mode to produce output
-	LogLevel: 'ERROR', // Suppress SSH warnings like "Pseudo-terminal will not be allocated..."
+	...AGENT_SSH_OPTIONS,
 };
 
 /**
@@ -171,6 +168,9 @@ export async function buildSshCommand(
 	remoteOptions: RemoteCommandOptions
 ): Promise<SshCommandResult> {
 	const args: string[] = [];
+
+	// Pre-flight: validate ControlMaster socket is alive (~1ms, local only)
+	await validateSshSocket(config.host, config.port, config.username);
 
 	// Resolve the SSH binary path (handles packaged Electron apps where PATH is limited)
 	const sshPath = await resolveSshPath();

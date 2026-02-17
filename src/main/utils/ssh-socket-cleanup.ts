@@ -59,6 +59,94 @@ export function cleanupStaleSshSockets(): number {
 }
 
 /**
+ * Validate that the ControlMaster socket for a given SSH config is alive.
+ *
+ * This is a pre-flight check designed to be called before SSH operations.
+ * It talks to the LOCAL ControlMaster process via unix socket (~1ms, no network).
+ *
+ * If the socket exists but is stale/dead, it is removed so that
+ * ControlMaster=auto will create a fresh master connection on the next SSH call.
+ *
+ * @param host - The SSH host (used to compute the socket path hash)
+ * @param port - The SSH port (used to compute the socket path hash)
+ * @param username - The SSH username (used to compute the socket path hash)
+ * @returns true if socket is healthy or doesn't exist yet, false if it was stale (now removed)
+ */
+export async function validateSshSocket(
+	host: string,
+	port: number = 22,
+	username: string = ''
+): Promise<boolean> {
+	// Find matching socket files for this host
+	// ControlPath uses %C which is a hash - we can't predict it exactly,
+	// so we check all maestro sockets and use ssh -O check to validate
+	try {
+		const files = fs.readdirSync(SOCKET_DIR);
+		const maestroSockets = files.filter((f) => f.startsWith(SOCKET_PREFIX));
+
+		if (maestroSockets.length === 0) {
+			// No sockets exist yet - ControlMaster=auto will create one
+			return true;
+		}
+
+		// Use ssh -O check to verify the master connection is alive
+		// This is a LOCAL operation - it talks to the ControlMaster unix socket, not the network
+		const { execFileSync } = await import('child_process');
+		const destination = username ? `${username}@${host}` : host;
+
+		try {
+			execFileSync(
+				'ssh',
+				[
+					'-O',
+					'check',
+					'-o',
+					`ControlPath=${path.join(SOCKET_DIR, SOCKET_PREFIX)}%C`,
+					'-p',
+					port.toString(),
+					destination,
+				],
+				{
+					timeout: 3000, // 3 second timeout (should be <100ms for local check)
+					stdio: 'pipe',
+				}
+			);
+			// Socket is alive
+			return true;
+		} catch (checkError: unknown) {
+			// ssh -O check failed - socket is stale or no master exists
+			// This is expected when no master connection exists yet (not an error)
+			const errorMsg = checkError instanceof Error ? checkError.message : String(checkError);
+
+			// "No ControlMaster" or "No such file" means no socket exists - this is fine
+			if (errorMsg.includes('No ControlMaster') || errorMsg.includes('No such file')) {
+				return true;
+			}
+
+			// Socket exists but is stale - clean it up
+			logger.info(`Stale SSH socket detected for ${destination}, cleaning up`, LOG_CONTEXT);
+			for (const socketFile of maestroSockets) {
+				const socketPath = path.join(SOCKET_DIR, socketFile);
+				try {
+					const stats = fs.statSync(socketPath);
+					if (stats.isSocket()) {
+						fs.unlinkSync(socketPath);
+						logger.debug(`Removed stale socket: ${socketPath}`, LOG_CONTEXT);
+					}
+				} catch {
+					// Already removed or in use - ignore
+				}
+			}
+			return false;
+		}
+	} catch (err) {
+		// File system error reading /tmp - not critical, proceed with operation
+		logger.debug(`Socket validation skipped: ${err}`, LOG_CONTEXT);
+		return true;
+	}
+}
+
+/**
  * Gracefully close all active Maestro SSH ControlMaster connections.
  *
  * Called on application shutdown to cleanly terminate SSH connections

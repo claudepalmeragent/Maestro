@@ -10,6 +10,7 @@ import type { WebServer } from '../web-server';
 import { tunnelManager as tunnelManagerInstance } from '../tunnel-manager';
 import type { HistoryManager } from '../history-manager';
 import { closeSshConnections } from '../utils/ssh-socket-cleanup';
+import { sshHealthMonitor } from '../services/ssh-health-monitor';
 
 /** Dependencies for quit handler */
 export interface QuitHandlerDependencies {
@@ -191,6 +192,9 @@ export function createQuitHandler(deps: QuitHandlerDependencies): QuitHandler {
 		webServer?.stop().catch((err: unknown) => {
 			logger.error(`Error stopping web server: ${err}`, 'Shutdown');
 		});
+
+		// Stop SSH health monitor before closing connections
+		sshHealthMonitor.stop();
 
 		// Gracefully close SSH ControlMaster connections (fire and forget)
 		logger.info('Closing SSH connections', 'Shutdown');

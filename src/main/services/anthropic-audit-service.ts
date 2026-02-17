@@ -10,7 +10,7 @@ import { promisify } from 'util';
 import { getStatsDB } from '../stats';
 import { logger } from '../utils/logger';
 import { SshRemoteConfig } from '../../shared/types';
-import { SshRemoteManager } from '../ssh-remote-manager';
+import { sshRemoteManager } from '../ssh-remote-manager';
 import { getPricingForModel } from '../utils/claude-pricing';
 import { getSettingsStore } from '../stores/getters';
 
@@ -256,8 +256,7 @@ export async function fetchRemoteAnthropicUsage(
 	// Convert YYYY-MM-DD to YYYYMMDD format required by ccusage
 	const formatDate = (date: string): string => date.replace(/-/g, '');
 
-	const sshManager = new SshRemoteManager();
-	const sshArgs = sshManager.buildSshArgs(sshConfig);
+	const sshArgs = sshRemoteManager.buildSshArgs(sshConfig);
 
 	// Build the ccusage command for remote execution
 	let ccusageCmd = `npx ccusage@latest ${period} --json`;

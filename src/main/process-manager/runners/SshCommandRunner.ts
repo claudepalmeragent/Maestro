@@ -9,6 +9,8 @@ import { getExpandedEnv, resolveSshPath } from '../../utils/cliDetection';
 import { expandTilde } from '../../../shared/pathUtils';
 import type { CommandResult } from '../types';
 import type { SshRemoteConfig } from '../../../shared/types';
+import { COMMAND_SSH_OPTIONS } from '../../utils/ssh-options';
+import { validateSshSocket } from '../../utils/ssh-socket-cleanup';
 
 /**
  * Runs terminal commands on remote hosts via SSH.
@@ -26,6 +28,9 @@ export class SshCommandRunner {
 		sshConfig: SshRemoteConfig,
 		shellEnvVars?: Record<string, string>
 	): Promise<CommandResult> {
+		// Pre-flight: validate ControlMaster socket is alive (~1ms, local only)
+		await validateSshSocket(sshConfig.host, sshConfig.port, sshConfig.username);
+
 		// Build SSH arguments
 		const sshArgs: string[] = [];
 
@@ -45,11 +50,7 @@ export class SshCommandRunner {
 
 		// Default SSH options for non-interactive operation
 		const sshOptions: Record<string, string> = {
-			BatchMode: 'yes',
-			StrictHostKeyChecking: 'accept-new',
-			ConnectTimeout: '10',
-			ClearAllForwardings: 'yes',
-			RequestTTY: 'no',
+			...COMMAND_SSH_OPTIONS,
 		};
 		for (const [key, value] of Object.entries(sshOptions)) {
 			sshArgs.push('-o', `${key}=${value}`);

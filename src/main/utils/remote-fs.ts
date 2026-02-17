@@ -14,6 +14,7 @@ import { execFileNoThrow, ExecResult } from './execFile';
 import { shellEscape } from './shell-escape';
 import { sshRemoteManager } from '../ssh-remote-manager';
 import { logger } from './logger';
+import { validateSshSocket } from './ssh-socket-cleanup';
 
 /**
  * File or directory entry returned from readDir operations.
@@ -182,6 +183,9 @@ async function execRemoteCommand(
 	const { maxRetries, baseDelayMs, maxDelayMs } = DEFAULT_RETRY_CONFIG;
 	let lastResult: ExecResult | null = null;
 
+	// Pre-flight: validate ControlMaster socket is alive (~1ms, local only)
+	await validateSshSocket(config.host, config.port, config.username);
+
 	for (let attempt = 0; attempt <= maxRetries; attempt++) {
 		const sshArgs = deps.buildSshArgs(config);
 		sshArgs.push(remoteCommand);
@@ -204,6 +208,10 @@ async function execRemoteCommand(
 		// Check if this is a recoverable error
 		const combinedOutput = `${result.stderr} ${result.stdout}`;
 		if (isRecoverableSshError(combinedOutput) && attempt < maxRetries) {
+			// If error looks like a stale socket, clean it up before retry
+			if (/banner exchange|socket is not connected|connection reset/i.test(combinedOutput)) {
+				await validateSshSocket(config.host, config.port, config.username);
+			}
 			const delay = getBackoffDelay(attempt, baseDelayMs, maxDelayMs);
 			logger.debug(
 				`[remote-fs] SSH transient error (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${delay}ms: ${result.stderr.slice(0, 100)}`

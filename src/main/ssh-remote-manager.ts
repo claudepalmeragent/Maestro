@@ -9,6 +9,7 @@ import * as fs from 'fs';
 import { SshRemoteConfig, SshRemoteTestResult } from '../shared/types';
 import { execFileNoThrow, ExecResult } from './utils/execFile';
 import { expandTilde } from '../shared/pathUtils';
+import { COMMAND_SSH_OPTIONS } from './utils/ssh-options';
 
 /**
  * Validation result for SSH remote configuration.
@@ -63,19 +64,7 @@ export class SshRemoteManager {
 	 * These options ensure non-interactive key-based authentication.
 	 */
 	private readonly defaultSshOptions: Record<string, string> = {
-		BatchMode: 'yes', // Disable password prompts (key-only)
-		StrictHostKeyChecking: 'accept-new', // Auto-accept new host keys
-		ConnectTimeout: '10', // Connection timeout in seconds
-		ClearAllForwardings: 'yes', // Disable port forwarding from SSH config (avoids "Address already in use" errors)
-		RequestTTY: 'no', // Don't request a TTY for command execution (avoids shell rc issues)
-		// Connection multiplexing - share a single TCP connection per host
-		// Uses %C (hash of connection params) to create unique socket per user@host:port
-		ControlMaster: 'auto', // Automatically create/reuse master connection
-		ControlPath: '/tmp/maestro-ssh-%C', // Socket path (%C = hash for uniqueness)
-		ControlPersist: '300', // Keep connection alive 5 minutes after last use
-		// Keep-alive settings to detect dead connections proactively
-		ServerAliveInterval: '30', // Send keep-alive every 30 seconds
-		ServerAliveCountMax: '3', // Disconnect after 3 missed responses (90s total)
+		...COMMAND_SSH_OPTIONS,
 	};
 
 	/**

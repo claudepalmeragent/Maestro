@@ -19,6 +19,7 @@ import { createIpcHandler, CreateHandlerOptions } from '../../utils/ipcHandler';
 import { logger } from '../../utils/logger';
 import { MaestroSettings } from './persistence';
 import { parseSshConfig, SshConfigParseResult } from '../../utils/ssh-config-parser';
+import { sshHealthMonitor } from '../../services/ssh-health-monitor';
 
 const LOG_CONTEXT = '[SshRemote]';
 
@@ -271,6 +272,16 @@ export function registerSshRemoteHandlers(deps: SshRemoteHandlerDependencies): v
 						`SSH connection test successful: ${result.remoteInfo?.hostname || 'unknown host'}`,
 						LOG_CONTEXT
 					);
+
+					// Register with health monitor for proactive connection management
+					sshHealthMonitor.addRemote({
+						remoteId: config.id,
+						host: config.host,
+						port: config.port,
+						username: config.username,
+						privateKeyPath: config.privateKeyPath,
+						useSshConfig: config.useSshConfig,
+					});
 				} else {
 					logger.warn(`SSH connection test failed: ${result.error}`, LOG_CONTEXT);
 				}

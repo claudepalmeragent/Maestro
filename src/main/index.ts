@@ -101,6 +101,7 @@ import {
 import { createSafeSend } from './utils/safe-send';
 import { createWebServerFactory } from './web-server/web-server-factory';
 import { cleanupStaleSshSockets } from './utils/ssh-socket-cleanup';
+import { sshHealthMonitor } from './services/ssh-health-monitor';
 // Phase 4 refactoring - app lifecycle
 import {
 	setupGlobalErrorHandlers,
@@ -281,6 +282,9 @@ app.whenReady().then(async () => {
 
 	// Clean up stale SSH sockets from previous sessions
 	cleanupStaleSshSockets();
+
+	// Start SSH health monitor (after socket cleanup)
+	sshHealthMonitor.start();
 
 	// Initialize core services
 	logger.info('Initializing core services', 'Startup');
