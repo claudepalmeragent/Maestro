@@ -370,7 +370,12 @@ export function useDocumentProcessor(): UseDocumentProcessorReturn {
 
 			// Calculate tasks completed based on newly checked tasks
 			// This remains accurate even if new unchecked tasks are added
-			const tasksCompletedThisRun = Math.max(0, newCheckedCount - previousCheckedCount);
+			// Clamp to remainingTasks to prevent cross-document over-attribution.
+			// In multi-document Auto Runs, another document's agent could check off
+			// tasks in this document between reads, inflating newCheckedCount beyond
+			// what this agent actually accomplished.
+			const rawTasksCompleted = Math.max(0, newCheckedCount - previousCheckedCount);
+			const tasksCompletedThisRun = Math.min(rawTasksCompleted, previousRemainingTasks);
 
 			// Calculate the actual change in total tasks (checked + unchecked)
 			// This correctly handles cases where tasks are both completed and added

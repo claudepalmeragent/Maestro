@@ -71,6 +71,7 @@ export interface AutoRunTaskRow {
 	start_time: number;
 	duration: number;
 	success: number;
+	tasks_completed_count: number | null;
 }
 
 export interface SessionLifecycleRow {
@@ -154,6 +155,7 @@ export function mapAutoRunTaskRow(row: AutoRunTaskRow): AutoRunTask {
 		startTime: row.start_time,
 		duration: row.duration,
 		success: row.success === 1,
+		tasksCompletedCount: row.tasks_completed_count ?? undefined,
 	};
 }
 

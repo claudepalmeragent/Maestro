@@ -82,6 +82,11 @@ export function getMigrations(): Migration[] {
 			description: 'Add claude_session_id for reconstruction matching',
 			up: (db) => migrateV8(db),
 		},
+		{
+			version: 9,
+			description: 'Add tasks_completed_count to auto_run_tasks for per-invocation task counting',
+			up: (db) => migrateV9(db),
+		},
 	];
 }
 
@@ -410,4 +415,20 @@ function migrateV8(db: Database.Database): void {
 	).run();
 
 	logger.info('Migration v8 complete: claude_session_id column added', LOG_CONTEXT);
+}
+
+/**
+ * Migration v9: Add tasks_completed_count to auto_run_tasks
+ *
+ * Each auto_run_tasks row represents a single agent invocation (processTask() call),
+ * but the agent can complete 1-N checkbox tasks per invocation. This column stores
+ * that count so per-invocation analytics are possible and task-level rows sum
+ * to the session total.
+ */
+function migrateV9(db: Database.Database): void {
+	logger.info('Migrating stats database to v9: Adding tasks_completed_count column', LOG_CONTEXT);
+
+	db.prepare('ALTER TABLE auto_run_tasks ADD COLUMN tasks_completed_count INTEGER').run();
+
+	logger.info('Migration v9 complete: tasks_completed_count column added', LOG_CONTEXT);
 }

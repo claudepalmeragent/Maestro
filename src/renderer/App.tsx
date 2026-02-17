@@ -5986,7 +5986,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 		const folder = folderId ? getFolderById(folderId) : undefined;
 
 		// Build a summary from the last few AI logs
-		const aiLogs = activeTab.logs?.filter((l) => l.source === 'ai') || [];
+		const aiLogs = activeTab.logs?.filter((l) => l.source === 'ai' || l.source === 'stdout') || [];
 		const lastLogContent = aiLogs.length > 0 ? aiLogs[aiLogs.length - 1].text : '';
 		const summary = lastLogContent.split('\n').slice(0, 3).join('\n') || '';
 

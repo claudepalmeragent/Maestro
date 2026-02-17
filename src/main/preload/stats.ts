@@ -66,6 +66,7 @@ export interface AutoRunTask {
 	startTime: number;
 	duration: number;
 	success: boolean;
+	tasksCompletedCount?: number; // Number of checkbox tasks completed in this agent invocation
 }
 
 /**

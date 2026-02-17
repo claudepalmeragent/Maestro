@@ -2279,6 +2279,7 @@ interface MaestroAPI {
 			startTime: number;
 			duration: number;
 			success: boolean;
+			tasksCompletedCount?: number;
 		}) => Promise<string>;
 		// Get query events with time range and optional filters
 		getStats: (

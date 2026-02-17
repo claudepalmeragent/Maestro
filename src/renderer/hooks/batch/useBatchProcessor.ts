@@ -990,48 +990,456 @@ export function useBatchProcessor({
 			};
 
 			// Main processing loop (handles loop mode)
-			while (true) {
-				// Check for stop request
-				if (stopRequestedRefs.current[sessionId]) {
-					addFinalLoopSummary('Stopped by user');
-					break;
-				}
-
-				// Track if any tasks were processed in this iteration
-				let anyTasksProcessedThisIteration = false;
-
-				// Process each document in order
-				for (let docIndex = 0; docIndex < documents.length; docIndex++) {
-					// Check for stop request before each document
+			// Wrapped in try/finally to guarantee endAutoRun() and critical cleanup always execute,
+			// even if an unhandled exception or abort occurs during processing.
+			try {
+				while (true) {
+					// Check for stop request
 					if (stopRequestedRefs.current[sessionId]) {
+						addFinalLoopSummary('Stopped by user');
 						break;
 					}
 
-					const docEntry = documents[docIndex];
+					// Track if any tasks were processed in this iteration
+					let anyTasksProcessedThisIteration = false;
 
-					// Read document and count tasks
-					let {
-						taskCount: remainingTasks,
-						content: docContent,
-						checkedCount: docCheckedCount,
-					} = await readDocAndCountTasks(folderPath, docEntry.filename, sshRemoteId);
-					let docTasksTotal = remainingTasks;
+					// Process each document in order
+					for (let docIndex = 0; docIndex < documents.length; docIndex++) {
+						// Check for stop request before each document
+						if (stopRequestedRefs.current[sessionId]) {
+							break;
+						}
 
-					// Handle documents with no unchecked tasks
-					if (remainingTasks === 0) {
-						// For reset-on-completion documents, check if there are checked tasks that need resetting
-						if (docEntry.resetOnCompletion && loopEnabled) {
-							// Use docCheckedCount from readDocAndCountTasks instead of calling countCheckedTasks again
-							if (docCheckedCount > 0) {
-								const resetContent = uncheckAllTasks(docContent);
-								await window.maestro.autorun.writeDoc(
+						const docEntry = documents[docIndex];
+
+						// Read document and count tasks
+						let {
+							taskCount: remainingTasks,
+							content: docContent,
+							checkedCount: docCheckedCount,
+						} = await readDocAndCountTasks(folderPath, docEntry.filename, sshRemoteId);
+						let docTasksTotal = remainingTasks;
+
+						// Handle documents with no unchecked tasks
+						if (remainingTasks === 0) {
+							// For reset-on-completion documents, check if there are checked tasks that need resetting
+							if (docEntry.resetOnCompletion && loopEnabled) {
+								// Use docCheckedCount from readDocAndCountTasks instead of calling countCheckedTasks again
+								if (docCheckedCount > 0) {
+									const resetContent = uncheckAllTasks(docContent);
+									await window.maestro.autorun.writeDoc(
+										folderPath,
+										docEntry.filename + '.md',
+										resetContent,
+										sshRemoteId
+									);
+									// Update task count in state
+									const resetTaskCount = countUnfinishedTasks(resetContent);
+									updateBatchStateAndBroadcastRef.current!(sessionId, (prev) => ({
+										...prev,
+										[sessionId]: {
+											...prev[sessionId],
+											totalTasksAcrossAllDocs:
+												prev[sessionId].totalTasksAcrossAllDocs + resetTaskCount,
+											totalTasks: prev[sessionId].totalTasks + resetTaskCount,
+										},
+									}));
+								}
+							}
+							continue;
+						}
+
+						// Reset stall detection counter for each new document
+						consecutiveNoChangeCount = 0;
+
+						// The actual filename to process (may be working copy for reset-on-completion docs)
+						let effectiveFilename = docEntry.filename;
+
+						// Create working copy for reset-on-completion documents
+						// Working copies are stored in /Runs/ and the original is never modified
+						if (docEntry.resetOnCompletion) {
+							try {
+								const { workingCopyPath } = await window.maestro.autorun.createWorkingCopy(
 									folderPath,
-									docEntry.filename + '.md',
-									resetContent,
+									docEntry.filename,
+									loopIteration + 1 // 1-indexed loop number
+								);
+								workingCopies.set(docEntry.filename, workingCopyPath);
+								effectiveFilename = workingCopyPath;
+
+								// Re-read the working copy for task counting
+								const workingCopyResult = await readDocAndCountTasks(
+									folderPath,
+									effectiveFilename,
 									sshRemoteId
 								);
-								// Update task count in state
-								const resetTaskCount = countUnfinishedTasks(resetContent);
+								remainingTasks = workingCopyResult.taskCount;
+								docContent = workingCopyResult.content;
+								docCheckedCount = workingCopyResult.checkedCount;
+								docTasksTotal = remainingTasks;
+							} catch (err) {
+								console.error(
+									`[BatchProcessor] Failed to create working copy for ${docEntry.filename}:`,
+									err
+								);
+								// Continue with original document as fallback
+							}
+						}
+
+						// AUTORUN LOG: Document processing
+						window.maestro.logger.autorun(
+							`Processing document: ${docEntry.filename}`,
+							session.name,
+							{
+								document: docEntry.filename,
+								tasksRemaining: remainingTasks,
+								loopNumber: loopIteration + 1,
+							}
+						);
+
+						// Update state to show current document
+						updateBatchStateAndBroadcastRef.current!(sessionId, (prev) => ({
+							...prev,
+							[sessionId]: {
+								...prev[sessionId],
+								currentDocumentIndex: docIndex,
+								currentDocTasksTotal: docTasksTotal,
+								currentDocTasksCompleted: 0,
+							},
+						}));
+
+						let docTasksCompleted = 0;
+						let skipCurrentDocumentAfterError = false;
+
+						// Process tasks in this document until none remain
+						while (remainingTasks > 0) {
+							// Check for stop request before each task
+							if (stopRequestedRefs.current[sessionId]) {
+								break;
+							}
+
+							// Pause processing until the user resolves the error state
+							const errorResolution = errorResolutionRefs.current[sessionId];
+							if (errorResolution) {
+								const action = await errorResolution.promise;
+								delete errorResolutionRefs.current[sessionId];
+
+								if (action === 'abort') {
+									stopRequestedRefs.current[sessionId] = true;
+									break;
+								}
+
+								if (action === 'skip-document') {
+									skipCurrentDocumentAfterError = true;
+									break;
+								}
+							}
+
+							// Use extracted document processor hook for task processing
+							// This handles: template substitution, document expansion, agent spawning,
+							// session registration, re-reading document, and synopsis generation
+							try {
+								// Reset task metrics before starting (Throughput Status Pill)
+								dispatch({ type: 'RESET_TASK_METRICS', sessionId });
+
+								// Token tracking callbacks - these will be called from spawnAgentForSession
+								// with exact session ID matching, avoiding the prefix-match timing issues
+								const tokenCallbacks = {
+									onData: (bytes: number) => {
+										dispatch({
+											type: 'UPDATE_TASK_BYTES',
+											sessionId,
+											payload: { bytes },
+										});
+									},
+									onUsage: (tokens: number) => {
+										dispatch({
+											type: 'UPDATE_TASK_TOKENS',
+											sessionId,
+											payload: { tokens },
+										});
+									},
+								};
+
+								const taskResult = await documentProcessor.processTask(
+									{
+										folderPath,
+										session,
+										gitBranch,
+										groupName,
+										loopIteration: loopIteration + 1, // 1-indexed
+										effectiveCwd,
+										customPrompt: prompt,
+										sshRemoteId,
+									},
+									effectiveFilename, // Use working copy path for reset-on-completion docs
+									docCheckedCount,
+									remainingTasks,
+									docContent,
+									{
+										onSpawnAgent,
+										tokenCallbacks,
+									}
+								);
+
+								// Track agent session IDs
+								if (taskResult.agentSessionId) {
+									agentSessionIds.push(taskResult.agentSessionId);
+								}
+
+								anyTasksProcessedThisIteration = true;
+
+								// Extract results from processTask
+								const {
+									tasksCompletedThisRun,
+									addedUncheckedTasks,
+									totalTasksChange,
+									newRemainingTasks,
+									documentChanged,
+									newCheckedCount,
+									shortSummary,
+									fullSynopsis,
+									usageStats,
+									elapsedTimeMs,
+									agentSessionId,
+									success,
+								} = taskResult;
+
+								// Detect stalling: if document content is unchanged and no tasks were checked off
+								if (!documentChanged && tasksCompletedThisRun === 0) {
+									consecutiveNoChangeCount++;
+								} else {
+									// Reset counter on any document change or task completion
+									consecutiveNoChangeCount = 0;
+								}
+
+								// Update counters
+								docTasksCompleted += tasksCompletedThisRun;
+								totalCompletedTasks += tasksCompletedThisRun;
+								// Ensure totalCompletedTasks never exceeds initialTotalTasks
+								// (cross-document attribution could still cause slight over-counts)
+								totalCompletedTasks = Math.min(totalCompletedTasks, initialTotalTasks);
+								loopTasksCompleted += tasksCompletedThisRun;
+
+								// Record this task in stats database (if stats tracking is active)
+								if (statsAutoRunId && tasksCompletedThisRun > 0) {
+									try {
+										await window.maestro.stats.recordAutoTask({
+											autoRunSessionId: statsAutoRunId,
+											sessionId: sessionId,
+											agentType: session.toolType,
+											taskIndex: totalCompletedTasks - 1, // 0-indexed
+											taskContent: shortSummary || undefined,
+											startTime: Date.now() - elapsedTimeMs,
+											duration: elapsedTimeMs,
+											success: success,
+											tasksCompletedCount: tasksCompletedThisRun,
+										});
+									} catch (statsError) {
+										// Don't fail the batch if stats tracking fails
+										console.warn('[BatchProcessor] Failed to record task stats:', statsError);
+									}
+								}
+
+								// Track token usage for loop summary and cumulative totals
+								if (usageStats) {
+									loopTotalInputTokens += usageStats.inputTokens || 0;
+									loopTotalOutputTokens += usageStats.outputTokens || 0;
+									loopTotalCost += usageStats.totalCostUsd || 0;
+									// Also track cumulative totals for final summary
+									totalInputTokens += usageStats.inputTokens || 0;
+									totalOutputTokens += usageStats.outputTokens || 0;
+									totalCost += usageStats.totalCostUsd || 0;
+
+									// Update BatchRunState with cumulative tokens (Throughput Status Pill - Phase 2 & 4)
+									dispatch({
+										type: 'ACCUMULATE_TASK_USAGE',
+										sessionId,
+										payload: {
+											inputTokens: usageStats.inputTokens || 0,
+											outputTokens: usageStats.outputTokens || 0,
+											cacheReadTokens: usageStats.cacheReadInputTokens || 0,
+											cacheCreationTokens: usageStats.cacheCreationInputTokens || 0,
+											cost: usageStats.totalCostUsd || 0,
+										},
+									});
+								}
+
+								// Track non-reset document completions for loop exit logic
+								// (This tracking is intentionally a no-op for now - kept for future loop mode enhancements)
+								void (!docEntry.resetOnCompletion ? tasksCompletedThisRun : 0);
+
+								// Update progress state for current document
+								if (addedUncheckedTasks > 0) {
+									docTasksTotal += addedUncheckedTasks;
+								}
+
+								updateBatchStateAndBroadcastRef.current!(sessionId, (prev) => {
+									const prevState = prev[sessionId] || DEFAULT_BATCH_STATE;
+									// Use totalTasksChange for accurate overall tracking
+									// This correctly accounts for both completed tasks and newly added tasks
+									const nextTotalAcrossAllDocs = Math.max(
+										0,
+										prevState.totalTasksAcrossAllDocs + totalTasksChange
+									);
+									const nextTotalTasks = Math.max(0, prevState.totalTasks + totalTasksChange);
+
+									return {
+										...prev,
+										[sessionId]: {
+											...prevState,
+											currentDocTasksCompleted: docTasksCompleted,
+											currentDocTasksTotal: docTasksTotal,
+											completedTasksAcrossAllDocs: totalCompletedTasks,
+											totalTasksAcrossAllDocs: nextTotalAcrossAllDocs,
+											// Accumulate actual task duration (most accurate work time tracking)
+											cumulativeTaskTimeMs: (prevState.cumulativeTaskTimeMs || 0) + elapsedTimeMs,
+											// Legacy fields
+											completedTasks: totalCompletedTasks,
+											totalTasks: nextTotalTasks,
+											currentTaskIndex: totalCompletedTasks,
+											sessionIds: [...(prevState?.sessionIds || []), agentSessionId || ''],
+										},
+									};
+								});
+
+								// Add history entry
+								// Use effectiveCwd for projectPath so clicking the session link looks in the right place
+								onAddHistoryEntry({
+									type: 'AUTO',
+									timestamp: Date.now(),
+									summary: shortSummary,
+									fullResponse: fullSynopsis,
+									agentSessionId,
+									projectPath: effectiveCwd,
+									sessionId: sessionId,
+									success,
+									usageStats,
+									elapsedTimeMs,
+								});
+
+								// Speak the synopsis via TTS if audio feedback is enabled
+								if (audioFeedbackEnabled && audioFeedbackCommand && shortSummary) {
+									window.maestro.notification
+										.speak(shortSummary, audioFeedbackCommand)
+										.catch((err) => {
+											console.error('[BatchProcessor] Failed to speak synopsis:', err);
+										});
+								}
+
+								// Check if we've hit the stalling threshold for this document
+								if (consecutiveNoChangeCount >= MAX_CONSECUTIVE_NO_CHANGES) {
+									const stallReason = `${consecutiveNoChangeCount} consecutive runs with no progress`;
+
+									// Track this document as stalled
+									stalledDocuments.set(docEntry.filename, stallReason);
+
+									// AUTORUN LOG: Document stalled
+									window.maestro.logger.autorun(
+										`Document stalled: ${docEntry.filename}`,
+										session.name,
+										{
+											document: docEntry.filename,
+											reason: stallReason,
+											remainingTasks: newRemainingTasks,
+											loopNumber: loopIteration + 1,
+										}
+									);
+
+									// Add a history entry specifically for this stalled document
+									const stallExplanation = [
+										`**Document Stalled: ${docEntry.filename}**`,
+										'',
+										`The AI agent ran ${consecutiveNoChangeCount} times on this document but made no progress:`,
+										`- No tasks were checked off`,
+										`- No changes were made to the document content`,
+										'',
+										`**What this means:**`,
+										`The remaining tasks in this document may be:`,
+										`- Already complete (but not checked off)`,
+										`- Unclear or ambiguous for the AI to act on`,
+										`- Dependent on external factors or manual intervention`,
+										`- Outside the scope of what the AI can accomplish`,
+										'',
+										`**Remaining unchecked tasks:** ${newRemainingTasks}`,
+										'',
+										documents.length > 1
+											? `Skipping to the next document in the playbook...`
+											: `No more documents to process.`,
+									].join('\n');
+
+									onAddHistoryEntry({
+										type: 'AUTO',
+										timestamp: Date.now(),
+										summary: `Document stalled: ${docEntry.filename} (${newRemainingTasks} tasks remaining)`,
+										fullResponse: stallExplanation,
+										projectPath: effectiveCwd,
+										sessionId: sessionId,
+										success: false, // Mark as unsuccessful since we couldn't complete
+									});
+
+									// Skip to the next document instead of breaking the entire batch
+									break; // Break out of the inner while loop for this document
+								}
+
+								docCheckedCount = newCheckedCount;
+								remainingTasks = newRemainingTasks;
+								docContent = taskResult.contentAfterTask;
+							} catch (error) {
+								console.error(
+									`[BatchProcessor] Error running task in ${docEntry.filename} for session ${sessionId}:`,
+									error
+								);
+								// Continue to next task on error
+								remainingTasks--;
+							}
+						}
+
+						// Check for stop request before moving to next document
+						if (stopRequestedRefs.current[sessionId]) {
+							break;
+						}
+
+						// Skip document handling if this document stalled (it didn't complete normally)
+						if (stalledDocuments.has(docEntry.filename)) {
+							// Working copy approach: stalled working copy stays in /Runs/ as audit log
+							// Original document is untouched, so nothing to restore
+							workingCopies.delete(docEntry.filename);
+							// Reset consecutive no-change counter for next document
+							consecutiveNoChangeCount = 0;
+							continue;
+						}
+
+						if (skipCurrentDocumentAfterError) {
+							// Working copy approach: errored working copy stays in /Runs/ as audit log
+							// Original document is untouched, so nothing to restore
+							workingCopies.delete(docEntry.filename);
+							continue;
+						}
+
+						// Document complete - for reset-on-completion docs, original is untouched
+						// Working copy in /Runs/ serves as the audit log of this loop's work
+						if (docEntry.resetOnCompletion && docTasksCompleted > 0) {
+							// AUTORUN LOG: Document loop completed
+							window.maestro.logger.autorun(
+								`Document loop completed: ${docEntry.filename}`,
+								session.name,
+								{
+									document: docEntry.filename,
+									workingCopy: workingCopies.get(docEntry.filename),
+									tasksCompleted: docTasksCompleted,
+									loopNumber: loopIteration + 1,
+								}
+							);
+
+							// For loop mode, re-count tasks in the original document for next iteration
+							// (original is unchanged, so it still has all unchecked tasks)
+							if (loopEnabled) {
+								const { taskCount: resetTaskCount } = await readDocAndCountTasks(
+									folderPath,
+									docEntry.filename,
+									sshRemoteId
+								);
 								updateBatchStateAndBroadcastRef.current!(sessionId, (prev) => ({
 									...prev,
 									[sessionId]: {
@@ -1042,758 +1450,374 @@ export function useBatchProcessor({
 									},
 								}));
 							}
+
+							// Clear tracking - working copy stays in /Runs/ as audit log
+							workingCopies.delete(docEntry.filename);
+						} else if (docEntry.resetOnCompletion) {
+							// Document had reset enabled but no tasks were completed
+							// Working copy still serves as record of the attempt
+							workingCopies.delete(docEntry.filename);
 						}
-						continue;
 					}
 
-					// Reset stall detection counter for each new document
-					consecutiveNoChangeCount = 0;
+					// Note: We no longer break immediately when a document stalls.
+					// Individual documents that stall are skipped, and we continue processing other documents.
+					// The stalledDocuments map tracks which documents stalled for the final summary.
 
-					// The actual filename to process (may be working copy for reset-on-completion docs)
-					let effectiveFilename = docEntry.filename;
+					// Check if we should continue looping
+					if (!loopEnabled) {
+						// No loop mode - we're done after one pass
+						// AUTORUN LOG: Exit (non-loop mode)
+						window.maestro.logger.autorun(`Auto Run completed (single pass)`, session.name, {
+							reason: 'Single pass completed',
+							totalTasksCompleted: totalCompletedTasks,
+							loopsCompleted: 1,
+						});
+						break;
+					}
 
-					// Create working copy for reset-on-completion documents
-					// Working copies are stored in /Runs/ and the original is never modified
-					if (docEntry.resetOnCompletion) {
-						try {
-							const { workingCopyPath } = await window.maestro.autorun.createWorkingCopy(
+					// Check if we've hit the max loop limit
+					if (maxLoops !== null && maxLoops !== undefined && loopIteration + 1 >= maxLoops) {
+						addFinalLoopSummary(`Reached max loop limit (${maxLoops})`);
+						break;
+					}
+
+					// Check for stop request after full pass
+					if (stopRequestedRefs.current[sessionId]) {
+						addFinalLoopSummary('Stopped by user');
+						break;
+					}
+
+					// Safety check: if we didn't process ANY tasks this iteration, exit to avoid infinite loop
+					if (!anyTasksProcessedThisIteration) {
+						addFinalLoopSummary('No tasks processed this iteration');
+						break;
+					}
+
+					// Loop mode: check if we should continue looping
+					// Check if there are any non-reset documents in the playbook
+					const hasAnyNonResetDocs = documents.some((doc) => !doc.resetOnCompletion);
+
+					if (hasAnyNonResetDocs) {
+						// If we have non-reset docs, only continue if they have remaining tasks
+						let anyNonResetDocsHaveTasks = false;
+						for (const doc of documents) {
+							if (doc.resetOnCompletion) continue;
+
+							const { taskCount } = await readDocAndCountTasks(
 								folderPath,
-								docEntry.filename,
-								loopIteration + 1 // 1-indexed loop number
-							);
-							workingCopies.set(docEntry.filename, workingCopyPath);
-							effectiveFilename = workingCopyPath;
-
-							// Re-read the working copy for task counting
-							const workingCopyResult = await readDocAndCountTasks(
-								folderPath,
-								effectiveFilename,
+								doc.filename,
 								sshRemoteId
 							);
-							remainingTasks = workingCopyResult.taskCount;
-							docContent = workingCopyResult.content;
-							docCheckedCount = workingCopyResult.checkedCount;
-							docTasksTotal = remainingTasks;
-						} catch (err) {
-							console.error(
-								`[BatchProcessor] Failed to create working copy for ${docEntry.filename}:`,
-								err
-							);
-							// Continue with original document as fallback
+							if (taskCount > 0) {
+								anyNonResetDocsHaveTasks = true;
+								break;
+							}
+						}
+
+						if (!anyNonResetDocsHaveTasks) {
+							addFinalLoopSummary('All tasks completed');
+							break;
 						}
 					}
+					// If all documents are reset docs, we continue looping (maxLoops check above will stop us)
 
-					// AUTORUN LOG: Document processing
-					window.maestro.logger.autorun(`Processing document: ${docEntry.filename}`, session.name, {
-						document: docEntry.filename,
-						tasksRemaining: remainingTasks,
-						loopNumber: loopIteration + 1,
+					// Re-scan all documents to get fresh task counts for next loop (tasks may have been added/removed)
+					let newTotalTasks = 0;
+					for (const doc of documents) {
+						const { taskCount } = await readDocAndCountTasks(folderPath, doc.filename, sshRemoteId);
+						newTotalTasks += taskCount;
+					}
+
+					// Calculate loop elapsed time
+					const loopElapsedMs = Date.now() - loopStartTime;
+
+					// Add loop summary history entry
+					const loopSummary = `Loop ${loopIteration + 1} completed: ${loopTasksCompleted} task${loopTasksCompleted !== 1 ? 's' : ''} accomplished`;
+					const loopDetails = [
+						`**Loop ${loopIteration + 1} Summary**`,
+						'',
+						`- **Tasks Accomplished:** ${loopTasksCompleted}`,
+						`- **Duration:** ${formatElapsedTime(loopElapsedMs)}`,
+						loopTotalInputTokens > 0 || loopTotalOutputTokens > 0
+							? `- **Tokens:** ${(loopTotalInputTokens + loopTotalOutputTokens).toLocaleString()} (${loopTotalInputTokens.toLocaleString()} in / ${loopTotalOutputTokens.toLocaleString()} out)`
+							: '',
+						loopTotalCost > 0 ? `- **Cost:** $${loopTotalCost.toFixed(4)}` : '',
+						`- **Tasks Discovered for Next Loop:** ${newTotalTasks}`,
+					]
+						.filter((line) => line !== '')
+						.join('\n');
+
+					onAddHistoryEntry({
+						type: 'AUTO',
+						timestamp: Date.now(),
+						summary: loopSummary,
+						fullResponse: loopDetails,
+						projectPath: session.cwd,
+						sessionId: sessionId,
+						success: true,
+						elapsedTimeMs: loopElapsedMs,
+						usageStats:
+							loopTotalInputTokens > 0 || loopTotalOutputTokens > 0
+								? {
+										inputTokens: loopTotalInputTokens,
+										outputTokens: loopTotalOutputTokens,
+										cacheReadInputTokens: 0,
+										cacheCreationInputTokens: 0,
+										totalCostUsd: loopTotalCost,
+										contextWindow: 0,
+									}
+								: undefined,
 					});
 
-					// Update state to show current document
+					// Reset per-loop tracking for next iteration
+					loopStartTime = Date.now();
+					loopTasksCompleted = 0;
+					loopTotalInputTokens = 0;
+					loopTotalOutputTokens = 0;
+					loopTotalCost = 0;
+
+					// AUTORUN LOG: Loop completion
+					window.maestro.logger.autorun(`Loop ${loopIteration + 1} completed`, session.name, {
+						loopNumber: loopIteration + 1,
+						tasksCompleted: loopTasksCompleted,
+						tasksForNextLoop: newTotalTasks,
+					});
+
+					// Continue looping
+					loopIteration++;
+
 					updateBatchStateAndBroadcastRef.current!(sessionId, (prev) => ({
 						...prev,
 						[sessionId]: {
 							...prev[sessionId],
-							currentDocumentIndex: docIndex,
-							currentDocTasksTotal: docTasksTotal,
-							currentDocTasksCompleted: 0,
+							loopIteration,
+							totalTasksAcrossAllDocs: newTotalTasks + prev[sessionId].completedTasksAcrossAllDocs,
+							totalTasks: newTotalTasks + prev[sessionId].completedTasks,
 						},
 					}));
-
-					let docTasksCompleted = 0;
-					let skipCurrentDocumentAfterError = false;
-
-					// Process tasks in this document until none remain
-					while (remainingTasks > 0) {
-						// Check for stop request before each task
-						if (stopRequestedRefs.current[sessionId]) {
-							break;
-						}
-
-						// Pause processing until the user resolves the error state
-						const errorResolution = errorResolutionRefs.current[sessionId];
-						if (errorResolution) {
-							const action = await errorResolution.promise;
-							delete errorResolutionRefs.current[sessionId];
-
-							if (action === 'abort') {
-								stopRequestedRefs.current[sessionId] = true;
-								break;
-							}
-
-							if (action === 'skip-document') {
-								skipCurrentDocumentAfterError = true;
-								break;
-							}
-						}
-
-						// Use extracted document processor hook for task processing
-						// This handles: template substitution, document expansion, agent spawning,
-						// session registration, re-reading document, and synopsis generation
-						try {
-							// Reset task metrics before starting (Throughput Status Pill)
-							dispatch({ type: 'RESET_TASK_METRICS', sessionId });
-
-							// Token tracking callbacks - these will be called from spawnAgentForSession
-							// with exact session ID matching, avoiding the prefix-match timing issues
-							const tokenCallbacks = {
-								onData: (bytes: number) => {
-									dispatch({
-										type: 'UPDATE_TASK_BYTES',
-										sessionId,
-										payload: { bytes },
-									});
-								},
-								onUsage: (tokens: number) => {
-									dispatch({
-										type: 'UPDATE_TASK_TOKENS',
-										sessionId,
-										payload: { tokens },
-									});
-								},
-							};
-
-							const taskResult = await documentProcessor.processTask(
-								{
-									folderPath,
-									session,
-									gitBranch,
-									groupName,
-									loopIteration: loopIteration + 1, // 1-indexed
-									effectiveCwd,
-									customPrompt: prompt,
-									sshRemoteId,
-								},
-								effectiveFilename, // Use working copy path for reset-on-completion docs
-								docCheckedCount,
-								remainingTasks,
-								docContent,
-								{
-									onSpawnAgent,
-									tokenCallbacks,
-								}
-							);
-
-							// Track agent session IDs
-							if (taskResult.agentSessionId) {
-								agentSessionIds.push(taskResult.agentSessionId);
-							}
-
-							anyTasksProcessedThisIteration = true;
-
-							// Extract results from processTask
-							const {
-								tasksCompletedThisRun,
-								addedUncheckedTasks,
-								totalTasksChange,
-								newRemainingTasks,
-								documentChanged,
-								newCheckedCount,
-								shortSummary,
-								fullSynopsis,
-								usageStats,
-								elapsedTimeMs,
-								agentSessionId,
-								success,
-							} = taskResult;
-
-							// Detect stalling: if document content is unchanged and no tasks were checked off
-							if (!documentChanged && tasksCompletedThisRun === 0) {
-								consecutiveNoChangeCount++;
-							} else {
-								// Reset counter on any document change or task completion
-								consecutiveNoChangeCount = 0;
-							}
-
-							// Update counters
-							docTasksCompleted += tasksCompletedThisRun;
-							totalCompletedTasks += tasksCompletedThisRun;
-							loopTasksCompleted += tasksCompletedThisRun;
-
-							// Record this task in stats database (if stats tracking is active)
-							if (statsAutoRunId && tasksCompletedThisRun > 0) {
-								try {
-									await window.maestro.stats.recordAutoTask({
-										autoRunSessionId: statsAutoRunId,
-										sessionId: sessionId,
-										agentType: session.toolType,
-										taskIndex: totalCompletedTasks - 1, // 0-indexed
-										taskContent: shortSummary || undefined,
-										startTime: Date.now() - elapsedTimeMs,
-										duration: elapsedTimeMs,
-										success: success,
-									});
-								} catch (statsError) {
-									// Don't fail the batch if stats tracking fails
-									console.warn('[BatchProcessor] Failed to record task stats:', statsError);
-								}
-							}
-
-							// Track token usage for loop summary and cumulative totals
-							if (usageStats) {
-								loopTotalInputTokens += usageStats.inputTokens || 0;
-								loopTotalOutputTokens += usageStats.outputTokens || 0;
-								loopTotalCost += usageStats.totalCostUsd || 0;
-								// Also track cumulative totals for final summary
-								totalInputTokens += usageStats.inputTokens || 0;
-								totalOutputTokens += usageStats.outputTokens || 0;
-								totalCost += usageStats.totalCostUsd || 0;
-
-								// Update BatchRunState with cumulative tokens (Throughput Status Pill - Phase 2 & 4)
-								dispatch({
-									type: 'ACCUMULATE_TASK_USAGE',
-									sessionId,
-									payload: {
-										inputTokens: usageStats.inputTokens || 0,
-										outputTokens: usageStats.outputTokens || 0,
-										cacheReadTokens: usageStats.cacheReadInputTokens || 0,
-										cacheCreationTokens: usageStats.cacheCreationInputTokens || 0,
-										cost: usageStats.totalCostUsd || 0,
-									},
-								});
-							}
-
-							// Track non-reset document completions for loop exit logic
-							// (This tracking is intentionally a no-op for now - kept for future loop mode enhancements)
-							void (!docEntry.resetOnCompletion ? tasksCompletedThisRun : 0);
-
-							// Update progress state for current document
-							if (addedUncheckedTasks > 0) {
-								docTasksTotal += addedUncheckedTasks;
-							}
-
-							updateBatchStateAndBroadcastRef.current!(sessionId, (prev) => {
-								const prevState = prev[sessionId] || DEFAULT_BATCH_STATE;
-								// Use totalTasksChange for accurate overall tracking
-								// This correctly accounts for both completed tasks and newly added tasks
-								const nextTotalAcrossAllDocs = Math.max(
-									0,
-									prevState.totalTasksAcrossAllDocs + totalTasksChange
-								);
-								const nextTotalTasks = Math.max(0, prevState.totalTasks + totalTasksChange);
-
-								return {
-									...prev,
-									[sessionId]: {
-										...prevState,
-										currentDocTasksCompleted: docTasksCompleted,
-										currentDocTasksTotal: docTasksTotal,
-										completedTasksAcrossAllDocs: totalCompletedTasks,
-										totalTasksAcrossAllDocs: nextTotalAcrossAllDocs,
-										// Accumulate actual task duration (most accurate work time tracking)
-										cumulativeTaskTimeMs: (prevState.cumulativeTaskTimeMs || 0) + elapsedTimeMs,
-										// Legacy fields
-										completedTasks: totalCompletedTasks,
-										totalTasks: nextTotalTasks,
-										currentTaskIndex: totalCompletedTasks,
-										sessionIds: [...(prevState?.sessionIds || []), agentSessionId || ''],
-									},
-								};
-							});
-
-							// Add history entry
-							// Use effectiveCwd for projectPath so clicking the session link looks in the right place
-							onAddHistoryEntry({
-								type: 'AUTO',
-								timestamp: Date.now(),
-								summary: shortSummary,
-								fullResponse: fullSynopsis,
-								agentSessionId,
-								projectPath: effectiveCwd,
-								sessionId: sessionId,
-								success,
-								usageStats,
-								elapsedTimeMs,
-							});
-
-							// Speak the synopsis via TTS if audio feedback is enabled
-							if (audioFeedbackEnabled && audioFeedbackCommand && shortSummary) {
-								window.maestro.notification
-									.speak(shortSummary, audioFeedbackCommand)
-									.catch((err) => {
-										console.error('[BatchProcessor] Failed to speak synopsis:', err);
-									});
-							}
-
-							// Check if we've hit the stalling threshold for this document
-							if (consecutiveNoChangeCount >= MAX_CONSECUTIVE_NO_CHANGES) {
-								const stallReason = `${consecutiveNoChangeCount} consecutive runs with no progress`;
-
-								// Track this document as stalled
-								stalledDocuments.set(docEntry.filename, stallReason);
-
-								// AUTORUN LOG: Document stalled
-								window.maestro.logger.autorun(
-									`Document stalled: ${docEntry.filename}`,
-									session.name,
-									{
-										document: docEntry.filename,
-										reason: stallReason,
-										remainingTasks: newRemainingTasks,
-										loopNumber: loopIteration + 1,
-									}
-								);
-
-								// Add a history entry specifically for this stalled document
-								const stallExplanation = [
-									`**Document Stalled: ${docEntry.filename}**`,
-									'',
-									`The AI agent ran ${consecutiveNoChangeCount} times on this document but made no progress:`,
-									`- No tasks were checked off`,
-									`- No changes were made to the document content`,
-									'',
-									`**What this means:**`,
-									`The remaining tasks in this document may be:`,
-									`- Already complete (but not checked off)`,
-									`- Unclear or ambiguous for the AI to act on`,
-									`- Dependent on external factors or manual intervention`,
-									`- Outside the scope of what the AI can accomplish`,
-									'',
-									`**Remaining unchecked tasks:** ${newRemainingTasks}`,
-									'',
-									documents.length > 1
-										? `Skipping to the next document in the playbook...`
-										: `No more documents to process.`,
-								].join('\n');
-
-								onAddHistoryEntry({
-									type: 'AUTO',
-									timestamp: Date.now(),
-									summary: `Document stalled: ${docEntry.filename} (${newRemainingTasks} tasks remaining)`,
-									fullResponse: stallExplanation,
-									projectPath: effectiveCwd,
-									sessionId: sessionId,
-									success: false, // Mark as unsuccessful since we couldn't complete
-								});
-
-								// Skip to the next document instead of breaking the entire batch
-								break; // Break out of the inner while loop for this document
-							}
-
-							docCheckedCount = newCheckedCount;
-							remainingTasks = newRemainingTasks;
-							docContent = taskResult.contentAfterTask;
-						} catch (error) {
-							console.error(
-								`[BatchProcessor] Error running task in ${docEntry.filename} for session ${sessionId}:`,
-								error
-							);
-							// Continue to next task on error
-							remainingTasks--;
-						}
-					}
-
-					// Check for stop request before moving to next document
-					if (stopRequestedRefs.current[sessionId]) {
-						break;
-					}
-
-					// Skip document handling if this document stalled (it didn't complete normally)
-					if (stalledDocuments.has(docEntry.filename)) {
-						// Working copy approach: stalled working copy stays in /Runs/ as audit log
-						// Original document is untouched, so nothing to restore
-						workingCopies.delete(docEntry.filename);
-						// Reset consecutive no-change counter for next document
-						consecutiveNoChangeCount = 0;
-						continue;
-					}
-
-					if (skipCurrentDocumentAfterError) {
-						// Working copy approach: errored working copy stays in /Runs/ as audit log
-						// Original document is untouched, so nothing to restore
-						workingCopies.delete(docEntry.filename);
-						continue;
-					}
-
-					// Document complete - for reset-on-completion docs, original is untouched
-					// Working copy in /Runs/ serves as the audit log of this loop's work
-					if (docEntry.resetOnCompletion && docTasksCompleted > 0) {
-						// AUTORUN LOG: Document loop completed
-						window.maestro.logger.autorun(
-							`Document loop completed: ${docEntry.filename}`,
-							session.name,
-							{
-								document: docEntry.filename,
-								workingCopy: workingCopies.get(docEntry.filename),
-								tasksCompleted: docTasksCompleted,
-								loopNumber: loopIteration + 1,
-							}
-						);
-
-						// For loop mode, re-count tasks in the original document for next iteration
-						// (original is unchanged, so it still has all unchecked tasks)
-						if (loopEnabled) {
-							const { taskCount: resetTaskCount } = await readDocAndCountTasks(
-								folderPath,
-								docEntry.filename,
-								sshRemoteId
-							);
-							updateBatchStateAndBroadcastRef.current!(sessionId, (prev) => ({
-								...prev,
-								[sessionId]: {
-									...prev[sessionId],
-									totalTasksAcrossAllDocs: prev[sessionId].totalTasksAcrossAllDocs + resetTaskCount,
-									totalTasks: prev[sessionId].totalTasks + resetTaskCount,
-								},
-							}));
-						}
-
-						// Clear tracking - working copy stays in /Runs/ as audit log
-						workingCopies.delete(docEntry.filename);
-					} else if (docEntry.resetOnCompletion) {
-						// Document had reset enabled but no tasks were completed
-						// Working copy still serves as record of the attempt
-						workingCopies.delete(docEntry.filename);
-					}
 				}
 
-				// Note: We no longer break immediately when a document stalls.
-				// Individual documents that stall are skipped, and we continue processing other documents.
-				// The stalledDocuments map tracks which documents stalled for the final summary.
+				// Working copy approach: no cleanup needed
+				// - Original documents are never modified
+				// - Working copies in /Runs/ serve as audit logs and are kept
+				// - User can delete them manually if desired
 
-				// Check if we should continue looping
-				if (!loopEnabled) {
-					// No loop mode - we're done after one pass
-					// AUTORUN LOG: Exit (non-loop mode)
-					window.maestro.logger.autorun(`Auto Run completed (single pass)`, session.name, {
-						reason: 'Single pass completed',
-						totalTasksCompleted: totalCompletedTasks,
-						loopsCompleted: 1,
+				// Create PR if worktree was used, PR creation is enabled, and not stopped
+				const wasStopped = stopRequestedRefs.current[sessionId] || false;
+				const sessionName = session.name || session.cwd.split('/').pop() || 'Unknown';
+				if (
+					worktreeActive &&
+					worktree?.createPROnCompletion &&
+					!wasStopped &&
+					totalCompletedTasks > 0 &&
+					worktreePath
+				) {
+					const prResult = await worktreeManager.createPR({
+						worktreePath,
+						mainRepoCwd: session.cwd,
+						worktree,
+						documents,
+						totalCompletedTasks,
 					});
-					break;
-				}
 
-				// Check if we've hit the max loop limit
-				if (maxLoops !== null && maxLoops !== undefined && loopIteration + 1 >= maxLoops) {
-					addFinalLoopSummary(`Reached max loop limit (${maxLoops})`);
-					break;
-				}
-
-				// Check for stop request after full pass
-				if (stopRequestedRefs.current[sessionId]) {
-					addFinalLoopSummary('Stopped by user');
-					break;
-				}
-
-				// Safety check: if we didn't process ANY tasks this iteration, exit to avoid infinite loop
-				if (!anyTasksProcessedThisIteration) {
-					addFinalLoopSummary('No tasks processed this iteration');
-					break;
-				}
-
-				// Loop mode: check if we should continue looping
-				// Check if there are any non-reset documents in the playbook
-				const hasAnyNonResetDocs = documents.some((doc) => !doc.resetOnCompletion);
-
-				if (hasAnyNonResetDocs) {
-					// If we have non-reset docs, only continue if they have remaining tasks
-					let anyNonResetDocsHaveTasks = false;
-					for (const doc of documents) {
-						if (doc.resetOnCompletion) continue;
-
-						const { taskCount } = await readDocAndCountTasks(folderPath, doc.filename, sshRemoteId);
-						if (taskCount > 0) {
-							anyNonResetDocsHaveTasks = true;
-							break;
-						}
-					}
-
-					if (!anyNonResetDocsHaveTasks) {
-						addFinalLoopSummary('All tasks completed');
-						break;
+					if (onPRResult) {
+						onPRResult({
+							sessionId,
+							sessionName,
+							success: prResult.success,
+							prUrl: prResult.prUrl,
+							error: prResult.error,
+						});
 					}
 				}
-				// If all documents are reset docs, we continue looping (maxLoops check above will stop us)
 
-				// Re-scan all documents to get fresh task counts for next loop (tasks may have been added/removed)
-				let newTotalTasks = 0;
-				for (const doc of documents) {
-					const { taskCount } = await readDocAndCountTasks(folderPath, doc.filename, sshRemoteId);
-					newTotalTasks += taskCount;
+				// Add final Auto Run summary entry
+				// Calculate visibility-aware elapsed time using the extracted time tracking hook
+				// (excludes time when laptop was sleeping/suspended)
+				const totalElapsedMs = timeTracking.getElapsedTime(sessionId);
+				const loopsCompleted = loopEnabled ? loopIteration + 1 : 1;
+
+				// Determine status based on stalled documents and completion
+				const stalledCount = stalledDocuments.size;
+				const allDocsStalled = stalledCount === documents.length;
+				const someDocsStalled = stalledCount > 0 && stalledCount < documents.length;
+				const statusText = wasStopped
+					? 'stopped'
+					: allDocsStalled
+						? 'stalled'
+						: someDocsStalled
+							? 'completed with stalls'
+							: 'completed';
+
+				// Calculate achievement progress for the summary
+				// Note: We use the stats BEFORE this run is recorded (the parent will call recordAutoRunComplete after)
+				// So we need to add totalElapsedMs to get the projected cumulative time
+				const projectedCumulativeTime = (autoRunStats?.cumulativeTimeMs || 0) + totalElapsedMs;
+				const currentBadge = getBadgeForTime(projectedCumulativeTime);
+				const nextBadge = getNextBadge(currentBadge);
+				const levelProgressText = nextBadge
+					? `Level ${currentBadge?.level || 0} → ${nextBadge.level}: ${formatTimeRemaining(projectedCumulativeTime, nextBadge)}`
+					: currentBadge
+						? `Level ${currentBadge.level} (${currentBadge.name}) - Maximum level achieved!`
+						: 'Level 0 → 1: ' + formatTimeRemaining(0, getBadgeForTime(0));
+
+				// Build summary with stall info if applicable
+				const stalledSuffix = stalledCount > 0 ? ` (${stalledCount} stalled)` : '';
+				const finalSummary = `Auto Run ${statusText}: ${totalCompletedTasks} task${totalCompletedTasks !== 1 ? 's' : ''} in ${formatElapsedTime(totalElapsedMs)}${stalledSuffix}`;
+
+				// Build status message with detailed info
+				let statusMessage: string;
+				if (wasStopped) {
+					statusMessage = 'Stopped by user';
+				} else if (allDocsStalled) {
+					statusMessage = `Stalled - All ${stalledCount} document(s) stopped making progress`;
+				} else if (someDocsStalled) {
+					statusMessage = `Completed with ${stalledCount} stalled document(s)`;
+				} else {
+					statusMessage = 'Completed';
 				}
 
-				// Calculate loop elapsed time
-				const loopElapsedMs = Date.now() - loopStartTime;
+				// Build stalled documents section if any documents stalled
+				const stalledDocsSection: string[] = [];
+				if (stalledCount > 0) {
+					stalledDocsSection.push('');
+					stalledDocsSection.push('**Stalled Documents**');
+					stalledDocsSection.push('');
+					stalledDocsSection.push(
+						'The following documents stopped making progress after multiple attempts:'
+					);
+					for (const [docName, reason] of stalledDocuments) {
+						stalledDocsSection.push(`- **${docName}**: ${reason}`);
+					}
+					stalledDocsSection.push('');
+					stalledDocsSection.push(
+						'*Tasks in stalled documents may need manual review or clarification.*'
+					);
+				}
 
-				// Add loop summary history entry
-				const loopSummary = `Loop ${loopIteration + 1} completed: ${loopTasksCompleted} task${loopTasksCompleted !== 1 ? 's' : ''} accomplished`;
-				const loopDetails = [
-					`**Loop ${loopIteration + 1} Summary**`,
+				const finalDetails = [
+					`**Auto Run Summary**`,
 					'',
-					`- **Tasks Accomplished:** ${loopTasksCompleted}`,
-					`- **Duration:** ${formatElapsedTime(loopElapsedMs)}`,
-					loopTotalInputTokens > 0 || loopTotalOutputTokens > 0
-						? `- **Tokens:** ${(loopTotalInputTokens + loopTotalOutputTokens).toLocaleString()} (${loopTotalInputTokens.toLocaleString()} in / ${loopTotalOutputTokens.toLocaleString()} out)`
+					`- **Status:** ${statusMessage}`,
+					`- **Tasks Completed:** ${totalCompletedTasks}`,
+					`- **Total Duration:** ${formatElapsedTime(totalElapsedMs)}`,
+					loopEnabled ? `- **Loops Completed:** ${loopsCompleted}` : '',
+					totalInputTokens > 0 || totalOutputTokens > 0
+						? `- **Total Tokens:** ${(totalInputTokens + totalOutputTokens).toLocaleString()} (${totalInputTokens.toLocaleString()} in / ${totalOutputTokens.toLocaleString()} out)`
 						: '',
-					loopTotalCost > 0 ? `- **Cost:** $${loopTotalCost.toFixed(4)}` : '',
-					`- **Tasks Discovered for Next Loop:** ${newTotalTasks}`,
+					totalCost > 0 ? `- **Total Cost:** $${totalCost.toFixed(4)}` : '',
+					'',
+					`- **Documents:** ${documents.map((d) => d.filename).join(', ')}`,
+					...stalledDocsSection,
+					'',
+					`**Achievement Progress**`,
+					`- ${levelProgressText}`,
 				]
 					.filter((line) => line !== '')
 					.join('\n');
 
-				onAddHistoryEntry({
-					type: 'AUTO',
-					timestamp: Date.now(),
-					summary: loopSummary,
-					fullResponse: loopDetails,
-					projectPath: session.cwd,
-					sessionId: sessionId,
-					success: true,
-					elapsedTimeMs: loopElapsedMs,
-					usageStats:
-						loopTotalInputTokens > 0 || loopTotalOutputTokens > 0
-							? {
-									inputTokens: loopTotalInputTokens,
-									outputTokens: loopTotalOutputTokens,
-									cacheReadInputTokens: 0,
-									cacheCreationInputTokens: 0,
-									totalCostUsd: loopTotalCost,
-									contextWindow: 0,
-								}
-							: undefined,
-				});
+				// Success is true if not stopped and at least some documents completed without stalling
+				const isSuccess = !wasStopped && !allDocsStalled;
 
-				// Reset per-loop tracking for next iteration
-				loopStartTime = Date.now();
-				loopTasksCompleted = 0;
-				loopTotalInputTokens = 0;
-				loopTotalOutputTokens = 0;
-				loopTotalCost = 0;
+				try {
+					await onAddHistoryEntry({
+						type: 'AUTO',
+						timestamp: Date.now(),
+						summary: finalSummary,
+						fullResponse: finalDetails,
+						projectPath: session.cwd,
+						sessionId, // Include sessionId so the summary appears in session's history
+						success: isSuccess,
+						elapsedTimeMs: totalElapsedMs,
+						usageStats:
+							totalInputTokens > 0 || totalOutputTokens > 0
+								? {
+										inputTokens: totalInputTokens,
+										outputTokens: totalOutputTokens,
+										cacheReadInputTokens: 0,
+										cacheCreationInputTokens: 0,
+										totalCostUsd: totalCost,
+										contextWindow: 0,
+									}
+								: undefined,
+						achievementAction: 'openAbout', // Enable clickable link to achievements panel
+					});
+				} catch {
+					// Ignore history errors
+				}
 
-				// AUTORUN LOG: Loop completion
-				window.maestro.logger.autorun(`Loop ${loopIteration + 1} completed`, session.name, {
-					loopNumber: loopIteration + 1,
-					tasksCompleted: loopTasksCompleted,
-					tasksForNextLoop: newTotalTasks,
-				});
-
-				// Continue looping
-				loopIteration++;
-
-				updateBatchStateAndBroadcastRef.current!(sessionId, (prev) => ({
-					...prev,
-					[sessionId]: {
-						...prev[sessionId],
-						loopIteration,
-						totalTasksAcrossAllDocs: newTotalTasks + prev[sessionId].completedTasksAcrossAllDocs,
-						totalTasks: newTotalTasks + prev[sessionId].completedTasks,
-					},
-				}));
-			}
-
-			// Working copy approach: no cleanup needed
-			// - Original documents are never modified
-			// - Working copies in /Runs/ serve as audit logs and are kept
-			// - User can delete them manually if desired
-
-			// Create PR if worktree was used, PR creation is enabled, and not stopped
-			const wasStopped = stopRequestedRefs.current[sessionId] || false;
-			const sessionName = session.name || session.cwd.split('/').pop() || 'Unknown';
-			if (
-				worktreeActive &&
-				worktree?.createPROnCompletion &&
-				!wasStopped &&
-				totalCompletedTasks > 0 &&
-				worktreePath
-			) {
-				const prResult = await worktreeManager.createPR({
-					worktreePath,
-					mainRepoCwd: session.cwd,
-					worktree,
-					documents,
-					totalCompletedTasks,
-				});
-
-				if (onPRResult) {
-					onPRResult({
+				// Call completion callback if provided (only if still mounted to avoid warnings)
+				if (isMountedRef.current && onComplete) {
+					onComplete({
 						sessionId,
-						sessionName,
-						success: prResult.success,
-						prUrl: prResult.prUrl,
-						error: prResult.error,
+						sessionName: session.name || session.cwd.split('/').pop() || 'Unknown',
+						completedTasks: totalCompletedTasks,
+						totalTasks: initialTotalTasks,
+						wasStopped,
+						elapsedTimeMs: totalElapsedMs,
 					});
 				}
-			}
 
-			// Add final Auto Run summary entry
-			// Calculate visibility-aware elapsed time using the extracted time tracking hook
-			// (excludes time when laptop was sleeping/suspended)
-			const totalElapsedMs = timeTracking.getElapsedTime(sessionId);
-			const loopsCompleted = loopEnabled ? loopIteration + 1 : 1;
-
-			// Determine status based on stalled documents and completion
-			const stalledCount = stalledDocuments.size;
-			const allDocsStalled = stalledCount === documents.length;
-			const someDocsStalled = stalledCount > 0 && stalledCount < documents.length;
-			const statusText = wasStopped
-				? 'stopped'
-				: allDocsStalled
-					? 'stalled'
-					: someDocsStalled
-						? 'completed with stalls'
-						: 'completed';
-
-			// Calculate achievement progress for the summary
-			// Note: We use the stats BEFORE this run is recorded (the parent will call recordAutoRunComplete after)
-			// So we need to add totalElapsedMs to get the projected cumulative time
-			const projectedCumulativeTime = (autoRunStats?.cumulativeTimeMs || 0) + totalElapsedMs;
-			const currentBadge = getBadgeForTime(projectedCumulativeTime);
-			const nextBadge = getNextBadge(currentBadge);
-			const levelProgressText = nextBadge
-				? `Level ${currentBadge?.level || 0} → ${nextBadge.level}: ${formatTimeRemaining(projectedCumulativeTime, nextBadge)}`
-				: currentBadge
-					? `Level ${currentBadge.level} (${currentBadge.name}) - Maximum level achieved!`
-					: 'Level 0 → 1: ' + formatTimeRemaining(0, getBadgeForTime(0));
-
-			// Build summary with stall info if applicable
-			const stalledSuffix = stalledCount > 0 ? ` (${stalledCount} stalled)` : '';
-			const finalSummary = `Auto Run ${statusText}: ${totalCompletedTasks} task${totalCompletedTasks !== 1 ? 's' : ''} in ${formatElapsedTime(totalElapsedMs)}${stalledSuffix}`;
-
-			// Build status message with detailed info
-			let statusMessage: string;
-			if (wasStopped) {
-				statusMessage = 'Stopped by user';
-			} else if (allDocsStalled) {
-				statusMessage = `Stalled - All ${stalledCount} document(s) stopped making progress`;
-			} else if (someDocsStalled) {
-				statusMessage = `Completed with ${stalledCount} stalled document(s)`;
-			} else {
-				statusMessage = 'Completed';
-			}
-
-			// Build stalled documents section if any documents stalled
-			const stalledDocsSection: string[] = [];
-			if (stalledCount > 0) {
-				stalledDocsSection.push('');
-				stalledDocsSection.push('**Stalled Documents**');
-				stalledDocsSection.push('');
-				stalledDocsSection.push(
-					'The following documents stopped making progress after multiple attempts:'
-				);
-				for (const [docName, reason] of stalledDocuments) {
-					stalledDocsSection.push(`- **${docName}**: ${reason}`);
+				// Process any queued items that were waiting during batch run
+				// This ensures pending user messages are processed after Auto Run ends
+				if (isMountedRef.current && onProcessQueueAfterCompletion) {
+					// Use setTimeout to let state updates settle before processing queue
+					setTimeout(() => {
+						onProcessQueueAfterCompletion(sessionId);
+					}, 0);
 				}
-				stalledDocsSection.push('');
-				stalledDocsSection.push(
-					'*Tasks in stalled documents may need manual review or clarification.*'
-				);
-			}
+			} finally {
+				// ===== CRITICAL CLEANUP: Everything below MUST always execute =====
+				// This finally block guarantees endAutoRun() and state cleanup run even if
+				// an unhandled exception or abort occurs during the processing loop above.
 
-			const finalDetails = [
-				`**Auto Run Summary**`,
-				'',
-				`- **Status:** ${statusMessage}`,
-				`- **Tasks Completed:** ${totalCompletedTasks}`,
-				`- **Total Duration:** ${formatElapsedTime(totalElapsedMs)}`,
-				loopEnabled ? `- **Loops Completed:** ${loopsCompleted}` : '',
-				totalInputTokens > 0 || totalOutputTokens > 0
-					? `- **Total Tokens:** ${(totalInputTokens + totalOutputTokens).toLocaleString()} (${totalInputTokens.toLocaleString()} in / ${totalOutputTokens.toLocaleString()} out)`
-					: '',
-				totalCost > 0 ? `- **Total Cost:** $${totalCost.toFixed(4)}` : '',
-				'',
-				`- **Documents:** ${documents.map((d) => d.filename).join(', ')}`,
-				...stalledDocsSection,
-				'',
-				`**Achievement Progress**`,
-				`- ${levelProgressText}`,
-			]
-				.filter((line) => line !== '')
-				.join('\n');
+				// Compute elapsed time for endAutoRun (safe to call even after exception)
+				const finalElapsedMs = timeTracking.getElapsedTime(sessionId);
 
-			// Success is true if not stopped and at least some documents completed without stalling
-			const isSuccess = !wasStopped && !allDocsStalled;
-
-			try {
-				await onAddHistoryEntry({
-					type: 'AUTO',
-					timestamp: Date.now(),
-					summary: finalSummary,
-					fullResponse: finalDetails,
-					projectPath: session.cwd,
-					sessionId, // Include sessionId so the summary appears in session's history
-					success: isSuccess,
-					elapsedTimeMs: totalElapsedMs,
-					usageStats:
-						totalInputTokens > 0 || totalOutputTokens > 0
-							? {
-									inputTokens: totalInputTokens,
-									outputTokens: totalOutputTokens,
-									cacheReadInputTokens: 0,
-									cacheCreationInputTokens: 0,
-									totalCostUsd: totalCost,
-									contextWindow: 0,
-								}
-							: undefined,
-					achievementAction: 'openAbout', // Enable clickable link to achievements panel
-				});
-			} catch {
-				// Ignore history errors
-			}
-
-			// End stats tracking for this Auto Run session
-			if (statsAutoRunId) {
-				try {
-					await window.maestro.stats.endAutoRun(
-						statsAutoRunId,
-						totalElapsedMs,
-						totalCompletedTasks
-					);
-				} catch (statsError) {
-					// Don't fail cleanup if stats tracking fails
-					console.warn('[BatchProcessor] Failed to end stats tracking:', statsError);
+				// End stats tracking for this Auto Run session
+				if (statsAutoRunId) {
+					try {
+						await window.maestro.stats.endAutoRun(
+							statsAutoRunId,
+							finalElapsedMs,
+							totalCompletedTasks
+						);
+					} catch (statsError) {
+						// Don't fail cleanup if stats tracking fails
+						console.warn('[BatchProcessor] Failed to end stats tracking:', statsError);
+					}
 				}
-			}
 
-			// Critical: Always flush debounced updates and dispatch COMPLETE_BATCH to clean up state.
-			// These operations are safe regardless of mount state - React handles reducer dispatches gracefully,
-			// and broadcasts are external calls that don't affect React state.
-			console.log(
-				'[BatchProcessor:startBatchRun] Flushing debounced updates before COMPLETE_BATCH'
-			);
-			flushDebouncedUpdate(sessionId);
+				// Critical: Always flush debounced updates and dispatch COMPLETE_BATCH to clean up state.
+				// These operations are safe regardless of mount state - React handles reducer dispatches gracefully,
+				// and broadcasts are external calls that don't affect React state.
+				console.log(
+					'[BatchProcessor:startBatchRun] Flushing debounced updates before COMPLETE_BATCH'
+				);
+				flushDebouncedUpdate(sessionId);
 
-			// Reset state for this session using COMPLETE_BATCH action
-			// (not updateBatchStateAndBroadcast which only supports UPDATE_PROGRESS)
-			dispatch({
-				type: 'COMPLETE_BATCH',
-				sessionId,
-				finalSessionIds: agentSessionIds,
-			});
-			// Broadcast state change to web clients
-			broadcastAutoRunState(sessionId, null);
-
-			// Call completion callback if provided (only if still mounted to avoid warnings)
-			if (isMountedRef.current && onComplete) {
-				onComplete({
+				// Reset state for this session using COMPLETE_BATCH action
+				// (not updateBatchStateAndBroadcast which only supports UPDATE_PROGRESS)
+				dispatch({
+					type: 'COMPLETE_BATCH',
 					sessionId,
-					sessionName: session.name || session.cwd.split('/').pop() || 'Unknown',
-					completedTasks: totalCompletedTasks,
-					totalTasks: initialTotalTasks,
-					wasStopped,
-					elapsedTimeMs: totalElapsedMs,
+					finalSessionIds: agentSessionIds,
 				});
-			}
+				// Broadcast state change to web clients
+				broadcastAutoRunState(sessionId, null);
 
-			// Process any queued items that were waiting during batch run
-			// This ensures pending user messages are processed after Auto Run ends
-			if (isMountedRef.current && onProcessQueueAfterCompletion) {
-				// Use setTimeout to let state updates settle before processing queue
-				setTimeout(() => {
-					onProcessQueueAfterCompletion(sessionId);
-				}, 0);
-			}
+				// Clean up time tracking, error resolution, and stop request flag
+				// Clearing stopRequestedRefs here (not just at start) ensures proper cleanup
+				// regardless of how the batch ended (normal completion, stopped, or error)
+				// Note: These cleanup operations are safe even after unmount (they only affect refs)
+				timeTracking.stopTracking(sessionId);
+				delete errorResolutionRefs.current[sessionId];
+				delete stopRequestedRefs.current[sessionId];
 
-			// Clean up time tracking, error resolution, and stop request flag
-			// Clearing stopRequestedRefs here (not just at start) ensures proper cleanup
-			// regardless of how the batch ended (normal completion, stopped, or error)
-			// Note: These cleanup operations are safe even after unmount (they only affect refs)
-			timeTracking.stopTracking(sessionId);
-			delete errorResolutionRefs.current[sessionId];
-			delete stopRequestedRefs.current[sessionId];
-
-			// Allow system to sleep now that Auto Run is complete
-			window.maestro.power.removeReason(`autorun:${sessionId}`);
+				// Allow system to sleep now that Auto Run is complete
+				window.maestro.power.removeReason(`autorun:${sessionId}`);
+			} // end finally
 			// Note: updateBatchStateAndBroadcast is accessed via ref to avoid stale closure in long-running async
 			// flushDebouncedUpdate is stable (empty deps in useSessionDebounce) so adding it doesn't cause re-renders
 		},

@@ -130,7 +130,8 @@ export const CREATE_AUTO_RUN_TASKS_SQL = `
     task_content TEXT,
     start_time INTEGER NOT NULL,
     duration INTEGER NOT NULL,
-    success INTEGER NOT NULL CHECK(success IN (0, 1))
+    success INTEGER NOT NULL CHECK(success IN (0, 1)),
+    tasks_completed_count INTEGER
   )
 `;
 

@@ -149,26 +149,23 @@ function MetricCard({ icon, label, value, subValue, theme }: MetricCardProps) {
 }
 
 /**
- * Group tasks by date for the mini bar chart
+ * Group sessions by date for the mini bar chart, summing session-level
+ * tasksCompleted/tasksTotal to reflect actual checkbox tasks (not agent calls).
  */
-function groupTasksByDate(
-	tasks: AutoRunTask[]
-): { date: string; count: number; successCount: number }[] {
-	const grouped: Record<string, { count: number; successCount: number }> = {};
+function groupSessionsByDate(sessions: AutoRunSession[]): { date: string; count: number }[] {
+	const grouped: Record<string, number> = {};
 
-	tasks.forEach((task) => {
-		const date = new Date(task.startTime).toISOString().split('T')[0];
+	sessions.forEach((session) => {
+		const date = new Date(session.startTime).toISOString().split('T')[0];
 		if (!grouped[date]) {
-			grouped[date] = { count: 0, successCount: 0 };
+			grouped[date] = 0;
 		}
-		grouped[date].count++;
-		if (task.success) {
-			grouped[date].successCount++;
-		}
+		grouped[date] += session.tasksCompleted ?? 0;
 	});
 
 	return Object.entries(grouped)
-		.map(([date, stats]) => ({ date, ...stats }))
+		.map(([date, count]) => ({ date, count }))
+		.filter((d) => d.count > 0)
 		.sort((a, b) => a.date.localeCompare(b.date));
 }
 
@@ -180,7 +177,6 @@ export function AutoRunStats({ timeRange, theme, columns = 6 }: AutoRunStatsProp
 	const [hoveredBar, setHoveredBar] = useState<{
 		date: string;
 		count: number;
-		successCount: number;
 	} | null>(null);
 	const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(null);
 
@@ -224,24 +220,41 @@ export function AutoRunStats({ timeRange, theme, columns = 6 }: AutoRunStatsProp
 	// Calculate metrics
 	const metrics = useMemo(() => {
 		const totalSessions = sessions.length;
-		const totalTasksCompleted = allTasks.filter((t) => t.success).length;
-		const totalTasksAttempted = allTasks.length;
+
+		// Use session-level tasksCompleted (set by endAutoRun) — each session tracks
+		// the actual number of checkbox tasks completed, not just agent invocations.
+		// auto_run_tasks rows represent agent calls (1 per processTask()), but each
+		// call can complete multiple checkbox tasks.
+		// Filter out orphaned/aborted sessions (null tasksCompleted) for accurate counts.
+		const completedSessions = sessions.filter((s) => s.tasksCompleted != null);
+		const totalTasksCompleted = completedSessions.reduce(
+			(sum, s) => sum + (s.tasksCompleted ?? 0),
+			0
+		);
+		const totalTasksAttempted = completedSessions.reduce((sum, s) => sum + (s.tasksTotal ?? 0), 0);
 
 		// Average tasks per session
 		const avgTasksPerSession =
 			totalSessions > 0 ? (totalTasksCompleted / totalSessions).toFixed(1) : '0';
 
-		// Success rate
+		// Session completion rate: percentage of sessions that completed all queued tasks.
+		// Measures conductor effectiveness — how well the user architects batches that
+		// run to completion, overcoming context/model/orchestration limits.
+		const fullyCompletedSessions = completedSessions.filter(
+			(s) => (s.tasksCompleted ?? 0) >= (s.tasksTotal ?? 0)
+		);
 		const successRate =
-			totalTasksAttempted > 0 ? Math.round((totalTasksCompleted / totalTasksAttempted) * 100) : 0;
+			completedSessions.length > 0
+				? Math.round((fullyCompletedSessions.length / completedSessions.length) * 100)
+				: 0;
 
 		// Average session duration
 		const totalSessionDuration = sessions.reduce((sum, s) => sum + s.duration, 0);
 		const avgSessionDuration = totalSessions > 0 ? totalSessionDuration / totalSessions : 0;
 
-		// Average task duration
+		// Average task duration (per agent invocation, using task rows)
 		const totalTaskDuration = allTasks.reduce((sum, t) => sum + t.duration, 0);
-		const avgTaskDuration = totalTasksAttempted > 0 ? totalTaskDuration / totalTasksAttempted : 0;
+		const avgTaskDuration = allTasks.length > 0 ? totalTaskDuration / allTasks.length : 0;
 
 		return {
 			totalSessions,
@@ -249,17 +262,19 @@ export function AutoRunStats({ timeRange, theme, columns = 6 }: AutoRunStatsProp
 			totalTasksAttempted,
 			avgTasksPerSession,
 			successRate,
+			fullyCompletedCount: fullyCompletedSessions.length,
+			completedSessionCount: completedSessions.length,
 			avgSessionDuration,
 			avgTaskDuration,
 		};
 	}, [sessions, allTasks]);
 
-	// Group tasks by date for chart
+	// Group sessions by date for chart (uses session-level task counts)
 	const tasksByDate = useMemo(() => {
-		const grouped = groupTasksByDate(allTasks);
+		const grouped = groupSessionsByDate(sessions);
 		// Return last 14 days max
 		return grouped.slice(-14);
-	}, [allTasks]);
+	}, [sessions]);
 
 	// Max count for bar height calculation
 	const maxCount = useMemo(() => {
@@ -269,10 +284,7 @@ export function AutoRunStats({ timeRange, theme, columns = 6 }: AutoRunStatsProp
 
 	// Handle mouse events for tooltip
 	const handleMouseEnter = useCallback(
-		(
-			data: { date: string; count: number; successCount: number },
-			event: React.MouseEvent<HTMLDivElement>
-		) => {
+		(data: { date: string; count: number }, event: React.MouseEvent<HTMLDivElement>) => {
 			setHoveredBar(data);
 			// Use mouse position directly - more reliable positioning
 			setTooltipPos({
@@ -385,7 +397,7 @@ export function AutoRunStats({ timeRange, theme, columns = 6 }: AutoRunStatsProp
 					icon={<CheckSquare className="w-4 h-4" />}
 					label="Tasks Done"
 					value={formatNumber(metrics.totalTasksCompleted)}
-					subValue={`of ${formatNumber(metrics.totalTasksAttempted)} attempted`}
+					subValue={`across ${metrics.totalSessions} sessions`}
 					theme={theme}
 				/>
 				<MetricCard
@@ -396,8 +408,9 @@ export function AutoRunStats({ timeRange, theme, columns = 6 }: AutoRunStatsProp
 				/>
 				<MetricCard
 					icon={<Target className="w-4 h-4" />}
-					label="Success Rate"
+					label="Completion Rate"
 					value={`${metrics.successRate}%`}
+					subValue={`${metrics.fullyCompletedCount} of ${metrics.completedSessionCount} sessions`}
 					theme={theme}
 				/>
 				<MetricCard
@@ -435,7 +448,6 @@ export function AutoRunStats({ timeRange, theme, columns = 6 }: AutoRunStatsProp
 						>
 							{tasksByDate.map((day) => {
 								const height = maxCount > 0 ? (day.count / maxCount) * 100 : 0;
-								const successRatio = day.count > 0 ? day.successCount / day.count : 0;
 								const isHovered = hoveredBar?.date === day.date;
 
 								return (
@@ -445,13 +457,13 @@ export function AutoRunStats({ timeRange, theme, columns = 6 }: AutoRunStatsProp
 										style={{
 											height: `${Math.max(height, 4)}%`,
 											backgroundColor: theme.colors.accent,
-											opacity: isHovered ? 1 : 0.7 + successRatio * 0.3,
+											opacity: isHovered ? 1 : 0.85,
 										}}
 										onMouseEnter={(e) => handleMouseEnter(day, e)}
 										onMouseLeave={handleMouseLeave}
 										data-testid={`task-bar-${day.date}`}
 										role="listitem"
-										aria-label={`${formatFullDate(day.date)}: ${day.count} tasks completed, ${day.successCount} successful (${Math.round((day.successCount / day.count) * 100)}%)`}
+										aria-label={`${formatFullDate(day.date)}: ${day.count} tasks completed`}
 										tabIndex={0}
 									/>
 								);
@@ -497,11 +509,6 @@ export function AutoRunStats({ timeRange, theme, columns = 6 }: AutoRunStatsProp
 									<div className="font-medium mb-1">{formatFullDate(hoveredBar.date)}</div>
 									<div style={{ color: theme.colors.textDim }}>
 										<div>{hoveredBar.count} tasks completed</div>
-										<div>
-											{hoveredBar.successCount} successful (
-											{Math.round((hoveredBar.successCount / hoveredBar.count) * 100)}
-											%)
-										</div>
 									</div>
 								</div>,
 								document.body

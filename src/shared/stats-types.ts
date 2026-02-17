@@ -116,6 +116,7 @@ export interface AutoRunTask {
 	startTime: number;
 	duration: number;
 	success: boolean;
+	tasksCompletedCount?: number; // Number of checkbox tasks completed in this agent invocation
 }
 
 /**
@@ -241,5 +242,6 @@ export interface StatsFilters {
  * Version 6: Added agent_id column for proper Maestro agent attribution
  * Version 7: Added dual-source cost tracking (Anthropic + Maestro) and audit tables
  * Version 8: Added claude_session_id for reconstruction matching
+ * Version 9: Added tasks_completed_count to auto_run_tasks for per-invocation task counting
  */
-export const STATS_DB_VERSION = 8;
+export const STATS_DB_VERSION = 9;

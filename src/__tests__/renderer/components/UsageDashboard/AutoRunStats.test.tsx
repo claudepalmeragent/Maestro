@@ -206,9 +206,9 @@ describe('AutoRunStats', () => {
 
 			await waitFor(() => {
 				expect(screen.getByText('Tasks Done')).toBeInTheDocument();
-				// 7 successful tasks out of 8 total
+				// 7 completed tasks (4 + 3)
 				expect(screen.getByText('7')).toBeInTheDocument();
-				expect(screen.getByText('of 8 attempted')).toBeInTheDocument();
+				expect(screen.getByText('across 2 sessions')).toBeInTheDocument();
 			});
 		});
 
@@ -222,13 +222,13 @@ describe('AutoRunStats', () => {
 			});
 		});
 
-		it('renders Success Rate metric', async () => {
+		it('renders Completion Rate metric', async () => {
 			render(<AutoRunStats timeRange="week" theme={theme} />);
 
 			await waitFor(() => {
-				expect(screen.getByText('Success Rate')).toBeInTheDocument();
-				// 7 out of 8 = 87.5%, rounded to 88%
-				expect(screen.getByText('88%')).toBeInTheDocument();
+				expect(screen.getByText('Completion Rate')).toBeInTheDocument();
+				// Session completion rate: session-2 (3/3) fully completed, session-1 (4/5) not = 1/2 = 50%
+				expect(screen.getByText('50%')).toBeInTheDocument();
 			});
 		});
 
@@ -401,8 +401,14 @@ describe('AutoRunStats', () => {
 		});
 
 		it('calculates 0% success rate correctly', async () => {
+			// Use session-level data: tasksCompleted=0 means 0% success rate
+			const failedSession = {
+				...mockSessions[0],
+				tasksCompleted: 0,
+				tasksTotal: 5,
+			};
 			const failedTasks = mockTasksSession1.map((t) => ({ ...t, success: false }));
-			mockStatsApi.getAutoRunSessions.mockResolvedValue([mockSessions[0]]);
+			mockStatsApi.getAutoRunSessions.mockResolvedValue([failedSession]);
 			mockStatsApi.getAutoRunTasks.mockResolvedValue(failedTasks);
 
 			render(<AutoRunStats timeRange="week" theme={theme} />);

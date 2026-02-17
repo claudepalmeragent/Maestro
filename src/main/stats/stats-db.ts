@@ -45,6 +45,7 @@ import {
 	insertAutoRunTask,
 	getAutoRunTasks,
 	clearAutoRunCache,
+	reconstructOrphanedSessions,
 } from './auto-run';
 import {
 	recordSessionCreated,
@@ -131,6 +132,12 @@ export class StatsDB {
 
 			// Run migrations
 			runMigrations(this.db);
+
+			// Reconstruct orphaned Auto Run sessions (where endAutoRun() was never called)
+			const reconstructed = reconstructOrphanedSessions(this.db);
+			if (reconstructed > 0) {
+				logger.info(`Reconstructed ${reconstructed} orphaned Auto Run session(s)`, LOG_CONTEXT);
+			}
 
 			this.initialized = true;
 			logger.info(`Stats database initialized at ${this.dbPath}`, LOG_CONTEXT);
@@ -501,6 +508,10 @@ export class StatsDB {
 
 	getAutoRunTasks(autoRunSessionId: string): AutoRunTask[] {
 		return getAutoRunTasks(this.database, autoRunSessionId);
+	}
+
+	reconstructOrphanedSessions(): number {
+		return reconstructOrphanedSessions(this.database);
 	}
 
 	// ============================================================================
