@@ -490,6 +490,7 @@ export type ClaudeModelId =
 	| 'claude-opus-4-1-20250319'
 	| 'claude-opus-4-20250514'
 	| 'claude-sonnet-4-5-20250929'
+	| 'claude-sonnet-4-6-20260218'
 	| 'claude-sonnet-4-20250514'
 	| 'claude-haiku-4-5-20251001'
 	| 'claude-haiku-3-5-20241022'

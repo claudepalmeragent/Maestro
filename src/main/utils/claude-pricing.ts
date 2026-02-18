@@ -18,6 +18,7 @@ export type ClaudeModelId =
 	| 'claude-opus-4-1-20250319'
 	| 'claude-opus-4-20250514'
 	| 'claude-sonnet-4-5-20250929'
+	| 'claude-sonnet-4-6-20260218'
 	| 'claude-sonnet-4-20250514'
 	| 'claude-haiku-4-5-20251001'
 	| 'claude-haiku-3-5-20241022'
@@ -51,6 +52,7 @@ export interface ClaudeModelPricing extends PricingConfig {
  * | Opus 4.1 | $15 | $75 | $1.50 | $18.75 |
  * | Opus 4 | $15 | $75 | $1.50 | $18.75 |
  * | Sonnet 4.5 | $3 | $15 | $0.30 | $3.75 |
+ * | Sonnet 4.6 | $3 | $15 | $0.30 | $3.75 |
  * | Sonnet 4 | $3 | $15 | $0.30 | $3.75 |
  * | Haiku 4.5 | $1 | $5 | $0.10 | $1.25 |
  * | Haiku 3.5 | $0.80 | $4 | $0.08 | $1 |
@@ -102,6 +104,15 @@ export const CLAUDE_MODEL_PRICING: Record<ClaudeModelId, ClaudeModelPricing> = {
 		CACHE_READ_PER_MILLION: 0.3,
 		CACHE_CREATION_PER_MILLION: 3.75,
 	},
+	// Sonnet 4.6
+	'claude-sonnet-4-6-20260218': {
+		displayName: 'Claude Sonnet 4.6',
+		family: 'sonnet',
+		INPUT_PER_MILLION: 3,
+		OUTPUT_PER_MILLION: 15,
+		CACHE_READ_PER_MILLION: 0.3,
+		CACHE_CREATION_PER_MILLION: 3.75,
+	},
 	// Sonnet 4
 	'claude-sonnet-4-20250514': {
 		displayName: 'Claude Sonnet 4',
@@ -147,7 +158,7 @@ export const CLAUDE_MODEL_PRICING: Record<ClaudeModelId, ClaudeModelPricing> = {
 export const MODEL_ALIASES: Record<string, ClaudeModelId> = {
 	// Latest aliases
 	opus: 'claude-opus-4-5-20251101',
-	sonnet: 'claude-sonnet-4-20250514',
+	sonnet: 'claude-sonnet-4-6-20260218',
 	haiku: 'claude-haiku-4-5-20251001',
 
 	// Versioned aliases
@@ -156,6 +167,7 @@ export const MODEL_ALIASES: Record<string, ClaudeModelId> = {
 	'opus-4.1': 'claude-opus-4-1-20250319',
 	'opus-4': 'claude-opus-4-20250514',
 	'sonnet-4.5': 'claude-sonnet-4-5-20250929',
+	'sonnet-4.6': 'claude-sonnet-4-6-20260218',
 	'sonnet-4': 'claude-sonnet-4-20250514',
 	'haiku-4.5': 'claude-haiku-4-5-20251001',
 	'haiku-3.5': 'claude-haiku-3-5-20241022',
@@ -167,6 +179,7 @@ export const MODEL_ALIASES: Record<string, ClaudeModelId> = {
 	opus_4_1: 'claude-opus-4-1-20250319',
 	opus_4: 'claude-opus-4-20250514',
 	sonnet_4_5: 'claude-sonnet-4-5-20250929',
+	sonnet_4_6: 'claude-sonnet-4-6-20260218',
 	sonnet_4: 'claude-sonnet-4-20250514',
 	haiku_4_5: 'claude-haiku-4-5-20251001',
 	haiku_3_5: 'claude-haiku-3-5-20241022',
@@ -179,6 +192,7 @@ export const MODEL_ALIASES: Record<string, ClaudeModelId> = {
 	'claude-opus-4-1': 'claude-opus-4-1-20250319',
 	'claude-opus-4': 'claude-opus-4-20250514',
 	'claude-sonnet-4-5': 'claude-sonnet-4-5-20250929',
+	'claude-sonnet-4-6': 'claude-sonnet-4-6-20260218',
 	'claude-sonnet-4': 'claude-sonnet-4-20250514',
 	'claude-haiku-4-5': 'claude-haiku-4-5-20251001',
 	'claude-haiku-3-5': 'claude-haiku-3-5-20241022',

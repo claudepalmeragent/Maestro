@@ -46,6 +46,7 @@ const MODEL_OPTIONS: ModelOption[] = [
 	{ value: 'claude-opus-4-1-20250319', label: 'Opus 4.1', family: 'opus' },
 	{ value: 'claude-opus-4-20250514', label: 'Opus 4', family: 'opus' },
 	// Sonnet family
+	{ value: 'claude-sonnet-4-6-20260218', label: 'Sonnet 4.6', family: 'sonnet' },
 	{ value: 'claude-sonnet-4-5-20250929', label: 'Sonnet 4.5', family: 'sonnet' },
 	{ value: 'claude-sonnet-4-20250514', label: 'Sonnet 4', family: 'sonnet' },
 	// Haiku family

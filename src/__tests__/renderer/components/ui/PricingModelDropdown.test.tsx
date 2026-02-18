@@ -65,6 +65,7 @@ describe('PricingModelDropdown', () => {
 
 			// Check for Sonnet models
 			expect(screen.getByText('Sonnet 4.5')).toBeInTheDocument();
+			expect(screen.getByText('Sonnet 4.6')).toBeInTheDocument();
 			expect(screen.getByText('Sonnet 4')).toBeInTheDocument();
 
 			// Check for Haiku models
