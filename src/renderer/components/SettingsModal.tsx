@@ -271,6 +271,8 @@ interface SettingsModalProps {
 	setCheckForUpdatesOnStartup: (value: boolean) => void;
 	enableBetaUpdates: boolean;
 	setEnableBetaUpdates: (value: boolean) => void;
+	checkForNewModelsOnStartup: boolean;
+	setCheckForNewModelsOnStartup: (value: boolean) => void;
 	crashReportingEnabled: boolean;
 	setCrashReportingEnabled: (value: boolean) => void;
 	customAICommands: CustomAICommand[];
@@ -1759,6 +1761,17 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 								description="Opt-in to receive pre-release versions (e.g., v0.11.1-rc, v0.12.0-beta). These may contain experimental features and bugs."
 								checked={props.enableBetaUpdates}
 								onChange={props.setEnableBetaUpdates}
+								theme={theme}
+							/>
+
+							{/* New Model Detection */}
+							<SettingCheckbox
+								icon={Cpu}
+								sectionLabel="Model Detection"
+								title="Check for new Claude models on startup"
+								description="Notify when Anthropic releases a Claude model not yet in Maestro's pricing registry. New models will show $0 costs until a Maestro update adds support."
+								checked={props.checkForNewModelsOnStartup}
+								onChange={props.setCheckForNewModelsOnStartup}
 								theme={theme}
 							/>
 

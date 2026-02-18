@@ -1672,6 +1672,15 @@ interface MaestroAPI {
 			}) => void
 		) => () => void;
 		setAllowPrerelease: (allow: boolean) => Promise<void>;
+		checkNewModels: () => Promise<{
+			newModels: Array<{
+				name: string;
+				inputPricePerMillion?: number;
+				outputPricePerMillion?: number;
+			}>;
+			error?: string;
+			skipped?: boolean;
+		}>;
 	};
 	// Debug Package API
 	debug: {

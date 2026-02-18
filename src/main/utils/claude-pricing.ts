@@ -311,3 +311,17 @@ export function getModelsByFamily(family: 'opus' | 'sonnet' | 'haiku'): ClaudeMo
 		.filter(([, pricing]) => pricing.family === family)
 		.map(([id]) => id);
 }
+
+/**
+ * Get all known model display names from the pricing registry.
+ * Used by the model checker to compare against externally discovered models.
+ *
+ * @returns Set of all display names (e.g., 'Claude Opus 4.6', 'Claude Sonnet 4.5')
+ */
+export function getAllKnownModelDisplayNames(): Set<string> {
+	const names = new Set<string>();
+	for (const pricing of Object.values(CLAUDE_MODEL_PRICING)) {
+		names.add(pricing.displayName);
+	}
+	return names;
+}

@@ -25,6 +25,7 @@ import { isCloudflaredInstalled } from '../../utils/cliDetection';
 import { tunnelManager as tunnelManagerInstance } from '../../tunnel-manager';
 import { checkForUpdates } from '../../update-checker';
 import { setAllowPrerelease } from '../../auto-updater';
+import { checkForNewModels } from '../../model-checker';
 import { WebServer } from '../../web-server';
 import { powerManager } from '../../power-manager';
 import { MaestroSettings } from './persistence';
@@ -284,6 +285,12 @@ export function registerSystemHandlers(deps: SystemHandlerDependencies): void {
 	// Set whether to allow prerelease updates (for electron-updater)
 	ipcMain.handle('updates:setAllowPrerelease', async (_event, allow: boolean) => {
 		setAllowPrerelease(allow);
+	});
+
+	// ============ Model Check Handler ============
+
+	ipcMain.handle('models:checkNew', async () => {
+		return checkForNewModels();
 	});
 
 	// ============ Logger Handlers ============

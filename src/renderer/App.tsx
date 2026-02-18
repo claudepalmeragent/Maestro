@@ -479,6 +479,8 @@ function MaestroConsoleInner() {
 		setCheckForUpdatesOnStartup,
 		enableBetaUpdates,
 		setEnableBetaUpdates,
+		checkForNewModelsOnStartup,
+		setCheckForNewModelsOnStartup,
 		crashReportingEnabled,
 		setCrashReportingEnabled,
 		shortcuts,
@@ -1764,6 +1766,44 @@ function MaestroConsoleInner() {
 			return () => clearTimeout(timer);
 		}
 	}, [settingsLoaded, checkForUpdatesOnStartup, enableBetaUpdates]);
+
+	// Check for new Claude models on startup if enabled
+	useEffect(() => {
+		if (settingsLoaded && checkForNewModelsOnStartup) {
+			// Delay 5 seconds (longer than update check's 2s to avoid competing)
+			const timer = setTimeout(async () => {
+				try {
+					const result = await window.maestro.updates.checkNewModels();
+					if (!result.skipped && !result.error && result.newModels.length > 0) {
+						const MAX_INDIVIDUAL_TOASTS = 3;
+						if (result.newModels.length <= MAX_INDIVIDUAL_TOASTS) {
+							for (const model of result.newModels) {
+								const priceInfo =
+									model.inputPricePerMillion !== undefined
+										? ` (Input: $${model.inputPricePerMillion}/MTok, Output: $${model.outputPricePerMillion}/MTok)`
+										: '';
+								addToast({
+									type: 'warning',
+									title: 'New Claude Model Detected',
+									message: `${model.name}${priceInfo} is available but not yet configured in Maestro — costs will show as $0 until a Maestro update adds support.`,
+								});
+							}
+						} else {
+							const names = result.newModels.map((m) => m.name).join(', ');
+							addToast({
+								type: 'warning',
+								title: 'New Claude Models Detected',
+								message: `${result.newModels.length} new models detected (${names}) but not yet configured — costs will show as $0 until a Maestro update adds support.`,
+							});
+						}
+					}
+				} catch (error) {
+					console.error('Failed to check for new Claude models on startup:', error);
+				}
+			}, 5000);
+			return () => clearTimeout(timer);
+		}
+	}, [settingsLoaded, checkForNewModelsOnStartup, addToast]);
 
 	// Sync leaderboard stats from server on startup (Gap 2 fix for multi-device aggregation)
 	// This ensures a new device installation gets the aggregated stats from all devices
@@ -13876,6 +13916,8 @@ You are taking over this conversation. Based on the context above, provide a bri
 					setCheckForUpdatesOnStartup={setCheckForUpdatesOnStartup}
 					enableBetaUpdates={enableBetaUpdates}
 					setEnableBetaUpdates={setEnableBetaUpdates}
+					checkForNewModelsOnStartup={checkForNewModelsOnStartup}
+					setCheckForNewModelsOnStartup={setCheckForNewModelsOnStartup}
 					crashReportingEnabled={crashReportingEnabled}
 					setCrashReportingEnabled={setCrashReportingEnabled}
 					customAICommands={customAICommands}

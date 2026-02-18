@@ -172,6 +172,15 @@ export function createUpdatesApi() {
 		},
 		setAllowPrerelease: (allow: boolean): Promise<void> =>
 			ipcRenderer.invoke('updates:setAllowPrerelease', allow),
+		checkNewModels: (): Promise<{
+			newModels: Array<{
+				name: string;
+				inputPricePerMillion?: number;
+				outputPricePerMillion?: number;
+			}>;
+			error?: string;
+			skipped?: boolean;
+		}> => ipcRenderer.invoke('models:checkNew'),
 	};
 }
 

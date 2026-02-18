@@ -219,6 +219,10 @@ export interface UseSettingsReturn {
 	enableBetaUpdates: boolean;
 	setEnableBetaUpdates: (value: boolean) => void;
 
+	// Model detection settings
+	checkForNewModelsOnStartup: boolean;
+	setCheckForNewModelsOnStartup: (value: boolean) => void;
+
 	// Crash reporting settings
 	crashReportingEnabled: boolean;
 	setCrashReportingEnabled: (value: boolean) => void;
@@ -417,6 +421,7 @@ export function useSettings(): UseSettingsReturn {
 	// Update Config
 	const [checkForUpdatesOnStartup, setCheckForUpdatesOnStartupState] = useState(true); // Default: on
 	const [enableBetaUpdates, setEnableBetaUpdatesState] = useState(false); // Default: off (stable only)
+	const [checkForNewModelsOnStartup, setCheckForNewModelsOnStartupState] = useState(true); // Default: on
 
 	// Crash Reporting Config
 	const [crashReportingEnabled, setCrashReportingEnabledState] = useState(true); // Default: on (opt-out)
@@ -697,6 +702,11 @@ export function useSettings(): UseSettingsReturn {
 	const setEnableBetaUpdates = useCallback((value: boolean) => {
 		setEnableBetaUpdatesState(value);
 		window.maestro.settings.set('enableBetaUpdates', value);
+	}, []);
+
+	const setCheckForNewModelsOnStartup = useCallback((value: boolean) => {
+		setCheckForNewModelsOnStartupState(value);
+		window.maestro.settings.set('checkForNewModelsOnStartup', value);
 	}, []);
 
 	const setCrashReportingEnabled = useCallback((value: boolean) => {
@@ -1383,6 +1393,7 @@ export function useSettings(): UseSettingsReturn {
 				const savedToastDuration = allSettings['toastDuration'];
 				const savedCheckForUpdatesOnStartup = allSettings['checkForUpdatesOnStartup'];
 				const savedEnableBetaUpdates = allSettings['enableBetaUpdates'];
+				const savedCheckForNewModelsOnStartup = allSettings['checkForNewModelsOnStartup'];
 				const savedCrashReportingEnabled = allSettings['crashReportingEnabled'];
 				const savedLogViewerSelectedLevels = allSettings['logViewerSelectedLevels'];
 				const savedCustomAICommands = allSettings['customAICommands'];
@@ -1471,6 +1482,8 @@ export function useSettings(): UseSettingsReturn {
 					setCheckForUpdatesOnStartupState(savedCheckForUpdatesOnStartup as boolean);
 				if (savedEnableBetaUpdates !== undefined)
 					setEnableBetaUpdatesState(savedEnableBetaUpdates as boolean);
+				if (savedCheckForNewModelsOnStartup !== undefined)
+					setCheckForNewModelsOnStartupState(savedCheckForNewModelsOnStartup as boolean);
 				if (savedCrashReportingEnabled !== undefined)
 					setCrashReportingEnabledState(savedCrashReportingEnabled as boolean);
 				if (savedLogViewerSelectedLevels !== undefined)
@@ -1860,6 +1873,8 @@ export function useSettings(): UseSettingsReturn {
 			setCheckForUpdatesOnStartup,
 			enableBetaUpdates,
 			setEnableBetaUpdates,
+			checkForNewModelsOnStartup,
+			setCheckForNewModelsOnStartup,
 			crashReportingEnabled,
 			setCrashReportingEnabled,
 			logViewerSelectedLevels,
@@ -1976,6 +1991,7 @@ export function useSettings(): UseSettingsReturn {
 			toastDuration,
 			checkForUpdatesOnStartup,
 			enableBetaUpdates,
+			checkForNewModelsOnStartup,
 			crashReportingEnabled,
 			logViewerSelectedLevels,
 			shortcuts,

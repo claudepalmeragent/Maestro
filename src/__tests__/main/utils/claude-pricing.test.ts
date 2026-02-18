@@ -12,6 +12,7 @@ import {
 	getModelDisplayName,
 	getAllModelIds,
 	getModelsByFamily,
+	getAllKnownModelDisplayNames,
 	isClaudeModelId,
 	type ClaudeModelId,
 } from '../../../main/utils/claude-pricing';
@@ -262,6 +263,29 @@ describe('claude-pricing', () => {
 			expect(haikuModels.length).toBe(3);
 			expect(haikuModels).toContain('claude-haiku-4-5-20251001');
 			expect(haikuModels).toContain('claude-3-haiku-20240307');
+		});
+	});
+
+	describe('getAllKnownModelDisplayNames', () => {
+		it('should return all display names from the pricing registry', () => {
+			const names = getAllKnownModelDisplayNames();
+			expect(names.size).toBe(Object.keys(CLAUDE_MODEL_PRICING).length);
+			expect(names.has('Claude Opus 4.6')).toBe(true);
+			expect(names.has('Claude Sonnet 4.6')).toBe(true);
+			expect(names.has('Claude Sonnet 4.5')).toBe(true);
+			expect(names.has('Claude Haiku 4.5')).toBe(true);
+			expect(names.has('Claude Haiku 3')).toBe(true);
+		});
+
+		it('should return a Set (not an array)', () => {
+			const names = getAllKnownModelDisplayNames();
+			expect(names).toBeInstanceOf(Set);
+		});
+
+		it('should NOT contain model IDs, only display names', () => {
+			const names = getAllKnownModelDisplayNames();
+			expect(names.has('claude-opus-4-6-20260115')).toBe(false);
+			expect(names.has('claude-sonnet-4-6-20260218')).toBe(false);
 		});
 	});
 });
