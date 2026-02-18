@@ -3,12 +3,14 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { MODEL_REGISTRY_DEFAULTS } from '../../../main/stores/model-registry-defaults';
 
 // Mock the store getters module
 vi.mock('../../../main/stores/getters', () => ({
 	getAgentConfigsStore: vi.fn(),
 	getProjectFoldersStore: vi.fn(),
 	getSessionsStore: vi.fn(),
+	getModelRegistryStore: () => ({ store: MODEL_REGISTRY_DEFAULTS }),
 }));
 
 import {
@@ -363,8 +365,8 @@ describe('pricing-resolver', () => {
 
 			const result = resolveModelForPricing('agent-1');
 
-			// Default is claude-sonnet-4-20250514 (from DEFAULT_MODEL_ID)
-			expect(result).toBe('claude-sonnet-4-20250514');
+			// Default is claude-opus-4-5-20251101 (from model registry store)
+			expect(result).toBe('claude-opus-4-5-20251101');
 		});
 	});
 
@@ -458,7 +460,7 @@ describe('pricing-resolver', () => {
 
 			expect(result).toEqual({
 				billingMode: 'api',
-				modelId: 'claude-sonnet-4-20250514',
+				modelId: 'claude-opus-4-5-20251101',
 				billingModeSource: 'default',
 				modelSource: 'default',
 			});

@@ -1681,6 +1681,12 @@ interface MaestroAPI {
 			error?: string;
 			skipped?: boolean;
 		}>;
+		getModelOptions: () => Promise<Array<{ value: string; label: string; family: string }>>;
+		addDetectedModel: (modelInfo: {
+			name: string;
+			inputPricePerMillion?: number;
+			outputPricePerMillion?: number;
+		}) => Promise<string | null>;
 	};
 	// Debug Package API
 	debug: {

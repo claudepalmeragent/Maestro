@@ -18,9 +18,8 @@ import {
 } from '../../main/utils/pricing';
 import {
 	getPricingForModel,
-	DEFAULT_MODEL_ID,
-	CLAUDE_MODEL_PRICING,
-	type ClaudeModelId,
+	getDefaultModelId,
+	getModelPricingRecord,
 } from '../../main/utils/claude-pricing';
 import {
 	resolveBillingMode,
@@ -28,11 +27,16 @@ import {
 	getAgentPricingConfig,
 } from '../../main/utils/pricing-resolver';
 
+import { MODEL_REGISTRY_DEFAULTS } from '../../main/stores/model-registry-defaults';
+
 // Mock the store getters module for resolver tests
 vi.mock('../../main/stores/getters', () => ({
 	getAgentConfigsStore: vi.fn(),
 	getProjectFoldersStore: vi.fn(),
 	getSessionsStore: vi.fn(),
+	getModelRegistryStore: () => ({
+		store: MODEL_REGISTRY_DEFAULTS,
+	}),
 }));
 
 import {
@@ -197,14 +201,14 @@ describe('Cost Tracking Integration', () => {
 			});
 			mockSessionsStore.get.mockReturnValue([]);
 
-			// Initial cost calculation uses default model (Sonnet 4)
+			// Initial cost calculation uses default model (Opus 4.5)
 			const tokens: TokenCounts = {
 				inputTokens: 1_000_000,
 				outputTokens: 500_000,
 			};
 
 			let pricingConfig = resolvePricingConfig('test-agent');
-			expect(pricingConfig.modelId).toBe(DEFAULT_MODEL_ID); // Should default to Sonnet 4
+			expect(pricingConfig.modelId).toBe(getDefaultModelId()); // Should default to Opus 4.5
 			expect(pricingConfig.modelSource).toBe('default');
 
 			const initialCost = calculateClaudeCostWithModel(
@@ -213,23 +217,23 @@ describe('Cost Tracking Integration', () => {
 				pricingConfig.billingMode
 			);
 
-			// Sonnet 4: 1M * $3 + 0.5M * $15 = $3 + $7.50 = $10.50
-			expect(initialCost).toBeCloseTo(10.5, 2);
+			// Opus 4.5: 1M * $5 + 0.5M * $25 = $5 + $12.50 = $17.50
+			expect(initialCost).toBeCloseTo(17.5, 2);
 
-			// Now model is detected from agent output as Opus 4.5
+			// Now model is detected from agent output as Sonnet 4
 			mockAgentConfigsStore.get.mockReturnValue({
 				'test-agent': {
 					pricingConfig: {
 						billingMode: 'auto',
 						pricingModel: 'auto',
-						detectedModel: 'claude-opus-4-5-20251101',
+						detectedModel: 'claude-sonnet-4-20250514',
 					},
 				},
 			});
 
 			// Recalculate with detected model
 			pricingConfig = resolvePricingConfig('test-agent');
-			expect(pricingConfig.modelId).toBe('claude-opus-4-5-20251101');
+			expect(pricingConfig.modelId).toBe('claude-sonnet-4-20250514');
 			expect(pricingConfig.modelSource).toBe('detected');
 
 			const updatedCost = calculateClaudeCostWithModel(
@@ -238,11 +242,11 @@ describe('Cost Tracking Integration', () => {
 				pricingConfig.billingMode
 			);
 
-			// Opus 4.5: 1M * $5 + 0.5M * $25 = $5 + $12.50 = $17.50
-			expect(updatedCost).toBeCloseTo(17.5, 2);
+			// Sonnet 4: 1M * $3 + 0.5M * $15 = $3 + $7.50 = $10.50
+			expect(updatedCost).toBeCloseTo(10.5, 2);
 
-			// Opus is more expensive than Sonnet
-			expect(updatedCost).toBeGreaterThan(initialCost);
+			// Sonnet is cheaper than Opus
+			expect(updatedCost).toBeLessThan(initialCost);
 		});
 
 		it('updates billing mode when detected from credentials', () => {

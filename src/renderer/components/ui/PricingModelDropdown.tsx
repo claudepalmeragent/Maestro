@@ -7,7 +7,7 @@
  * Used in AgentConfigPanel for Claude agents only.
  */
 
-import { memo, useMemo } from 'react';
+import { useState, useEffect, memo, useMemo } from 'react';
 import type { Theme } from '../../types';
 import type { ClaudeModelId } from '../../../shared/types';
 
@@ -34,33 +34,39 @@ interface ModelOption {
 	family?: 'opus' | 'sonnet' | 'haiku';
 }
 
-/**
- * Available Claude models for pricing selection.
- * Grouped by family: Opus (most capable), Sonnet (balanced), Haiku (fastest).
- */
-const MODEL_OPTIONS: ModelOption[] = [
-	{ value: 'auto', label: 'Auto-detect' },
-	// Opus family
-	{ value: 'claude-opus-4-6-20260115', label: 'Opus 4.6', family: 'opus' },
-	{ value: 'claude-opus-4-5-20251101', label: 'Opus 4.5', family: 'opus' },
-	{ value: 'claude-opus-4-1-20250319', label: 'Opus 4.1', family: 'opus' },
-	{ value: 'claude-opus-4-20250514', label: 'Opus 4', family: 'opus' },
-	// Sonnet family
-	{ value: 'claude-sonnet-4-6-20260218', label: 'Sonnet 4.6', family: 'sonnet' },
-	{ value: 'claude-sonnet-4-5-20250929', label: 'Sonnet 4.5', family: 'sonnet' },
-	{ value: 'claude-sonnet-4-20250514', label: 'Sonnet 4', family: 'sonnet' },
-	// Haiku family
-	{ value: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5', family: 'haiku' },
-	{ value: 'claude-haiku-3-5-20241022', label: 'Haiku 3.5', family: 'haiku' },
-	{ value: 'claude-3-haiku-20240307', label: 'Haiku 3', family: 'haiku' },
-];
+// Module-level cache for model options (fetched once from main process)
+let cachedModelOptions: ModelOption[] | null = null;
 
 /**
- * Get human-readable display name for a model ID.
+ * Hook to fetch model options from the main process model registry.
+ * Results are cached at the module level so they're only fetched once.
  */
-function formatModelName(modelId: ClaudeModelId): string {
-	const option = MODEL_OPTIONS.find((opt) => opt.value === modelId);
-	return option?.label || modelId;
+function useModelOptions(): ModelOption[] {
+	const [options, setOptions] = useState<ModelOption[]>(cachedModelOptions || []);
+
+	useEffect(() => {
+		if (cachedModelOptions) return;
+
+		window.maestro.updates
+			.getModelOptions()
+			.then((fetched) => {
+				const modelOptions: ModelOption[] = [
+					{ value: 'auto', label: 'Auto-detect' },
+					...fetched.map((opt) => ({
+						value: opt.value as PricingModelValue,
+						label: opt.label,
+						family: opt.family as 'opus' | 'sonnet' | 'haiku',
+					})),
+				];
+				cachedModelOptions = modelOptions;
+				setOptions(modelOptions);
+			})
+			.catch((err) => {
+				console.error('Failed to fetch model options:', err);
+			});
+	}, []);
+
+	return options;
 }
 
 function PricingModelDropdownInner({
@@ -71,6 +77,13 @@ function PricingModelDropdownInner({
 	disabled = false,
 	showDetected = false,
 }: PricingModelDropdownProps): JSX.Element {
+	const MODEL_OPTIONS = useModelOptions();
+
+	function formatModelName(modelId: ClaudeModelId): string {
+		const option = MODEL_OPTIONS.find((opt) => opt.value === modelId);
+		return option?.label || modelId;
+	}
+
 	// Group models by family for optgroup rendering
 	const groupedOptions = useMemo(() => {
 		const auto = MODEL_OPTIONS.filter((opt) => opt.value === 'auto');
@@ -78,7 +91,7 @@ function PricingModelDropdownInner({
 		const sonnet = MODEL_OPTIONS.filter((opt) => opt.family === 'sonnet');
 		const haiku = MODEL_OPTIONS.filter((opt) => opt.family === 'haiku');
 		return { auto, opus, sonnet, haiku };
-	}, []);
+	}, [MODEL_OPTIONS]);
 
 	return (
 		<div className="flex flex-col gap-2">

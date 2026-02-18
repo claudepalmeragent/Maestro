@@ -25,6 +25,7 @@
 // ============================================================================
 
 export * from './types';
+export type { ModelRegistryData, ModelEntry } from './model-registry-types';
 
 // ============================================================================
 // Store Initialization
@@ -46,6 +47,7 @@ export {
 	getWindowStateStore,
 	getClaudeSessionOriginsStore,
 	getAgentSessionOriginsStore,
+	getModelRegistryStore,
 	getSyncPath,
 	getProductionDataPath,
 	getSshRemoteById,
@@ -70,3 +72,5 @@ export {
 	CLAUDE_SESSION_ORIGINS_DEFAULTS,
 	AGENT_SESSION_ORIGINS_DEFAULTS,
 } from './defaults';
+
+export { MODEL_REGISTRY_DEFAULTS } from './model-registry-defaults';

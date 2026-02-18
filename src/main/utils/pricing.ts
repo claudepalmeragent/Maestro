@@ -5,14 +5,14 @@
  * session storage, IPC handlers, and stats aggregation.
  */
 
-import { CLAUDE_PRICING, TOKENS_PER_MILLION } from '../constants';
-import { type ClaudeBillingMode, getPricingForModel, DEFAULT_MODEL_ID } from './claude-pricing';
+import { TOKENS_PER_MILLION } from '../constants';
+import { type ClaudeBillingMode, getPricingForModel, getDefaultModelId } from './claude-pricing';
 
 // Re-export for convenience
 export type { ClaudeBillingMode } from './claude-pricing';
 
 /**
- * Pricing configuration type (matches CLAUDE_PRICING structure)
+ * Pricing configuration type
  */
 export interface PricingConfig {
 	INPUT_PER_MILLION: number;
@@ -35,7 +35,7 @@ export interface TokenCounts {
  * Calculate cost for an AI session based on token counts and pricing config.
  *
  * @param tokens - Token counts from session usage
- * @param pricing - Pricing configuration (defaults to CLAUDE_PRICING)
+ * @param pricing - Pricing configuration (defaults to default model pricing)
  * @param billingMode - Billing mode ('api' or 'max'). When 'max', cache tokens are free.
  * @returns Total cost in USD
  *
@@ -49,12 +49,17 @@ export interface TokenCounts {
  * });
  *
  * // With Max billing mode (cache tokens free)
- * const maxCost = calculateCost(tokens, CLAUDE_PRICING, 'max');
+ * const maxCost = calculateCost(tokens, pricing, 'max');
  * ```
  */
 export function calculateCost(
 	tokens: TokenCounts,
-	pricing: PricingConfig = CLAUDE_PRICING,
+	pricing: PricingConfig = getPricingForModel(getDefaultModelId()) || {
+		INPUT_PER_MILLION: 5,
+		OUTPUT_PER_MILLION: 25,
+		CACHE_READ_PER_MILLION: 0.5,
+		CACHE_CREATION_PER_MILLION: 6.25,
+	},
 	billingMode: ClaudeBillingMode = 'api'
 ): number {
 	const { inputTokens, outputTokens, cacheReadTokens = 0, cacheCreationTokens = 0 } = tokens;
@@ -123,11 +128,17 @@ export function calculateClaudeCostWithModel(
 	billingMode: ClaudeBillingMode = 'api'
 ): number {
 	// Get model-specific pricing, fall back to default model pricing if not found
-	const pricing = getPricingForModel(modelId) || getPricingForModel(DEFAULT_MODEL_ID);
+	const pricing = getPricingForModel(modelId) || getPricingForModel(getDefaultModelId());
 
-	// Should never be null since DEFAULT_MODEL_ID is always valid
+	// Should never be null since default model ID is always valid
 	if (!pricing) {
-		return calculateCost(tokens, CLAUDE_PRICING, billingMode);
+		const fallbackPricing = getPricingForModel(getDefaultModelId()) || {
+			INPUT_PER_MILLION: 5,
+			OUTPUT_PER_MILLION: 25,
+			CACHE_READ_PER_MILLION: 0.5,
+			CACHE_CREATION_PER_MILLION: 6.25,
+		};
+		return calculateCost(tokens, fallbackPricing, billingMode);
 	}
 
 	return calculateCost(tokens, pricing, billingMode);

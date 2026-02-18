@@ -8,24 +8,12 @@
  * @module model-checker
  */
 
-import { getAllKnownModelDisplayNames } from './utils/claude-pricing';
+import { getModelRegistryStore } from './stores/getters';
+import { ModelEntry } from './stores/model-registry-types';
 import { logger } from './utils/logger';
 
 const LOG_CONTEXT = '[ModelChecker]';
 const PRICING_PAGE_URL = 'https://docs.anthropic.com/en/about-claude/pricing';
-
-/**
- * Legacy models that appear on the pricing page but are intentionally
- * not supported in Maestro. Suppresses toast notifications for these.
- */
-const SUPPRESSED_MODEL_NAMES = new Set([
-	'Claude Sonnet 3.7',
-	'Claude Sonnet 3.5',
-	'Claude Opus 3',
-	'Claude Opus 3.5',
-	'Claude Sonnet 3',
-	'Claude Haiku 3',
-]);
 
 // Module-level guard: only check once per app session
 let sessionChecked = false;
@@ -188,6 +176,98 @@ async function fetchPricingPage(): Promise<string | null> {
 }
 
 /**
+ * Generate a model ID from a display name.
+ * E.g., "Claude Sonnet 5" → "claude-sonnet-5-YYYYMMDD"
+ *
+ * @param displayName - Human-readable model name
+ * @returns Generated model ID string
+ */
+function generateModelId(displayName: string): string {
+	const today = new Date();
+	const dateSuffix = today.toISOString().slice(0, 10).replace(/-/g, '');
+
+	// "Claude Sonnet 5" → "claude-sonnet-5"
+	const base = displayName
+		.toLowerCase()
+		.replace(/\s+/g, '-')
+		.replace(/[^a-z0-9-]/g, '');
+
+	return `${base}-${dateSuffix}`;
+}
+
+/**
+ * Infer model family from display name.
+ *
+ * @param displayName - Human-readable model name (e.g., 'Claude Opus 4.6')
+ * @returns Family string ('opus', 'sonnet', 'haiku', or 'unknown')
+ */
+function inferFamily(displayName: string): string {
+	const lower = displayName.toLowerCase();
+	if (lower.includes('opus')) return 'opus';
+	if (lower.includes('sonnet')) return 'sonnet';
+	if (lower.includes('haiku')) return 'haiku';
+	return 'unknown';
+}
+
+/**
+ * Add a newly-detected model to the model registry store.
+ *
+ * Generates a model ID, writes the entry with parsed pricing,
+ * and adds common aliases (short-form, versioned, underscore).
+ *
+ * @param info - Model information from the pricing page parser
+ * @returns The generated model ID, or null if the model already exists
+ */
+export function addModelToRegistry(info: NewModelInfo): string | null {
+	const store = getModelRegistryStore();
+	const reg = store.store;
+
+	const modelId = generateModelId(info.name);
+
+	// Skip if already in registry
+	if (modelId in reg.models) return null;
+
+	const entry: ModelEntry = {
+		displayName: info.name,
+		family: inferFamily(info.name),
+		pricing: {
+			INPUT_PER_MILLION: info.inputPricePerMillion ?? 0,
+			OUTPUT_PER_MILLION: info.outputPricePerMillion ?? 0,
+			CACHE_READ_PER_MILLION: 0, // Not available from pricing page
+			CACHE_CREATION_PER_MILLION: 0,
+		},
+		addedAt: new Date().toISOString(),
+		source: 'auto',
+	};
+
+	// Write model entry to store
+	store.set(`models.${modelId}`, entry);
+
+	// Add short-form alias (without date suffix): "claude-sonnet-5-20260401" → "claude-sonnet-5"
+	const shortFormId = modelId.replace(/-\d{8}$/, '');
+	if (shortFormId !== modelId) {
+		store.set(`aliases.${shortFormId}`, modelId);
+	}
+
+	// Add versioned alias: "Claude Sonnet 5" → "sonnet-5"
+	const family = inferFamily(info.name);
+	const versionMatch = info.name.match(/[\d.]+$/);
+	if (versionMatch && family !== 'unknown') {
+		const version = versionMatch[0];
+		const versionedAlias = `${family}-${version}`;
+		store.set(`aliases.${versionedAlias}`, modelId);
+
+		// Underscore variant: "sonnet_5"
+		const underscoreAlias = `${family}_${version.replace(/\./g, '_')}`;
+		store.set(`aliases.${underscoreAlias}`, modelId);
+	}
+
+	logger.info(`${LOG_CONTEXT} Added new model to registry: ${info.name} (${modelId})`, LOG_CONTEXT);
+
+	return modelId;
+}
+
+/**
  * Check for new Claude models not present in the local pricing registry.
  *
  * Fetches the Anthropic pricing page (public, no auth needed), parses
@@ -223,10 +303,15 @@ export async function checkForNewModels(): Promise<ModelCheckResult> {
 		return { newModels: [] };
 	}
 
-	const knownNames = getAllKnownModelDisplayNames();
+	const reg = getModelRegistryStore().store;
+	const knownNames = new Set<string>();
+	for (const entry of Object.values(reg.models)) {
+		knownNames.add(entry.displayName);
+	}
+	const suppressedNames = new Set(reg.suppressedDisplayNames);
 
 	const newModels: NewModelInfo[] = pageModels
-		.filter((m) => !knownNames.has(m.name) && !SUPPRESSED_MODEL_NAMES.has(m.name))
+		.filter((m) => !knownNames.has(m.name) && !suppressedNames.has(m.name))
 		.map((m) => ({
 			name: m.name,
 			inputPricePerMillion: m.inputPricePerMillion,

@@ -2,14 +2,24 @@
  * Tests for pricing utility
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import { MODEL_REGISTRY_DEFAULTS } from '../../../main/stores/model-registry-defaults';
+
+vi.mock('../../../main/stores/getters', () => ({
+	getModelRegistryStore: () => ({ store: MODEL_REGISTRY_DEFAULTS }),
+}));
+
 import {
 	calculateCost,
 	calculateClaudeCost,
 	calculateClaudeCostWithModel,
 	PricingConfig,
 } from '../../../main/utils/pricing';
-import { CLAUDE_PRICING, TOKENS_PER_MILLION } from '../../../main/constants';
+import { TOKENS_PER_MILLION } from '../../../main/constants';
+import { getPricingForModel, getDefaultModelId } from '../../../main/utils/claude-pricing';
+
+// Default model pricing (equivalent to removed DEFAULT_PRICING constant)
+const DEFAULT_PRICING = getPricingForModel(getDefaultModelId())!;
 
 describe('pricing utilities', () => {
 	describe('calculateCost', () => {
@@ -21,8 +31,8 @@ describe('pricing utilities', () => {
 				cacheCreationTokens: 1_000_000,
 			});
 
-			// Expected: 3 + 15 + 0.30 + 3.75 = 22.05
-			expect(cost).toBeCloseTo(22.05, 2);
+			// Expected: 5 + 25 + 0.50 + 6.25 = 36.75
+			expect(cost).toBeCloseTo(36.75, 2);
 		});
 
 		it('should handle zero tokens', () => {
@@ -42,8 +52,8 @@ describe('pricing utilities', () => {
 				outputTokens: 1_000_000,
 			});
 
-			// Expected: 3 + 15 = 18
-			expect(cost).toBeCloseTo(18, 2);
+			// Expected: 5 + 25 = 30
+			expect(cost).toBeCloseTo(30, 2);
 		});
 
 		it('should accept custom pricing config', () => {
@@ -76,13 +86,13 @@ describe('pricing utilities', () => {
 				cacheCreationTokens: 1_000_000,
 			};
 
-			const apiCost = calculateCost(tokens, CLAUDE_PRICING, 'api');
-			const maxCost = calculateCost(tokens, CLAUDE_PRICING, 'max');
+			const apiCost = calculateCost(tokens, DEFAULT_PRICING, 'api');
+			const maxCost = calculateCost(tokens, DEFAULT_PRICING, 'max');
 
-			// API: 3 + 15 + 0.30 + 3.75 = 22.05
-			expect(apiCost).toBeCloseTo(22.05, 2);
-			// Max: 3 + 15 + 0 + 0 = 18 (cache tokens are free)
-			expect(maxCost).toBeCloseTo(18, 2);
+			// API: 5 + 25 + 0.50 + 6.25 = 36.75
+			expect(apiCost).toBeCloseTo(36.75, 2);
+			// Max: 5 + 25 + 0 + 0 = 30 (cache tokens are free)
+			expect(maxCost).toBeCloseTo(30, 2);
 		});
 
 		it('should use api billing mode by default', () => {
@@ -94,7 +104,7 @@ describe('pricing utilities', () => {
 			};
 
 			const defaultCost = calculateCost(tokens);
-			const explicitApiCost = calculateCost(tokens, CLAUDE_PRICING, 'api');
+			const explicitApiCost = calculateCost(tokens, DEFAULT_PRICING, 'api');
 
 			expect(defaultCost).toBe(explicitApiCost);
 		});
@@ -131,19 +141,19 @@ describe('pricing utilities', () => {
 		});
 	});
 
-	describe('CLAUDE_PRICING', () => {
+	describe('Default model pricing', () => {
 		it('should have all required pricing fields', () => {
-			expect(CLAUDE_PRICING).toHaveProperty('INPUT_PER_MILLION');
-			expect(CLAUDE_PRICING).toHaveProperty('OUTPUT_PER_MILLION');
-			expect(CLAUDE_PRICING).toHaveProperty('CACHE_READ_PER_MILLION');
-			expect(CLAUDE_PRICING).toHaveProperty('CACHE_CREATION_PER_MILLION');
+			expect(DEFAULT_PRICING).toHaveProperty('INPUT_PER_MILLION');
+			expect(DEFAULT_PRICING).toHaveProperty('OUTPUT_PER_MILLION');
+			expect(DEFAULT_PRICING).toHaveProperty('CACHE_READ_PER_MILLION');
+			expect(DEFAULT_PRICING).toHaveProperty('CACHE_CREATION_PER_MILLION');
 		});
 
-		it('should have correct Sonnet 4 pricing values', () => {
-			expect(CLAUDE_PRICING.INPUT_PER_MILLION).toBe(3);
-			expect(CLAUDE_PRICING.OUTPUT_PER_MILLION).toBe(15);
-			expect(CLAUDE_PRICING.CACHE_READ_PER_MILLION).toBe(0.3);
-			expect(CLAUDE_PRICING.CACHE_CREATION_PER_MILLION).toBe(3.75);
+		it('should have correct Opus 4.5 pricing values', () => {
+			expect(DEFAULT_PRICING.INPUT_PER_MILLION).toBe(5);
+			expect(DEFAULT_PRICING.OUTPUT_PER_MILLION).toBe(25);
+			expect(DEFAULT_PRICING.CACHE_READ_PER_MILLION).toBe(0.5);
+			expect(DEFAULT_PRICING.CACHE_CREATION_PER_MILLION).toBe(6.25);
 		});
 	});
 
@@ -171,9 +181,9 @@ describe('pricing utilities', () => {
 			};
 
 			const unknownModelCost = calculateClaudeCostWithModel(tokens, 'unknown-model');
-			const defaultModelCost = calculateClaudeCostWithModel(tokens, 'claude-sonnet-4-20250514');
+			const defaultModelCost = calculateClaudeCostWithModel(tokens, 'claude-opus-4-5-20251101');
 
-			// Should use Sonnet 4 (default) pricing
+			// Should use default model (Opus 4.5) pricing
 			expect(unknownModelCost).toBeCloseTo(defaultModelCost, 2);
 		});
 

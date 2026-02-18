@@ -25,7 +25,8 @@ import { isCloudflaredInstalled } from '../../utils/cliDetection';
 import { tunnelManager as tunnelManagerInstance } from '../../tunnel-manager';
 import { checkForUpdates } from '../../update-checker';
 import { setAllowPrerelease } from '../../auto-updater';
-import { checkForNewModels } from '../../model-checker';
+import { checkForNewModels, addModelToRegistry } from '../../model-checker';
+import { getModelRegistryStore } from '../../stores/getters';
 import { WebServer } from '../../web-server';
 import { powerManager } from '../../power-manager';
 import { MaestroSettings } from './persistence';
@@ -292,6 +293,41 @@ export function registerSystemHandlers(deps: SystemHandlerDependencies): void {
 	ipcMain.handle('models:checkNew', async () => {
 		return checkForNewModels();
 	});
+
+	// Get model options for the pricing dropdown
+	ipcMain.handle(
+		'models:getOptions',
+		async (): Promise<Array<{ value: string; label: string; family: string }>> => {
+			const reg = getModelRegistryStore().store;
+			const options = Object.entries(reg.models).map(([id, entry]) => ({
+				value: id,
+				label: entry.displayName.replace('Claude ', ''),
+				family: entry.family,
+			}));
+
+			// Sort: opus first, then sonnet, then haiku; within family newest first (descending label)
+			const familyOrder: Record<string, number> = { opus: 0, sonnet: 1, haiku: 2 };
+			options.sort((a, b) => {
+				const fa = familyOrder[a.family] ?? 99;
+				const fb = familyOrder[b.family] ?? 99;
+				if (fa !== fb) return fa - fb;
+				return b.label.localeCompare(a.label, undefined, { numeric: true });
+			});
+
+			return options;
+		}
+	);
+
+	// Add a detected model to the registry store
+	ipcMain.handle(
+		'models:addDetected',
+		async (
+			_event: Electron.IpcMainInvokeEvent,
+			modelInfo: { name: string; inputPricePerMillion?: number; outputPricePerMillion?: number }
+		): Promise<string | null> => {
+			return addModelToRegistry(modelInfo);
+		}
+	);
 
 	// ============ Logger Handlers ============
 

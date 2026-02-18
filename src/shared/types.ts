@@ -484,17 +484,7 @@ export type ClaudeBillingMode = 'api' | 'max';
 /**
  * All supported Claude model identifiers for pricing calculations
  */
-export type ClaudeModelId =
-	| 'claude-opus-4-6-20260115'
-	| 'claude-opus-4-5-20251101'
-	| 'claude-opus-4-1-20250319'
-	| 'claude-opus-4-20250514'
-	| 'claude-sonnet-4-5-20250929'
-	| 'claude-sonnet-4-6-20260218'
-	| 'claude-sonnet-4-20250514'
-	| 'claude-haiku-4-5-20251001'
-	| 'claude-haiku-3-5-20241022'
-	| 'claude-3-haiku-20240307';
+export type ClaudeModelId = string;
 
 /**
  * Project folder-level pricing configuration.

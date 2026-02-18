@@ -1775,6 +1775,20 @@ function MaestroConsoleInner() {
 				try {
 					const result = await window.maestro.updates.checkNewModels();
 					if (!result.skipped && !result.error && result.newModels.length > 0) {
+						// Auto-add detected models to the registry
+						for (const model of result.newModels) {
+							try {
+								await window.maestro.updates.addDetectedModel({
+									name: model.name,
+									inputPricePerMillion: model.inputPricePerMillion,
+									outputPricePerMillion: model.outputPricePerMillion,
+								});
+							} catch (err) {
+								console.error(`Failed to add model ${model.name} to registry:`, err);
+							}
+						}
+
+						// Show info toasts (not warnings — models have been auto-added)
 						const MAX_INDIVIDUAL_TOASTS = 3;
 						if (result.newModels.length <= MAX_INDIVIDUAL_TOASTS) {
 							for (const model of result.newModels) {
@@ -1783,17 +1797,17 @@ function MaestroConsoleInner() {
 										? ` (Input: $${model.inputPricePerMillion}/MTok, Output: $${model.outputPricePerMillion}/MTok)`
 										: '';
 								addToast({
-									type: 'warning',
-									title: 'New Claude Model Detected',
-									message: `${model.name}${priceInfo} is available but not yet configured in Maestro — costs will show as $0 until a Maestro update adds support.`,
+									type: 'info',
+									title: 'New Claude Model Added',
+									message: `${model.name}${priceInfo} has been automatically added to Maestro's pricing registry.`,
 								});
 							}
 						} else {
 							const names = result.newModels.map((m) => m.name).join(', ');
 							addToast({
-								type: 'warning',
-								title: 'New Claude Models Detected',
-								message: `${result.newModels.length} new models detected (${names}) but not yet configured — costs will show as $0 until a Maestro update adds support.`,
+								type: 'info',
+								title: 'New Claude Models Added',
+								message: `${result.newModels.length} new models (${names}) have been automatically added to Maestro's pricing registry.`,
 							});
 						}
 					}

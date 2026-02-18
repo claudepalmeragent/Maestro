@@ -102,21 +102,3 @@ export const CLAUDE_SESSION_PARSE_LIMITS = {
 	/** Max characters for first message preview */
 	FIRST_MESSAGE_PREVIEW_LENGTH: 200,
 } as const;
-
-/**
- * Claude API pricing (per million tokens) - Opus 4.5 pricing
- * Used for cost estimation in session statistics
- *
- * @deprecated Use model-specific pricing from `src/main/utils/claude-pricing.ts` instead.
- * This constant is kept for backward compatibility but new code should use:
- * - `getPricingForModel(modelId)` for model-specific pricing
- * - `calculateClaudeCostWithModel(tokens, modelId, billingMode)` for cost calculation
- *
- * @see src/main/utils/claude-pricing.ts for the full model pricing registry
- */
-export const CLAUDE_PRICING = {
-	INPUT_PER_MILLION: 5,
-	OUTPUT_PER_MILLION: 25,
-	CACHE_READ_PER_MILLION: 0.5,
-	CACHE_CREATION_PER_MILLION: 6.25,
-} as const;

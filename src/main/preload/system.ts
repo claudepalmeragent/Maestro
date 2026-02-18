@@ -181,6 +181,13 @@ export function createUpdatesApi() {
 			error?: string;
 			skipped?: boolean;
 		}> => ipcRenderer.invoke('models:checkNew'),
+		getModelOptions: (): Promise<Array<{ value: string; label: string; family: string }>> =>
+			ipcRenderer.invoke('models:getOptions'),
+		addDetectedModel: (modelInfo: {
+			name: string;
+			inputPricePerMillion?: number;
+			outputPricePerMillion?: number;
+		}): Promise<string | null> => ipcRenderer.invoke('models:addDetected', modelInfo),
 	};
 }
 

@@ -25,6 +25,8 @@ import type {
 	AgentSessionOriginsData,
 } from './types';
 
+import type { ModelRegistryData } from './model-registry-types';
+
 import {
 	SETTINGS_DEFAULTS,
 	SESSIONS_DEFAULTS,
@@ -35,6 +37,8 @@ import {
 	CLAUDE_SESSION_ORIGINS_DEFAULTS,
 	AGENT_SESSION_ORIGINS_DEFAULTS,
 } from './defaults';
+
+import { MODEL_REGISTRY_DEFAULTS } from './model-registry-defaults';
 
 import { getCustomSyncPath } from './utils';
 
@@ -51,6 +55,7 @@ let _agentConfigsStore: Store<AgentConfigsData> | null = null;
 let _windowStateStore: Store<WindowState> | null = null;
 let _claudeSessionOriginsStore: Store<ClaudeSessionOriginsData> | null = null;
 let _agentSessionOriginsStore: Store<AgentSessionOriginsData> | null = null;
+let _modelRegistryStore: Store<ModelRegistryData> | null = null;
 
 // Cached paths after initialization
 let _syncPath: string | null = null;
@@ -146,6 +151,14 @@ export function initializeStores(options: StoreInitOptions): {
 		defaults: AGENT_SESSION_ORIGINS_DEFAULTS,
 	});
 
+	// Model registry - stores all Claude model pricing, aliases, and metadata
+	// Device-local (not synced) since pricing data is fetched/updated per device
+	_modelRegistryStore = new Store<ModelRegistryData>({
+		name: 'maestro-model-registry',
+		cwd: _productionDataPath,
+		defaults: MODEL_REGISTRY_DEFAULTS,
+	});
+
 	return {
 		syncPath: _syncPath,
 		bootstrapStore: _bootstrapStore,
@@ -173,6 +186,7 @@ export function getStoreInstances() {
 		windowStateStore: _windowStateStore,
 		claudeSessionOriginsStore: _claudeSessionOriginsStore,
 		agentSessionOriginsStore: _agentSessionOriginsStore,
+		modelRegistryStore: _modelRegistryStore,
 	};
 }
 

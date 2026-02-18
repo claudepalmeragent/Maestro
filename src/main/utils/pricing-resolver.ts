@@ -18,7 +18,7 @@ import type {
 	ClaudeModelId,
 	ProjectFolderPricingConfig,
 } from '../../shared/types';
-import { DEFAULT_MODEL_ID } from './claude-pricing';
+import { getDefaultModelId } from './claude-pricing';
 import { detectLocalAuth } from './claude-auth-detector';
 
 const LOG_CONTEXT = '[PricingResolver]';
@@ -245,7 +245,7 @@ export function resolveModelForPricing(agentId: string): ClaudeModelId {
 	}
 
 	// 3. Default model
-	return DEFAULT_MODEL_ID;
+	return getDefaultModelId();
 }
 
 /**
@@ -299,7 +299,7 @@ export function resolvePricingConfig(
 	}
 
 	// Resolve model
-	let modelId: ClaudeModelId = DEFAULT_MODEL_ID;
+	let modelId: ClaudeModelId = getDefaultModelId();
 	let modelSource: ResolvedPricingConfig['modelSource'] = 'default';
 
 	if (agentConfig.pricingModel !== 'auto') {

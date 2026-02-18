@@ -2,11 +2,11 @@
  * Tests for Claude Model Pricing Registry
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
-	CLAUDE_MODEL_PRICING,
-	MODEL_ALIASES,
-	DEFAULT_MODEL_ID,
+	getModelPricingRecord,
+	getModelAliasesRecord,
+	getDefaultModelId,
 	getPricingForModel,
 	resolveModelAlias,
 	getModelDisplayName,
@@ -14,13 +14,19 @@ import {
 	getModelsByFamily,
 	getAllKnownModelDisplayNames,
 	isClaudeModelId,
-	type ClaudeModelId,
 } from '../../../main/utils/claude-pricing';
+import { MODEL_REGISTRY_DEFAULTS } from '../../../main/stores/model-registry-defaults';
+
+vi.mock('../../../main/stores/getters', () => ({
+	getModelRegistryStore: () => ({
+		store: MODEL_REGISTRY_DEFAULTS,
+	}),
+}));
 
 describe('claude-pricing', () => {
 	describe('CLAUDE_MODEL_PRICING', () => {
 		it('should have all required model entries', () => {
-			const expectedModels: ClaudeModelId[] = [
+			const expectedModels: string[] = [
 				'claude-opus-4-6-20260115',
 				'claude-opus-4-5-20251101',
 				'claude-opus-4-1-20250319',
@@ -34,12 +40,12 @@ describe('claude-pricing', () => {
 			];
 
 			for (const modelId of expectedModels) {
-				expect(CLAUDE_MODEL_PRICING).toHaveProperty(modelId);
+				expect(getModelPricingRecord()).toHaveProperty(modelId);
 			}
 		});
 
 		it('should have correct pricing structure for all models', () => {
-			for (const [modelId, pricing] of Object.entries(CLAUDE_MODEL_PRICING)) {
+			for (const [modelId, pricing] of Object.entries(getModelPricingRecord())) {
 				expect(pricing).toHaveProperty('INPUT_PER_MILLION');
 				expect(pricing).toHaveProperty('OUTPUT_PER_MILLION');
 				expect(pricing).toHaveProperty('CACHE_READ_PER_MILLION');
@@ -57,7 +63,7 @@ describe('claude-pricing', () => {
 		});
 
 		it('should have correct Opus 4.5 pricing', () => {
-			const pricing = CLAUDE_MODEL_PRICING['claude-opus-4-5-20251101'];
+			const pricing = getModelPricingRecord()['claude-opus-4-5-20251101'];
 			expect(pricing.INPUT_PER_MILLION).toBe(5);
 			expect(pricing.OUTPUT_PER_MILLION).toBe(25);
 			expect(pricing.CACHE_READ_PER_MILLION).toBe(0.5);
@@ -65,7 +71,7 @@ describe('claude-pricing', () => {
 		});
 
 		it('should have correct Sonnet 4 pricing', () => {
-			const pricing = CLAUDE_MODEL_PRICING['claude-sonnet-4-20250514'];
+			const pricing = getModelPricingRecord()['claude-sonnet-4-20250514'];
 			expect(pricing.INPUT_PER_MILLION).toBe(3);
 			expect(pricing.OUTPUT_PER_MILLION).toBe(15);
 			expect(pricing.CACHE_READ_PER_MILLION).toBe(0.3);
@@ -73,7 +79,7 @@ describe('claude-pricing', () => {
 		});
 
 		it('should have correct Sonnet 4.6 pricing', () => {
-			const pricing = CLAUDE_MODEL_PRICING['claude-sonnet-4-6-20260218'];
+			const pricing = getModelPricingRecord()['claude-sonnet-4-6-20260218'];
 			expect(pricing.INPUT_PER_MILLION).toBe(3);
 			expect(pricing.OUTPUT_PER_MILLION).toBe(15);
 			expect(pricing.CACHE_READ_PER_MILLION).toBe(0.3);
@@ -83,7 +89,7 @@ describe('claude-pricing', () => {
 		});
 
 		it('should have correct Haiku 3 pricing', () => {
-			const pricing = CLAUDE_MODEL_PRICING['claude-3-haiku-20240307'];
+			const pricing = getModelPricingRecord()['claude-3-haiku-20240307'];
 			expect(pricing.INPUT_PER_MILLION).toBe(0.25);
 			expect(pricing.OUTPUT_PER_MILLION).toBe(1.25);
 			expect(pricing.CACHE_READ_PER_MILLION).toBe(0.03);
@@ -93,45 +99,45 @@ describe('claude-pricing', () => {
 
 	describe('MODEL_ALIASES', () => {
 		it('should have basic aliases', () => {
-			expect(MODEL_ALIASES.opus).toBeDefined();
-			expect(MODEL_ALIASES.sonnet).toBeDefined();
-			expect(MODEL_ALIASES.haiku).toBeDefined();
+			expect(getModelAliasesRecord().opus).toBeDefined();
+			expect(getModelAliasesRecord().sonnet).toBeDefined();
+			expect(getModelAliasesRecord().haiku).toBeDefined();
 		});
 
 		it('should have versioned aliases', () => {
-			expect(MODEL_ALIASES['opus-4.5']).toBe('claude-opus-4-5-20251101');
-			expect(MODEL_ALIASES['sonnet-4.6']).toBe('claude-sonnet-4-6-20260218');
-			expect(MODEL_ALIASES['sonnet-4']).toBe('claude-sonnet-4-20250514');
-			expect(MODEL_ALIASES['haiku-3']).toBe('claude-3-haiku-20240307');
+			expect(getModelAliasesRecord()['opus-4.5']).toBe('claude-opus-4-5-20251101');
+			expect(getModelAliasesRecord()['sonnet-4.6']).toBe('claude-sonnet-4-6-20260218');
+			expect(getModelAliasesRecord()['sonnet-4']).toBe('claude-sonnet-4-20250514');
+			expect(getModelAliasesRecord()['haiku-3']).toBe('claude-3-haiku-20240307');
 		});
 
 		it('should have underscore variants', () => {
-			expect(MODEL_ALIASES.opus_4_5).toBe('claude-opus-4-5-20251101');
-			expect(MODEL_ALIASES.sonnet_4).toBe('claude-sonnet-4-20250514');
-			expect(MODEL_ALIASES.haiku_3).toBe('claude-3-haiku-20240307');
+			expect(getModelAliasesRecord().opus_4_5).toBe('claude-opus-4-5-20251101');
+			expect(getModelAliasesRecord().sonnet_4).toBe('claude-sonnet-4-20250514');
+			expect(getModelAliasesRecord().haiku_3).toBe('claude-3-haiku-20240307');
 		});
 
 		it('should have short-form model ID aliases (without date suffix)', () => {
-			expect(MODEL_ALIASES['claude-opus-4-6']).toBe('claude-opus-4-6-20260115');
-			expect(MODEL_ALIASES['claude-opus-4-5']).toBe('claude-opus-4-5-20251101');
-			expect(MODEL_ALIASES['claude-opus-4-1']).toBe('claude-opus-4-1-20250319');
-			expect(MODEL_ALIASES['claude-opus-4']).toBe('claude-opus-4-20250514');
-			expect(MODEL_ALIASES['claude-sonnet-4-5']).toBe('claude-sonnet-4-5-20250929');
-			expect(MODEL_ALIASES['claude-sonnet-4-6']).toBe('claude-sonnet-4-6-20260218');
-			expect(MODEL_ALIASES['claude-sonnet-4']).toBe('claude-sonnet-4-20250514');
-			expect(MODEL_ALIASES['claude-haiku-4-5']).toBe('claude-haiku-4-5-20251001');
-			expect(MODEL_ALIASES['claude-haiku-3-5']).toBe('claude-haiku-3-5-20241022');
-			expect(MODEL_ALIASES['claude-3-haiku']).toBe('claude-3-haiku-20240307');
+			expect(getModelAliasesRecord()['claude-opus-4-6']).toBe('claude-opus-4-6-20260115');
+			expect(getModelAliasesRecord()['claude-opus-4-5']).toBe('claude-opus-4-5-20251101');
+			expect(getModelAliasesRecord()['claude-opus-4-1']).toBe('claude-opus-4-1-20250319');
+			expect(getModelAliasesRecord()['claude-opus-4']).toBe('claude-opus-4-20250514');
+			expect(getModelAliasesRecord()['claude-sonnet-4-5']).toBe('claude-sonnet-4-5-20250929');
+			expect(getModelAliasesRecord()['claude-sonnet-4-6']).toBe('claude-sonnet-4-6-20260218');
+			expect(getModelAliasesRecord()['claude-sonnet-4']).toBe('claude-sonnet-4-20250514');
+			expect(getModelAliasesRecord()['claude-haiku-4-5']).toBe('claude-haiku-4-5-20251001');
+			expect(getModelAliasesRecord()['claude-haiku-3-5']).toBe('claude-haiku-3-5-20241022');
+			expect(getModelAliasesRecord()['claude-3-haiku']).toBe('claude-3-haiku-20240307');
 		});
 	});
 
 	describe('DEFAULT_MODEL_ID', () => {
 		it('should be a valid model ID', () => {
-			expect(isClaudeModelId(DEFAULT_MODEL_ID)).toBe(true);
+			expect(isClaudeModelId(getDefaultModelId())).toBe(true);
 		});
 
 		it('should be Opus 4.5', () => {
-			expect(DEFAULT_MODEL_ID).toBe('claude-opus-4-5-20251101');
+			expect(getDefaultModelId()).toBe('claude-opus-4-5-20251101');
 		});
 	});
 
@@ -235,7 +241,7 @@ describe('claude-pricing', () => {
 	describe('getAllModelIds', () => {
 		it('should return all model IDs', () => {
 			const modelIds = getAllModelIds();
-			expect(modelIds.length).toBe(10);
+			expect(modelIds.length).toBeGreaterThanOrEqual(10);
 			expect(modelIds).toContain('claude-opus-4-5-20251101');
 			expect(modelIds).toContain('claude-sonnet-4-20250514');
 			expect(modelIds).toContain('claude-3-haiku-20240307');
@@ -245,14 +251,14 @@ describe('claude-pricing', () => {
 	describe('getModelsByFamily', () => {
 		it('should return Opus models', () => {
 			const opusModels = getModelsByFamily('opus');
-			expect(opusModels.length).toBe(4);
+			expect(opusModels.length).toBeGreaterThanOrEqual(4);
 			expect(opusModels).toContain('claude-opus-4-5-20251101');
 			expect(opusModels).toContain('claude-opus-4-6-20260115');
 		});
 
 		it('should return Sonnet models', () => {
 			const sonnetModels = getModelsByFamily('sonnet');
-			expect(sonnetModels.length).toBe(3);
+			expect(sonnetModels.length).toBeGreaterThanOrEqual(3);
 			expect(sonnetModels).toContain('claude-sonnet-4-20250514');
 			expect(sonnetModels).toContain('claude-sonnet-4-5-20250929');
 			expect(sonnetModels).toContain('claude-sonnet-4-6-20260218');
@@ -260,7 +266,7 @@ describe('claude-pricing', () => {
 
 		it('should return Haiku models', () => {
 			const haikuModels = getModelsByFamily('haiku');
-			expect(haikuModels.length).toBe(3);
+			expect(haikuModels.length).toBeGreaterThanOrEqual(3);
 			expect(haikuModels).toContain('claude-haiku-4-5-20251001');
 			expect(haikuModels).toContain('claude-3-haiku-20240307');
 		});
@@ -269,7 +275,7 @@ describe('claude-pricing', () => {
 	describe('getAllKnownModelDisplayNames', () => {
 		it('should return all display names from the pricing registry', () => {
 			const names = getAllKnownModelDisplayNames();
-			expect(names.size).toBe(Object.keys(CLAUDE_MODEL_PRICING).length);
+			expect(names.size).toBe(Object.keys(getModelPricingRecord()).length);
 			expect(names.has('Claude Opus 4.6')).toBe(true);
 			expect(names.has('Claude Sonnet 4.6')).toBe(true);
 			expect(names.has('Claude Sonnet 4.5')).toBe(true);
