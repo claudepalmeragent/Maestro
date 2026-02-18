@@ -14,6 +14,19 @@ import { logger } from './utils/logger';
 const LOG_CONTEXT = '[ModelChecker]';
 const PRICING_PAGE_URL = 'https://docs.anthropic.com/en/about-claude/pricing';
 
+/**
+ * Legacy models that appear on the pricing page but are intentionally
+ * not supported in Maestro. Suppresses toast notifications for these.
+ */
+const SUPPRESSED_MODEL_NAMES = new Set([
+	'Claude Sonnet 3.7',
+	'Claude Sonnet 3.5',
+	'Claude Opus 3',
+	'Claude Opus 3.5',
+	'Claude Sonnet 3',
+	'Claude Haiku 3',
+]);
+
 // Module-level guard: only check once per app session
 let sessionChecked = false;
 
@@ -213,7 +226,7 @@ export async function checkForNewModels(): Promise<ModelCheckResult> {
 	const knownNames = getAllKnownModelDisplayNames();
 
 	const newModels: NewModelInfo[] = pageModels
-		.filter((m) => !knownNames.has(m.name))
+		.filter((m) => !knownNames.has(m.name) && !SUPPRESSED_MODEL_NAMES.has(m.name))
 		.map((m) => ({
 			name: m.name,
 			inputPricePerMillion: m.inputPricePerMillion,
