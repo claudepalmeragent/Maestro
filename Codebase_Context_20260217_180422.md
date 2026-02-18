@@ -154,7 +154,7 @@ src/
 │   ├── services/            # Anthropic audit, audit scheduler, historical reconstruction
 │   ├── stats/               # SQLite stats DB (13 modules, 9 migrations, 7 tables)
 │   ├── storage/             # Agent session storage (Claude, Codex, OpenCode)
-│   ├── stores/              # 9 electron-store instances (settings, sessions, groups, etc.)
+│   ├── stores/              # 10 electron-store instances (settings, sessions, groups, model registry, etc.)
 │   ├── utils/               # 27 utility modules (SSH, pricing, auth, logging, etc.)
 │   └── web-server/          # Fastify web server (handlers, routes, WebSocket)
 │
@@ -334,7 +334,7 @@ exit   → ExitHandler (batch parse, cleanup) → emit('exit')
 
 **Performance:** `StatementCache` (Map) avoids repeated `db.prepare()`. Weekly VACUUM only if >100MB.
 
-### App State Stores — 9 electron-store Instances
+### App State Stores — 10 electron-store Instances
 
 | Store | Path | Synced? | Purpose |
 |-------|------|---------|---------|
@@ -347,6 +347,7 @@ exit   → ExitHandler (batch parse, cleanup) → emit('exit')
 | `maestro-window-state` | `userData/` | Per-device | Window geometry |
 | `maestro-claude-session-origins` | `syncPath/` | Yes | Claude session metadata |
 | `maestro-agent-session-origins` | `syncPath/` | Yes | Non-Claude agent metadata |
+| `maestro-model-registry` | `productionDataPath/` | Per-device | Claude model pricing, aliases, metadata (runtime-updateable) |
 
 ### Group Chat System
 
@@ -657,7 +658,10 @@ Common interface: `listSessions`, `listSessionsPaginated`, `readSessionMessages`
 
 ### Pricing System
 
-- **9 Claude models supported:** opus-4-6, sonnet-4-5, haiku-4-5, etc. with ~30 aliases
+- **Model pricing externalized** to `maestro-model-registry.json` electron-store (10th store instance)
+- **Runtime-updateable:** new models can be added without code changes or rebuilds
+- **Auto-detection:** model checker scrapes Anthropic pricing page on startup, auto-adds new models to the registry
+- **10+ Claude models shipped as defaults** (opus-4-6, sonnet-4-6, haiku-4-5, etc.) with ~30 aliases
 - **Three billing modes:** 'api', 'max', 'free'
 - **Billing mode precedence:** agent-level → project folder → auto-detected → 'api'
 - **Max billing:** cache tokens free

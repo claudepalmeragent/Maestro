@@ -117,7 +117,7 @@ src/
 │   ├── services/            # Audit, reconstruction services
 │   ├── stats/               # SQLite stats DB (13 modules)
 │   ├── storage/             # Agent session storage
-│   ├── stores/              # 9 electron-store instances
+│   ├── stores/              # 10 electron-store instances
 │   ├── utils/               # 27 utility modules
 │   └── web-server/          # Fastify web server
 ├── renderer/                # React frontend (desktop)
@@ -167,7 +167,7 @@ For full module breakdowns, see [Codebase_Context_20260217_180422.md](Codebase_C
 | Add agent output parser | `src/main/parsers/` — register via `registerOutputParser()` |
 | **Main Process** | |
 | Add stats/analytics | `src/main/stats/` (13 modules, SQLite) |
-| Add electron-store | `src/main/stores/` (9 store instances) |
+| Add electron-store | `src/main/stores/` (10 store instances) |
 | Add setting | `src/main/stores/types.ts` + `src/renderer/hooks/settings/useSettings.ts` |
 | Add theme | `src/shared/themes.ts` |
 | Add system prompt | `src/prompts/` (22 .md files) |
@@ -198,7 +198,7 @@ For full module breakdowns, see [Codebase_Context_20260217_180422.md](Codebase_C
 ## Debugging Tips
 
 - **Focus issues**: Check the `LayerStack` system. Modals, dropdowns, and panels register layers; focus is routed to the topmost active layer.
-- **Settings not persisting**: Verify the electron-store path and that the correct store instance (of 9) is being used. Check `src/main/stores/`.
+- **Settings not persisting**: Verify the electron-store path and that the correct store instance (of 10) is being used. Check `src/main/stores/`.
 - **Modal won't close on Escape**: The `LayerStack` priority system controls which layer receives the Escape key. Check `src/renderer/constants/modalPriorities.ts` for ordering.
 - **Dev tools**: `Ctrl+Shift+I` opens Chromium DevTools in the renderer.
 - **Agent not detected**: Check `src/main/agents/` for detection logic; agents must be on `$PATH` or configured explicitly.

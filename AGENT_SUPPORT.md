@@ -1275,8 +1275,9 @@ const DEFAULT_CONTEXT_WINDOWS: Record<string, number> = {
   `supportsContextWindowOverride` is true.
 - The context window value is used to compute a utilization percentage shown
   in the status bar (for agents that `supportsStatusBar`).
-- Cost estimation uses model-specific pricing tables that are separate from
-  context window sizes.
+- Cost estimation uses model-specific pricing from the `maestro-model-registry`
+  electron-store (`maestro-model-registry.json`), which is separate from
+  context window sizes and can be updated at runtime.
 
 ---
 

@@ -62,7 +62,7 @@ include:
   handlers in the main process.
 - **Native integrations**: System tray, native menus, global shortcuts,
   auto-updater, power monitor, and system notifications.
-- **Store management**: Nine `electron-store` instances for persistent
+- **Store management**: Ten `electron-store` instances for persistent
   configuration (see Section 9).
 - **SQLite database**: The stats database runs in the main process with WAL
   mode enabled (see Section 21).
@@ -1216,7 +1216,7 @@ function applyThemeToCss(theme: ThemeColors): void {
 
 ## 9. Settings Persistence
 
-Maestro uses **9 separate `electron-store` instances** to persist application
+Maestro uses **10 separate `electron-store` instances** to persist application
 state. Each store has its own file, schema, and migration logic.
 
 ### 9.1 Store Inventory
@@ -1232,6 +1232,7 @@ state. Each store has its own file, schema, and migration logic.
 | `maestro-window-state` | `maestro-window-state.json` | Window position, size, maximized state, display |
 | `maestro-claude-session-origins` | `maestro-claude-session-origins.json` | Legacy Claude session origin tracking |
 | `maestro-agent-session-origins` | `maestro-agent-session-origins.json` | Agent session origin mapping |
+| `maestro-model-registry` | `maestro-model-registry.json` | Claude model pricing, aliases, and metadata (runtime-updateable) |
 
 ### 9.2 Store Configuration
 
@@ -2177,15 +2178,21 @@ Section 21 for full schema).
 The dashboard supports two simultaneous cost calculations:
 
 - **Anthropic Pricing**: Direct API costs based on Anthropic's published
-  token pricing
+  token pricing, loaded from the `maestro-model-registry` store
 - **Maestro Pricing**: Maestro's own pricing model (may differ for bundled
   or enterprise plans)
+
+Model pricing data is externalized to the `maestro-model-registry.json`
+electron-store (see Section 9.1). Rates are loaded at runtime via
+`getPricingForModel(modelId)` which reads from the store. New models
+detected on the Anthropic pricing page are auto-added to the registry
+by the model checker on app startup.
 
 ```typescript
 interface CostCalculation {
   inputTokens: number;
   outputTokens: number;
-  anthropicCost: number;    // Based on Anthropic's rates
+  anthropicCost: number;    // Based on Anthropic's rates (from model registry store)
   maestroCost: number;      // Based on Maestro's rates
   savings: number;          // anthropicCost - maestroCost
   savingsPercent: number;
@@ -2196,6 +2203,7 @@ function calculateDualCost(
   inputTokens: number,
   outputTokens: number
 ): CostCalculation {
+  // Rates loaded from maestro-model-registry.json via getPricingForModel()
   const anthropicRates = getAnthropicRates(model);
   const maestroRates = getMaestroRates(model);
 
