@@ -2,7 +2,8 @@
  * Feedback IPC Handlers
  *
  * Handles recording user feedback (like/dislike) on AI responses.
- * Feedback is stored in a Markdown file for future context and learning.
+ * Feedback is stored in separate Markdown files for liked vs disliked responses.
+ * Full content is preserved (no truncation) for future RLM processing.
  */
 
 import { ipcMain, app } from 'electron';
@@ -13,6 +14,7 @@ import { withIpcErrorLogging, CreateHandlerOptions } from '../../utils/ipcHandle
 const LOG_CONTEXT = '[Feedback]';
 const FEEDBACK_DIR = 'feedback';
 const LIKED_FILE = 'ResponsesLikedByTheUser.md';
+const DISLIKED_FILE = 'ResponsesDislikedByTheUser.md';
 
 const handlerOpts = (operation: string): Pick<CreateHandlerOptions, 'context' | 'operation'> => ({
 	context: LOG_CONTEXT,
@@ -25,9 +27,17 @@ async function ensureFeedbackDir(): Promise<string> {
 	return feedbackDir;
 }
 
-async function getLikedFilePath(): Promise<string> {
+async function getFeedbackFilePath(rating: 'liked' | 'disliked'): Promise<string> {
 	const feedbackDir = await ensureFeedbackDir();
-	return path.join(feedbackDir, LIKED_FILE);
+	const filename = rating === 'liked' ? LIKED_FILE : DISLIKED_FILE;
+	return path.join(feedbackDir, filename);
+}
+
+function getFileHeader(rating: 'liked' | 'disliked'): string {
+	if (rating === 'liked') {
+		return '# Liked AI Responses\n\nThis file tracks AI responses that the user has positively rated.\nThese represent high-quality responses that should inform future behavior.\n\n---\n\n';
+	}
+	return '# Disliked AI Responses\n\nThis file tracks AI responses that the user has negatively rated.\nThese represent responses that should be avoided or improved upon.\n\n---\n\n';
 }
 
 /**
@@ -41,45 +51,42 @@ export function registerFeedbackHandlers(): void {
 			async (entry: {
 				rating: 'liked' | 'disliked';
 				sessionId: string;
+				sessionName?: string;
+				tabId?: string;
 				agentType: string;
 				userQuery: string;
 				aiResponse: string;
 				timestamp: number;
 				reason?: string;
 			}) => {
-				const filepath = await getLikedFilePath();
+				const filepath = await getFeedbackFilePath(entry.rating);
 
-				// Check if file exists, if not create with header
+				// Read existing file or create with appropriate header
 				let content = '';
 				try {
 					content = await fs.readFile(filepath, 'utf-8');
 				} catch {
-					content =
-						'# User Response Feedback\n\nThis file tracks AI responses that the user has rated.\n\n---\n\n';
+					content = getFileHeader(entry.rating);
 				}
 
 				const ratingEmoji = entry.rating === 'liked' ? '👍' : '👎';
-				const responseSummary =
-					entry.aiResponse.substring(0, 200) + (entry.aiResponse.length > 200 ? '...' : '');
-				const querySummary =
-					entry.userQuery.substring(0, 100) + (entry.userQuery.length > 100 ? '...' : '');
 
+				// Full content — no truncation
 				const newEntry = `## Entry: ${new Date(entry.timestamp).toLocaleString()}
 **Rating**: ${ratingEmoji} ${entry.rating.toUpperCase()}
 **Agent**: ${entry.agentType}
-**Session**: ${entry.sessionId}
+**Session**: ${entry.sessionName ? `${entry.sessionName} (${entry.sessionId})` : entry.sessionId}${entry.tabId ? ` | Tab: ${entry.tabId}` : ''}
 
 ### User Query
-${querySummary}
+${entry.userQuery}
 
-### AI Response Summary
-${responseSummary}
+### AI Response
+${entry.aiResponse}
 ${entry.reason ? `\n### Reason\n${entry.reason}` : ''}
 
 ---
 
 `;
-
 				content += newEntry;
 				await fs.writeFile(filepath, content, 'utf-8');
 				return true;
@@ -90,12 +97,20 @@ ${entry.reason ? `\n### Reason\n${entry.reason}` : ''}
 	ipcMain.handle(
 		'feedback:getAll',
 		withIpcErrorLogging(handlerOpts('getAll'), async () => {
-			const filepath = await getLikedFilePath();
+			const feedbackDir = await ensureFeedbackDir();
+			// Return content from both files, concatenated
+			let content = '';
 			try {
-				return await fs.readFile(filepath, 'utf-8');
+				content += await fs.readFile(path.join(feedbackDir, LIKED_FILE), 'utf-8');
 			} catch {
-				return '';
+				// File doesn't exist yet — skip
 			}
+			try {
+				content += '\n\n' + (await fs.readFile(path.join(feedbackDir, DISLIKED_FILE), 'utf-8'));
+			} catch {
+				// File doesn't exist yet — skip
+			}
+			return content.trim();
 		})
 	);
 }

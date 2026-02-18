@@ -958,13 +958,22 @@ export interface ContextManagementSettings {
 export interface KnowledgeGraphEntry {
 	sessionName: string;
 	sessionId: string;
+	tabId?: string;
 	agentType: string;
 	projectPath: string;
 	projectName: string;
+	/** Structured key findings summary (topic, resolution, metadata) */
 	summary: string;
+	/** Full conversation transcript formatted as [USER]/[AI]/[SYSTEM]/[TOOL] exchanges */
 	detailedLearnings: string;
 	totalQueries?: number;
 	totalCost?: number;
 	contextUsage?: number;
+	/** Number of conversational exchanges (user→AI pairs) */
+	exchangeCount?: number;
+	/** Total number of log entries in the conversation */
+	totalLogEntries?: number;
+	/** Model used (if detected) */
+	detectedModel?: string;
 	timestamp: number;
 }

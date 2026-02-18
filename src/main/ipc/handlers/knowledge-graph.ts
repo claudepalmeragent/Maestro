@@ -28,6 +28,7 @@ export function registerKnowledgeGraphHandlers(): void {
 			entry: {
 				sessionName: string;
 				sessionId: string;
+				tabId?: string;
 				agentType: string;
 				projectPath: string;
 				projectName: string;
@@ -36,6 +37,9 @@ export function registerKnowledgeGraphHandlers(): void {
 				totalQueries?: number;
 				totalCost?: number;
 				contextUsage?: number;
+				exchangeCount?: number;
+				totalLogEntries?: number;
+				detectedModel?: string;
 				timestamp: number;
 			}
 		) => {
@@ -46,19 +50,24 @@ export function registerKnowledgeGraphHandlers(): void {
 			const content = `# Knowledge Gained: ${entry.sessionName}
 
 **Date**: ${new Date(entry.timestamp).toLocaleString()}
-**Agent**: ${entry.agentType}
-**Project**: ${entry.projectPath}
+**Agent**: ${entry.agentType}${entry.detectedModel ? ` (${entry.detectedModel})` : ''}
+**Project**: ${entry.projectName} — ${entry.projectPath}
+**Session ID**: ${entry.sessionId}${entry.tabId ? ` | Tab: ${entry.tabId}` : ''}
 
-## Summary
+## Key Findings
+
 ${entry.summary || 'No summary available.'}
 
-## Detailed Learnings
-${entry.detailedLearnings || 'No detailed learnings recorded.'}
-
 ## Session Statistics
-- Total Queries: ${entry.totalQueries ?? 'N/A'}
-- Total Cost: ${entry.totalCost != null ? `$${entry.totalCost.toFixed(4)}` : 'N/A'}
-- Context Usage: ${entry.contextUsage != null ? `${entry.contextUsage.toFixed(1)}%` : 'N/A'}
+- Total AI Responses: ${entry.totalQueries ?? 'N/A'}
+- Conversational Exchanges: ${entry.exchangeCount ?? 'N/A'}
+- Total Log Entries: ${entry.totalLogEntries ?? 'N/A'}
+- Total Cost: ${entry.totalCost != null ? '$' + entry.totalCost.toFixed(4) : 'N/A'}
+- Context Usage: ${entry.contextUsage != null ? entry.contextUsage.toFixed(1) + '%' : 'N/A'}
+
+## Full Conversation Transcript
+
+${entry.detailedLearnings || 'No conversation recorded.'}
 `;
 
 			await fs.writeFile(filepath, content, 'utf-8');

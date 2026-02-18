@@ -24,6 +24,8 @@ export function createFeedbackApi() {
 		record: (entry: {
 			rating: 'liked' | 'disliked';
 			sessionId: string;
+			sessionName?: string;
+			tabId?: string;
 			agentType: string;
 			userQuery: string;
 			aiResponse: string;

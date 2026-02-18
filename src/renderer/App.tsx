@@ -5989,6 +5989,8 @@ You are taking over this conversation. Based on the context above, provide a bri
 					await window.maestro.feedback.record({
 						rating,
 						sessionId: currentSession.id,
+						sessionName: currentSession.name || 'Unnamed Session',
+						tabId: activeTab.id,
 						agentType: currentSession.toolType || 'claude-code',
 						userQuery,
 						aiResponse: logEntry.text,
@@ -6018,22 +6020,95 @@ You are taking over this conversation. Based on the context above, provide a bri
 		const folderId = activeSession.projectFolderIds?.[0];
 		const folder = folderId ? getFolderById(folderId) : undefined;
 
-		// Build a summary from the last few AI logs
-		const aiLogs = activeTab.logs?.filter((l) => l.source === 'ai' || l.source === 'stdout') || [];
-		const lastLogContent = aiLogs.length > 0 ? aiLogs[aiLogs.length - 1].text : '';
-		const summary = lastLogContent.split('\n').slice(0, 3).join('\n') || '';
+		// --- Build full conversation transcript ---
+		const allLogs = activeTab.logs || [];
+		const transcriptLines: string[] = [];
+		let exchangeCount = 0;
+
+		for (const log of allLogs) {
+			// Map log source to a readable label
+			let label: string;
+			switch (log.source) {
+				case 'user':
+					label = 'USER';
+					exchangeCount++;
+					break;
+				case 'ai':
+				case 'stdout':
+					label = 'AI';
+					break;
+				case 'system':
+					label = 'SYSTEM';
+					break;
+				case 'tool':
+					label = 'TOOL';
+					break;
+				case 'thinking':
+					label = 'THINKING';
+					break;
+				case 'error':
+				case 'stderr':
+					label = 'ERROR';
+					break;
+				default:
+					label = (log.source as string | undefined)?.toUpperCase() || 'UNKNOWN';
+			}
+
+			// Include all log entries with their full text
+			if (log.text && log.text.trim()) {
+				transcriptLines.push(`[${label}]\n${log.text.trim()}\n`);
+			}
+		}
+
+		const fullTranscript = transcriptLines.join('\n');
+
+		// --- Build structured Key Findings summary ---
+		const aiLogs = allLogs.filter((l) => l.source === 'ai' || l.source === 'stdout');
+		const userLogs = allLogs.filter((l) => l.source === 'user');
+
+		// Topic: derived from first user message
+		const firstUserMessage =
+			userLogs.length > 0 ? userLogs[0].text.trim() : 'No user query recorded';
+		const topic =
+			firstUserMessage.length > 300 ? firstUserMessage.substring(0, 300) + '...' : firstUserMessage;
+
+		// Resolution: derived from last AI response
+		const lastAiMessage =
+			aiLogs.length > 0 ? aiLogs[aiLogs.length - 1].text.trim() : 'No AI response recorded';
+		const resolution =
+			lastAiMessage.length > 1000 ? lastAiMessage.substring(0, 1000) + '...' : lastAiMessage;
+
+		const summaryBlock = [
+			`**Topic/Goal**: ${topic}`,
+			'',
+			`**Resolution**:`,
+			resolution,
+			'',
+			`**Session Metadata**:`,
+			`- Session: ${activeSession.name || activeTab.name || 'Unnamed'} (${activeSession.id})`,
+			`- Tab: ${activeTab.name || activeTab.id}`,
+			`- Agent: ${activeSession.toolType || 'claude-code'}`,
+			`- Project: ${folder?.name || 'Unassigned'} (${activeSession.fullPath || activeSession.cwd || 'N/A'})`,
+			`- Exchanges: ${exchangeCount} user messages, ${aiLogs.length} AI responses, ${allLogs.length} total entries`,
+			`- Cost: ${activeTab.usageStats?.totalCostUsd != null ? `$${activeTab.usageStats.totalCostUsd.toFixed(4)}` : 'N/A'}`,
+			`- Context Usage: ${activeSession.contextUsage != null ? `${activeSession.contextUsage.toFixed(1)}%` : 'N/A'}`,
+		].join('\n');
 
 		const entry = {
 			sessionName: activeSession.name || activeTab.name || 'Unnamed Session',
 			sessionId: activeSession.id,
+			tabId: activeTab.id,
 			agentType: activeSession.toolType || 'claude-code',
 			projectPath: activeSession.fullPath || activeSession.cwd || '',
 			projectName: folder?.name || 'Unassigned',
-			summary,
-			detailedLearnings: lastLogContent,
+			summary: summaryBlock,
+			detailedLearnings: fullTranscript,
 			totalQueries: aiLogs.length,
 			totalCost: activeTab.usageStats?.totalCostUsd,
 			contextUsage: activeSession.contextUsage,
+			exchangeCount,
+			totalLogEntries: allLogs.length,
+			detectedModel: activeTab.usageStats?.detectedModel,
 			timestamp: Date.now(),
 		};
 
