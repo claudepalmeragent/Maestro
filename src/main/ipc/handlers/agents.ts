@@ -1,3 +1,6 @@
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
 import { ipcMain } from 'electron';
 import Store from 'electron-store';
 import { AgentDetector, AGENT_DEFINITIONS, getAgentCapabilities } from '../../agents';
@@ -9,6 +12,7 @@ import {
 	CreateHandlerOptions,
 } from '../../utils/ipcHandler';
 import { buildSshCommand, RemoteCommandOptions } from '../../utils/ssh-command-builder';
+import { getExpandedEnv } from '../../agents/path-prober';
 import { stripAnsi } from '../../utils/stripAnsi';
 import { SshRemoteConfig } from '../../../shared/types';
 import { MaestroSettings } from './persistence';
@@ -18,6 +22,7 @@ import {
 	invalidateRemoteAuthCache,
 } from '../../utils/claude-auth-detector';
 import type { AgentPricingConfig } from '../../stores/types';
+import { resolveModelAlias, getLatestModelByFamily } from '../../utils/claude-pricing';
 
 const LOG_CONTEXT = '[AgentDetector]';
 const CONFIG_LOG_CONTEXT = '[AgentConfig]';
@@ -771,5 +776,316 @@ export function registerAgentsHandlers(deps: AgentsHandlerDependencies): void {
 				return true;
 			}
 		)
+	);
+
+	// ============================================================================
+	// Host Settings Handlers
+	// ============================================================================
+
+	// Get Claude Code host settings (model and effortLevel from ~/.claude/settings.json)
+	// Supports both local and SSH remote hosts
+	ipcMain.handle(
+		'agents:getHostSettings',
+		withIpcErrorLogging(
+			handlerOpts('getHostSettings', CONFIG_LOG_CONTEXT),
+			async (
+				sshRemoteId?: string
+			): Promise<{ success: boolean; model?: string; effortLevel?: string; error?: string }> => {
+				try {
+					if (sshRemoteId) {
+						// SSH remote: read ~/.claude/settings.json via SSH
+						const sshConfig = getSshRemoteById(settingsStore, sshRemoteId);
+						if (!sshConfig) {
+							return {
+								success: false,
+								error: `SSH remote configuration not found: ${sshRemoteId}`,
+							};
+						}
+						const remoteOptions: RemoteCommandOptions = {
+							command: 'sh',
+							args: ['-c', 'cat "$HOME/.claude/settings.json"'],
+						};
+						const sshCommand = await buildSshCommand(sshConfig, remoteOptions);
+						const result = await execFileNoThrow(sshCommand.command, sshCommand.args);
+						if (result.exitCode === 0 && result.stdout) {
+							try {
+								const settings = JSON.parse(result.stdout.trim());
+								const rawModel = typeof settings.model === 'string' ? settings.model : null;
+								const resolvedModel = rawModel
+									? resolveModelAlias(rawModel) || rawModel
+									: getLatestModelByFamily('opus');
+								return {
+									success: true,
+									model: resolvedModel || undefined,
+									effortLevel:
+										typeof settings.effortLevel === 'string' ? settings.effortLevel : undefined,
+								};
+							} catch {
+								return {
+									success: false,
+									error: `Failed to parse settings.json: ${result.stdout.substring(0, 200)}`,
+								};
+							}
+						}
+						// File may not exist (fresh install) — use latest Opus from registry
+						if (result.stderr?.includes('No such file') || result.exitCode === 1) {
+							return {
+								success: true,
+								model: getLatestModelByFamily('opus') || undefined,
+								effortLevel: undefined,
+							};
+						}
+						return {
+							success: false,
+							error: `Failed to read settings: ${result.stderr || 'unknown error'}`,
+						};
+					}
+
+					// Local: read ~/.claude/settings.json directly
+					const settingsPath = path.join(os.homedir(), '.claude', 'settings.json');
+					try {
+						const content = await fs.promises.readFile(settingsPath, 'utf-8');
+						const settings = JSON.parse(content);
+						const rawModel = typeof settings.model === 'string' ? settings.model : null;
+						const resolvedModel = rawModel
+							? resolveModelAlias(rawModel) || rawModel
+							: getLatestModelByFamily('opus');
+						return {
+							success: true,
+							model: resolvedModel || undefined,
+							effortLevel:
+								typeof settings.effortLevel === 'string' ? settings.effortLevel : undefined,
+						};
+					} catch (err: any) {
+						if (err.code === 'ENOENT') {
+							// File doesn't exist — fresh install, use latest Opus from registry
+							return {
+								success: true,
+								model: getLatestModelByFamily('opus') || undefined,
+								effortLevel: undefined,
+							};
+						}
+						return { success: false, error: `Failed to read local settings: ${err.message}` };
+					}
+				} catch (error) {
+					return { success: false, error: String(error) };
+				}
+			}
+		)
+	);
+
+	// Set Claude Code host settings (model and/or effortLevel in ~/.claude/settings.json)
+	// Reads existing settings, merges changes, writes back — preserving other keys
+	// Supports both local and SSH remote hosts
+	ipcMain.handle(
+		'agents:setHostSettings',
+		withIpcErrorLogging(
+			handlerOpts('setHostSettings', CONFIG_LOG_CONTEXT),
+			async (
+				settings: { model?: string | null; effortLevel?: string | null },
+				sshRemoteId?: string
+			): Promise<{ success: boolean; error?: string }> => {
+				try {
+					if (sshRemoteId) {
+						// SSH remote: read, modify, write back
+						const sshConfig = getSshRemoteById(settingsStore, sshRemoteId);
+						if (!sshConfig) {
+							return {
+								success: false,
+								error: `SSH remote configuration not found: ${sshRemoteId}`,
+							};
+						}
+
+						// Step 1: Read existing settings
+						const readOptions: RemoteCommandOptions = {
+							command: 'sh',
+							args: ['-c', 'cat "$HOME/.claude/settings.json"'],
+						};
+						const readCmd = await buildSshCommand(sshConfig, readOptions);
+						const readResult = await execFileNoThrow(readCmd.command, readCmd.args);
+						let existing: Record<string, unknown> = {};
+						if (readResult.exitCode === 0 && readResult.stdout) {
+							try {
+								existing = JSON.parse(readResult.stdout.trim());
+							} catch {
+								// If parse fails, start fresh
+								existing = {};
+							}
+						}
+
+						// Step 2: Merge changes (null = remove key, undefined = no change)
+						if (settings.model !== undefined) {
+							if (settings.model === null || settings.model === '') {
+								delete existing.model;
+							} else {
+								existing.model = settings.model;
+							}
+						}
+						if (settings.effortLevel !== undefined) {
+							if (settings.effortLevel === null || settings.effortLevel === '') {
+								delete existing.effortLevel;
+							} else {
+								existing.effortLevel = settings.effortLevel;
+							}
+						}
+
+						// Step 3: Write back via SSH
+						// Ensure ~/.claude directory exists, then write the JSON
+						const jsonContent = JSON.stringify(existing, null, 2);
+						const writeOptions: RemoteCommandOptions = {
+							command: 'sh',
+							args: [
+								'-c',
+								`mkdir -p "$HOME/.claude" && printf '%s\\n' '${jsonContent.replace(/'/g, "'\\''")}' > "$HOME/.claude/settings.json"`,
+							],
+						};
+						const writeCmd = await buildSshCommand(sshConfig, writeOptions);
+						const writeResult = await execFileNoThrow(writeCmd.command, writeCmd.args);
+						if (writeResult.exitCode !== 0) {
+							return {
+								success: false,
+								error: `Failed to write settings: ${writeResult.stderr || 'unknown error'}`,
+							};
+						}
+						return { success: true };
+					}
+
+					// Local: read, modify, write back
+					const settingsPath = path.join(os.homedir(), '.claude', 'settings.json');
+					const settingsDir = path.join(os.homedir(), '.claude');
+
+					// Step 1: Read existing
+					let existing: Record<string, unknown> = {};
+					try {
+						const content = await fs.promises.readFile(settingsPath, 'utf-8');
+						existing = JSON.parse(content);
+					} catch (err: any) {
+						if (err.code !== 'ENOENT') {
+							return { success: false, error: `Failed to read local settings: ${err.message}` };
+						}
+						// File doesn't exist, start fresh
+					}
+
+					// Step 2: Merge changes
+					if (settings.model !== undefined) {
+						if (settings.model === null || settings.model === '') {
+							delete existing.model;
+						} else {
+							existing.model = settings.model;
+						}
+					}
+					if (settings.effortLevel !== undefined) {
+						if (settings.effortLevel === null || settings.effortLevel === '') {
+							delete existing.effortLevel;
+						} else {
+							existing.effortLevel = settings.effortLevel;
+						}
+					}
+
+					// Step 3: Write back
+					await fs.promises.mkdir(settingsDir, { recursive: true });
+					await fs.promises.writeFile(
+						settingsPath,
+						JSON.stringify(existing, null, 2) + '\n',
+						'utf-8'
+					);
+					return { success: true };
+				} catch (error) {
+					return { success: false, error: String(error) };
+				}
+			}
+		)
+	);
+
+	// ============================================================================
+	// Version Detection & Update Handlers
+	// ============================================================================
+
+	// Get agent version (supports SSH remotes)
+	ipcMain.handle(
+		'agents:getVersion',
+		withIpcErrorLogging(
+			handlerOpts('getVersion'),
+			async (agentId: string, sshRemoteId?: string) => {
+				try {
+					const agentDetector = requireDependency(getAgentDetector, 'Agent detector');
+
+					if (sshRemoteId) {
+						// SSH remote: run claude --version via SSH
+						const sshConfig = getSshRemoteById(settingsStore, sshRemoteId);
+						if (!sshConfig) {
+							return {
+								success: false,
+								error: `SSH remote configuration not found: ${sshRemoteId}`,
+							};
+						}
+						const remoteOptions: RemoteCommandOptions = {
+							command: 'claude',
+							args: ['--version'],
+						};
+						const sshCommand = await buildSshCommand(sshConfig, remoteOptions);
+						const result = await execFileNoThrow(sshCommand.command, sshCommand.args);
+						if (result.exitCode === 0 && result.stdout) {
+							const versionMatch = result.stdout.trim().match(/(\d+\.\d+\.\d+)/);
+							if (versionMatch) {
+								const version = versionMatch[1];
+								return { success: true, version };
+							}
+						}
+						return {
+							success: false,
+							error: `Could not parse version: ${result.stdout || result.stderr}`,
+						};
+					}
+
+					const version = await agentDetector.checkVersion(agentId);
+					return { success: true, version };
+				} catch (error) {
+					return { success: false, error: String(error) };
+				}
+			}
+		)
+	);
+
+	// Update agent (runs claude update or equivalent)
+	ipcMain.handle(
+		'agents:update',
+		withIpcErrorLogging(handlerOpts('update'), async (agentId: string, sshRemoteId?: string) => {
+			const agentDetector = requireDependency(getAgentDetector, 'Agent detector');
+			try {
+				if (sshRemoteId) {
+					// SSH remote update: use sudo claude update via SSH
+					const sshConfig = getSshRemoteById(settingsStore, sshRemoteId);
+					if (!sshConfig) {
+						return { success: false, error: `SSH remote configuration not found: ${sshRemoteId}` };
+					}
+
+					const remoteOptions: RemoteCommandOptions = {
+						command: 'sudo',
+						args: ['claude', 'update'],
+					};
+					const sshCommand = await buildSshCommand(sshConfig, remoteOptions);
+					const result = await execFileNoThrow(sshCommand.command, sshCommand.args);
+
+					// Clear version cache after update
+					agentDetector.clearVersionCache(agentId);
+					return {
+						success: result.exitCode === 0,
+						output: result.stdout || result.stderr || 'Update complete',
+					};
+				} else {
+					// Local update: run claude update
+					const result = await execFileNoThrow('claude', ['update'], undefined, getExpandedEnv());
+					// Clear version cache after update
+					agentDetector.clearVersionCache(agentId);
+					return {
+						success: result.exitCode === 0,
+						output: result.stdout || result.stderr || 'Update complete',
+					};
+				}
+			} catch (error) {
+				return { success: false, error: String(error) };
+			}
+		})
 	);
 }

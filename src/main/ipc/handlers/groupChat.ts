@@ -59,7 +59,7 @@ import {
 } from '../../group-chat/group-chat-agent';
 
 // Group chat router imports
-import { routeUserMessage } from '../../group-chat/group-chat-router';
+import { routeUserMessage, getGroupChatRoundState } from '../../group-chat/group-chat-router';
 
 // Agent detector import
 import { AgentDetector } from '../../agents';
@@ -273,6 +273,7 @@ export function registerGroupChatHandlers(deps: GroupChatHandlerDependencies): v
 						customArgs?: string;
 						customEnvVars?: Record<string, string>;
 					};
+					maxRoundsOverride?: number;
 				}
 			): Promise<GroupChat> => {
 				logger.info(`Updating group chat ${id}`, LOG_CONTEXT, updates);
@@ -297,6 +298,7 @@ export function registerGroupChatHandlers(deps: GroupChatHandlerDependencies): v
 					name: updates.name,
 					moderatorAgentId: updates.moderatorAgentId,
 					moderatorConfig: updates.moderatorConfig,
+					maxRoundsOverride: updates.maxRoundsOverride,
 				});
 
 				// Restart moderator if agent changed
@@ -748,6 +750,14 @@ Respond with ONLY the summary text, no additional commentary.`;
 				return images;
 			}
 		)
+	);
+
+	// Get round state for a group chat (for UI display)
+	ipcMain.handle(
+		'groupChat:getRoundState',
+		withIpcErrorLogging(handlerOpts('getRoundState'), async (groupChatId: string) => {
+			return getGroupChatRoundState(groupChatId);
+		})
 	);
 
 	// ========== Event Emission Helpers ==========

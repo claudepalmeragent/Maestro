@@ -135,6 +135,24 @@ export const AGENT_DEFINITIONS: AgentDefinition[] = [
 		],
 		resumeArgs: (sessionId: string) => ['--resume', sessionId], // Resume with session ID
 		readOnlyArgs: ['--permission-mode', 'plan'], // Read-only/plan mode
+		modelArgs: (modelId: string) => ['--model', modelId], // Model selection (e.g., 'opus', 'sonnet', 'sonnet[1m]')
+		// Agent-specific configuration options shown in UI
+		configOptions: [
+			{
+				key: 'model',
+				type: 'select',
+				label: 'Execution Model',
+				description: 'Model to use for this agent. Leave as "default" to use account default.',
+				default: '',
+				options: [], // Populated dynamically from availableModels at render time
+				argBuilder: (value: string) => {
+					if (value && value.trim()) {
+						return ['--model', value.trim()];
+					}
+					return [];
+				},
+			},
+		],
 	},
 	{
 		id: 'codex',

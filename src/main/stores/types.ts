@@ -139,6 +139,9 @@ export interface AgentPricingConfig {
 
 	/** Timestamp of last detection */
 	detectedAt?: number;
+
+	/** Effort level for Claude Code (low/medium/high). Applies to Opus 4.6 and Sonnet 4.6. */
+	effortLevel?: 'low' | 'medium' | 'high';
 }
 
 /**

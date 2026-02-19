@@ -1209,6 +1209,17 @@ export function EditAgentModal({
 	const [pricingConfig, setPricingConfig] = useState<AgentPricingConfig | null>(null);
 	const [detectedAuth, setDetectedAuth] = useState<DetectedAuth | null>(null);
 	const [refreshingRemoteAuth, setRefreshingRemoteAuth] = useState(false);
+	// Version detection and update state
+	const [agentVersion, setAgentVersion] = useState<string | null>(null);
+	const [updateStatus, setUpdateStatus] = useState<'idle' | 'updating' | 'success' | 'error'>(
+		'idle'
+	);
+	const [updateOutput, setUpdateOutput] = useState<string>('');
+	// Global agent model for forward-looking "Active" indicator
+	const [_globalAgentModel, setGlobalAgentModel] = useState<string | undefined>(undefined);
+	// Host-detected model and effort level (from ~/.claude/settings.json on local or SSH host)
+	const [hostModel, setHostModel] = useState<string | undefined>(undefined);
+	const [hostEffortLevel, setHostEffortLevel] = useState<string | undefined>(undefined);
 
 	const nameInputRef = useRef<HTMLInputElement>(null);
 
@@ -1267,6 +1278,12 @@ export function EditAgentModal({
 			// Load agent config for defaults, but use session-level overrides when available
 			// Both model and contextWindow are now per-session
 			window.maestro.agents.getConfig(session.toolType).then((globalConfig) => {
+				// Capture global agent model for forward-looking "Active" indicator
+				setGlobalAgentModel(
+					typeof globalConfig.model === 'string' && globalConfig.model.trim()
+						? globalConfig.model.trim()
+						: undefined
+				);
 				// Use session-level values if set, otherwise use global defaults
 				const modelValue = session.customModel ?? globalConfig.model ?? '';
 				const contextWindowValue = session.customContextWindow ?? globalConfig.contextWindow;
@@ -1332,6 +1349,49 @@ export function EditAgentModal({
 				setPricingConfig(null);
 				setDetectedAuth(null);
 			}
+		}
+	}, [isOpen, session]);
+
+	// Fetch version when edit modal opens (for Claude Code agents)
+	useEffect(() => {
+		if (isOpen && session && window.maestro?.agents?.getVersion) {
+			const isClaude = session.toolType === 'claude-code' || session.toolType === 'claude';
+			if (isClaude) {
+				setAgentVersion(null);
+				setUpdateStatus('idle');
+				setUpdateOutput('');
+				const sshRemoteId = session.sessionSshRemoteConfig?.enabled
+					? (session.sessionSshRemoteConfig.remoteId ?? undefined)
+					: undefined;
+				window.maestro.agents.getVersion(session.toolType, sshRemoteId).then((result) => {
+					if (result.success && result.version) {
+						setAgentVersion(result.version);
+					}
+				});
+			}
+		}
+	}, [isOpen, session]);
+
+	// Detect host model and effort level from Claude Code settings
+	useEffect(() => {
+		if (isOpen && session && session.toolType === 'claude-code') {
+			const sshId = session.sessionSshRemoteConfig?.enabled
+				? session.sessionSshRemoteConfig.remoteId
+				: undefined;
+			window.maestro.agents.getHostSettings(sshId ?? undefined).then((result) => {
+				if (result.success) {
+					setHostModel(result.model);
+					const detectedEffort = result.effortLevel as 'low' | 'medium' | 'high' | undefined;
+					setHostEffortLevel(detectedEffort);
+					// Sync the pricingConfig effort dropdown to match the host's actual setting
+					// so the dropdown shows what the host is ACTUALLY configured to, not Maestro's stale value
+					if (detectedEffort) {
+						setPricingConfig((prev) => (prev ? { ...prev, effortLevel: detectedEffort } : null));
+					}
+				} else {
+					console.error('Failed to detect host settings:', result.error);
+				}
+			});
 		}
 	}, [isOpen, session]);
 
@@ -1453,6 +1513,61 @@ export function EditAgentModal({
 					}
 				: { enabled: false, remoteId: null };
 
+		// Write model and effort level to host's ~/.claude/settings.json if changed
+		if (session.toolType === 'claude-code') {
+			const sshId =
+				sshRemoteConfig?.enabled && sshRemoteConfig?.remoteId
+					? sshRemoteConfig.remoteId
+					: undefined;
+			const settingsToWrite: { model?: string | null; effortLevel?: string | null } = {};
+
+			// Determine model to write:
+			// - User selected a specific model → write it to host
+			// - User selected "Default" (modelValue is undefined) → remove model key from host (null)
+			// Compare against what the host currently has
+			const newModelForHost = modelValue || null; // null = remove key = revert to Claude default
+			const currentHostModelNormalized = hostModel; // hostModel is already a resolved model ID from getHostSettings
+			if (newModelForHost !== (currentHostModelNormalized || null)) {
+				settingsToWrite.model = newModelForHost;
+			}
+
+			// Determine effort level to write
+			const newEffort = pricingConfig?.effortLevel ?? null;
+			const currentHostEffort = hostEffortLevel ?? null;
+			if (newEffort && newEffort !== currentHostEffort) {
+				settingsToWrite.effortLevel = newEffort;
+			}
+
+			// Only write if something changed
+			if (Object.keys(settingsToWrite).length > 0) {
+				window.maestro.agents
+					.setHostSettings(settingsToWrite, sshId ?? undefined)
+					.then((result) => {
+						if (!result.success) {
+							console.error('Failed to write host settings:', result.error);
+						}
+					})
+					.catch((err: unknown) => console.error('Failed to write host settings:', err));
+			}
+		}
+
+		// Persist pricing config (billing mode, pricing model, effort level)
+		// These are agent-level settings staged in local state until Save
+		if (session.toolType === 'claude-code' && pricingConfig) {
+			window.maestro.agents
+				.setPricingConfig(session.toolType, pricingConfig)
+				.catch((err) => console.error('Failed to persist pricing config:', err));
+		}
+
+		// Persist non-model agent config options (checkboxes, selects, etc.)
+		// Model and contextWindow are per-session (saved via onSave below)
+		const { model: _model, contextWindow: _contextWindow, ...otherConfig } = agentConfig;
+		if (Object.keys(otherConfig).length > 0) {
+			window.maestro.agents
+				.setConfig(session.toolType, otherConfig)
+				.catch((err) => console.error('Failed to persist agent config:', err));
+		}
+
 		// Save with per-session config fields including model, contextWindow, and SSH config
 		onSave(
 			session.id,
@@ -1478,6 +1593,9 @@ export function EditAgentModal({
 		onSave,
 		onClose,
 		existingSessions,
+		hostModel,
+		hostEffortLevel,
+		pricingConfig,
 	]);
 
 	// Refresh available models
@@ -1510,32 +1628,22 @@ export function EditAgentModal({
 	}, [session]);
 
 	// Handle billing mode change (for Claude agents only)
-	const handleBillingModeChange = useCallback(
-		async (mode: BillingModeValue) => {
-			if (!session) return;
-			try {
-				await window.maestro.agents.setPricingConfig(session.toolType, { billingMode: mode });
-				setPricingConfig((prev) => (prev ? { ...prev, billingMode: mode } : null));
-			} catch (err) {
-				console.error('Failed to update billing mode:', err);
-			}
-		},
-		[session]
-	);
+	// Stages in local state; persisted on Save
+	const handleBillingModeChange = useCallback((mode: BillingModeValue) => {
+		setPricingConfig((prev) => (prev ? { ...prev, billingMode: mode } : null));
+	}, []);
 
 	// Handle pricing model change (for Claude agents only)
-	const handlePricingModelChange = useCallback(
-		async (model: PricingModelValue) => {
-			if (!session) return;
-			try {
-				await window.maestro.agents.setPricingConfig(session.toolType, { pricingModel: model });
-				setPricingConfig((prev) => (prev ? { ...prev, pricingModel: model } : null));
-			} catch (err) {
-				console.error('Failed to update pricing model:', err);
-			}
-		},
-		[session]
-	);
+	// Stages in local state; persisted on Save
+	const handlePricingModelChange = useCallback((model: PricingModelValue) => {
+		setPricingConfig((prev) => (prev ? { ...prev, pricingModel: model } : null));
+	}, []);
+
+	// Handle effort level change (for Claude Code only)
+	// Stages in local state; persisted on Save
+	const handleEffortLevelChange = useCallback((level: 'low' | 'medium' | 'high') => {
+		setPricingConfig((prev) => (prev ? { ...prev, effortLevel: level } : null));
+	}, []);
 
 	// Check if form is valid for submission
 	const isFormValid = useMemo(() => {
@@ -1802,16 +1910,7 @@ export function EditAgentModal({
 									setAgentConfig((prev) => ({ ...prev, [key]: value }));
 								}}
 								onConfigBlur={() => {
-									// Both model and contextWindow are now saved per-session on modal save
-									// Other config options (if any) can still be saved at agent level
-									const {
-										model: _model,
-										contextWindow: _contextWindow,
-										...otherConfig
-									} = agentConfig;
-									if (Object.keys(otherConfig).length > 0) {
-										window.maestro.agents.setConfig(session.toolType, otherConfig);
-									}
+									// All config changes are staged in local state and persisted on Save
 								}}
 								availableModels={availableModels}
 								loadingModels={loadingModels}
@@ -1823,6 +1922,7 @@ export function EditAgentModal({
 								detectedAuth={detectedAuth}
 								onBillingModeChange={handleBillingModeChange}
 								onPricingModelChange={handlePricingModelChange}
+								onEffortLevelChange={handleEffortLevelChange}
 								sshRemoteId={sshRemoteConfig?.enabled ? sshRemoteConfig.remoteId : undefined}
 								sshRemoteName={
 									sshRemoteConfig?.enabled
@@ -1831,7 +1931,83 @@ export function EditAgentModal({
 								}
 								onRefreshRemoteAuth={handleRefreshRemoteAuth}
 								refreshingRemoteAuth={refreshingRemoteAuth}
+								detectedModel={hostModel}
+								hostEffortLevel={hostEffortLevel}
 							/>
+							{/* Version & Update (Claude Code only) — grouped with Model and Effort */}
+							{(session.toolType === 'claude-code' || session.toolType === 'claude') && (
+								<div
+									className="p-3 rounded border mt-3"
+									style={{ borderColor: theme.colors.border, backgroundColor: theme.colors.bgMain }}
+								>
+									<label
+										className="block text-xs font-medium mb-2"
+										style={{ color: theme.colors.textDim }}
+									>
+										Version
+									</label>
+									<div className="flex items-center gap-3">
+										<span className="text-xs" style={{ color: theme.colors.textMain }}>
+											{agentVersion ? `Claude Code v${agentVersion}` : 'Detecting...'}
+										</span>
+										<button
+											className="text-xs px-2 py-1 rounded border"
+											style={{
+												color:
+													updateStatus === 'updating' ? theme.colors.textDim : theme.colors.accent,
+												borderColor: theme.colors.border,
+												opacity: updateStatus === 'updating' ? 0.5 : 1,
+											}}
+											disabled={updateStatus === 'updating'}
+											onClick={async () => {
+												setUpdateStatus('updating');
+												setUpdateOutput('');
+												try {
+													const sshRemoteId = sshRemoteConfig?.enabled
+														? (sshRemoteConfig.remoteId ?? undefined)
+														: undefined;
+													const result = await window.maestro.agents.update(
+														session.toolType,
+														sshRemoteId ?? undefined
+													);
+													setUpdateStatus(result.success ? 'success' : 'error');
+													setUpdateOutput(result.output || result.error || '');
+													// Refresh version after update
+													if (result.success) {
+														const versionResult = await window.maestro.agents.getVersion(
+															session.toolType,
+															sshRemoteId ?? undefined
+														);
+														if (versionResult.success && versionResult.version) {
+															setAgentVersion(versionResult.version);
+														}
+													}
+												} catch (error) {
+													setUpdateStatus('error');
+													setUpdateOutput(String(error));
+												}
+											}}
+										>
+											{updateStatus === 'updating'
+												? 'Updating...'
+												: updateStatus === 'success'
+													? 'Updated'
+													: 'Update'}
+										</button>
+									</div>
+									{updateOutput && (
+										<div
+											className="text-xs p-2 rounded mt-2 font-mono whitespace-pre-wrap max-h-32 overflow-y-auto"
+											style={{
+												backgroundColor: theme.colors.bgActivity,
+												color: updateStatus === 'error' ? theme.colors.error : theme.colors.textDim,
+											}}
+										>
+											{updateOutput}
+										</div>
+									)}
+								</div>
+							)}
 						</div>
 					)}
 

@@ -1079,7 +1079,7 @@ export function AgentSessionsBrowser({
 			{viewingSubagent ? (
 				/* Subagent messages view */
 				<div
-					className="subagent-messages-view"
+					className="subagent-messages-view min-h-0"
 					style={{ flex: 1, display: 'flex', flexDirection: 'column' }}
 				>
 					{/* Header */}
@@ -1118,7 +1118,10 @@ export function AgentSessionsBrowser({
 					</div>
 
 					{/* Messages list */}
-					<div style={{ flex: 1, overflow: 'auto', padding: '16px' }}>
+					<div
+						className="scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/20"
+						style={{ flex: 1, overflow: 'auto', padding: '16px' }}
+					>
 						{subagentMessagesLoading && subagentMessages.length === 0 ? (
 							<div style={{ display: 'flex', justifyContent: 'center', padding: '20px' }}>
 								<Loader2

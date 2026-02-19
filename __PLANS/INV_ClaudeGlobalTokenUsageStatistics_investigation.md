@@ -1,7 +1,7 @@
 # Investigation: Claude.ai Global Token Usage Statistics
 
 **Created:** 2026-02-14
-**Updated:** 2026-02-15 (Added Section 13: Honeycomb Audit of Calculated Fields & Board Queries)
+**Updated:** 2026-02-15 (Added Sections 13-15: Audit, Three Sources of Truth, UI Integration Matrix)
 **Author:** maestro-planner (claude cloud)
 **Status:** Investigation Complete - Revised Approach via Honeycomb - Ready for Planning Review
 **Priority:** High (Foundation for Auto Run and Parallel Agent efficiency)
@@ -21,6 +21,8 @@ This investigation analyzes the feasibility of implementing real-time Claude.ai 
 | 2026-02-14 (PM) | **PIVOT:** Honeycomb + OTEL telemetry approach adopted |
 | 2026-02-15 | **AUDIT:** Full audit of 5 calculated fields + 13 board queries (Section 13) |
 | 2026-02-15 | **FINDING:** OTEL flush gap confirmed — idle sessions don't flush (Q#9, Q#11, Section 13.5) |
+| 2026-02-15 | **ANALYSIS:** Three Sources of Truth — Local vs API vs Honeycomb divergence (Section 14) |
+| 2026-02-15 | **DESIGN:** Full UI integration matrix — 17 locations assessed for Honeycomb toggle (Section 15) |
 
 ### Original Approach (BLOCKED)
 
@@ -61,6 +63,8 @@ A Honeycomb MCP server and OTEL telemetry pipeline have been set up to send toke
 9. [Open Questions](#9-open-questions)
 10. [Appendix: Reference Materials](#appendix-reference-materials)
 13. [Honeycomb Audit: Calculated Fields & Board Queries](#13-honeycomb-audit-calculated-fields--board-queries)
+14. [Three Sources of Truth: Token Divergence Analysis](#14-three-sources-of-truth-token-divergence-analysis)
+15. [Honeycomb Integration Points: Full UI Inventory](#15-honeycomb-integration-points-full-ui-inventory)
 
 ---
 
@@ -1253,6 +1257,213 @@ This finding means the Maestro integration (Phases 3-5 in Section 11) needs an a
 
 ---
 
+## 14. Three Sources of Truth: Token Divergence Analysis
+
+> **Added:** 2026-02-15
+> **Concern:** With Opus 4.6/Sonnet 4.6 effort settings, extended thinking, subagent spawning, and Teams features, the token counts from different sources may increasingly diverge.
+
+### 14.1 The Three Sources
+
+Maestro currently tracks token usage from **two** sources (Local/Maestro vs. Anthropic API pricing), already exposed via `DataSourceToggle` in the Usage Dashboard. Honeycomb OTEL telemetry introduces a **third**:
+
+| Source | What It Measures | Where It Lives | Freshness |
+|--------|-----------------|----------------|-----------|
+| **A. Maestro Local** | Tokens parsed from agent stdout stream by `claude-output-parser.ts`. Cost computed using Maestro's billing mode logic (Max subscribers: cache tokens = $0). Stored in SQLite `stats-db`. | `UsageStats`, `StatsAggregation`, `QueryEvent` | Real-time (per-message) |
+| **B. Anthropic API** | Token counts from the API response `usage` field. The "official" per-request consumption as billed by Anthropic. Stored alongside Maestro costs in SQLite. | `anthropicCostUsd` in `QueryEvent`, `GlobalAgentStats` | Real-time (per-message) |
+| **C. Honeycomb OTEL** | Token counts emitted by Claude Code's built-in OTEL telemetry. May include internal overhead not visible in the API response (reasoning tokens, tool orchestration, subagent spawning). | `claude-code` dataset in Honeycomb | Delayed (batch flush, see Section 13.5) |
+
+### 14.2 Why They May Diverge
+
+| Factor | Impact |
+|--------|--------|
+| **Extended Thinking / Reasoning** | API `usage` may report reasoning tokens separately or differently than OTEL. Maestro parser may not capture reasoning tokens if they're not in the stream. |
+| **Effort Settings (Opus 4.6 / Sonnet 4.6)** | Different effort levels may cause different internal token consumption that OTEL reports but the API `usage` field doesn't fully reflect. |
+| **Subagent Spawning** | When Claude Code spawns subagents (Task tool), the parent session's API response may not include subagent tokens. OTEL may report them as separate events. Maestro tracks subagent tokens separately in `BatchRunState`. |
+| **Teams Features** | Teams may add overhead (policy evaluation, audit logging) that consumes tokens internally but isn't reported in user-facing API responses. |
+| **Cache Semantics** | API reports cache_read and cache_creation tokens. OTEL may report them differently. Maestro's Max billing mode treats cache as $0, creating a third cost interpretation. |
+| **Context Window Overflow** | When context is compressed/truncated, the actual tokens consumed may differ from what the API reports vs. what OTEL captures. |
+| **MCP Tool Calls** | MCP tool invocations may generate token consumption that appears in OTEL but not in the user-facing API usage response. |
+
+### 14.3 Why This Matters
+
+For **cost tracking**, small divergences are acceptable — users just want a ballpark.
+
+For **limit management** (the core purpose of this investigation), accuracy is critical. If Honeycomb underreports by 20% compared to what Anthropic actually counts against the rate limit, agents will over-commit and hit rate limits. Conversely, if Honeycomb overreports, agents will be unnecessarily conservative.
+
+**We need to measure the divergence empirically.** This requires comparing all three sources side-by-side for the same time period and identifying the delta pattern.
+
+### 14.4 Proposed Approach: Divergence Detection
+
+**Step 1: Add Honeycomb as a third column in Audit Reports**
+
+The existing `AuditReportPanel` (`src/renderer/components/UsageDashboard/AuditReportPanel.tsx`) already compares Maestro vs. Anthropic costs with match/discrepancy status. Add a third column:
+
+```
+Current:  | Anthropic Cost | Maestro Cost | Diff % | Status |
+Proposed: | Anthropic Cost | Maestro Cost | Honeycomb Cost | A↔M Diff | A↔H Diff | Status |
+```
+
+The audit backend (`src/main/audit/`) would query Honeycomb via MCP for the same time period and include the results. This gives us:
+- Ongoing automated divergence tracking
+- Historical trend of how much the sources diverge
+- Early warning if OTEL telemetry becomes unreliable
+
+**Step 2: Add Honeycomb toggle alongside existing DataSourceToggle**
+
+The `DataSourceToggle` component in the Usage Dashboard currently switches between "Local" and "Anthropic" views. Extend it to a three-way toggle:
+
+```
+Current:  [ Local | Anthropic ]
+Proposed: [ Local | Anthropic | Honeycomb ]
+```
+
+This applies to:
+- `CostOverTimeGraph` — daily cost line chart
+- `CostByModelGraph` — cost by model bar chart
+- `AgentCostGraph` — cost by agent bar chart
+- `SummaryCards` — total cost card
+
+**Step 3: Per-location Honeycomb toggle (where applicable)**
+
+For the Global Usage Pills (the primary deliverable of this investigation), the toggle is essential — the user must be able to see both the local estimate and the Honeycomb number to build trust in the system:
+
+```
+┌─────────────────┐  ┌─────────────────┐  ┌───────────────┐
+│ 5-Hour   65%    │  │ Weekly   42%    │  │ Opus    12%   │
+│ ████████░░░░░░░ │  │ ██████░░░░░░░░░ │  │ ██░░░░░░░░░░░ │
+│ HC: $12.40      │  │ HC: $84.20      │  │ HC: $8.10     │
+│ Local: $11.80   │  │ Local: $79.50   │  │ Local: $7.90  │
+│ Δ: +5.1%        │  │ Δ: +5.9%        │  │ Δ: +2.5%      │
+└─────────────────┘  └─────────────────┘  └───────────────┘
+```
+
+### 14.5 Divergence Response Strategy
+
+Once we can measure divergence, the response depends on the pattern:
+
+| Pattern | Meaning | Action |
+|---------|---------|--------|
+| Honeycomb > Local consistently | OTEL captures tokens not in API response (reasoning, overhead) | Use Honeycomb as the more conservative/accurate source for limit tracking |
+| Local > Honeycomb consistently | OTEL flush gap or missing events | Use Local as primary + Honeycomb as cross-check; improve flush reliability |
+| Both diverge from rate-limit behavior | Neither source matches Anthropic's internal accounting | Need empirical calibration factor; may need to pursue direct API (Q#4) |
+| Divergence grows with effort settings | Effort level affects internal vs. reported consumption | Build effort-aware adjustment factor |
+
+---
+
+## 15. Honeycomb Integration Points: Full UI Inventory
+
+> **Added:** 2026-02-15
+> **Purpose:** Map every existing stats display location and determine where/how Honeycomb data should be integrated.
+
+### 15.1 Integration Matrix
+
+| # | Location | Component | Current Sources | Honeycomb Integration | Priority |
+|---|----------|-----------|----------------|----------------------|----------|
+| **1** | **Global Usage Pills** (NEW) | `GlobalUsagePills.tsx` | Honeycomb (primary) + Local ledger | **Primary display** — 3 pills in title/tab bar with 5h/7d/opus windows | **P0** |
+| **2** | **Usage Dashboard > Summary Cards** | `SummaryCards.tsx` | SQLite `StatsAggregation` | Add Honeycomb total as third option in DataSourceToggle. Show divergence % in tooltip. | **P1** |
+| **3** | **Usage Dashboard > Cost Over Time** | `CostOverTimeGraph.tsx` | SQLite `DailyCostData` | Add Honeycomb daily SUM as third line/toggle option. Most valuable for divergence visibility. | **P1** |
+| **4** | **Usage Dashboard > Cost by Model** | `CostByModelGraph.tsx` | SQLite `ModelCostData` | Add Honeycomb `breakdowns: ["model"]` as third toggle option. | **P2** |
+| **5** | **Usage Dashboard > Cost by Agent** | `AgentCostGraph.tsx` | SQLite `AgentCostData` | Add Honeycomb `breakdowns: ["host.name", "agent.index"]` as third toggle option. Requires resource attributes. | **P2** |
+| **6** | **Audit Report Panel** | `AuditReportPanel.tsx` | SQLite (Maestro + Anthropic) | **Add Honeycomb as third column.** Show A↔H divergence alongside A↔M divergence. Critical for trust-building. | **P1** |
+| **7** | **Audit History Table** | `AuditHistoryTable.tsx` | SQLite audit results | Add Honeycomb cost column + divergence indicator per audit run. | **P1** |
+| **8** | **MainPanel Cost Pill** | `MainPanel.tsx` | Live `UsageStats` | Optional: show Honeycomb session cost on hover/tooltip alongside local. Lower priority — real-time local is better for per-session. | **P3** |
+| **9** | **ThinkingStatusPill** | `ThinkingStatusPill.tsx` | Live `UsageStats` + `BatchRunState` | No change — real-time local is the correct source for live streaming stats. Honeycomb has flush delay. | **Skip** |
+| **10** | **About Modal > Global Stats** | `AboutModal.tsx` | `GlobalAgentStats` (JSONL) | Add Honeycomb totals as comparison row. Shows lifetime divergence. | **P2** |
+| **11** | **Tab Switcher Modal** | `TabSwitcherModal.tsx` | Live `UsageStats` | No change — per-tab real-time stats don't benefit from Honeycomb. | **Skip** |
+| **12** | **Agent Sessions Browser** | `AgentSessionsBrowser.tsx` | Stored session data | Optional: cross-reference session cost with Honeycomb `session.id` breakdown. | **P3** |
+| **13** | **History Detail Modal** | `HistoryDetailModal.tsx` | `HistoryEntry.usageStats` | Optional: show Honeycomb cost for same time range on hover. | **P3** |
+| **14** | **Batch Run Stats** | `BatchRunStats.tsx` | `BatchRunState` | Add Honeycomb comparison for completed batch runs (post-hoc, not real-time). | **P2** |
+| **15** | **Web/Mobile > SessionStatusBanner** | `SessionStatusBanner.tsx` | Live `UsageStats` | No change — real-time local is correct for mobile live view. | **Skip** |
+| **16** | **HTML Export** | `tabExport.ts` | `UsageStats` | Optional: include Honeycomb cost if available. | **P3** |
+| **17** | **CSV Export** | `stats.exportCsv()` | SQLite | Add Honeycomb columns to CSV export for external analysis. | **P2** |
+
+### 15.2 DataSourceToggle Enhancement
+
+The existing `DataSourceToggle` component needs to evolve from a binary switch to a three-way selector:
+
+```
+Current implementation:
+  [ Local | Anthropic ]
+
+Proposed implementation:
+  [ Local | Anthropic | Honeycomb ]
+
+Alternative (if space is tight):
+  [ Local | Anthropic | HC ]
+
+With divergence indicator:
+  [ Local | Anthropic | HC ⚠️+5.2% ]
+```
+
+The divergence indicator (⚠️) would appear when the Honeycomb value differs from the Anthropic value by more than a configurable threshold (default: 5%).
+
+### 15.3 Architecture for Honeycomb Data in UI
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                          Data Source Architecture                        │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│  Source A: Local/Maestro          Source B: Anthropic API                 │
+│  ┌──────────────────────┐         ┌──────────────────────┐               │
+│  │ claude-output-parser  │         │ API response.usage   │               │
+│  │ → UsageStats          │         │ → anthropicCostUsd   │               │
+│  │ → StatsAggregation    │         │ → QueryEvent         │               │
+│  │ → SQLite stats-db     │         │ → SQLite stats-db    │               │
+│  └──────────┬───────────┘         └──────────┬───────────┘               │
+│             │                                 │                           │
+│             │     Source C: Honeycomb OTEL                                │
+│             │     ┌──────────────────────────┐                            │
+│             │     │ HoneycombUsageService     │                           │
+│             │     │ → MCP or REST queries     │                           │
+│             │     │ → Cache in electron-store │                           │
+│             │     │ → TTL: 5 minutes          │                           │
+│             │     └──────────┬───────────────┘                            │
+│             │                │                                            │
+│             ▼                ▼                                            │
+│  ┌──────────────────────────────────────────┐                            │
+│  │ UnifiedStatsProvider                      │                            │
+│  │                                           │                            │
+│  │ getStats(source: 'local'|'api'|'hc',     │                            │
+│  │          timeRange, filters)              │                            │
+│  │                                           │                            │
+│  │ getDivergence(timeRange)                  │                            │
+│  │ → { local_vs_api, api_vs_hc, local_vs_hc}│                            │
+│  └──────────────────┬───────────────────────┘                            │
+│                      │                                                    │
+│          IPC: 'stats:getUnified'                                         │
+│                      │                                                    │
+│                      ▼                                                    │
+│  ┌──────────────────────────────────────────┐                            │
+│  │ Renderer: useUnifiedStats() hook          │                            │
+│  │                                           │                            │
+│  │ → DataSourceToggle (3-way)                │                            │
+│  │ → DivergenceIndicator component           │                            │
+│  │ → All dashboard/audit/pill components     │                            │
+│  └──────────────────────────────────────────┘                            │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### 15.4 Key Design Decisions
+
+| Decision | Recommendation | Rationale |
+|----------|---------------|-----------|
+| **Which source for limit tracking?** | Honeycomb + local ledger (Section 13.5 Strategy D) | Honeycomb is closest to what Anthropic counts; local ledger fills the flush gap |
+| **Which source for real-time display?** | Local (Maestro parser) | Zero latency; Honeycomb has flush delay |
+| **Which source for historical analysis?** | All three, user-selectable | Each tells a different story; divergence itself is informative |
+| **Which source for audit reports?** | All three, with divergence columns | Audit's purpose is to find discrepancies — three sources make this more powerful |
+| **Default toggle position?** | Local for real-time, Anthropic for cost views, Honeycomb for limit views | Matches each source's strength |
+
+### 15.5 New Open Questions
+
+| # | Question | Status | Notes |
+|---|----------|--------|-------|
+| 12 | **Token divergence magnitude** — How much do the three sources actually diverge for the same session? Need empirical measurement across different models, effort levels, and subagent scenarios. | **OPEN — NEEDS DATA** | Prerequisite: Honeycomb data accumulation + audit report third column implementation |
+| 13 | **Which source does Anthropic count against rate limits?** — The rate limit is ultimately enforced server-side by Anthropic. Neither our local parser, the API response, nor OTEL may perfectly match their internal accounting. | **OPEN — UNKNOWN** | May only be discoverable empirically by correlating consumption with rate-limit events |
+
+---
+
 ## Conclusion (Revised)
 
 The original CLI-based approach (`claude /usage`) is **blocked** — no programmatic access exists.
@@ -1260,10 +1471,13 @@ The original CLI-based approach (`claude /usage`) is **blocked** — no programm
 The **Honeycomb + OTEL telemetry approach** is the viable alternative:
 
 1. **OTEL pipeline is active** — token data is flowing from VMs to Honeycomb
-2. **Calculated fields exist** — cost, quota %, burn rate, and forecast already computed
+2. **Calculated fields exist** — cost, quota %, burn rate, and forecast already computed (3 of 5 need rework)
 3. **MCP integration available** — Maestro can query Honeycomb directly
-4. **Limits need empirical discovery** — exact ceilings unknown, must be observed and configured
-5. **Data needs maturation** — 1-2 weeks of accumulation for reliable baselines
+4. **OTEL flush gap confirmed** — idle sessions don't flush; need local token ledger + safety buffer (Section 13.5)
+5. **Three sources of truth** — Local, Anthropic API, and Honeycomb may diverge; need divergence tracking (Section 14)
+6. **17 UI integration points mapped** — 4 skip, 4 P0/P1, 5 P2, 4 P3 (Section 15)
+7. **Limits need empirical discovery** — exact ceilings unknown, must be observed and configured
+8. **Data needs maturation** — 1-2 weeks of accumulation for reliable baselines
 
 **Immediate Next Steps:**
 1. **Fix board query time ranges** — All 13 queries use 2h default; change to 30d/12w (see Section 13.4)

@@ -226,6 +226,48 @@ export function createAgentsApi() {
 		 */
 		updateDetectedModel: (agentId: string, modelId: string): Promise<boolean> =>
 			ipcRenderer.invoke('agents:updateDetectedModel', agentId, modelId),
+
+		/**
+		 * Get the installed version of an agent
+		 */
+		getVersion: (
+			agentId: string,
+			sshRemoteId?: string
+		): Promise<{ success: boolean; version?: string; error?: string }> =>
+			ipcRenderer.invoke('agents:getVersion', agentId, sshRemoteId),
+
+		/**
+		 * Update an agent (runs claude update or equivalent)
+		 * @param sshRemoteId Optional SSH remote ID for remote update
+		 */
+		update: (
+			agentId: string,
+			sshRemoteId?: string
+		): Promise<{ success: boolean; output?: string; error?: string }> =>
+			ipcRenderer.invoke('agents:update', agentId, sshRemoteId),
+
+		/**
+		 * Get Claude Code host settings (model and effortLevel from ~/.claude/settings.json)
+		 * Reads from local filesystem or SSH remote host
+		 * @param sshRemoteId Optional SSH remote ID for remote host
+		 */
+		getHostSettings: (
+			sshRemoteId?: string
+		): Promise<{ success: boolean; model?: string; effortLevel?: string; error?: string }> =>
+			ipcRenderer.invoke('agents:getHostSettings', sshRemoteId),
+
+		/**
+		 * Set Claude Code host settings (model and/or effortLevel in ~/.claude/settings.json)
+		 * Reads existing settings, merges changes, writes back — preserving other keys
+		 * Pass null for a setting to remove it (revert to Claude Code default)
+		 * @param settings Object with model and/or effortLevel to set
+		 * @param sshRemoteId Optional SSH remote ID for remote host
+		 */
+		setHostSettings: (
+			settings: { model?: string | null; effortLevel?: string | null },
+			sshRemoteId?: string
+		): Promise<{ success: boolean; error?: string }> =>
+			ipcRenderer.invoke('agents:setHostSettings', settings, sshRemoteId),
 	};
 }
 

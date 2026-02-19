@@ -86,6 +86,7 @@ export const CLAUDE_BUILTIN_COMMANDS: Record<string, string> = {
 	review: 'Review code changes',
 	'security-review': 'Review code for security issues',
 	plan: 'Create an implementation plan',
+	debug: 'Show debug log and troubleshoot session issues',
 };
 
 /**

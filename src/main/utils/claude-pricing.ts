@@ -170,6 +170,26 @@ export function getModelsByFamily(family: string): string[] {
 }
 
 /**
+ * Get the latest (newest) model ID for a given family.
+ * Sorts by model ID descending — since IDs contain date suffixes (e.g., '20260115'),
+ * lexicographic sort naturally puts the newest model first.
+ *
+ * This is used as a dynamic default when no model is explicitly configured,
+ * avoiding hardcoded model IDs that break when new models are released.
+ *
+ * @param family - The model family ('opus', 'sonnet', or 'haiku')
+ * @returns The full model ID of the latest model in the family, or null if no models exist
+ */
+export function getLatestModelByFamily(family: string): string | null {
+	const reg = getRegistry();
+	const familyModels = Object.entries(reg.models)
+		.filter(([, entry]) => entry.family === family)
+		.map(([id]) => id)
+		.sort((a, b) => b.localeCompare(a));
+	return familyModels[0] ?? null;
+}
+
+/**
  * Get all known model display names from the pricing registry.
  * Used by the model checker to compare against externally discovered models.
  *

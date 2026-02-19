@@ -20,6 +20,23 @@ vi.mock('../../../main/utils/logger', () => ({
 	},
 }));
 
+vi.mock('../../../main/stores/getters', () => ({
+	getModelRegistryStore: () => ({
+		get: (key: string) => {
+			if (key === 'aliases') {
+				return {
+					opus: 'claude-opus-4-5-20251101',
+					sonnet: 'claude-sonnet-4-6-20260218',
+					haiku: 'claude-haiku-4-5-20251001',
+					'opus-4.6': 'claude-opus-4-6-20260115',
+					'sonnet-4.5': 'claude-sonnet-4-5-20250929',
+				};
+			}
+			return {};
+		},
+	}),
+}));
+
 // Get mocked modules
 import { execFileNoThrow } from '../../../main/utils/execFile';
 import { logger } from '../../../main/utils/logger';
@@ -989,28 +1006,26 @@ describe('agent-detector', () => {
 			await detector.detectAgents();
 		});
 
-		it('should return empty array for agents that do not support model selection', async () => {
-			// Setup: claude-code is available but does not support model selection
-			mockExecFileNoThrow.mockImplementation(async (cmd, args) => {
-				const binaryName = args[0];
-				if (binaryName === 'claude') {
-					return { stdout: '/usr/bin/claude\n', stderr: '', exitCode: 0 };
-				}
-				if (binaryName === 'bash') {
-					return { stdout: '/bin/bash\n', stderr: '', exitCode: 0 };
-				}
-				return { stdout: '', stderr: 'not found', exitCode: 1 };
-			});
+		it('should return registry-based models for claude-code even when not locally available', async () => {
+			// Claude Code model list comes from the registry store, not from a binary
+			// So it should work even when the agent is not locally installed
+			mockExecFileNoThrow.mockResolvedValue({ stdout: '', stderr: 'not found', exitCode: 1 });
 
 			detector.clearCache();
+			detector.clearModelCache();
 			await detector.detectAgents();
 
 			const models = await detector.discoverModels('claude-code');
-			expect(models).toEqual([]);
-			expect(logger.debug).toHaveBeenCalledWith(
-				expect.stringContaining('does not support model selection'),
-				'AgentDetector'
-			);
+			// Should contain family aliases from the mock registry
+			expect(models).toContain('opus');
+			expect(models).toContain('sonnet');
+			expect(models).toContain('haiku');
+			// Should contain Claude Code extras
+			expect(models).toContain('opusplan');
+			expect(models).toContain('sonnet[1m]');
+			// Should NOT contain versioned aliases (they have non-alpha chars)
+			expect(models).not.toContain('opus-4.6');
+			expect(models).not.toContain('sonnet-4.5');
 		});
 
 		it('should return empty array for unavailable agents', async () => {

@@ -729,6 +729,21 @@ interface MaestroAPI {
 			agentId: string,
 			config: Partial<import('../main/stores/types').AgentPricingConfig>
 		) => Promise<boolean>;
+		getVersion: (
+			agentId: string,
+			sshRemoteId?: string
+		) => Promise<{ success: boolean; version?: string; error?: string }>;
+		update: (
+			agentId: string,
+			sshRemoteId?: string
+		) => Promise<{ success: boolean; output?: string; error?: string }>;
+		getHostSettings: (
+			sshRemoteId?: string
+		) => Promise<{ success: boolean; model?: string; effortLevel?: string; error?: string }>;
+		setHostSettings: (
+			settings: { model?: string | null; effortLevel?: string | null },
+			sshRemoteId?: string
+		) => Promise<{ success: boolean; error?: string }>;
 	};
 	// Agent Sessions API - all methods accept optional sshRemoteId for SSH remote session storage access
 	agentSessions: {

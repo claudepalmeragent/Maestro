@@ -59,6 +59,9 @@ export function EditGroupChatModal({
 	// Track if user has visited/modified the config panel (agent-level settings like model)
 	const [configWasModified, setConfigWasModified] = useState(false);
 
+	// Max rounds override state
+	const [maxRoundsOverride, setMaxRoundsOverride] = useState<string>('');
+
 	// SSH Remote configuration state
 	const [sshRemotes, setSshRemotes] = useState<SshRemoteConfig[]>([]);
 	const [sshRemoteConfig, setSshRemoteConfig] = useState<AgentSshRemoteConfig | undefined>(
@@ -83,6 +86,9 @@ export function EditGroupChatModal({
 		setCustomArgs(groupChat.moderatorConfig?.customArgs || '');
 		setCustomEnvVars(groupChat.moderatorConfig?.customEnvVars || {});
 		setSshRemoteConfig(groupChat.moderatorConfig?.sshRemoteConfig);
+		setMaxRoundsOverride(
+			groupChat.maxRoundsOverride !== undefined ? String(groupChat.maxRoundsOverride) : ''
+		);
 		setViewMode('grid');
 		setIsTransitioning(false);
 		setAgentConfig({});
@@ -187,14 +193,37 @@ export function EditGroupChatModal({
 		};
 	}, [customPath, customArgs, customEnvVars, sshRemoteConfig]);
 
-	const handleSave = useCallback(() => {
+	const handleSave = useCallback(async () => {
 		if (name.trim() && selectedAgent && groupChat) {
 			const moderatorConfig = buildModeratorConfig();
 			onSave(groupChat.id, name.trim(), selectedAgent, moderatorConfig);
+
+			// Save maxRoundsOverride separately via update API
+			const parsedMaxRounds =
+				maxRoundsOverride.trim() !== '' ? parseInt(maxRoundsOverride, 10) : undefined;
+			if (parsedMaxRounds !== groupChat.maxRoundsOverride) {
+				try {
+					await (window as any).api?.groupChat?.update(groupChat.id, {
+						maxRoundsOverride: !isNaN(parsedMaxRounds as number) ? parsedMaxRounds : undefined,
+					});
+				} catch (error) {
+					console.error('Failed to save maxRoundsOverride:', error);
+				}
+			}
+
 			resetState();
 			onClose();
 		}
-	}, [name, selectedAgent, groupChat, buildModeratorConfig, onSave, resetState, onClose]);
+	}, [
+		name,
+		selectedAgent,
+		groupChat,
+		buildModeratorConfig,
+		maxRoundsOverride,
+		onSave,
+		resetState,
+		onClose,
+	]);
 
 	// Check if anything has changed
 	const hasChanges = useCallback((): boolean => {
@@ -211,6 +240,10 @@ export function EditGroupChatModal({
 		const originalSshConfig = groupChat.moderatorConfig?.sshRemoteConfig;
 		const sshChanged = JSON.stringify(sshRemoteConfig) !== JSON.stringify(originalSshConfig);
 
+		const originalMaxRounds =
+			groupChat.maxRoundsOverride !== undefined ? String(groupChat.maxRoundsOverride) : '';
+		const maxRoundsChanged = maxRoundsOverride !== originalMaxRounds;
+
 		// Also consider changes if user modified agent-level config (model, etc.)
 		return (
 			nameChanged ||
@@ -219,6 +252,7 @@ export function EditGroupChatModal({
 			argsChanged ||
 			envVarsChanged ||
 			sshChanged ||
+			maxRoundsChanged ||
 			configWasModified
 		);
 	}, [
@@ -229,6 +263,7 @@ export function EditGroupChatModal({
 		customArgs,
 		customEnvVars,
 		sshRemoteConfig,
+		maxRoundsOverride,
 		configWasModified,
 	]);
 
@@ -633,6 +668,33 @@ export function EditGroupChatModal({
 						/>
 					</div>
 				)}
+
+				{/* Max Rounds Override */}
+				<div className="mb-4">
+					<label
+						className="block text-sm font-medium mb-1"
+						style={{ color: theme.colors.textMain }}
+					>
+						Max Rounds Override
+					</label>
+					<p className="text-xs mb-2" style={{ color: theme.colors.textDim }}>
+						Maximum autonomous agent rounds per user prompt. Leave empty for default (participants -
+						1). Set to 0 for no auto-rounds.
+					</p>
+					<input
+						type="number"
+						min="0"
+						value={maxRoundsOverride}
+						onChange={(e) => setMaxRoundsOverride(e.target.value)}
+						placeholder="Default (participants - 1)"
+						className="w-full px-3 py-2 rounded-lg border text-sm outline-none"
+						style={{
+							backgroundColor: theme.colors.bgMain,
+							borderColor: theme.colors.border,
+							color: theme.colors.textMain,
+						}}
+					/>
+				</div>
 
 				{/* Warning about changing moderator */}
 				{groupChat && selectedAgent !== groupChat.moderatorAgentId && (

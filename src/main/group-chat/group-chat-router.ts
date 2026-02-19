@@ -17,7 +17,11 @@ import {
 	getGroupChatDir,
 } from './group-chat-storage';
 import { appendToLog, readLog } from './group-chat-log';
-import { type GroupChatMessage, mentionMatches } from '../../shared/group-chat-types';
+import {
+	type GroupChatMessage,
+	type GroupChatRoundState,
+	mentionMatches,
+} from '../../shared/group-chat-types';
 import {
 	IProcessManager,
 	getModeratorSessionId,
@@ -89,6 +93,49 @@ const pendingParticipantResponses = new Map<string, Set<string>>();
  * Maps groupChatId -> boolean
  */
 const groupChatReadOnlyState = new Map<string, boolean>();
+
+/**
+ * Tracks round count per group chat.
+ * Reset when user sends a new message.
+ * Maps groupChatId -> GroupChatRoundState
+ */
+const groupChatRoundStates = new Map<string, GroupChatRoundState>();
+
+/**
+ * Gets the current round state for a group chat, creating a default if none exists.
+ */
+function getRoundState(groupChatId: string): GroupChatRoundState {
+	if (!groupChatRoundStates.has(groupChatId)) {
+		groupChatRoundStates.set(groupChatId, {
+			currentRound: 0,
+			maxRounds: 0,
+			forcedSynthesis: false,
+		});
+	}
+	return groupChatRoundStates.get(groupChatId)!;
+}
+
+/**
+ * Resets round tracking for a new user turn.
+ * Called when user sends a message.
+ * @param participantCount - number of participants in the chat
+ * @param maxRoundsOverride - optional user override for max rounds
+ */
+function resetRoundState(
+	groupChatId: string,
+	participantCount: number,
+	maxRoundsOverride?: number
+): void {
+	const maxRounds = maxRoundsOverride ?? Math.max(0, participantCount - 1);
+	groupChatRoundStates.set(groupChatId, { currentRound: 0, maxRounds, forcedSynthesis: false });
+}
+
+/**
+ * Gets the current round state for a group chat (for UI display).
+ */
+export function getGroupChatRoundState(groupChatId: string): GroupChatRoundState | null {
+	return groupChatRoundStates.get(groupChatId) || null;
+}
 
 /**
  * Gets the current read-only state for a group chat.
@@ -340,6 +387,13 @@ export async function routeUserMessage(
 
 	// Store the read-only state for this group chat so it can be propagated to participants
 	setGroupChatReadOnlyState(groupChatId, readOnly ?? false);
+
+	// Reset round tracking for this new user turn
+	const participantCount = chat.participants.length;
+	resetRoundState(groupChatId, participantCount, chat.maxRoundsOverride);
+	console.log(
+		`[GroupChat:Debug] Round state reset: maxRounds=${getRoundState(groupChatId).maxRounds} (${participantCount} participants)`
+	);
 
 	// Emit message event to renderer so it shows immediately
 	const userMessage: GroupChatMessage = {
@@ -733,6 +787,24 @@ export async function routeModeratorResponse(
 	console.log(
 		`[GroupChat:Debug] Valid participant mentions found: ${mentions.join(', ') || '(none)'}`
 	);
+
+	// --- Round Limit Check ---
+	const roundState = getRoundState(groupChatId);
+	if (mentions.length > 0 && roundState.currentRound >= roundState.maxRounds) {
+		console.log(
+			`[GroupChat:Debug] ROUND LIMIT REACHED (round ${roundState.currentRound}/${roundState.maxRounds}) — forcing final synthesis`
+		);
+		roundState.forcedSynthesis = true;
+		// Clear mentions to prevent agent spawning — force synthesis instead
+		mentions.length = 0;
+		// The moderator's response will be treated as final (no @mentions)
+	}
+
+	// Increment round counter if we're spawning agents
+	if (mentions.length > 0) {
+		roundState.currentRound++;
+		console.log(`[GroupChat:Debug] Round ${roundState.currentRound}/${roundState.maxRounds}`);
+	}
 
 	// Track participants that will need to respond for synthesis round
 	const participantsToRespond = new Set<string>();
@@ -1200,6 +1272,20 @@ export async function spawnModeratorSynthesis(
 			? chat.participants.map((p) => `- @${p.name} (${p.agentId} session)`).join('\n')
 			: '(No agents currently in this group chat)';
 
+	const roundState = getRoundState(groupChatId);
+	const roundInfo = `## Round Information:
+Current round: ${roundState.currentRound} of ${roundState.maxRounds} maximum
+${roundState.currentRound >= roundState.maxRounds - 1 ? '⚠️ This is the LAST round. You MUST synthesize a final answer. Do NOT @mention any agents.' : ''}
+`;
+
+	const taskInstruction = roundState.forcedSynthesis
+		? `## Your Task:
+Round limit reached. You MUST synthesize all agent responses into a final answer for the user NOW. Do NOT use any @mentions. Produce a complete summary.`
+		: `## Your Task:
+Review the agent responses above. Either:
+1. Synthesize into a final answer for the user (NO @mentions) if the question is fully answered
+2. @mention specific agents for follow-up if you need more information`;
+
 	const synthesisPrompt = `${getModeratorSystemPrompt()}
 
 ${getModeratorSynthesisPrompt()}
@@ -1207,13 +1293,11 @@ ${getModeratorSynthesisPrompt()}
 ## Current Participants (you can @mention these for follow-up):
 ${participantContext}
 
+${roundInfo}
 ## Recent Chat History (including participant responses):
 ${historyContext}
 
-## Your Task:
-Review the agent responses above. Either:
-1. Synthesize into a final answer for the user (NO @mentions) if the question is fully answered
-2. @mention specific agents for follow-up if you need more information`;
+${taskInstruction}`;
 
 	const agentConfigValues = getAgentConfigCallback?.(chat.moderatorAgentId) || {};
 	const baseArgs = buildAgentArgs(agent, {

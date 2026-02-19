@@ -96,6 +96,7 @@ export function createGroupChatApi() {
 				name?: string;
 				moderatorAgentId?: string;
 				moderatorConfig?: ModeratorConfig;
+				maxRoundsOverride?: number;
 			}
 		) => ipcRenderer.invoke('groupChat:update', id, updates),
 
@@ -148,6 +149,9 @@ export function createGroupChatApi() {
 		clearHistory: (id: string) => ipcRenderer.invoke('groupChat:clearHistory', id),
 
 		getHistoryFilePath: (id: string) => ipcRenderer.invoke('groupChat:getHistoryFilePath', id),
+
+		// Round state
+		getRoundState: (id: string) => ipcRenderer.invoke('groupChat:getRoundState', id),
 
 		// Export
 		getImages: (id: string): Promise<Record<string, string>> =>

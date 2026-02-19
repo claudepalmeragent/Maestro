@@ -112,6 +112,18 @@ export function SubagentListItem({
 				}
 			}}
 		>
+			{/* Subagent/Team badge */}
+			<span
+				className="text-[10px] px-1.5 py-0.5 rounded-full"
+				style={{
+					backgroundColor: theme.colors.bgActivity,
+					color: theme.colors.textDim,
+					flexShrink: 0,
+				}}
+			>
+				Sub
+			</span>
+
 			{/* Subagent type icon */}
 			<span
 				style={{

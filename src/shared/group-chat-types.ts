@@ -140,6 +140,8 @@ export interface GroupChat {
 	 * undefined = appears in "Unassigned" section.
 	 */
 	projectFolderId?: string;
+	/** Maximum autonomous rounds before forcing synthesis. 0 = no auto-rounds until user prompts. Default: 0. */
+	maxRoundsOverride?: number;
 }
 
 /**
@@ -156,6 +158,16 @@ export interface GroupChatMessage {
  * Group chat state for UI display
  */
 export type GroupChatState = 'idle' | 'moderator-thinking' | 'agent-working';
+
+/** Tracks the current round state for a group chat session */
+export interface GroupChatRoundState {
+	/** Current round number (0-indexed, incremented each time moderator routes to agents) */
+	currentRound: number;
+	/** Maximum allowed rounds for this turn (recalculated each time user sends a message) */
+	maxRounds: number;
+	/** Whether the current round was force-synthesized due to hitting the limit */
+	forcedSynthesis: boolean;
+}
 
 /**
  * Type of history entry in a group chat

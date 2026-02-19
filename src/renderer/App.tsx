@@ -5734,6 +5734,35 @@ You are taking over this conversation. Based on the context above, provide a bri
 		);
 	}, []);
 
+	// Update session customEnvVars with new effort level for next Claude Code prompt
+	const handleEffortLevelChange = useCallback((level: 'high' | 'medium' | 'low') => {
+		setSessions((prev) =>
+			prev.map((s) => {
+				if (s.id !== activeSessionIdRef.current) return s;
+				return {
+					...s,
+					customEnvVars: {
+						...s.customEnvVars,
+						CLAUDE_CODE_EFFORT_LEVEL: level,
+					},
+				};
+			})
+		);
+	}, []);
+
+	// Update session customModel when user changes model from InputArea dropdown
+	const handleModelChange = useCallback((model: string) => {
+		setSessions((prev) =>
+			prev.map((s) => {
+				if (s.id !== activeSessionIdRef.current) return s;
+				return {
+					...s,
+					customModel: model || undefined,
+				};
+			})
+		);
+	}, []);
+
 	const handleScrollPositionChange = useCallback((scrollTop: number) => {
 		const session = sessionsRef.current.find((s) => s.id === activeSessionIdRef.current);
 		if (!session) return;
@@ -12869,6 +12898,11 @@ You are taking over this conversation. Based on the context above, provide a bri
 		onWizardRetry: retryInlineWizardMessage,
 		onWizardClearError: clearInlineWizardError,
 		onToggleWizardShowThinking: handleToggleWizardShowThinking,
+
+		// Per-prompt effort level
+		handleEffortLevelChange,
+		// Per-prompt model selection
+		handleModelChange,
 
 		// Helper functions
 		getActiveTab,

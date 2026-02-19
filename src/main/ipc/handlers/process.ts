@@ -172,7 +172,19 @@ export function registerProcessHandlers(deps: ProcessHandlerDependencies): void 
 					);
 				}
 
-				const effectiveCustomEnvVars = configResolution.effectiveCustomEnvVars;
+				let effectiveCustomEnvVars = configResolution.effectiveCustomEnvVars;
+
+				// Inject effort level for Claude Code agents
+				if (config.toolType === 'claude-code') {
+					const pricingConfig = agentConfigValues?.pricingConfig;
+					if (pricingConfig?.effortLevel) {
+						if (!effectiveCustomEnvVars) {
+							effectiveCustomEnvVars = {};
+						}
+						effectiveCustomEnvVars['CLAUDE_CODE_EFFORT_LEVEL'] = pricingConfig.effortLevel;
+					}
+				}
+
 				if (configResolution.customEnvSource !== 'none' && effectiveCustomEnvVars) {
 					logger.debug(
 						`Custom env vars configured for ${config.toolType} (${configResolution.customEnvSource}-level)`,

@@ -83,6 +83,8 @@ export interface GroupChat {
 	imagesDir: string;
 	/** Project Folder this group chat belongs to (undefined = unassigned) */
 	projectFolderId?: string;
+	/** Maximum autonomous rounds before forcing synthesis. 0 = no auto-rounds until user prompts. Default: 0. */
+	maxRoundsOverride?: number;
 }
 
 /**
@@ -98,6 +100,7 @@ export type GroupChatUpdate = Partial<
 		| 'moderatorConfig'
 		| 'participants'
 		| 'updatedAt'
+		| 'maxRoundsOverride'
 	>
 >;
 

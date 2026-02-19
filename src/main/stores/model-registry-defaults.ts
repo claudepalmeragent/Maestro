@@ -10,7 +10,7 @@ import type { ModelRegistryData } from './model-registry-types';
 
 export const MODEL_REGISTRY_DEFAULTS: ModelRegistryData = {
 	schemaVersion: 1,
-	defaultModelId: 'claude-opus-4-5-20251101',
+	defaultModelId: 'claude-opus-4-6-20260115',
 	models: {
 		// Opus 4.6 (latest)
 		'claude-opus-4-6-20260115': {
@@ -135,7 +135,7 @@ export const MODEL_REGISTRY_DEFAULTS: ModelRegistryData = {
 	},
 	aliases: {
 		// Latest aliases
-		opus: 'claude-opus-4-5-20251101',
+		opus: 'claude-opus-4-6-20260115',
 		sonnet: 'claude-sonnet-4-6-20260218',
 		haiku: 'claude-haiku-4-5-20251001',
 

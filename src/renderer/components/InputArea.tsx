@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, startTransition } from 'react';
+import React, { useState, useEffect, useMemo, startTransition } from 'react';
 import {
 	Terminal,
 	Cpu,
@@ -34,6 +34,7 @@ import { SummarizeProgressOverlay } from './SummarizeProgressOverlay';
 import { WizardInputPanel } from './InlineWizard';
 import { useAgentCapabilities, useScrollIntoView } from '../hooks';
 import { getProviderDisplayName } from '../utils/sessionValidation';
+import { ExecutionModelDropdown } from './ui/ExecutionModelDropdown';
 
 interface SlashCommand {
 	command: string;
@@ -154,6 +155,10 @@ interface InputAreaProps {
 	// Wizard thinking toggle
 	wizardShowThinking?: boolean;
 	onToggleWizardShowThinking?: () => void;
+	/** Called when the per-prompt effort level changes (Claude Code only) */
+	onEffortLevelChange?: (level: 'high' | 'medium' | 'low') => void;
+	/** Called when the execution model changes (Claude Code only) */
+	onModelChange?: (model: string) => void;
 }
 
 export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
@@ -246,7 +251,22 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 		// Wizard thinking toggle
 		wizardShowThinking = false,
 		onToggleWizardShowThinking,
+		// Per-prompt effort level (Claude Code only)
+		onEffortLevelChange,
+		// Model change (Claude Code only)
+		onModelChange,
 	} = props;
+
+	// Per-prompt effort level state (Claude Code only)
+	// Defaults to the session-level effort level from customEnvVars; async host fetch provides the real value
+	const sessionEffortDefault = session.customEnvVars?.CLAUDE_CODE_EFFORT_LEVEL as
+		| 'high'
+		| 'medium'
+		| 'low'
+		| undefined;
+	const [promptEffortLevel, setPromptEffortLevel] = useState<'high' | 'medium' | 'low'>(
+		sessionEffortDefault ?? 'high'
+	);
 
 	// Get agent capabilities for conditional feature rendering
 	const { hasCapability } = useAgentCapabilities(session.toolType);
@@ -256,6 +276,59 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 		() => session.aiTabs?.find((tab) => tab.id === session.activeTabId),
 		[session.aiTabs, session.activeTabId]
 	);
+
+	// Detect host model and effort level from Claude Code's ~/.claude/settings.json
+	// Re-detects when session.customModel changes (e.g., after Agent Settings save writes to host)
+	const [hostModel, setHostModel] = useState<string | undefined>(undefined);
+	const [hostEffortLevel, setHostEffortLevel] = useState<string | undefined>(undefined);
+	useEffect(() => {
+		if (session.inputMode !== 'ai' || session.toolType !== 'claude-code') return;
+		let cancelled = false;
+		const sshId = session.sessionSshRemoteConfig?.enabled
+			? session.sessionSshRemoteConfig.remoteId
+			: undefined;
+		window.maestro.agents
+			.getHostSettings(sshId ?? undefined)
+			.then((result) => {
+				if (!cancelled && result.success) {
+					setHostModel(result.model);
+					const detectedEffort = result.effortLevel as 'high' | 'medium' | 'low' | undefined;
+					setHostEffortLevel(detectedEffort);
+					// If no per-session effort override was set, sync the toggle to the host's actual value.
+					// This ensures the effort toggle starts at the host's configured level, not a hardcoded 'high'.
+					if (!session.customEnvVars?.CLAUDE_CODE_EFFORT_LEVEL && detectedEffort) {
+						setPromptEffortLevel(detectedEffort);
+					}
+				}
+			})
+			.catch(() => {
+				// Silent fail — badges just won't show
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [
+		session.inputMode,
+		session.toolType,
+		session.customModel,
+		session.sessionSshRemoteConfig?.remoteId,
+		session.id,
+	]);
+
+	// Sync effort toggle when switching tabs/sessions
+	// Without this, useState preserves the old session's effort level
+	useEffect(() => {
+		const sessionEffort = session.customEnvVars?.CLAUDE_CODE_EFFORT_LEVEL as
+			| 'high'
+			| 'medium'
+			| 'low'
+			| undefined;
+		if (sessionEffort) {
+			setPromptEffortLevel(sessionEffort);
+		} else if (hostEffortLevel) {
+			setPromptEffortLevel(hostEffortLevel as 'high' | 'medium' | 'low');
+		}
+	}, [session.id, session.customEnvVars?.CLAUDE_CODE_EFFORT_LEVEL, hostEffortLevel]);
 
 	// Get wizardState from active tab (not session level - wizard state is per-tab)
 	const wizardState = activeTab?.wizardState;
@@ -451,6 +524,62 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 			{/* ExecutionQueueIndicator - show when items are queued in AI mode */}
 			{session.inputMode === 'ai' && onOpenQueueBrowser && (
 				<ExecutionQueueIndicator session={session} theme={theme} onClick={onOpenQueueBrowser} />
+			)}
+
+			{/* Model & Effort Status Line */}
+			{session.inputMode === 'ai' && session.toolType === 'claude-code' && (
+				<div
+					className="flex items-center gap-3 px-3 py-1 text-xs"
+					style={{ color: theme.colors.textDim }}
+				>
+					<div className="flex items-center gap-1">
+						<span>Execution Model:</span>
+						<ExecutionModelDropdown
+							theme={theme}
+							value={session.customModel || ''}
+							activeModel={hostModel}
+							onChange={(model) => onModelChange?.(model)}
+							compact
+						/>
+					</div>
+					<span style={{ color: theme.colors.border }}>|</span>
+					<div className="flex items-center gap-0.5">
+						<span className="mr-1">Effort:</span>
+						{(['low', 'medium', 'high'] as const).map((level) => {
+							const isActive = promptEffortLevel === level;
+							const labels = { low: 'Lo', medium: 'Med', high: 'Hi' };
+							return (
+								<button
+									key={level}
+									className="text-[10px] px-1.5 py-0.5 rounded transition-colors cursor-pointer"
+									style={{
+										backgroundColor: isActive ? theme.colors.accent + '30' : 'transparent',
+										color: isActive ? theme.colors.accent : theme.colors.textDim,
+										fontWeight: isActive ? 600 : 400,
+									}}
+									onClick={() => {
+										setPromptEffortLevel(level);
+										onEffortLevelChange?.(level);
+									}}
+									title={`Set effort level to ${level}`}
+								>
+									{labels[level]}
+								</button>
+							);
+						})}
+					</div>
+					{hostEffortLevel && (
+						<span
+							className="text-xs px-1.5 py-0.5 rounded whitespace-nowrap"
+							style={{
+								color: theme.colors.textDim,
+								backgroundColor: theme.colors.bgActivity,
+							}}
+						>
+							Active: {hostEffortLevel.charAt(0).toUpperCase() + hostEffortLevel.slice(1)}
+						</span>
+					)}
+				</div>
 			)}
 
 			{/* Only show staged images in AI mode */}

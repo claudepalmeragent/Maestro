@@ -3712,6 +3712,7 @@ function SessionListInner(props: SessionListProps) {
 					theme={theme}
 					folder={settingsProjectFolder}
 					sessions={sessions}
+					groups={groups}
 					onClose={() => {
 						setShowProjectFolderSettingsModal(false);
 						setSettingsProjectFolder(undefined);

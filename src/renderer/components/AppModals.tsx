@@ -1497,6 +1497,7 @@ export interface AppAgentModalsProps {
 	theme: Theme;
 	sessions: Session[];
 	activeSession: Session | null;
+	groups: Group[];
 	groupChats: GroupChat[];
 
 	// LeaderboardRegistrationModal
@@ -1562,6 +1563,7 @@ export function AppAgentModals({
 	theme,
 	sessions,
 	activeSession,
+	groups,
 	groupChats,
 	// LeaderboardRegistrationModal
 	leaderboardRegistrationOpen,
@@ -1681,6 +1683,7 @@ export function AppAgentModals({
 					sourceSession={activeSession}
 					sourceTabId={activeSession.activeTabId}
 					allSessions={sessions}
+					groups={groups}
 					onClose={onCloseSendToAgent}
 					onSend={onSendToAgent}
 				/>
@@ -2644,6 +2647,7 @@ export function AppModals(props: AppModalsProps) {
 				theme={theme}
 				sessions={sessions}
 				activeSession={activeSession}
+				groups={groups}
 				groupChats={groupChats}
 				leaderboardRegistrationOpen={leaderboardRegistrationOpen}
 				onCloseLeaderboardRegistration={onCloseLeaderboardRegistration}

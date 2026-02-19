@@ -277,6 +277,10 @@ export interface UseMainPanelPropsDeps {
 	onWizardClearError?: () => void;
 	onToggleWizardShowThinking?: () => void;
 
+	// Per-prompt effort level (Claude Code only)
+	handleEffortLevelChange?: (level: 'high' | 'medium' | 'low') => void;
+	handleModelChange?: (model: string) => void;
+
 	// Helper functions
 	getActiveTab: (session: Session) => AITab | undefined;
 }
@@ -492,6 +496,10 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 			onWizardRetry: deps.onWizardRetry,
 			onWizardClearError: deps.onWizardClearError,
 			onToggleWizardShowThinking: deps.onToggleWizardShowThinking,
+			// Per-prompt effort level
+			onEffortLevelChange: deps.handleEffortLevelChange,
+			// Per-prompt model selection
+			onModelChange: deps.handleModelChange,
 		}),
 		[
 			// Primitive dependencies for minimal re-computation
@@ -668,6 +676,8 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 			deps.onWizardRetry,
 			deps.onWizardClearError,
 			deps.onToggleWizardShowThinking,
+			deps.handleEffortLevelChange,
+			deps.handleModelChange,
 			// Refs (stable, but included for completeness)
 			deps.inputRef,
 			deps.logsEndRef,

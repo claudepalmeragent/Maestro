@@ -17,6 +17,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { Search, ArrowRight, X, Loader2, Circle } from 'lucide-react';
 import type { Theme, Session, AITab, ToolType } from '../types';
 import type { MergeResult } from '../types/contextMerge';
+import type { Group } from '../../shared/types';
 import { fuzzyMatchWithScore } from '../utils/search';
 import { useLayerStack } from '../contexts/LayerStackContext';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
@@ -38,6 +39,7 @@ export interface SessionOption {
 	toolType: ToolType;
 	status: SessionStatus;
 	projectRoot: string;
+	groupId?: string;
 }
 
 /**
@@ -61,6 +63,8 @@ export interface SendToAgentModalProps {
 	sourceTabId: string;
 	/** All sessions available as targets (will exclude source session) */
 	allSessions: Session[];
+	/** All groups (for resolving group icons) */
+	groups?: Group[];
 	/** Callback when modal is closed */
 	onClose: () => void;
 	/** Callback when send is initiated */
@@ -135,9 +139,22 @@ export function SendToAgentModal({
 	sourceSession,
 	sourceTabId,
 	allSessions,
+	groups,
 	onClose,
 	onSend,
 }: SendToAgentModalProps) {
+	// Resolve session icon: prefer group emoji, fall back to provider icon
+	const getSessionIcon = useCallback(
+		(session: { toolType: ToolType; groupId?: string }) => {
+			if (session.groupId && groups) {
+				const group = groups.find((g) => g.id === session.groupId);
+				if (group?.emoji) return group.emoji;
+			}
+			return getAgentIcon(session.toolType);
+		},
+		[groups]
+	);
+
 	// Search state
 	const [searchQuery, setSearchQuery] = useState('');
 
@@ -252,6 +269,7 @@ export function SendToAgentModal({
 					toolType: session.toolType,
 					status,
 					projectRoot: session.projectRoot,
+					groupId: session.groupId,
 				};
 			});
 	}, [allSessions, sourceSession.id]);
@@ -569,9 +587,9 @@ export function SendToAgentModal({
 												} as React.CSSProperties
 											}
 										>
-											{/* Agent Icon */}
+											{/* Agent Icon (group icon if available, else provider icon) */}
 											<div className="text-xl shrink-0" aria-hidden="true">
-												{getAgentIcon(session.toolType)}
+												{getSessionIcon(session)}
 											</div>
 
 											{/* Session Info */}
@@ -668,7 +686,7 @@ export function SendToAgentModal({
 								<span style={{ color: theme.colors.textDim }}>Target: {selectedSession.name}</span>
 								<span className="flex items-center gap-1" style={{ color: theme.colors.textMain }}>
 									<ArrowRight className="w-3 h-3" aria-hidden="true" />
-									{getAgentIcon(selectedSession.toolType)}
+									{getSessionIcon(selectedSession)}
 								</span>
 							</div>
 						)}

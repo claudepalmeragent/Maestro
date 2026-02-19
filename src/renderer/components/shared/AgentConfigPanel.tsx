@@ -21,6 +21,7 @@ import type { DetectedAuth, ProjectFolderPricingConfig } from '../../../shared/t
 import type { AgentPricingConfig } from '../../../main/stores/types';
 import { BillingModeToggle, type BillingModeValue } from '../ui/BillingModeToggle';
 import { PricingModelDropdown, type PricingModelValue } from '../ui/PricingModelDropdown';
+import { ExecutionModelDropdown } from '../ui/ExecutionModelDropdown';
 
 // Counter for generating stable IDs for env vars
 let envVarIdCounter = 0;
@@ -32,6 +33,18 @@ const BUILT_IN_ENV_VARS: { key: string; description: string; value: string }[] =
 		description:
 			'Set to "1" when resuming an existing session. Not set for new sessions. Use this in your agent hooks to skip initialization on resumed sessions.',
 		value: '1 (when resuming)',
+	},
+	{
+		key: 'ANTHROPIC_DEFAULT_HAIKU_MODEL',
+		description:
+			'Override the default Haiku model used by Claude Code for internal subagent tasks. Example: claude-haiku-4-5-20251001',
+		value: '(model ID)',
+	},
+	{
+		key: 'ANTHROPIC_DEFAULT_SONNET_MODEL',
+		description:
+			'Override the default Sonnet model used by Claude Code for internal subagent tasks. Example: claude-sonnet-4-6-20250514',
+		value: '(model ID)',
 	},
 ];
 
@@ -268,6 +281,7 @@ export interface AgentConfigPanelProps {
 	detectedAuth?: DetectedAuth | null;
 	onBillingModeChange?: (mode: BillingModeValue) => void;
 	onPricingModelChange?: (model: PricingModelValue) => void;
+	onEffortLevelChange?: (level: 'low' | 'medium' | 'high') => void;
 	// Project folder pricing config (for inheritance indicator)
 	folderPricingConfig?: ProjectFolderPricingConfig | null;
 	// SSH Remote detection (for auth detection from remote hosts)
@@ -275,6 +289,10 @@ export interface AgentConfigPanelProps {
 	sshRemoteName?: string;
 	onRefreshRemoteAuth?: () => void;
 	refreshingRemoteAuth?: boolean;
+	/** Forward-looking active model or detected model for the "Active" indicator */
+	detectedModel?: string;
+	/** Host-detected effort level from Claude Code settings (for Active badge) */
+	hostEffortLevel?: string;
 }
 
 export function AgentConfigPanel({
@@ -297,9 +315,9 @@ export function AgentConfigPanel({
 	agentConfig,
 	onConfigChange,
 	onConfigBlur,
-	availableModels = [],
-	loadingModels = false,
-	onRefreshModels,
+	availableModels: _availableModels = [],
+	loadingModels: _loadingModels = false,
+	onRefreshModels: _onRefreshModels,
 	onRefreshAgent,
 	refreshingAgent = false,
 	compact = false,
@@ -308,11 +326,14 @@ export function AgentConfigPanel({
 	detectedAuth,
 	onBillingModeChange,
 	onPricingModelChange,
+	onEffortLevelChange,
 	folderPricingConfig,
 	sshRemoteId,
 	sshRemoteName,
 	onRefreshRemoteAuth,
 	refreshingRemoteAuth = false,
+	detectedModel,
+	hostEffortLevel,
 }: AgentConfigPanelProps): JSX.Element {
 	const padding = compact ? 'p-2' : 'p-3';
 	const spacing = compact ? 'space-y-2' : 'space-y-3';
@@ -738,13 +759,9 @@ export function AgentConfigPanel({
 								value={agentConfig[option.key] ?? option.default}
 								onChange={(value) => onConfigChange(option.key, value)}
 								onBlur={onConfigBlur}
-								availableModels={option.key === 'model' ? availableModels : []}
-								loadingModels={option.key === 'model' ? loadingModels : false}
-								onRefreshModels={
-									option.key === 'model' && agent.capabilities?.supportsModelSelection
-										? onRefreshModels
-										: undefined
-								}
+								availableModels={[]}
+								loadingModels={false}
+								onRefreshModels={undefined}
 							/>
 						)}
 						{option.type === 'checkbox' && (
@@ -768,9 +785,89 @@ export function AgentConfigPanel({
 								</span>
 							</label>
 						)}
+						{option.type === 'select' && option.key === 'model' && (
+							<ExecutionModelDropdown
+								theme={theme}
+								value={agentConfig[option.key] || ''}
+								activeModel={detectedModel}
+								onChange={(model) => {
+									onConfigChange(option.key, model);
+									onConfigBlur();
+								}}
+							/>
+						)}
+						{option.type === 'select' && option.key !== 'model' && (
+							<select
+								className="flex-1 text-xs px-2 py-1.5 rounded border bg-transparent"
+								style={{
+									color: theme.colors.textMain,
+									borderColor: theme.colors.border,
+									backgroundColor: theme.colors.bgMain,
+								}}
+								value={agentConfig[option.key] ?? option.default}
+								onChange={(e) => {
+									onConfigChange(option.key, e.target.value);
+									onConfigBlur();
+								}}
+								onClick={(e) => e.stopPropagation()}
+							>
+								<option value="">default</option>
+								{((option as any).options || []).map((opt: string) => (
+									<option key={opt} value={opt}>
+										{opt}
+									</option>
+								))}
+							</select>
+						)}
 						<p className="text-xs opacity-50 mt-2">{option.description}</p>
 					</div>
 				))}
+
+			{/* Effort Level (Claude Code only — shown after model selection) */}
+			{agent.id === 'claude-code' && (
+				<div
+					className={`${padding} rounded border`}
+					style={{ borderColor: theme.colors.border, backgroundColor: theme.colors.bgMain }}
+				>
+					<div className="flex items-center gap-3">
+						<label
+							className="text-xs font-medium w-28 shrink-0"
+							style={{ color: theme.colors.textDim }}
+						>
+							Effort Level
+						</label>
+						<select
+							className="flex-1 text-xs px-2 py-1.5 rounded border bg-transparent"
+							style={{
+								color: theme.colors.textMain,
+								borderColor: theme.colors.border,
+								backgroundColor: theme.colors.bgMain,
+							}}
+							value={pricingConfig?.effortLevel ?? 'high'}
+							onChange={(e) => {
+								const newEffort = e.target.value as 'low' | 'medium' | 'high';
+								onEffortLevelChange?.(newEffort);
+							}}
+						>
+							<option value="high">High (default)</option>
+							<option value="medium">Medium</option>
+							<option value="low">Low</option>
+						</select>
+						{/* Host effort level indicator */}
+						{hostEffortLevel && (
+							<span
+								className="text-xs px-2 py-0.5 rounded whitespace-nowrap"
+								style={{
+									color: theme.colors.textDim,
+									backgroundColor: theme.colors.bgActivity,
+								}}
+							>
+								Active: {hostEffortLevel.charAt(0).toUpperCase() + hostEffortLevel.slice(1)}
+							</span>
+						)}
+					</div>
+				</div>
+			)}
 		</div>
 	);
 }

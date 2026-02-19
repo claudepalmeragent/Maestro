@@ -13,8 +13,9 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import type { Theme, Session } from '../../types';
-import type { ProjectFolder, ClaudeBillingMode, DetectedAuth } from '../../../shared/types';
+import type { ProjectFolder, ClaudeBillingMode, DetectedAuth, Group } from '../../../shared/types';
 import { MODAL_PRIORITIES } from '../../constants/modalPriorities';
+import { getAgentIcon } from '../../constants/agentIcons';
 import { Modal, ModalFooter } from '../ui';
 import type { BillingModeValue } from '../ui/BillingModeToggle';
 
@@ -29,6 +30,8 @@ export interface ProjectFolderSettingsModalProps {
 	folder: ProjectFolder;
 	/** All sessions in the app (will be filtered to this folder) */
 	sessions: Session[];
+	/** All groups (for resolving group icons) */
+	groups?: Group[];
 	/** Callback to close the modal */
 	onClose: () => void;
 	/** Callback when settings are saved */
@@ -223,6 +226,7 @@ export function ProjectFolderSettingsModal({
 	theme,
 	folder,
 	sessions,
+	groups,
 	onClose,
 	onSave,
 }: ProjectFolderSettingsModalProps) {
@@ -283,7 +287,9 @@ export function ProjectFolderSettingsModal({
 				agentData.push({
 					id: session.id,
 					name: session.name,
-					emoji: session.toolType === 'claude-code' ? '\uD83E\uDD16' : '\uD83E\uDD16',
+					emoji:
+						(session.groupId && groups?.find((g) => g.id === session.groupId)?.emoji) ||
+						getAgentIcon(session.toolType),
 					toolType: session.toolType,
 					billingMode,
 					detectedAuth,

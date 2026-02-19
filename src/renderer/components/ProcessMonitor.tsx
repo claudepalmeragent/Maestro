@@ -1383,6 +1383,9 @@ export function ProcessMonitor(props: ProcessMonitorProps) {
 							</div>
 						</div>
 
+						{/* GPU monitoring for Apple Silicon: requires powermetrics (sudo) or ioreg (limited).
+						   Deferred until a practical non-sudo approach is identified. */}
+
 						{/* Tool Type & Process Type Row */}
 						<div className="grid grid-cols-2 gap-4">
 							<div className="p-4 rounded-lg" style={{ backgroundColor: theme.colors.bgMain }}>
