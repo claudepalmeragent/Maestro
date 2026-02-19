@@ -2858,6 +2858,76 @@ interface MaestroAPI {
 		}) => Promise<boolean>;
 		getAll: () => Promise<string>;
 	};
+
+	// GPU Monitor API
+	gpuMonitor: {
+		getCapabilities: () => Promise<{
+			platform: string;
+			hasOllama: boolean;
+			ollamaHost: string;
+			hasMacmon: boolean;
+			hasNvidiaSmi: boolean;
+		}>;
+		refreshCapabilities: () => Promise<{
+			platform: string;
+			hasOllama: boolean;
+			ollamaHost: string;
+			hasMacmon: boolean;
+			hasNvidiaSmi: boolean;
+		}>;
+		getMetrics: () => Promise<{
+			timestamp: number;
+			ollama?: {
+				models: Array<{
+					name: string;
+					sizeBytes: number;
+					sizeVramBytes: number;
+					gpuPercent: number;
+					parameterSize: string;
+					quantization: string;
+					family: string;
+					format: string;
+					contextLength?: number;
+					expiresAt?: string;
+				}>;
+				totalVramBytes: number;
+				timestamp: number;
+			};
+			macmon?: {
+				gpuUtilizationPercent?: number;
+				gpuFrequencyMHz?: number;
+				gpuPowerWatts?: number;
+				ecpuUtilizationPercent?: number;
+				ecpuFrequencyMHz?: number;
+				pcpuUtilizationPercent?: number;
+				pcpuFrequencyMHz?: number;
+				cpuPowerWatts?: number;
+				anePowerWatts?: number;
+				allPowerWatts?: number;
+				sysPowerWatts?: number;
+				ramPowerWatts?: number;
+				gpuRamPowerWatts?: number;
+				gpuTemperatureCelsius?: number;
+				cpuTemperatureCelsius?: number;
+				memoryUsedBytes?: number;
+				memoryTotalBytes?: number;
+				swapUsedBytes?: number;
+				swapTotalBytes?: number;
+			};
+			error?: string;
+		}>;
+		getSocInfo: () => Promise<{
+			macModel: string;
+			chipName: string;
+			memoryGB: number;
+			ecpuCores: number;
+			pcpuCores: number;
+			gpuCores: number;
+			ecpuFreqs: number[];
+			pcpuFreqs: number[];
+			gpuFreqs: number[];
+		} | null>;
+	};
 }
 
 declare global {

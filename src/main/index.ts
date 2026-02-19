@@ -53,6 +53,7 @@ import {
 	registerPromptLibraryHandlers,
 	registerKnowledgeGraphHandlers,
 	registerFeedbackHandlers,
+	registerGpuMonitorHandlers,
 	setupLoggerEventForwarding,
 	cleanupAllGroomingSessions,
 	getActiveGroomingSessionCount,
@@ -657,6 +658,9 @@ function setupIpcHandlers() {
 
 	// Register feedback handlers (no dependencies - uses userData path directly)
 	registerFeedbackHandlers();
+
+	// Register GPU monitor handlers (no dependencies - uses local system probing)
+	registerGpuMonitorHandlers();
 }
 
 // Handle process output streaming (set up after initialization)

@@ -58,6 +58,7 @@ import { registerProjectFoldersHandlers } from './projectFolders';
 import { registerPromptLibraryHandlers } from './prompt-library';
 import { registerKnowledgeGraphHandlers } from './knowledge-graph';
 import { registerFeedbackHandlers } from './feedback';
+import { registerGpuMonitorHandlers } from './gpu-monitor';
 import { AgentDetector } from '../../agents';
 import { ProcessManager } from '../../process-manager';
 import { WebServer } from '../../web-server';
@@ -104,6 +105,7 @@ export { registerProjectFoldersHandlers };
 export { registerPromptLibraryHandlers };
 export { registerKnowledgeGraphHandlers };
 export { registerFeedbackHandlers };
+export { registerGpuMonitorHandlers };
 export type { AgentsHandlerDependencies };
 export type { ProcessHandlerDependencies };
 export type { PersistenceHandlerDependencies };
@@ -275,6 +277,8 @@ export function registerAllHandlers(deps: HandlerDependencies): void {
 	registerKnowledgeGraphHandlers();
 	// Register feedback handlers (no dependencies - uses userData path directly)
 	registerFeedbackHandlers();
+	// Register GPU monitor handlers (no dependencies - uses local system probing)
+	registerGpuMonitorHandlers();
 	// Setup logger event forwarding to renderer
 	setupLoggerEventForwarding(deps.getMainWindow);
 }

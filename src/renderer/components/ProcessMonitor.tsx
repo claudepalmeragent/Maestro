@@ -15,6 +15,7 @@ import {
 	Hash,
 	Play,
 } from 'lucide-react';
+import { GpuResourcesPanel } from './GpuResourcesPanel';
 import type { Session, Group, Theme, GroupChat, BatchRunState } from '../types';
 import { useLayerStack } from '../contexts/LayerStackContext';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
@@ -1383,9 +1384,6 @@ export function ProcessMonitor(props: ProcessMonitorProps) {
 							</div>
 						</div>
 
-						{/* GPU monitoring for Apple Silicon: requires powermetrics (sudo) or ioreg (limited).
-						   Deferred until a practical non-sudo approach is identified. */}
-
 						{/* Tool Type & Process Type Row */}
 						<div className="grid grid-cols-2 gap-4">
 							<div className="p-4 rounded-lg" style={{ backgroundColor: theme.colors.bgMain }}>
@@ -1597,6 +1595,9 @@ export function ProcessMonitor(props: ProcessMonitorProps) {
 								</button>
 							</div>
 						</div>
+
+						{/* GPU Resources */}
+						<GpuResourcesPanel theme={theme} enabled={true} />
 
 						{/* Process tree */}
 						<div className="overflow-y-auto flex-1 scrollbar-thin">

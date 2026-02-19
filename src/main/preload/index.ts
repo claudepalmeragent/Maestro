@@ -52,6 +52,7 @@ import { createAgentsApi } from './agents';
 import { createProjectFoldersApi } from './projectFolders';
 import { createKnowledgeGraphApi } from './knowledgeGraph';
 import { createFeedbackApi } from './feedback';
+import { createGpuMonitorApi } from './gpuMonitor';
 
 // Expose protected methods that allow the renderer process to use
 // the ipcRenderer without exposing the entire object
@@ -196,6 +197,9 @@ contextBridge.exposeInMainWorld('maestro', {
 
 	// Feedback API
 	feedback: createFeedbackApi(),
+
+	// GPU Monitor API
+	gpuMonitor: createGpuMonitorApi(),
 });
 
 // Re-export factory functions for external consumers (e.g., tests)
@@ -273,6 +277,8 @@ export {
 	createKnowledgeGraphApi,
 	// Feedback
 	createFeedbackApi,
+	// GPU Monitor
+	createGpuMonitorApi,
 };
 
 // Re-export types for TypeScript consumers
@@ -477,3 +483,7 @@ export type {
 	// From feedback
 	FeedbackApi,
 } from './feedback';
+export type {
+	// From gpuMonitor
+	GpuMonitorApi,
+} from './gpuMonitor';
