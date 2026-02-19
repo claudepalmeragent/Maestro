@@ -192,63 +192,69 @@ export async function queryOllamaModels(ollamaHost: string): Promise<OllamaMetri
  */
 export async function queryMacmon(): Promise<MacmonMetrics> {
 	return new Promise((resolve, reject) => {
-		const child = execFile('macmon', ['raw', '-s', '1'], { timeout: 5000 }, (error, stdout) => {
-			if (error) {
-				reject(new Error(`macmon failed: ${error.message}`));
-				return;
+		const child = execFile(
+			'macmon',
+			['raw', '-s', '1'],
+			{ timeout: 5000, env: { ...process.env, PATH: getAugmentedPath() } },
+			(error, stdout) => {
+				if (error) {
+					reject(new Error(`macmon failed: ${error.message}`));
+					return;
+				}
+
+				const firstLine = stdout.trim().split('\n')[0];
+				if (!firstLine) {
+					reject(new Error('macmon returned no output'));
+					return;
+				}
+
+				try {
+					const data = JSON.parse(firstLine) as any;
+
+					// gpu_usage, ecpu_usage, pcpu_usage are tuples: [freq_mhz, util_percent]
+					const gpuUsage = Array.isArray(data.gpu_usage) ? data.gpu_usage : null;
+					const ecpuUsage = Array.isArray(data.ecpu_usage) ? data.ecpu_usage : null;
+					const pcpuUsage = Array.isArray(data.pcpu_usage) ? data.pcpu_usage : null;
+
+					// temp and memory are nested objects
+					const temp = data.temp ?? {};
+					const memory = data.memory ?? {};
+
+					const metrics: MacmonMetrics = {
+						// GPU — macmon reports utilization as 0.0–1.0 fraction, multiply by 100 for percent
+						gpuUtilizationPercent: gpuUsage ? Number(gpuUsage[1]) * 100 : undefined,
+						gpuFrequencyMHz: gpuUsage ? Number(gpuUsage[0]) : undefined,
+						gpuPowerWatts: data.gpu_power != null ? Number(data.gpu_power) : undefined,
+						// CPU clusters — same 0.0–1.0 fraction format
+						ecpuUtilizationPercent: ecpuUsage ? Number(ecpuUsage[1]) * 100 : undefined,
+						ecpuFrequencyMHz: ecpuUsage ? Number(ecpuUsage[0]) : undefined,
+						pcpuUtilizationPercent: pcpuUsage ? Number(pcpuUsage[1]) * 100 : undefined,
+						pcpuFrequencyMHz: pcpuUsage ? Number(pcpuUsage[0]) : undefined,
+						// Power breakdown
+						cpuPowerWatts: data.cpu_power != null ? Number(data.cpu_power) : undefined,
+						anePowerWatts: data.ane_power != null ? Number(data.ane_power) : undefined,
+						allPowerWatts: data.all_power != null ? Number(data.all_power) : undefined,
+						sysPowerWatts: data.sys_power != null ? Number(data.sys_power) : undefined,
+						ramPowerWatts: data.ram_power != null ? Number(data.ram_power) : undefined,
+						gpuRamPowerWatts: data.gpu_ram_power != null ? Number(data.gpu_ram_power) : undefined,
+						// Temperatures
+						gpuTemperatureCelsius:
+							temp.gpu_temp_avg != null ? Number(temp.gpu_temp_avg) : undefined,
+						cpuTemperatureCelsius:
+							temp.cpu_temp_avg != null ? Number(temp.cpu_temp_avg) : undefined,
+						// Memory (unified) — keep as raw bytes
+						memoryUsedBytes: memory.ram_usage != null ? Number(memory.ram_usage) : undefined,
+						memoryTotalBytes: memory.ram_total != null ? Number(memory.ram_total) : undefined,
+						swapUsedBytes: memory.swap_usage != null ? Number(memory.swap_usage) : undefined,
+						swapTotalBytes: memory.swap_total != null ? Number(memory.swap_total) : undefined,
+					};
+
+					resolve(metrics);
+				} catch (parseErr) {
+					reject(new Error(`macmon parse error: ${parseErr}`));
+				}
 			}
-
-			const firstLine = stdout.trim().split('\n')[0];
-			if (!firstLine) {
-				reject(new Error('macmon returned no output'));
-				return;
-			}
-
-			try {
-				 
-				const data = JSON.parse(firstLine) as any;
-
-				// gpu_usage, ecpu_usage, pcpu_usage are tuples: [freq_mhz, util_percent]
-				const gpuUsage = Array.isArray(data.gpu_usage) ? data.gpu_usage : null;
-				const ecpuUsage = Array.isArray(data.ecpu_usage) ? data.ecpu_usage : null;
-				const pcpuUsage = Array.isArray(data.pcpu_usage) ? data.pcpu_usage : null;
-
-				// temp and memory are nested objects
-				const temp = data.temp ?? {};
-				const memory = data.memory ?? {};
-
-				const metrics: MacmonMetrics = {
-					// GPU — macmon reports utilization as 0.0–1.0 fraction, multiply by 100 for percent
-					gpuUtilizationPercent: gpuUsage ? Number(gpuUsage[1]) * 100 : undefined,
-					gpuFrequencyMHz: gpuUsage ? Number(gpuUsage[0]) : undefined,
-					gpuPowerWatts: data.gpu_power != null ? Number(data.gpu_power) : undefined,
-					// CPU clusters — same 0.0–1.0 fraction format
-					ecpuUtilizationPercent: ecpuUsage ? Number(ecpuUsage[1]) * 100 : undefined,
-					ecpuFrequencyMHz: ecpuUsage ? Number(ecpuUsage[0]) : undefined,
-					pcpuUtilizationPercent: pcpuUsage ? Number(pcpuUsage[1]) * 100 : undefined,
-					pcpuFrequencyMHz: pcpuUsage ? Number(pcpuUsage[0]) : undefined,
-					// Power breakdown
-					cpuPowerWatts: data.cpu_power != null ? Number(data.cpu_power) : undefined,
-					anePowerWatts: data.ane_power != null ? Number(data.ane_power) : undefined,
-					allPowerWatts: data.all_power != null ? Number(data.all_power) : undefined,
-					sysPowerWatts: data.sys_power != null ? Number(data.sys_power) : undefined,
-					ramPowerWatts: data.ram_power != null ? Number(data.ram_power) : undefined,
-					gpuRamPowerWatts: data.gpu_ram_power != null ? Number(data.gpu_ram_power) : undefined,
-					// Temperatures
-					gpuTemperatureCelsius: temp.gpu_temp_avg != null ? Number(temp.gpu_temp_avg) : undefined,
-					cpuTemperatureCelsius: temp.cpu_temp_avg != null ? Number(temp.cpu_temp_avg) : undefined,
-					// Memory (unified) — keep as raw bytes
-					memoryUsedBytes: memory.ram_usage != null ? Number(memory.ram_usage) : undefined,
-					memoryTotalBytes: memory.ram_total != null ? Number(memory.ram_total) : undefined,
-					swapUsedBytes: memory.swap_usage != null ? Number(memory.swap_usage) : undefined,
-					swapTotalBytes: memory.swap_total != null ? Number(memory.swap_total) : undefined,
-				};
-
-				resolve(metrics);
-			} catch (parseErr) {
-				reject(new Error(`macmon parse error: ${parseErr}`));
-			}
-		});
+		);
 
 		// Kill child if it hangs
 		setTimeout(() => {
@@ -267,7 +273,7 @@ export async function querySocInfo(): Promise<SocInfo | null> {
 		const child = execFile(
 			'macmon',
 			['raw', '-s', '1', '--soc-info'],
-			{ timeout: 5000 },
+			{ timeout: 5000, env: { ...process.env, PATH: getAugmentedPath() } },
 			(error, stdout) => {
 				if (error) {
 					logger.debug(`macmon soc-info failed: ${error.message}`, LOG_CONTEXT);
@@ -282,7 +288,6 @@ export async function querySocInfo(): Promise<SocInfo | null> {
 				}
 
 				try {
-					 
 					const data = JSON.parse(firstLine) as any;
 					const soc = data.soc;
 
@@ -318,10 +323,26 @@ export async function querySocInfo(): Promise<SocInfo | null> {
 // Helpers
 // ============================================================================
 
+function getAugmentedPath(): string {
+	const existing = process.env.PATH || '';
+	if (process.platform !== 'darwin') return existing;
+	// macOS Dock-launched Electron apps inherit a minimal PATH.
+	// Ensure common install locations are included.
+	const extras = [
+		'/opt/homebrew/bin',
+		'/opt/homebrew/sbin',
+		'/usr/local/bin',
+		`${process.env.HOME}/.nix-profile/bin`,
+		`${process.env.HOME}/.local/bin`,
+	];
+	const missing = extras.filter((p) => !existing.includes(p));
+	return missing.length > 0 ? `${existing}:${missing.join(':')}` : existing;
+}
+
 function binaryExists(name: string): Promise<boolean> {
 	return new Promise((resolve) => {
 		const cmd = process.platform === 'win32' ? 'where' : 'which';
-		execFile(cmd, [name], (error) => {
+		execFile(cmd, [name], { env: { ...process.env, PATH: getAugmentedPath() } }, (error) => {
 			resolve(!error);
 		});
 	});
