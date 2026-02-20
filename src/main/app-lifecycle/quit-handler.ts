@@ -34,6 +34,16 @@ export interface QuitHandlerDependencies {
 	stopCliWatcher?: () => void;
 	/** Function to stop audit scheduler (optional) */
 	stopAuditScheduler?: () => void;
+	/** Function to close the Honeycomb query client (optional) */
+	closeHoneycombQueryClient?: () => void;
+	/** Function to close the Honeycomb usage service (optional) */
+	closeHoneycombUsageService?: () => void;
+	/** Function to close the LocalTokenLedger (optional) */
+	closeLocalTokenLedger?: () => void;
+	/** Function to close the Honeycomb archive service (optional) */
+	closeHoneycombArchiveService?: () => void;
+	/** Function to close the Honeycomb archive database (optional) */
+	closeHoneycombArchiveDB?: () => void;
 }
 
 /** Quit handler state */
@@ -79,6 +89,11 @@ export function createQuitHandler(deps: QuitHandlerDependencies): QuitHandler {
 		closeStatsDB,
 		stopCliWatcher,
 		stopAuditScheduler,
+		closeHoneycombQueryClient,
+		closeHoneycombUsageService,
+		closeHoneycombArchiveService,
+		closeHoneycombArchiveDB,
+		closeLocalTokenLedger,
 	} = deps;
 
 	const state: QuitHandlerState = {
@@ -201,6 +216,29 @@ export function createQuitHandler(deps: QuitHandlerDependencies): QuitHandler {
 		closeSshConnections().catch((err: unknown) => {
 			logger.error(`Error closing SSH connections: ${err}`, 'Shutdown');
 		});
+
+		// Close Honeycomb usage service (stop polling before closing query client)
+		if (closeHoneycombUsageService) {
+			closeHoneycombUsageService();
+		}
+
+		// Close Honeycomb archive service and database
+		if (closeHoneycombArchiveService) {
+			closeHoneycombArchiveService();
+		}
+		if (closeHoneycombArchiveDB) {
+			closeHoneycombArchiveDB();
+		}
+
+		// Close Honeycomb query client
+		if (closeHoneycombQueryClient) {
+			closeHoneycombQueryClient();
+		}
+
+		// Close LocalTokenLedger
+		if (closeLocalTokenLedger) {
+			closeLocalTokenLedger();
+		}
 
 		// Close stats database
 		logger.info('Closing stats database', 'Shutdown');

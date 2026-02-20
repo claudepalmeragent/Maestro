@@ -47,6 +47,49 @@ export interface BootstrapSettings {
 }
 
 // ============================================================================
+// Honeycomb Warning Settings
+// ============================================================================
+
+export interface HoneycombWarningSettings {
+	honeycombWarningsEnabled: boolean;
+
+	// 5-hour window thresholds (API-equivalent USD)
+	fiveHourWarningYellowUsd: number;
+	fiveHourWarningRedUsd: number;
+
+	// 5-hour window thresholds (% of calibrated plan budget)
+	fiveHourWarningYellowPct: number;
+	fiveHourWarningRedPct: number;
+
+	// Weekly thresholds (API-equivalent USD)
+	weeklyWarningYellowUsd: number;
+	weeklyWarningRedUsd: number;
+
+	// Weekly thresholds (% of calibrated plan budget)
+	weeklyWarningYellowPct: number;
+	weeklyWarningRedPct: number;
+
+	// Session count threshold
+	monthlySessionsWarning: number;
+
+	// Polling interval
+	honeycombPollIntervalMs: number;
+
+	// Warning mode: which thresholds trigger warnings
+	warningMode: 'usd' | 'percentage' | 'both';
+
+	// Safety buffer for capacity checks (% reserve)
+	safetyBufferPct: number;
+
+	// Pre-run capacity check toggles
+	capacityCheckAutoRun: boolean;
+	capacityCheckInteractive: boolean;
+
+	// Archive settings
+	archiveEnabled: boolean;
+}
+
+// ============================================================================
 // Settings Store
 // ============================================================================
 
@@ -90,6 +133,27 @@ export interface MaestroSettings {
 	darkThemeId?: ThemeId;
 	/** Show thinking bubbles by default in Group Chat (separate from AI tab thinking default) */
 	groupChatDefaultShowThinking?: boolean;
+	// --- Honeycomb Integration ---
+	/** Honeycomb API key for REST queries (reuses OTEL export key if not set) */
+	honeycombApiKey?: string;
+	/** Honeycomb dataset slug (default: 'claude-code') */
+	honeycombDatasetSlug?: string;
+	/** Honeycomb environment slug (default: 'claudepalmeragent') */
+	honeycombEnvironmentSlug?: string;
+	/** Whether Honeycomb integration is enabled */
+	honeycombEnabled?: boolean;
+	/** Poll interval in milliseconds for usage monitoring (default: 300000 = 5 min) */
+	honeycombPollIntervalMs?: number;
+	/** Whether to pause polling when app is minimized/unfocused */
+	honeycombPauseOnMinimize?: boolean;
+	/** Data source mode: 'mcp' (Free Tier) or 'api' (Enterprise REST API) */
+	honeycombDataSource?: 'mcp' | 'api';
+	/** Honeycomb Management API key for MCP mode (format: KEY_ID:SECRET_KEY) */
+	honeycombMcpApiKey?: string;
+	/** Honeycomb MCP region: 'us' or 'eu' */
+	honeycombMcpRegion?: 'us' | 'eu';
+	/** Honeycomb usage warning settings */
+	honeycombWarningSettings?: HoneycombWarningSettings;
 }
 
 // ============================================================================

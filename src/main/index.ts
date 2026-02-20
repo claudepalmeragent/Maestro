@@ -54,10 +54,25 @@ import {
 	registerKnowledgeGraphHandlers,
 	registerFeedbackHandlers,
 	registerGpuMonitorHandlers,
+	registerHoneycombHandlers,
 	setupLoggerEventForwarding,
 	cleanupAllGroomingSessions,
 	getActiveGroomingSessionCount,
 } from './ipc/handlers';
+import {
+	getHoneycombQueryClient,
+	closeHoneycombQueryClient,
+} from './services/honeycomb-query-client';
+import {
+	getHoneycombUsageService,
+	closeHoneycombUsageService,
+} from './services/honeycomb-usage-service';
+import {
+	getHoneycombArchiveService,
+	closeHoneycombArchiveService,
+} from './services/honeycomb-archive-service';
+import { closeHoneycombArchiveDB } from './services/honeycomb-archive-db';
+import { getLocalTokenLedger, closeLocalTokenLedger } from './services/local-token-ledger';
 import { scheduleAudits, clearScheduledTimers } from './services/audit-scheduler';
 import { initializeStatsDB, closeStatsDB, getStatsDB } from './stats';
 import { groupChatEmitters } from './ipc/handlers/groupChat';
@@ -308,6 +323,36 @@ app.whenReady().then(async () => {
 
 	logger.info('Core services initialized', 'Startup');
 
+	// Initialize Honeycomb query client
+	const honeycombClient = getHoneycombQueryClient();
+	if (honeycombClient.isConfigured()) {
+		logger.info('Honeycomb query client initialized', 'Startup');
+	} else {
+		logger.info(
+			'Honeycomb query client initialized (not configured — set HONEYCOMB_API_KEY or configure in Settings)',
+			'Startup'
+		);
+	}
+
+	// Start Honeycomb usage polling service
+	const honeycombUsageService = getHoneycombUsageService();
+	honeycombUsageService.start();
+
+	// Run Honeycomb archival on startup (runs before usage polling begins)
+	const honeycombArchiveService = getHoneycombArchiveService();
+	honeycombArchiveService
+		.runArchival()
+		.catch((err) => logger.error(`Startup archival failed: ${err.message}`, 'Startup'));
+
+	// Initialize LocalTokenLedger for OTEL flush gap mitigation
+	// Token recording is wired via usage-listener.ts (processManager 'usage' events)
+	// Reconciliation will be wired when HoneycombUsageService (Doc 30) is implemented
+	const ledger = getLocalTokenLedger();
+	logger.info(
+		`LocalTokenLedger initialized (tracking ${ledger.getSessionCount()} sessions)`,
+		'Startup'
+	);
+
 	// Initialize history manager (handles migration from legacy format if needed)
 	logger.info('Initializing history manager', 'Startup');
 	const historyManager = getHistoryManager();
@@ -402,6 +447,11 @@ const quitHandler = createQuitHandler({
 	closeStatsDB,
 	stopCliWatcher: () => cliWatcher.stop(),
 	stopAuditScheduler: () => clearScheduledTimers(),
+	closeHoneycombQueryClient,
+	closeHoneycombUsageService,
+	closeHoneycombArchiveService,
+	closeHoneycombArchiveDB,
+	closeLocalTokenLedger,
 });
 quitHandler.setup();
 
@@ -661,6 +711,9 @@ function setupIpcHandlers() {
 
 	// Register GPU monitor handlers (no dependencies - uses local system probing)
 	registerGpuMonitorHandlers();
+
+	// Register Honeycomb query handlers (no dependencies - uses singleton client)
+	registerHoneycombHandlers();
 }
 
 // Handle process output streaming (set up after initialization)

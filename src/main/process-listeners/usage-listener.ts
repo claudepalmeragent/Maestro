@@ -5,6 +5,7 @@
 
 import type { ProcessManager } from '../process-manager';
 import { GROUP_CHAT_PREFIX, type ProcessListenerDependencies, type UsageStats } from './types';
+import { getLocalTokenLedger } from '../services/local-token-ledger';
 
 /**
  * Sets up the usage listener for token/cost statistics.
@@ -39,6 +40,21 @@ export function setupUsageListener(
 
 	// Handle usage statistics from AI responses
 	processManager.on('usage', (sessionId: string, usageStats: UsageStats) => {
+		// Record token usage in LocalTokenLedger for OTEL flush gap mitigation
+		try {
+			const ledger = getLocalTokenLedger();
+			ledger.recordTokens({
+				sessionId,
+				inputTokens: usageStats.inputTokens || 0,
+				outputTokens: usageStats.outputTokens || 0,
+				cacheReadTokens: usageStats.cacheReadInputTokens || 0,
+				cacheCreationTokens: usageStats.cacheCreationInputTokens || 0,
+				costUsd: usageStats.totalCostUsd || 0,
+			});
+		} catch {
+			// Ledger recording is non-critical — don't break the usage pipeline
+		}
+
 		// Fast path: skip regex for non-group-chat sessions (performance optimization)
 		const isGroupChatSession = sessionId.startsWith(GROUP_CHAT_PREFIX);
 

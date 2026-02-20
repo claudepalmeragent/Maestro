@@ -68,6 +68,35 @@ export const SETTINGS_DEFAULTS: MaestroSettings = {
 	synopsisEnabled: true,
 	sshStatsTimeoutMs: 30000,
 	globalStatsRefreshIntervalMs: 900000, // 15 minutes default
+	// Honeycomb integration
+	honeycombApiKey: '',
+	honeycombDatasetSlug: 'claude-code',
+	honeycombEnvironmentSlug: 'claudepalmeragent',
+	honeycombEnabled: true,
+	honeycombPollIntervalMs: 300000, // 5 minutes
+	honeycombPauseOnMinimize: true,
+	honeycombDataSource: 'mcp',
+	honeycombMcpApiKey: '',
+	honeycombMcpRegion: 'us',
+	// Honeycomb usage warning settings
+	honeycombWarningSettings: {
+		honeycombWarningsEnabled: true,
+		fiveHourWarningYellowUsd: 40,
+		fiveHourWarningRedUsd: 60,
+		fiveHourWarningYellowPct: 60,
+		fiveHourWarningRedPct: 85,
+		weeklyWarningYellowUsd: 400,
+		weeklyWarningRedUsd: 500,
+		weeklyWarningYellowPct: 70,
+		weeklyWarningRedPct: 90,
+		monthlySessionsWarning: 40,
+		honeycombPollIntervalMs: 300000,
+		warningMode: 'both' as const,
+		safetyBufferPct: 20,
+		capacityCheckAutoRun: true,
+		capacityCheckInteractive: true,
+		archiveEnabled: true,
+	},
 };
 
 export const SESSIONS_DEFAULTS: SessionsData = {

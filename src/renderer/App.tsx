@@ -259,6 +259,8 @@ function MaestroConsoleInner() {
 		// Usage Dashboard
 		usageDashboardOpen,
 		setUsageDashboardOpen,
+		usageDashboardInitialTab,
+		setUsageDashboardInitialTab,
 		// Keyboard Mastery Celebration
 		pendingKeyboardMasteryLevel,
 		setPendingKeyboardMasteryLevel,
@@ -13251,7 +13253,11 @@ You are taking over this conversation. Based on the context above, provide a bri
 					onNavigateToGroupChat={handleProcessMonitorNavigateToGroupChat}
 					batchRunStates={batchRunStates}
 					usageDashboardOpen={usageDashboardOpen}
-					onCloseUsageDashboard={() => setUsageDashboardOpen(false)}
+					usageDashboardInitialTab={usageDashboardInitialTab}
+					onCloseUsageDashboard={() => {
+						setUsageDashboardOpen(false);
+						setUsageDashboardInitialTab(undefined);
+					}}
 					defaultStatsTimeRange={defaultStatsTimeRange}
 					colorBlindMode={colorBlindMode}
 					// AppConfirmModals props

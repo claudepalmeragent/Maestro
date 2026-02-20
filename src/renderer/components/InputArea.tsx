@@ -30,6 +30,9 @@ import { ThinkingStatusPill } from './ThinkingStatusPill';
 import { MergeProgressOverlay } from './MergeProgressOverlay';
 import { ExecutionQueueIndicator } from './ExecutionQueueIndicator';
 import { ContextWarningSash } from './ContextWarningSash';
+import { HoneycombWarningSash } from './HoneycombWarningSash';
+import { useHoneycombUsage } from '../hooks/useHoneycombUsage';
+import { useModalContext } from '../contexts/ModalContext';
 import { SummarizeProgressOverlay } from './SummarizeProgressOverlay';
 import { WizardInputPanel } from './InlineWizard';
 import { useAgentCapabilities, useScrollIntoView } from '../hooks';
@@ -270,6 +273,10 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 
 	// Get agent capabilities for conditional feature rendering
 	const { hasCapability } = useAgentCapabilities(session.toolType);
+
+	// Honeycomb usage data for spend warning sash
+	const { data: honeycombUsageData, isConfigured: honeycombConfigured } = useHoneycombUsage();
+	const { setUsageDashboardOpen, setUsageDashboardInitialTab } = useModalContext();
 
 	// PERF: Memoize activeTab lookup to avoid O(n) search on every render
 	const activeTab = useMemo(
@@ -1230,6 +1237,23 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 							enabled={contextWarningsEnabled}
 							onSummarizeClick={onSummarizeAndContinue}
 							tabId={session.activeTabId}
+						/>
+					)}
+					{/* Honeycomb Warning Sash - AI mode only, appears below ContextWarningSash when spend approaches limits */}
+					{honeycombConfigured && (
+						<HoneycombWarningSash
+							theme={theme}
+							usageData={honeycombUsageData}
+							enabled={true}
+							fiveHourYellowUsd={40}
+							fiveHourRedUsd={60}
+							weeklyYellowUsd={400}
+							weeklyRedUsd={500}
+							tabId={session.activeTabId}
+							onViewUsageDashboard={() => {
+								setUsageDashboardInitialTab('dscomparison');
+								setUsageDashboardOpen(true);
+							}}
 						/>
 					)}
 				</div>

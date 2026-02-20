@@ -2928,6 +2928,40 @@ interface MaestroAPI {
 			gpuFreqs: number[];
 		} | null>;
 	};
+	honeycomb: {
+		query: (querySpec: unknown, options?: unknown) => Promise<unknown>;
+		isConfigured: () => Promise<boolean>;
+		getRateLimitState: () => Promise<unknown>;
+		getBackoffState: () => Promise<{ inBackoff: boolean; remainingMs: number }>;
+		clearCache: () => Promise<{ success: boolean }>;
+		getUsage: () => Promise<unknown>;
+		refreshUsage: () => Promise<unknown>;
+		isUsageServiceRunning: () => Promise<boolean>;
+		onUsageUpdate: (callback: (data: unknown) => void) => () => void;
+		getFlushStatus: () => Promise<unknown>;
+		getBestEstimate: (
+			windowHoneycombTokens: number,
+			calibratedBudget: number | null,
+			safetyBufferPct?: number
+		) => Promise<unknown>;
+		onFlushStatusUpdate: (callback: (status: unknown) => void) => () => void;
+		testConnection: (
+			environmentSlug: string,
+			datasetSlug: string
+		) => Promise<{ success: boolean; error?: string }>;
+		autoDiscoverEnv: () => Promise<string | null>;
+		getDataSourceMode: () => Promise<string>;
+		capacityCheck: () => Promise<unknown>;
+		getArchiveState: () => Promise<unknown>;
+		archiveNow: () => Promise<unknown>;
+		isArchiveRunning: () => Promise<boolean>;
+		getArchivedDailyData: (
+			queryName: string,
+			startDate: string,
+			endDate: string,
+			breakdownKey?: string
+		) => Promise<Array<{ date: string; breakdown_key: string | null; data: unknown }>>;
+	};
 }
 
 declare global {

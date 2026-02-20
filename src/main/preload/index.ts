@@ -53,6 +53,7 @@ import { createProjectFoldersApi } from './projectFolders';
 import { createKnowledgeGraphApi } from './knowledgeGraph';
 import { createFeedbackApi } from './feedback';
 import { createGpuMonitorApi } from './gpuMonitor';
+import { createHoneycombAPI } from './honeycomb';
 
 // Expose protected methods that allow the renderer process to use
 // the ipcRenderer without exposing the entire object
@@ -200,6 +201,9 @@ contextBridge.exposeInMainWorld('maestro', {
 
 	// GPU Monitor API
 	gpuMonitor: createGpuMonitorApi(),
+
+	// Honeycomb API
+	honeycomb: createHoneycombAPI(),
 });
 
 // Re-export factory functions for external consumers (e.g., tests)
@@ -279,6 +283,8 @@ export {
 	createFeedbackApi,
 	// GPU Monitor
 	createGpuMonitorApi,
+	// Honeycomb
+	createHoneycombAPI,
 };
 
 // Re-export types for TypeScript consumers
@@ -487,3 +493,7 @@ export type {
 	// From gpuMonitor
 	GpuMonitorApi,
 } from './gpuMonitor';
+export type {
+	// From honeycomb
+	HoneycombPreloadAPI,
+} from './honeycomb';

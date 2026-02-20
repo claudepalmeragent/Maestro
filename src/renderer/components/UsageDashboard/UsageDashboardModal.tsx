@@ -36,6 +36,7 @@ import { AgentCostGraph, type AgentCostData } from './AgentCostGraph';
 import { DatasourceComparisonTab } from './DatasourceComparisonTab';
 import type { Theme, Session } from '../../types';
 import { useHoneycombUsage } from '../../hooks/useHoneycombUsage';
+import { useSettings } from '../../hooks/settings/useSettings';
 import { useLayerStack } from '../../contexts/LayerStackContext';
 import { MODAL_PRIORITIES } from '../../constants/modalPriorities';
 import { getRendererPerfMetrics } from '../../utils/logger';
@@ -141,6 +142,7 @@ export function UsageDashboardModal({
 	const [viewMode, setViewMode] = useState<ViewMode>(defaultViewMode || 'overview');
 	const [honeycombConfigured, setHoneycombConfigured] = useState(true);
 	const { data: honeycombUsageData, refresh: refreshHoneycomb } = useHoneycombUsage();
+	const { planCalibration, setPlanCalibration } = useSettings();
 
 	useEffect(() => {
 		window.maestro.honeycomb
@@ -716,32 +718,8 @@ export function UsageDashboardModal({
 								honeycombUsageData={honeycombUsageData}
 								localCostUsd={data?.totalCostUsd ?? 0}
 								localBillableTokens={(data?.totalInputTokens ?? 0) + (data?.totalOutputTokens ?? 0)}
-								flushStatus={null}
-								calibration={{
-									calibrationPoints: [],
-									currentEstimates: {
-										fiveHour: {
-											weightedMean: 0,
-											standardDeviation: 0,
-											confidencePct: 0,
-											activePoints: 0,
-											totalPoints: 0,
-										},
-										weekly: {
-											weightedMean: 0,
-											standardDeviation: 0,
-											confidencePct: 0,
-											activePoints: 0,
-											totalPoints: 0,
-										},
-									},
-									weeklyResetDay: 'Sunday',
-									weeklyResetTime: '10:00',
-									weeklyResetTimezone: 'America/Los_Angeles',
-									lastCalibratedAt: '',
-								}}
-								onCalibrationUpdate={() => {}}
-								divergenceRows={[]}
+								calibration={planCalibration}
+								onCalibrationUpdate={setPlanCalibration}
 								onRefresh={refreshHoneycomb}
 								getHoneycombBillableTokens={getHoneycombBillableTokens}
 							/>

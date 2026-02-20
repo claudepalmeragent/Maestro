@@ -11,7 +11,7 @@
  */
 
 import { useState, useCallback } from 'react';
-import { Crosshair, History } from 'lucide-react';
+import { History } from 'lucide-react';
 import type { Theme } from '../types';
 import type { PlanCalibration, CalibrationPoint } from '../types';
 import {
@@ -130,26 +130,19 @@ export function PlanCalibrationSettings({
 	const { fiveHour, weekly } = calibration.currentEstimates;
 
 	return (
-		<div className="space-y-4 pt-4 border-t" style={{ borderColor: theme.colors.border }}>
-			<div className="flex items-center gap-2">
-				<Crosshair className="w-4 h-4" style={{ color: theme.colors.textMain }} />
-				<span className="text-sm font-semibold" style={{ color: theme.colors.textMain }}>
-					Plan Calibration
-				</span>
-			</div>
-
-			<div className="text-xs" style={{ color: theme.colors.textDim }}>
+		<div className="space-y-4">
+			<div className="text-sm" style={{ color: theme.colors.textDim }}>
 				Enter values from your Claude usage page to calibrate plan limit thresholds. Higher usage %
 				readings produce more accurate estimates.
 			</div>
 
 			{/* 5-Hour Window */}
 			<div className="space-y-2">
-				<div className="text-xs font-medium" style={{ color: theme.colors.textMain }}>
+				<div className="text-sm font-medium" style={{ color: theme.colors.textMain }}>
 					5-Hour Window
 				</div>
 				<div className="flex items-center gap-2">
-					<label className="text-xs" style={{ color: theme.colors.textDim }}>
+					<label className="text-sm" style={{ color: theme.colors.textDim }}>
 						Usage %:
 					</label>
 					<input
@@ -159,18 +152,18 @@ export function PlanCalibrationSettings({
 						value={fiveHourPct}
 						onChange={(e) => setFiveHourPct(e.target.value)}
 						placeholder="42"
-						className="w-16 px-2 py-1 text-xs rounded border"
+						className="w-16 px-2 py-1 text-sm rounded border"
 						style={{
 							backgroundColor: theme.colors.bgMain,
 							borderColor: theme.colors.border,
 							color: theme.colors.textMain,
 						}}
 					/>
-					<span className="text-xs" style={{ color: theme.colors.textDim }}>
+					<span className="text-sm" style={{ color: theme.colors.textDim }}>
 						%
 					</span>
 
-					<label className="text-xs ml-2" style={{ color: theme.colors.textDim }}>
+					<label className="text-sm ml-2" style={{ color: theme.colors.textDim }}>
 						Time left:
 					</label>
 					<input
@@ -180,14 +173,14 @@ export function PlanCalibrationSettings({
 						value={fiveHourTimeH}
 						onChange={(e) => setFiveHourTimeH(e.target.value)}
 						placeholder="2"
-						className="w-12 px-2 py-1 text-xs rounded border"
+						className="w-12 px-2 py-1 text-sm rounded border"
 						style={{
 							backgroundColor: theme.colors.bgMain,
 							borderColor: theme.colors.border,
 							color: theme.colors.textMain,
 						}}
 					/>
-					<span className="text-xs" style={{ color: theme.colors.textDim }}>
+					<span className="text-sm" style={{ color: theme.colors.textDim }}>
 						h
 					</span>
 					<input
@@ -197,19 +190,19 @@ export function PlanCalibrationSettings({
 						value={fiveHourTimeM}
 						onChange={(e) => setFiveHourTimeM(e.target.value)}
 						placeholder="28"
-						className="w-12 px-2 py-1 text-xs rounded border"
+						className="w-12 px-2 py-1 text-sm rounded border"
 						style={{
 							backgroundColor: theme.colors.bgMain,
 							borderColor: theme.colors.border,
 							color: theme.colors.textMain,
 						}}
 					/>
-					<span className="text-xs" style={{ color: theme.colors.textDim }}>
+					<span className="text-sm" style={{ color: theme.colors.textDim }}>
 						m
 					</span>
 				</div>
 				{fiveHour.totalPoints > 0 && (
-					<div className="text-xs" style={{ color: theme.colors.textDim }}>
+					<div className="text-sm" style={{ color: theme.colors.textDim }}>
 						Budget estimate: {formatTokenCount(fiveHour.weightedMean)} tokens &plusmn;
 						{fiveHour.confidencePct.toFixed(1)}% ({fiveHour.activePoints} calibration
 						{fiveHour.activePoints !== 1 ? 's' : ''})
@@ -219,11 +212,11 @@ export function PlanCalibrationSettings({
 
 			{/* Weekly Limit */}
 			<div className="space-y-2">
-				<div className="text-xs font-medium" style={{ color: theme.colors.textMain }}>
+				<div className="text-sm font-medium" style={{ color: theme.colors.textMain }}>
 					Weekly Limit
 				</div>
 				<div className="flex items-center gap-2">
-					<label className="text-xs" style={{ color: theme.colors.textDim }}>
+					<label className="text-sm" style={{ color: theme.colors.textDim }}>
 						Usage %:
 					</label>
 					<input
@@ -233,20 +226,20 @@ export function PlanCalibrationSettings({
 						value={weeklyPct}
 						onChange={(e) => setWeeklyPct(e.target.value)}
 						placeholder="71"
-						className="w-16 px-2 py-1 text-xs rounded border"
+						className="w-16 px-2 py-1 text-sm rounded border"
 						style={{
 							backgroundColor: theme.colors.bgMain,
 							borderColor: theme.colors.border,
 							color: theme.colors.textMain,
 						}}
 					/>
-					<span className="text-xs" style={{ color: theme.colors.textDim }}>
+					<span className="text-sm" style={{ color: theme.colors.textDim }}>
 						%
 					</span>
 				</div>
 
 				<div className="flex items-center gap-2 mt-1">
-					<label className="text-xs" style={{ color: theme.colors.textDim }}>
+					<label className="text-sm" style={{ color: theme.colors.textDim }}>
 						Resets:
 					</label>
 					<select
@@ -254,7 +247,7 @@ export function PlanCalibrationSettings({
 						onChange={(e) =>
 							onCalibrationUpdate({ ...calibration, weeklyResetDay: e.target.value })
 						}
-						className="text-xs px-2 py-1 rounded border"
+						className="text-sm px-2 py-1 rounded border"
 						style={{
 							backgroundColor: theme.colors.bgMain,
 							borderColor: theme.colors.border,
@@ -269,7 +262,7 @@ export function PlanCalibrationSettings({
 							)
 						)}
 					</select>
-					<span className="text-xs" style={{ color: theme.colors.textDim }}>
+					<span className="text-sm" style={{ color: theme.colors.textDim }}>
 						at
 					</span>
 					<input
@@ -278,7 +271,7 @@ export function PlanCalibrationSettings({
 						onChange={(e) =>
 							onCalibrationUpdate({ ...calibration, weeklyResetTime: e.target.value })
 						}
-						className="text-xs px-2 py-1 rounded border"
+						className="text-sm px-2 py-1 rounded border"
 						style={{
 							backgroundColor: theme.colors.bgMain,
 							borderColor: theme.colors.border,
@@ -288,7 +281,7 @@ export function PlanCalibrationSettings({
 				</div>
 
 				{weekly.totalPoints > 0 && (
-					<div className="text-xs" style={{ color: theme.colors.textDim }}>
+					<div className="text-sm" style={{ color: theme.colors.textDim }}>
 						Budget estimate: {formatTokenCount(weekly.weightedMean)} tokens &plusmn;
 						{weekly.confidencePct.toFixed(1)}% ({weekly.activePoints} calibration
 						{weekly.activePoints !== 1 ? 's' : ''})
@@ -301,7 +294,7 @@ export function PlanCalibrationSettings({
 				<button
 					onClick={handleSave}
 					disabled={isSaving || (!fiveHourPct && !weeklyPct)}
-					className="px-4 py-1.5 text-xs font-medium rounded transition-colors"
+					className="px-4 py-1.5 text-sm font-medium rounded transition-colors"
 					style={{
 						backgroundColor: theme.colors.accent,
 						color: theme.colors.accentForeground,
@@ -313,7 +306,7 @@ export function PlanCalibrationSettings({
 
 				<button
 					onClick={onViewHistory}
-					className="px-3 py-1.5 text-xs rounded border transition-colors hover:opacity-80 flex items-center gap-1.5"
+					className="px-3 py-1.5 text-sm rounded border transition-colors hover:opacity-80 flex items-center gap-1.5"
 					style={{
 						borderColor: theme.colors.border,
 						color: theme.colors.textMain,
@@ -327,7 +320,7 @@ export function PlanCalibrationSettings({
 
 			{saveError && (
 				<div
-					className="text-xs px-3 py-1.5 rounded"
+					className="text-sm px-3 py-1.5 rounded"
 					style={{ color: '#ef4444', backgroundColor: 'rgba(239,68,68,0.1)' }}
 				>
 					{saveError}
@@ -335,7 +328,7 @@ export function PlanCalibrationSettings({
 			)}
 
 			{calibration.lastCalibratedAt && (
-				<div className="text-xs" style={{ color: theme.colors.textDim }}>
+				<div className="text-sm" style={{ color: theme.colors.textDim }}>
 					Last calibrated: {new Date(calibration.lastCalibratedAt).toLocaleString()}
 				</div>
 			)}

@@ -146,6 +146,7 @@ export interface AppInfoModalsProps {
 
 	// Usage Dashboard Modal
 	usageDashboardOpen: boolean;
+	usageDashboardInitialTab?: string;
 	onCloseUsageDashboard: () => void;
 	/** Default time range for the Usage Dashboard from settings */
 	defaultStatsTimeRange?: 'day' | 'week' | 'month' | 'year' | 'all';
@@ -198,6 +199,7 @@ export function AppInfoModals({
 	batchRunStates,
 	// Usage Dashboard Modal
 	usageDashboardOpen,
+	usageDashboardInitialTab,
 	onCloseUsageDashboard,
 	defaultStatsTimeRange,
 	colorBlindMode,
@@ -254,6 +256,7 @@ export function AppInfoModals({
 					onClose={onCloseUsageDashboard}
 					theme={theme}
 					defaultTimeRange={defaultStatsTimeRange}
+					defaultViewMode={usageDashboardInitialTab as any}
 					colorBlindMode={colorBlindMode}
 					sessions={sessions}
 				/>
@@ -1737,6 +1740,7 @@ export interface AppModalsProps {
 	/** Batch run states keyed by session ID for Process Monitor progress display */
 	batchRunStates?: Record<string, BatchRunState>;
 	usageDashboardOpen: boolean;
+	usageDashboardInitialTab?: string;
 	onCloseUsageDashboard: () => void;
 	/** Default time range for the Usage Dashboard from settings */
 	defaultStatsTimeRange?: 'day' | 'week' | 'month' | 'year' | 'all';
@@ -2104,6 +2108,7 @@ export function AppModals(props: AppModalsProps) {
 		onNavigateToGroupChat,
 		batchRunStates,
 		usageDashboardOpen,
+		usageDashboardInitialTab,
 		onCloseUsageDashboard,
 		defaultStatsTimeRange,
 		colorBlindMode,
@@ -2380,6 +2385,7 @@ export function AppModals(props: AppModalsProps) {
 				onNavigateToGroupChat={onNavigateToGroupChat}
 				batchRunStates={batchRunStates}
 				usageDashboardOpen={usageDashboardOpen}
+				usageDashboardInitialTab={usageDashboardInitialTab}
 				onCloseUsageDashboard={onCloseUsageDashboard}
 				defaultStatsTimeRange={defaultStatsTimeRange}
 				colorBlindMode={colorBlindMode}

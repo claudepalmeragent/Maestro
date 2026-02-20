@@ -12,11 +12,58 @@ import type {
 	LeaderboardRegistration,
 	ContextManagementSettings,
 	KeyboardMasteryStats,
+	PlanCalibration,
 } from '../../types';
+import type { HoneycombWarningSettings } from '../../../main/stores/types';
 import { DEFAULT_CUSTOM_THEME_COLORS } from '../../constants/themes';
 import { DEFAULT_SHORTCUTS, TAB_SHORTCUTS, FIXED_SHORTCUTS } from '../../constants/shortcuts';
 import { getLevelIndex } from '../../constants/keyboardMastery';
 import { commitCommandPrompt } from '../../../prompts';
+
+// Default honeycomb warning settings
+const DEFAULT_HONEYCOMB_WARNING_SETTINGS: HoneycombWarningSettings = {
+	honeycombWarningsEnabled: true,
+	fiveHourWarningYellowUsd: 40,
+	fiveHourWarningRedUsd: 60,
+	fiveHourWarningYellowPct: 60,
+	fiveHourWarningRedPct: 85,
+	weeklyWarningYellowUsd: 400,
+	weeklyWarningRedUsd: 500,
+	weeklyWarningYellowPct: 70,
+	weeklyWarningRedPct: 90,
+	monthlySessionsWarning: 40,
+	honeycombPollIntervalMs: 300000,
+	warningMode: 'both',
+	safetyBufferPct: 20,
+	capacityCheckAutoRun: true,
+	capacityCheckInteractive: true,
+	archiveEnabled: true,
+};
+
+// Default plan calibration
+const DEFAULT_PLAN_CALIBRATION: PlanCalibration = {
+	calibrationPoints: [],
+	currentEstimates: {
+		fiveHour: {
+			weightedMean: 0,
+			standardDeviation: 0,
+			confidencePct: 0,
+			activePoints: 0,
+			totalPoints: 0,
+		},
+		weekly: {
+			weightedMean: 0,
+			standardDeviation: 0,
+			confidencePct: 0,
+			activePoints: 0,
+			totalPoints: 0,
+		},
+	},
+	weeklyResetDay: 'Sunday',
+	weeklyResetTime: '10:00',
+	weeklyResetTimezone: 'America/Los_Angeles',
+	lastCalibratedAt: '',
+};
 
 // Default context management settings
 const DEFAULT_CONTEXT_MANAGEMENT_SETTINGS: ContextManagementSettings = {
@@ -308,6 +355,30 @@ export interface UseSettingsReturn {
 	webInterfaceCustomPort: number;
 	setWebInterfaceCustomPort: (value: number) => void;
 
+	// Honeycomb Warning settings
+	honeycombWarningSettings: HoneycombWarningSettings;
+	setHoneycombWarningSettings: (value: HoneycombWarningSettings) => void;
+	updateHoneycombWarningSettings: (partial: Partial<HoneycombWarningSettings>) => void;
+
+	// Honeycomb Data Source settings
+	honeycombDataSource: 'mcp' | 'api';
+	setHoneycombDataSource: (value: 'mcp' | 'api') => void;
+	honeycombMcpApiKey: string;
+	setHoneycombMcpApiKey: (value: string) => void;
+	honeycombEnvironmentSlug: string;
+	setHoneycombEnvironmentSlug: (value: string) => void;
+	honeycombMcpRegion: 'us' | 'eu';
+	setHoneycombMcpRegion: (value: 'us' | 'eu') => void;
+	honeycombApiKey: string;
+	setHoneycombApiKey: (value: string) => void;
+	honeycombDatasetSlug: string;
+	setHoneycombDatasetSlug: (value: string) => void;
+
+	// Plan Calibration settings
+	planCalibration: PlanCalibration;
+	setPlanCalibration: (value: PlanCalibration) => void;
+	updatePlanCalibration: (partial: Partial<PlanCalibration>) => void;
+
 	// Context Management settings
 	contextManagementSettings: ContextManagementSettings;
 	setContextManagementSettings: (value: ContextManagementSettings) => void;
@@ -470,6 +541,23 @@ export function useSettings(): UseSettingsReturn {
 	// Web Interface settings (persistent)
 	const [webInterfaceUseCustomPort, setWebInterfaceUseCustomPortState] = useState(false);
 	const [webInterfaceCustomPort, setWebInterfaceCustomPortState] = useState(8080);
+
+	// Honeycomb Warning settings (persistent)
+	const [honeycombWarningSettings, setHoneycombWarningSettingsState] =
+		useState<HoneycombWarningSettings>(DEFAULT_HONEYCOMB_WARNING_SETTINGS);
+
+	// Honeycomb Data Source settings (persistent)
+	const [honeycombDataSource, setHoneycombDataSourceState] = useState<'mcp' | 'api'>('mcp');
+	const [honeycombMcpApiKey, setHoneycombMcpApiKeyState] = useState('');
+	const [honeycombEnvironmentSlug, setHoneycombEnvironmentSlugState] =
+		useState('claudepalmeragent');
+	const [honeycombMcpRegion, setHoneycombMcpRegionState] = useState<'us' | 'eu'>('us');
+	const [honeycombApiKey, setHoneycombApiKeyState] = useState('');
+	const [honeycombDatasetSlug, setHoneycombDatasetSlugState] = useState('claude-code');
+
+	// Plan Calibration settings (persistent)
+	const [planCalibration, setPlanCalibrationState] =
+		useState<PlanCalibration>(DEFAULT_PLAN_CALIBRATION);
 
 	// Context Management settings (persistent)
 	const [contextManagementSettings, setContextManagementSettingsState] =
@@ -1180,6 +1268,68 @@ export function useSettings(): UseSettingsReturn {
 		}
 	}, []);
 
+	// Honeycomb Warning settings setters
+	const setHoneycombWarningSettings = useCallback((value: HoneycombWarningSettings) => {
+		setHoneycombWarningSettingsState(value);
+		window.maestro.settings.set('honeycombWarningSettings', value);
+	}, []);
+
+	const updateHoneycombWarningSettings = useCallback(
+		(partial: Partial<HoneycombWarningSettings>) => {
+			setHoneycombWarningSettingsState((prev) => {
+				const updated = { ...prev, ...partial };
+				window.maestro.settings.set('honeycombWarningSettings', updated);
+				return updated;
+			});
+		},
+		[]
+	);
+
+	// Honeycomb Data Source setters
+	const setHoneycombDataSource = useCallback((value: 'mcp' | 'api') => {
+		setHoneycombDataSourceState(value);
+		window.maestro.settings.set('honeycombDataSource', value);
+	}, []);
+
+	const setHoneycombMcpApiKey = useCallback((value: string) => {
+		setHoneycombMcpApiKeyState(value);
+		window.maestro.settings.set('honeycombMcpApiKey', value);
+	}, []);
+
+	const setHoneycombEnvironmentSlug = useCallback((value: string) => {
+		setHoneycombEnvironmentSlugState(value);
+		window.maestro.settings.set('honeycombEnvironmentSlug', value);
+	}, []);
+
+	const setHoneycombMcpRegion = useCallback((value: 'us' | 'eu') => {
+		setHoneycombMcpRegionState(value);
+		window.maestro.settings.set('honeycombMcpRegion', value);
+	}, []);
+
+	const setHoneycombApiKey = useCallback((value: string) => {
+		setHoneycombApiKeyState(value);
+		window.maestro.settings.set('honeycombApiKey', value);
+	}, []);
+
+	const setHoneycombDatasetSlug = useCallback((value: string) => {
+		setHoneycombDatasetSlugState(value);
+		window.maestro.settings.set('honeycombDatasetSlug', value);
+	}, []);
+
+	// Plan Calibration setters
+	const setPlanCalibration = useCallback((value: PlanCalibration) => {
+		setPlanCalibrationState(value);
+		window.maestro.settings.set('planCalibration', value);
+	}, []);
+
+	const updatePlanCalibration = useCallback((partial: Partial<PlanCalibration>) => {
+		setPlanCalibrationState((prev) => {
+			const updated = { ...prev, ...partial };
+			window.maestro.settings.set('planCalibration', updated);
+			return updated;
+		});
+	}, []);
+
 	// Context Management settings setters
 	const setContextManagementSettings = useCallback((value: ContextManagementSettings) => {
 		setContextManagementSettingsState(value);
@@ -1701,6 +1851,36 @@ export function useSettings(): UseSettingsReturn {
 				if (savedWebInterfaceCustomPort !== undefined)
 					setWebInterfaceCustomPortState(savedWebInterfaceCustomPort as number);
 
+				// Load honeycomb warning settings
+				if (allSettings.honeycombWarningSettings) {
+					setHoneycombWarningSettingsState({
+						...DEFAULT_HONEYCOMB_WARNING_SETTINGS,
+						...(allSettings.honeycombWarningSettings as Partial<HoneycombWarningSettings>),
+					});
+				}
+
+				// Load honeycomb data source settings
+				if (allSettings.honeycombDataSource)
+					setHoneycombDataSourceState(allSettings.honeycombDataSource as 'mcp' | 'api');
+				if (allSettings.honeycombMcpApiKey)
+					setHoneycombMcpApiKeyState(allSettings.honeycombMcpApiKey as string);
+				if (allSettings.honeycombEnvironmentSlug)
+					setHoneycombEnvironmentSlugState(allSettings.honeycombEnvironmentSlug as string);
+				if (allSettings.honeycombMcpRegion)
+					setHoneycombMcpRegionState(allSettings.honeycombMcpRegion as 'us' | 'eu');
+				if (allSettings.honeycombApiKey)
+					setHoneycombApiKeyState(allSettings.honeycombApiKey as string);
+				if (allSettings.honeycombDatasetSlug)
+					setHoneycombDatasetSlugState(allSettings.honeycombDatasetSlug as string);
+
+				// Load plan calibration settings
+				if (allSettings.planCalibration) {
+					setPlanCalibrationState({
+						...DEFAULT_PLAN_CALIBRATION,
+						...(allSettings.planCalibration as Partial<PlanCalibration>),
+					});
+				}
+
 				// Load context management settings
 				if (savedContextManagementSettings !== undefined) {
 					setContextManagementSettingsState({
@@ -1920,6 +2100,24 @@ export function useSettings(): UseSettingsReturn {
 			setWebInterfaceUseCustomPort,
 			webInterfaceCustomPort,
 			setWebInterfaceCustomPort,
+			honeycombWarningSettings,
+			setHoneycombWarningSettings,
+			updateHoneycombWarningSettings,
+			honeycombDataSource,
+			setHoneycombDataSource,
+			honeycombMcpApiKey,
+			setHoneycombMcpApiKey,
+			honeycombEnvironmentSlug,
+			setHoneycombEnvironmentSlug,
+			honeycombMcpRegion,
+			setHoneycombMcpRegion,
+			honeycombApiKey,
+			setHoneycombApiKey,
+			honeycombDatasetSlug,
+			setHoneycombDatasetSlug,
+			planCalibration,
+			setPlanCalibration,
+			updatePlanCalibration,
 			contextManagementSettings,
 			setContextManagementSettings,
 			updateContextManagementSettings,
@@ -2070,6 +2268,24 @@ export function useSettings(): UseSettingsReturn {
 			setWebInterfaceUseCustomPort,
 			webInterfaceCustomPort,
 			setWebInterfaceCustomPort,
+			honeycombWarningSettings,
+			setHoneycombWarningSettings,
+			updateHoneycombWarningSettings,
+			honeycombDataSource,
+			setHoneycombDataSource,
+			honeycombMcpApiKey,
+			setHoneycombMcpApiKey,
+			honeycombEnvironmentSlug,
+			setHoneycombEnvironmentSlug,
+			honeycombMcpRegion,
+			setHoneycombMcpRegion,
+			honeycombApiKey,
+			setHoneycombApiKey,
+			honeycombDatasetSlug,
+			setHoneycombDatasetSlug,
+			planCalibration,
+			setPlanCalibration,
+			updatePlanCalibration,
 			contextManagementSettings,
 			setContextManagementSettings,
 			updateContextManagementSettings,

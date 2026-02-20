@@ -954,6 +954,40 @@ export interface ContextManagementSettings {
 	contextWarningRedThreshold: number; // Red warning threshold percentage (default: 80)
 }
 
+// ── Plan Calibration Types ──
+
+export interface CalibrationPoint {
+	id: number;
+	timestamp: string;
+	window: '5hr' | 'weekly';
+	claudeUsagePct: number;
+	honeycombBillableTokens: number;
+	derivedBudget: number;
+	weight: number;
+	isOutlier: boolean;
+	timeIntoWindow?: string;
+}
+
+export interface BudgetEstimate {
+	weightedMean: number;
+	standardDeviation: number;
+	confidencePct: number;
+	activePoints: number;
+	totalPoints: number;
+}
+
+export interface PlanCalibration {
+	calibrationPoints: CalibrationPoint[];
+	currentEstimates: {
+		fiveHour: BudgetEstimate;
+		weekly: BudgetEstimate;
+	};
+	weeklyResetDay: string;
+	weeklyResetTime: string;
+	weeklyResetTimezone: string;
+	lastCalibratedAt: string;
+}
+
 /** Knowledge Graph entry for storing session learnings */
 export interface KnowledgeGraphEntry {
 	sessionName: string;

@@ -110,6 +110,8 @@ export interface ModalContextValue {
 	// Usage Dashboard
 	usageDashboardOpen: boolean;
 	setUsageDashboardOpen: (open: boolean) => void;
+	usageDashboardInitialTab: string | undefined;
+	setUsageDashboardInitialTab: (tab: string | undefined) => void;
 
 	// Keyboard Mastery Celebration
 	pendingKeyboardMasteryLevel: number | null;
@@ -338,6 +340,9 @@ export function ModalProvider({ children }: ModalProviderProps) {
 
 	// Usage Dashboard
 	const [usageDashboardOpen, setUsageDashboardOpen] = useState(false);
+	const [usageDashboardInitialTab, setUsageDashboardInitialTab] = useState<string | undefined>(
+		undefined
+	);
 
 	// Keyboard Mastery Celebration
 	const [pendingKeyboardMasteryLevel, setPendingKeyboardMasteryLevel] = useState<number | null>(
@@ -540,6 +545,8 @@ export function ModalProvider({ children }: ModalProviderProps) {
 			// Usage Dashboard
 			usageDashboardOpen,
 			setUsageDashboardOpen,
+			usageDashboardInitialTab,
+			setUsageDashboardInitialTab,
 
 			// Keyboard Mastery Celebration
 			pendingKeyboardMasteryLevel,
@@ -729,6 +736,7 @@ export function ModalProvider({ children }: ModalProviderProps) {
 			processMonitorOpen,
 			// Usage Dashboard
 			usageDashboardOpen,
+			usageDashboardInitialTab,
 			// Keyboard Mastery Celebration
 			pendingKeyboardMasteryLevel,
 			// Playground Panel

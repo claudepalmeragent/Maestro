@@ -59,6 +59,8 @@ import { registerPromptLibraryHandlers } from './prompt-library';
 import { registerKnowledgeGraphHandlers } from './knowledge-graph';
 import { registerFeedbackHandlers } from './feedback';
 import { registerGpuMonitorHandlers } from './gpu-monitor';
+import { registerHoneycombHandlers } from './honeycomb';
+import { registerHoneycombCapacityHandlers } from './honeycomb-capacity-handler';
 import { AgentDetector } from '../../agents';
 import { ProcessManager } from '../../process-manager';
 import { WebServer } from '../../web-server';
@@ -106,6 +108,8 @@ export { registerPromptLibraryHandlers };
 export { registerKnowledgeGraphHandlers };
 export { registerFeedbackHandlers };
 export { registerGpuMonitorHandlers };
+export { registerHoneycombHandlers };
+export { registerHoneycombCapacityHandlers };
 export type { AgentsHandlerDependencies };
 export type { ProcessHandlerDependencies };
 export type { PersistenceHandlerDependencies };
@@ -279,6 +283,10 @@ export function registerAllHandlers(deps: HandlerDependencies): void {
 	registerFeedbackHandlers();
 	// Register GPU monitor handlers (no dependencies - uses local system probing)
 	registerGpuMonitorHandlers();
+	// Register Honeycomb query handlers (no dependencies - uses singleton client)
+	registerHoneycombHandlers();
+	// Register Honeycomb capacity check handlers
+	registerHoneycombCapacityHandlers();
 	// Setup logger event forwarding to renderer
 	setupLoggerEventForwarding(deps.getMainWindow);
 }
