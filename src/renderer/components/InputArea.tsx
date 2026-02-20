@@ -31,7 +31,9 @@ import { MergeProgressOverlay } from './MergeProgressOverlay';
 import { ExecutionQueueIndicator } from './ExecutionQueueIndicator';
 import { ContextWarningSash } from './ContextWarningSash';
 import { HoneycombWarningSash } from './HoneycombWarningSash';
+import { BudgetBarInline } from './BudgetBarInline';
 import { useHoneycombUsage } from '../hooks/useHoneycombUsage';
+import { useSettings } from '../hooks/settings/useSettings';
 import { useModalContext } from '../contexts/ModalContext';
 import { SummarizeProgressOverlay } from './SummarizeProgressOverlay';
 import { WizardInputPanel } from './InlineWizard';
@@ -274,8 +276,9 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 	// Get agent capabilities for conditional feature rendering
 	const { hasCapability } = useAgentCapabilities(session.toolType);
 
-	// Honeycomb usage data for spend warning sash
+	// Honeycomb usage data for spend warning sash and budget bars
 	const { data: honeycombUsageData, isConfigured: honeycombConfigured } = useHoneycombUsage();
+	const { planCalibration } = useSettings();
 	const { setUsageDashboardOpen, setUsageDashboardInitialTab } = useModalContext();
 
 	// PERF: Memoize activeTab lookup to avoid O(n) search on every render
@@ -585,6 +588,15 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 						>
 							Active: {hostEffortLevel.charAt(0).toUpperCase() + hostEffortLevel.slice(1)}
 						</span>
+					)}
+					{honeycombConfigured && (
+						<BudgetBarInline
+							theme={theme}
+							fiveHourTokens={honeycombUsageData?.fiveHourBillableTokens ?? 0}
+							fiveHourBudget={planCalibration?.currentEstimates?.fiveHour?.weightedMean ?? 0}
+							weeklyTokens={honeycombUsageData?.weeklyBillableTokens ?? 0}
+							weeklyBudget={planCalibration?.currentEstimates?.weekly?.weightedMean ?? 0}
+						/>
 					)}
 				</div>
 			)}
