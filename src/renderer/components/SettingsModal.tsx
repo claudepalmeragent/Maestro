@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, memo } from 'react';
+import React, { useState, useEffect, useRef, memo, useCallback } from 'react';
 import {
 	X,
 	Key,
@@ -32,6 +32,7 @@ import {
 	PartyPopper,
 	ClipboardCheck,
 	MessageSquare,
+	Activity,
 } from 'lucide-react';
 import { useSettings } from '../hooks';
 import type {
@@ -56,6 +57,10 @@ import { FontConfigurationPanel } from './FontConfigurationPanel';
 import { NotificationsPanel } from './NotificationsPanel';
 import { SshRemotesSection } from './Settings/SshRemotesSection';
 import { AuditsSettingsTab } from './Settings/AuditsSettingsTab';
+import { HoneycombSettingsSection } from './HoneycombSettingsSection';
+import { useHoneycombUsage } from '../hooks/useHoneycombUsage';
+import { PlanCalibrationSettings } from './PlanCalibrationSettings';
+import { CalibrationHistoryModal } from './CalibrationHistoryModal';
 
 // Feature flags - set to true to enable dormant features
 const FEATURE_FLAGS = {
@@ -285,7 +290,8 @@ interface SettingsModalProps {
 		| 'notifications'
 		| 'aicommands'
 		| 'ssh'
-		| 'audits';
+		| 'audits'
+		| 'honeycomb';
 	hasNoAgents?: boolean;
 	onThemeImportError?: (message: string) => void;
 	onThemeImportSuccess?: (message: string) => void;
@@ -312,8 +318,24 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 		onDarkThemeIdChange,
 	} = props;
 
-	// Context management settings from useSettings hook
+	// Context management, honeycomb warning & calibration settings from useSettings hook
 	const {
+		honeycombWarningSettings,
+		updateHoneycombWarningSettings,
+		honeycombDataSource,
+		setHoneycombDataSource,
+		honeycombMcpApiKey,
+		setHoneycombMcpApiKey,
+		honeycombEnvironmentSlug,
+		setHoneycombEnvironmentSlug,
+		honeycombMcpRegion,
+		setHoneycombMcpRegion,
+		honeycombApiKey,
+		setHoneycombApiKey,
+		honeycombDatasetSlug,
+		setHoneycombDatasetSlug,
+		planCalibration,
+		setPlanCalibration,
 		contextManagementSettings,
 		updateContextManagementSettings,
 		// Document Graph settings
@@ -346,7 +368,15 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 	} = useSettings();
 
 	const [activeTab, setActiveTab] = useState<
-		'general' | 'llm' | 'shortcuts' | 'theme' | 'notifications' | 'aicommands' | 'ssh' | 'audits'
+		| 'general'
+		| 'llm'
+		| 'shortcuts'
+		| 'theme'
+		| 'notifications'
+		| 'aicommands'
+		| 'ssh'
+		| 'audits'
+		| 'honeycomb'
 	>('general');
 	const [systemFonts, setSystemFonts] = useState<string[]>([]);
 	const [customFonts, setCustomFonts] = useState<string[]>([]);
@@ -372,6 +402,22 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 	const [syncMigrating, setSyncMigrating] = useState(false);
 	const [syncError, setSyncError] = useState<string | null>(null);
 	const [syncMigratedCount, setSyncMigratedCount] = useState<number | null>(null);
+
+	// Calibration history modal state
+	const [showCalibrationHistory, setShowCalibrationHistory] = useState(false);
+
+	// Honeycomb usage data for calibration
+	const { data: honeycombUsageDataForCalibration } = useHoneycombUsage();
+
+	const getHoneycombBillableTokens = useCallback(
+		async (window: '5hr' | 'weekly'): Promise<number> => {
+			if (!honeycombUsageDataForCalibration) throw new Error('Honeycomb data not available');
+			return window === '5hr'
+				? honeycombUsageDataForCalibration.fiveHourBillableTokens
+				: honeycombUsageDataForCalibration.weeklyBillableTokens;
+		},
+		[honeycombUsageDataForCalibration]
+	);
 
 	// Stats data management state
 	const [statsDbSize, setStatsDbSize] = useState<number | null>(null);
@@ -492,9 +538,29 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 				| 'aicommands'
 				| 'ssh'
 				| 'audits'
+				| 'honeycomb'
 			> = FEATURE_FLAGS.LLM_SETTINGS
-				? ['general', 'llm', 'shortcuts', 'theme', 'notifications', 'aicommands', 'ssh', 'audits']
-				: ['general', 'shortcuts', 'theme', 'notifications', 'aicommands', 'ssh', 'audits'];
+				? [
+						'general',
+						'llm',
+						'shortcuts',
+						'theme',
+						'notifications',
+						'aicommands',
+						'ssh',
+						'audits',
+						'honeycomb',
+					]
+				: [
+						'general',
+						'shortcuts',
+						'theme',
+						'notifications',
+						'aicommands',
+						'ssh',
+						'audits',
+						'honeycomb',
+					];
 			const currentIndex = tabs.indexOf(activeTab);
 
 			if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === '[') {
@@ -1053,6 +1119,17 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 					>
 						<ClipboardCheck className="w-4 h-4" />
 						{activeTab === 'audits' && <span>Audits</span>}
+					</button>
+					<button
+						onClick={() => setActiveTab('honeycomb')}
+						className={`px-4 py-4 text-sm font-bold border-b-2 ${
+							activeTab === 'honeycomb' ? 'border-indigo-500' : 'border-transparent'
+						} flex items-center gap-2`}
+						tabIndex={-1}
+						title="Honeycomb"
+					>
+						<Activity className="w-4 h-4" />
+						{activeTab === 'honeycomb' && <span>Honeycomb</span>}
 					</button>
 					<div className="flex-1 flex justify-end items-center pr-4">
 						<button onClick={onClose} tabIndex={-1}>
@@ -2756,8 +2833,45 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 							<AuditsSettingsTab theme={theme} />
 						</div>
 					)}
+
+					{activeTab === 'honeycomb' && (
+						<>
+							<HoneycombSettingsSection
+								theme={theme}
+								settings={honeycombWarningSettings}
+								onUpdate={updateHoneycombWarningSettings}
+								hasCalibrationData={planCalibration.calibrationPoints.length > 0}
+								dataSource={honeycombDataSource}
+								onDataSourceChange={setHoneycombDataSource}
+								mcpApiKey={honeycombMcpApiKey}
+								onMcpApiKeyChange={setHoneycombMcpApiKey}
+								environmentSlug={honeycombEnvironmentSlug}
+								onEnvironmentSlugChange={setHoneycombEnvironmentSlug}
+								mcpRegion={honeycombMcpRegion}
+								onMcpRegionChange={setHoneycombMcpRegion}
+								apiKey={honeycombApiKey}
+								onApiKeyChange={setHoneycombApiKey}
+								datasetSlug={honeycombDatasetSlug}
+								onDatasetSlugChange={setHoneycombDatasetSlug}
+							/>
+							<PlanCalibrationSettings
+								theme={theme}
+								calibration={planCalibration}
+								onCalibrationUpdate={setPlanCalibration}
+								onViewHistory={() => setShowCalibrationHistory(true)}
+								getHoneycombBillableTokens={getHoneycombBillableTokens}
+							/>
+						</>
+					)}
 				</div>
 			</div>
+
+			<CalibrationHistoryModal
+				theme={theme}
+				calibration={planCalibration}
+				isOpen={showCalibrationHistory}
+				onClose={() => setShowCalibrationHistory(false)}
+			/>
 		</div>
 	);
 });

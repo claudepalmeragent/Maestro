@@ -33,7 +33,9 @@ import { ChartErrorBoundary } from './ChartErrorBoundary';
 import { CostOverTimeGraph, type DailyCostData } from './CostOverTimeGraph';
 import { CostByModelGraph, type ModelCostData } from './CostByModelGraph';
 import { AgentCostGraph, type AgentCostData } from './AgentCostGraph';
+import { DatasourceComparisonTab } from './DatasourceComparisonTab';
 import type { Theme, Session } from '../../types';
+import { useHoneycombUsage } from '../../hooks/useHoneycombUsage';
 import { useLayerStack } from '../../contexts/LayerStackContext';
 import { MODAL_PRIORITIES } from '../../constants/modalPriorities';
 import { getRendererPerfMetrics } from '../../utils/logger';
@@ -75,7 +77,7 @@ const perfMetrics = getRendererPerfMetrics('UsageDashboard');
 import { type StatsAggregation, type StatsTimeRange } from '../../hooks/useStats';
 
 // View mode options for the dashboard
-type ViewMode = 'overview' | 'agents' | 'activity' | 'autorun';
+type ViewMode = 'overview' | 'agents' | 'activity' | 'autorun' | 'dscomparison';
 
 interface UsageDashboardModalProps {
 	isOpen: boolean;
@@ -85,6 +87,8 @@ interface UsageDashboardModalProps {
 	colorBlindMode?: boolean;
 	/** Default time range from settings (default: 'week') */
 	defaultTimeRange?: StatsTimeRange;
+	/** Default view mode tab when opening the modal */
+	defaultViewMode?: ViewMode;
 	/** Sessions for displaying session statistics in Agents tab */
 	sessions?: Session[];
 }
@@ -121,6 +125,7 @@ const VIEW_MODE_TABS: { value: ViewMode; label: string }[] = [
 	{ value: 'agents', label: 'Agents' },
 	{ value: 'activity', label: 'Activity' },
 	{ value: 'autorun', label: 'Auto Run' },
+	{ value: 'dscomparison', label: 'DS Comparison' },
 ];
 
 export function UsageDashboardModal({
@@ -129,10 +134,36 @@ export function UsageDashboardModal({
 	theme,
 	colorBlindMode = false,
 	defaultTimeRange = 'week',
+	defaultViewMode,
 	sessions = [],
 }: UsageDashboardModalProps) {
 	const [timeRange, setTimeRange] = useState<StatsTimeRange>(defaultTimeRange);
-	const [viewMode, setViewMode] = useState<ViewMode>('overview');
+	const [viewMode, setViewMode] = useState<ViewMode>(defaultViewMode || 'overview');
+	const [honeycombConfigured, setHoneycombConfigured] = useState(true);
+	const { data: honeycombUsageData, refresh: refreshHoneycomb } = useHoneycombUsage();
+
+	useEffect(() => {
+		window.maestro.honeycomb
+			.isConfigured()
+			.then(setHoneycombConfigured)
+			.catch(() => setHoneycombConfigured(false));
+	}, []);
+
+	const visibleTabs = useMemo(
+		() => VIEW_MODE_TABS.filter((tab) => tab.value !== 'dscomparison' || honeycombConfigured),
+		[honeycombConfigured]
+	);
+
+	const getHoneycombBillableTokens = useCallback(
+		async (window: '5hr' | 'weekly'): Promise<number> => {
+			if (!honeycombUsageData) throw new Error('Honeycomb data not available');
+			return window === '5hr'
+				? honeycombUsageData.fiveHourBillableTokens
+				: honeycombUsageData.weeklyBillableTokens;
+		},
+		[honeycombUsageData]
+	);
+
 	const [data, setData] = useState<StatsAggregation | null>(null);
 	const [dailyCostData, setDailyCostData] = useState<DailyCostData[]>([]);
 	const [modelCostData, setModelCostData] = useState<ModelCostData[]>([]);
@@ -269,16 +300,16 @@ export function UsageDashboardModal({
 				e.preventDefault();
 				e.stopPropagation();
 
-				const currentIndex = VIEW_MODE_TABS.findIndex((tab) => tab.value === viewMode);
+				const currentIndex = visibleTabs.findIndex((tab) => tab.value === viewMode);
 
 				if (e.key === '[') {
 					// Previous tab
-					const prevIndex = currentIndex > 0 ? currentIndex - 1 : VIEW_MODE_TABS.length - 1;
-					setViewMode(VIEW_MODE_TABS[prevIndex].value);
+					const prevIndex = currentIndex > 0 ? currentIndex - 1 : visibleTabs.length - 1;
+					setViewMode(visibleTabs[prevIndex].value);
 				} else {
 					// Next tab
-					const nextIndex = currentIndex < VIEW_MODE_TABS.length - 1 ? currentIndex + 1 : 0;
-					setViewMode(VIEW_MODE_TABS[nextIndex].value);
+					const nextIndex = currentIndex < visibleTabs.length - 1 ? currentIndex + 1 : 0;
+					setViewMode(visibleTabs[nextIndex].value);
 				}
 				setFocusedSection(null);
 			}
@@ -286,7 +317,7 @@ export function UsageDashboardModal({
 
 		window.addEventListener('keydown', handleKeyDown, true);
 		return () => window.removeEventListener('keydown', handleKeyDown, true);
-	}, [isOpen, viewMode]);
+	}, [isOpen, viewMode, visibleTabs]);
 
 	// Track container width for responsive layout
 	useEffect(() => {
@@ -339,6 +370,8 @@ export function UsageDashboardModal({
 				return ACTIVITY_SECTIONS;
 			case 'autorun':
 				return AUTORUN_SECTIONS;
+			case 'dscomparison':
+				return [] as unknown as readonly SectionId[];
 			default:
 				return OVERVIEW_SECTIONS;
 		}
@@ -379,17 +412,17 @@ export function UsageDashboardModal({
 	// Handle keyboard navigation for view mode tabs
 	const handleTabKeyDown = useCallback(
 		(event: React.KeyboardEvent<HTMLDivElement>) => {
-			const currentIndex = VIEW_MODE_TABS.findIndex((tab) => tab.value === viewMode);
+			const currentIndex = visibleTabs.findIndex((tab) => tab.value === viewMode);
 
 			if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
 				event.preventDefault();
-				const prevIndex = currentIndex > 0 ? currentIndex - 1 : VIEW_MODE_TABS.length - 1;
-				setViewMode(VIEW_MODE_TABS[prevIndex].value);
+				const prevIndex = currentIndex > 0 ? currentIndex - 1 : visibleTabs.length - 1;
+				setViewMode(visibleTabs[prevIndex].value);
 				setFocusedSection(null);
 			} else if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
 				event.preventDefault();
-				const nextIndex = currentIndex < VIEW_MODE_TABS.length - 1 ? currentIndex + 1 : 0;
-				setViewMode(VIEW_MODE_TABS[nextIndex].value);
+				const nextIndex = currentIndex < visibleTabs.length - 1 ? currentIndex + 1 : 0;
+				setViewMode(visibleTabs[nextIndex].value);
 				setFocusedSection(null);
 			} else if (event.key === 'Tab' && !event.shiftKey) {
 				// Tab into content area - focus first section
@@ -399,7 +432,7 @@ export function UsageDashboardModal({
 				}
 			}
 		},
-		[viewMode, currentSections, data, navigateToSection]
+		[viewMode, currentSections, data, navigateToSection, visibleTabs]
 	);
 
 	// Handle keyboard navigation for chart sections
@@ -527,7 +560,7 @@ export function UsageDashboardModal({
 								className="flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium"
 								style={{
 									backgroundColor: `${theme.colors.accent}20`,
-									color: theme.colors.accent,
+									color: theme.colors.textMain,
 									animation: 'pulse-fade 3s ease-out forwards',
 								}}
 								data-testid="new-data-indicator"
@@ -632,7 +665,7 @@ export function UsageDashboardModal({
 					onKeyDown={handleTabKeyDown}
 					data-testid="view-mode-tabs"
 				>
-					{VIEW_MODE_TABS.map((tab) => (
+					{visibleTabs.map((tab) => (
 						<button
 							key={tab.value}
 							onClick={() => setViewMode(tab.value)}
@@ -669,7 +702,51 @@ export function UsageDashboardModal({
 					className="flex-1 overflow-y-auto scrollbar-thin p-6"
 					style={{ backgroundColor: theme.colors.bgMain }}
 				>
-					{loading && !data ? (
+					{viewMode === 'dscomparison' ? (
+						<div
+							key={viewMode}
+							className="space-y-6 dashboard-content-enter"
+							data-testid="usage-dashboard-content"
+							role="tabpanel"
+							id={`tabpanel-${viewMode}`}
+							aria-labelledby={`tab-${viewMode}`}
+						>
+							<DatasourceComparisonTab
+								theme={theme}
+								honeycombUsageData={honeycombUsageData}
+								localCostUsd={data?.totalCostUsd ?? 0}
+								localBillableTokens={(data?.totalInputTokens ?? 0) + (data?.totalOutputTokens ?? 0)}
+								flushStatus={null}
+								calibration={{
+									calibrationPoints: [],
+									currentEstimates: {
+										fiveHour: {
+											weightedMean: 0,
+											standardDeviation: 0,
+											confidencePct: 0,
+											activePoints: 0,
+											totalPoints: 0,
+										},
+										weekly: {
+											weightedMean: 0,
+											standardDeviation: 0,
+											confidencePct: 0,
+											activePoints: 0,
+											totalPoints: 0,
+										},
+									},
+									weeklyResetDay: 'Sunday',
+									weeklyResetTime: '10:00',
+									weeklyResetTimezone: 'America/Los_Angeles',
+									lastCalibratedAt: '',
+								}}
+								onCalibrationUpdate={() => {}}
+								divergenceRows={[]}
+								onRefresh={refreshHoneycomb}
+								getHoneycombBillableTokens={getHoneycombBillableTokens}
+							/>
+						</div>
+					) : loading && !data ? (
 						<DashboardSkeleton
 							theme={theme}
 							viewMode={viewMode}

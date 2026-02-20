@@ -119,7 +119,7 @@ function MetricCard({ icon, label, value, subValue, theme }: MetricCardProps) {
 				className="flex-shrink-0 p-2 rounded-md"
 				style={{
 					backgroundColor: `${theme.colors.accent}15`,
-					color: theme.colors.accent,
+					color: theme.colors.textMain,
 				}}
 			>
 				{icon}
