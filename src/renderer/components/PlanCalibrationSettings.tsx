@@ -26,6 +26,7 @@ export interface PlanCalibrationSettingsProps {
 	onCalibrationUpdate: (updated: PlanCalibration) => void;
 	onViewHistory: () => void;
 	getHoneycombBillableTokens?: (window: '5hr' | 'weekly') => Promise<number>;
+	onSaveComplete?: () => void;
 }
 
 export function PlanCalibrationSettings({
@@ -34,6 +35,7 @@ export function PlanCalibrationSettings({
 	onCalibrationUpdate,
 	onViewHistory,
 	getHoneycombBillableTokens,
+	onSaveComplete,
 }: PlanCalibrationSettingsProps) {
 	// 5-hour inputs
 	const [fiveHourPct, setFiveHourPct] = useState('');
@@ -97,7 +99,7 @@ export function PlanCalibrationSettings({
 			const fiveHourEstimate = computeBudgetEstimate(allPoints, '5hr');
 			const weeklyEstimate = computeBudgetEstimate(allPoints, 'weekly');
 
-			onCalibrationUpdate({
+			const calibrationUpdate: PlanCalibration = {
 				...calibration,
 				calibrationPoints: allPoints,
 				currentEstimates: {
@@ -105,7 +107,33 @@ export function PlanCalibrationSettings({
 					weekly: weeklyEstimate,
 				},
 				lastCalibratedAt: new Date().toISOString(),
-			});
+			};
+
+			// Compute 5-hour window reset anchor from calibration points
+			const fiveHrPoints = allPoints.filter((p) => p.window === '5hr' && p.timeRemainingInWindow);
+			if (fiveHrPoints.length > 0) {
+				let bestPoint = fiveHrPoints[0];
+				let bestRemainingMs = Infinity;
+				for (const p of fiveHrPoints) {
+					const match = p.timeRemainingInWindow!.match(/(\d+)h\s*(\d+)m/);
+					if (match) {
+						const remainingMs = (parseInt(match[1]) * 60 + parseInt(match[2])) * 60 * 1000;
+						if (remainingMs < bestRemainingMs) {
+							bestRemainingMs = remainingMs;
+							bestPoint = p;
+						}
+					}
+				}
+				const match = bestPoint.timeRemainingInWindow!.match(/(\d+)h\s*(\d+)m/);
+				if (match) {
+					const remainingMs = (parseInt(match[1]) * 60 + parseInt(match[2])) * 60 * 1000;
+					const windowEndMs = new Date(bestPoint.timestamp).getTime() + remainingMs;
+					calibrationUpdate.fiveHourWindowResetAnchorUtc = new Date(windowEndMs).toISOString();
+				}
+			}
+
+			onCalibrationUpdate(calibrationUpdate);
+			onSaveComplete?.();
 
 			// Clear inputs
 			setFiveHourPct('');
@@ -125,6 +153,7 @@ export function PlanCalibrationSettings({
 		calibration,
 		onCalibrationUpdate,
 		getHoneycombBillableTokens,
+		onSaveComplete,
 	]);
 
 	const { fiveHour, weekly } = calibration.currentEstimates;

@@ -173,7 +173,19 @@ export function DatasourceComparisonTab({
 					localTokens: localBillableTokens,
 					honeycombTokens: honeycombUsageData?.fiveHourBillableTokens ?? 0,
 					calibratedBudget: calibration.currentEstimates.fiveHour.weightedMean,
-					resetLabel: 'Rolling 5-hour window',
+					resetLabel: calibration.fiveHourWindowResetAnchorUtc
+						? (() => {
+								const FIVE_HOURS_MS = 5 * 60 * 60 * 1000;
+								const anchorMs = new Date(calibration.fiveHourWindowResetAnchorUtc!).getTime();
+								const now = Date.now();
+								const windowsSince = Math.floor((now - anchorMs) / FIVE_HOURS_MS);
+								const windowEnd = new Date(anchorMs + (windowsSince + 1) * FIVE_HOURS_MS);
+								const hours = windowEnd.getHours();
+								const minutes = windowEnd.getMinutes();
+								const timeStr = `${hours % 12 || 12}:${String(minutes).padStart(2, '0')} ${hours >= 12 ? 'PM' : 'AM'}`;
+								return `Resets at ${timeStr}`;
+							})()
+						: 'Rolling 5-hour window',
 				}
 			: null;
 
@@ -277,6 +289,7 @@ export function DatasourceComparisonTab({
 						onCalibrationUpdate={onCalibrationUpdate}
 						onViewHistory={() => setShowCalibrationHistory(true)}
 						getHoneycombBillableTokens={getHoneycombBillableTokens}
+						onSaveComplete={onRefresh}
 					/>
 				</div>
 			</div>

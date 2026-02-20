@@ -63,6 +63,7 @@ const DEFAULT_PLAN_CALIBRATION: PlanCalibration = {
 	weeklyResetTime: '10:00',
 	weeklyResetTimezone: 'America/Los_Angeles',
 	lastCalibratedAt: '',
+	fiveHourWindowResetAnchorUtc: '',
 };
 
 // Default context management settings

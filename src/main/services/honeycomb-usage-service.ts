@@ -117,6 +117,45 @@ export class HoneycombUsageService {
 			return;
 		}
 
+		// Compute 5-hour window anchor from calibration points on every startup
+		const store = getSettingsStore();
+		const planCal = store.get('planCalibration', null) as any;
+		if (planCal && planCal.calibrationPoints?.length > 0) {
+			const fiveHrPoints = planCal.calibrationPoints.filter(
+				(p: any) => p.window === '5hr' && (p.timeRemainingInWindow || p.timeIntoWindow)
+			);
+			if (fiveHrPoints.length > 0) {
+				let bestPoint = fiveHrPoints[0];
+				let bestRemainingMs = Infinity;
+				for (const p of fiveHrPoints) {
+					const timeField = p.timeRemainingInWindow || p.timeIntoWindow;
+					const match = timeField?.match(/(\d+)h\s*(\d+)m/);
+					if (match) {
+						const remainingMs = (parseInt(match[1]) * 60 + parseInt(match[2])) * 60 * 1000;
+						if (remainingMs < bestRemainingMs) {
+							bestRemainingMs = remainingMs;
+							bestPoint = p;
+						}
+					}
+				}
+				const timeField = bestPoint.timeRemainingInWindow || bestPoint.timeIntoWindow;
+				const match = timeField?.match(/(\d+)h\s*(\d+)m/);
+				if (match) {
+					const remainingMs = (parseInt(match[1]) * 60 + parseInt(match[2])) * 60 * 1000;
+					const windowEndMs = new Date(bestPoint.timestamp).getTime() + remainingMs;
+					const anchorDate = new Date(windowEndMs);
+					store.set('planCalibration', {
+						...planCal,
+						fiveHourWindowResetAnchorUtc: anchorDate.toISOString(),
+					});
+					logger.info(
+						`Seeded 5hr window anchor from calibration data: ${anchorDate.toISOString()}`,
+						LOG_CONTEXT
+					);
+				}
+			}
+		}
+
 		this.running = true;
 		logger.info('Usage service started', LOG_CONTEXT);
 
@@ -124,7 +163,6 @@ export class HoneycombUsageService {
 		this.poll().catch((err) => logger.error(`Initial poll failed: ${err.message}`, LOG_CONTEXT));
 
 		// Set up interval
-		const store = getSettingsStore();
 		const intervalMs = store.get('honeycombPollIntervalMs', 300000);
 		this.pollTimer = setInterval(() => {
 			this.poll().catch((err) => logger.error(`Poll failed: ${err.message}`, LOG_CONTEXT));
@@ -228,9 +266,43 @@ export class HoneycombUsageService {
 		const client = getHoneycombQueryClient();
 
 		try {
+			// Build 5-hour query — use aligned window if anchor available, else rolling
+			const store = getSettingsStore();
+			const planCalibration = store.get('planCalibration', null) as any;
+
+			let fiveHourQuery: HoneycombQuerySpec;
+			const anchorUtc = planCalibration?.fiveHourWindowResetAnchorUtc;
+			if (anchorUtc) {
+				const FIVE_HOURS_MS = 5 * 60 * 60 * 1000;
+				const anchorMs = new Date(anchorUtc).getTime();
+				const now = Date.now();
+				// Find how many complete 5-hour windows have passed since anchor
+				const windowsSinceAnchor = Math.floor((now - anchorMs) / FIVE_HOURS_MS);
+				const currentWindowStart = anchorMs + windowsSinceAnchor * FIVE_HOURS_MS;
+				// If anchor is in the future (shouldn't happen but safety), fall back to rolling
+				if (currentWindowStart > now) {
+					fiveHourQuery = FIVE_HOUR_QUERY; // rolling fallback
+				} else {
+					const { time_range: _, ...baseQuery } = FIVE_HOUR_QUERY;
+					fiveHourQuery = {
+						...baseQuery,
+						start_time: Math.floor(currentWindowStart / 1000),
+						end_time: Math.floor(now / 1000),
+					};
+				}
+				logger.debug(
+					`5hr window aligned: start=${new Date(currentWindowStart).toISOString()}, ` +
+						`anchor=${anchorUtc}, windowsSince=${windowsSinceAnchor}`,
+					LOG_CONTEXT
+				);
+			} else {
+				fiveHourQuery = FIVE_HOUR_QUERY; // rolling fallback
+				logger.debug('5hr window: no anchor, using rolling 5-hour lookback', LOG_CONTEXT);
+			}
+
 			// Run queries (differentiated TTLs, sequential with short delays)
 			const [fiveHourResult, weeklyResult, sessionsResult] = await Promise.all([
-				client.query(FIVE_HOUR_QUERY, {
+				client.query(fiveHourQuery, {
 					ttlMs: DEFAULT_TTL.FIVE_HOUR,
 					bypassCache,
 					label: '5hr-usage',

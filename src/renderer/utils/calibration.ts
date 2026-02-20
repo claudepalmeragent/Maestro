@@ -112,7 +112,7 @@ export function createCalibrationPoint(
 	window: '5hr' | 'weekly',
 	claudeUsagePct: number,
 	honeycombBillableTokens: number,
-	timeIntoWindow?: string
+	timeRemainingInWindow?: string
 ): CalibrationPoint {
 	const derivedBudget =
 		claudeUsagePct > 0 ? Math.round(honeycombBillableTokens / (claudeUsagePct / 100)) : 0;
@@ -129,7 +129,7 @@ export function createCalibrationPoint(
 		derivedBudget,
 		weight: claudeUsagePct / 100,
 		isOutlier: false,
-		timeIntoWindow,
+		timeRemainingInWindow,
 	};
 }
 
@@ -159,7 +159,7 @@ export function exportCalibrationCsv(points: CalibrationPoint[]): string {
 		'Derived Budget',
 		'Weight',
 		'Status',
-		'Time Into Window',
+		'Time Remaining In Window',
 	].join(',');
 
 	const rows = points.map((p) =>
@@ -172,7 +172,7 @@ export function exportCalibrationCsv(points: CalibrationPoint[]): string {
 			p.derivedBudget,
 			p.weight.toFixed(2),
 			p.isOutlier ? 'Outlier' : 'Active',
-			p.timeIntoWindow || '',
+			p.timeRemainingInWindow || '',
 		].join(',')
 	);
 

@@ -27,7 +27,7 @@ function MiniBar({ theme, label, pct }: { theme: Theme; label: string; pct: numb
 				style={{
 					width: '96px',
 					height: '4px',
-					backgroundColor: theme.colors.bgActivity,
+					backgroundColor: theme.colors.border,
 				}}
 			>
 				<div

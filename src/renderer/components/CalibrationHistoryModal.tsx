@@ -11,6 +11,7 @@
  */
 
 import { useMemo, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Download } from 'lucide-react';
 import type { Theme } from '../types';
 import type { PlanCalibration, CalibrationPoint, BudgetEstimate } from '../types';
@@ -54,9 +55,9 @@ export function CalibrationHistoryModal({
 
 	if (!isOpen) return null;
 
-	return (
+	return createPortal(
 		<div
-			className="fixed inset-0 z-50 flex items-center justify-center"
+			className="fixed inset-0 z-[10000] flex items-center justify-center"
 			style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}
 			onClick={(e) => e.target === e.currentTarget && onClose()}
 		>
@@ -227,7 +228,8 @@ export function CalibrationHistoryModal({
 					)}
 				</div>
 			</div>
-		</div>
+		</div>,
+		document.body
 	);
 }
 

@@ -965,7 +965,7 @@ export interface CalibrationPoint {
 	derivedBudget: number;
 	weight: number;
 	isOutlier: boolean;
-	timeIntoWindow?: string;
+	timeRemainingInWindow?: string;
 }
 
 export interface BudgetEstimate {
@@ -986,6 +986,7 @@ export interface PlanCalibration {
 	weeklyResetTime: string;
 	weeklyResetTimezone: string;
 	lastCalibratedAt: string;
+	fiveHourWindowResetAnchorUtc?: string;
 }
 
 /** Knowledge Graph entry for storing session learnings */
