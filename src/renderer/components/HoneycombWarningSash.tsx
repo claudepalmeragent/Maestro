@@ -24,6 +24,16 @@ export interface HoneycombWarningSashProps {
 	fiveHourRedUsd: number;
 	weeklyYellowUsd: number;
 	weeklyRedUsd: number;
+	// Percentage-of-budget thresholds
+	fiveHourYellowPct?: number;
+	fiveHourRedPct?: number;
+	weeklyYellowPct?: number;
+	weeklyRedPct?: number;
+	// Warning mode: which thresholds to evaluate
+	warningMode?: 'usd' | 'percentage' | 'both';
+	// Calibrated budget values (needed for percentage calculation)
+	fiveHourBudgetTokens?: number;
+	weeklyBudgetTokens?: number;
 	// Optional: track tab for per-tab dismissal
 	tabId?: string;
 	/** Callback to open Usage Dashboard to DS Comparison tab */
@@ -51,6 +61,13 @@ export function HoneycombWarningSash({
 	fiveHourRedUsd,
 	weeklyYellowUsd,
 	weeklyRedUsd,
+	fiveHourYellowPct = 60,
+	fiveHourRedPct = 85,
+	weeklyYellowPct = 70,
+	weeklyRedPct = 90,
+	warningMode = 'both',
+	fiveHourBudgetTokens = 0,
+	weeklyBudgetTokens = 0,
 	tabId,
 	onViewUsageDashboard,
 }: HoneycombWarningSashProps) {
@@ -69,46 +86,113 @@ export function HoneycombWarningSash({
 	const activeWarning = useMemo((): ActiveWarning | null => {
 		if (!enabled || !usageData) return null;
 
-		// Check 5-hour window first (tighter constraint)
-		const fiveHourSpend = usageData.fiveHourSpendUsd;
-		if (fiveHourSpend >= fiveHourRedUsd) {
-			return {
-				dimension: '5hr',
-				level: 'red',
-				spendUsd: fiveHourSpend,
-				message: `5-hour spend at $${fiveHourSpend.toFixed(0)} — window limit likely reached`,
-			};
-		}
-		if (fiveHourSpend >= fiveHourYellowUsd) {
-			return {
-				dimension: '5hr',
-				level: 'yellow',
-				spendUsd: fiveHourSpend,
-				message: `5-hour spend at $${fiveHourSpend.toFixed(0)} — approaching window limit`,
-			};
+		const checkUsd = warningMode === 'usd' || warningMode === 'both';
+		const checkPct = warningMode === 'percentage' || warningMode === 'both';
+
+		// --- 5-hour window checks (tighter constraint, check first) ---
+
+		// Percentage check (tokens vs calibrated budget)
+		if (checkPct && fiveHourBudgetTokens > 0) {
+			const fiveHourUsagePct = (usageData.fiveHourBillableTokens / fiveHourBudgetTokens) * 100;
+			if (fiveHourUsagePct >= fiveHourRedPct) {
+				return {
+					dimension: '5hr',
+					level: 'red',
+					spendUsd: usageData.fiveHourSpendUsd,
+					message: `5-hour usage at ${fiveHourUsagePct.toFixed(0)}% of budget — limit likely reached`,
+				};
+			}
+			if (fiveHourUsagePct >= fiveHourYellowPct) {
+				return {
+					dimension: '5hr',
+					level: 'yellow',
+					spendUsd: usageData.fiveHourSpendUsd,
+					message: `5-hour usage at ${fiveHourUsagePct.toFixed(0)}% of budget — approaching limit`,
+				};
+			}
 		}
 
-		// Then check weekly
-		const weeklySpend = usageData.weeklySpendUsd;
-		if (weeklySpend >= weeklyRedUsd) {
-			return {
-				dimension: 'weekly',
-				level: 'red',
-				spendUsd: weeklySpend,
-				message: `Weekly spend at $${weeklySpend.toFixed(0)} — weekly limit likely reached`,
-			};
+		// USD check
+		if (checkUsd) {
+			const fiveHourSpend = usageData.fiveHourSpendUsd;
+			if (fiveHourSpend >= fiveHourRedUsd) {
+				return {
+					dimension: '5hr',
+					level: 'red',
+					spendUsd: fiveHourSpend,
+					message: `5-hour spend at $${fiveHourSpend.toFixed(0)} — window limit likely reached`,
+				};
+			}
+			if (fiveHourSpend >= fiveHourYellowUsd) {
+				return {
+					dimension: '5hr',
+					level: 'yellow',
+					spendUsd: fiveHourSpend,
+					message: `5-hour spend at $${fiveHourSpend.toFixed(0)} — approaching window limit`,
+				};
+			}
 		}
-		if (weeklySpend >= weeklyYellowUsd) {
-			return {
-				dimension: 'weekly',
-				level: 'yellow',
-				spendUsd: weeklySpend,
-				message: `Weekly spend at $${weeklySpend.toFixed(0)} — approaching weekly limit`,
-			};
+
+		// --- Weekly window checks ---
+
+		// Percentage check (tokens vs calibrated budget)
+		if (checkPct && weeklyBudgetTokens > 0) {
+			const weeklyUsagePct = (usageData.weeklyBillableTokens / weeklyBudgetTokens) * 100;
+			if (weeklyUsagePct >= weeklyRedPct) {
+				return {
+					dimension: 'weekly',
+					level: 'red',
+					spendUsd: usageData.weeklySpendUsd,
+					message: `Weekly usage at ${weeklyUsagePct.toFixed(0)}% of budget — limit likely reached`,
+				};
+			}
+			if (weeklyUsagePct >= weeklyYellowPct) {
+				return {
+					dimension: 'weekly',
+					level: 'yellow',
+					spendUsd: usageData.weeklySpendUsd,
+					message: `Weekly usage at ${weeklyUsagePct.toFixed(0)}% of budget — approaching limit`,
+				};
+			}
+		}
+
+		// USD check
+		if (checkUsd) {
+			const weeklySpend = usageData.weeklySpendUsd;
+			if (weeklySpend >= weeklyRedUsd) {
+				return {
+					dimension: 'weekly',
+					level: 'red',
+					spendUsd: weeklySpend,
+					message: `Weekly spend at $${weeklySpend.toFixed(0)} — weekly limit likely reached`,
+				};
+			}
+			if (weeklySpend >= weeklyYellowUsd) {
+				return {
+					dimension: 'weekly',
+					level: 'yellow',
+					spendUsd: weeklySpend,
+					message: `Weekly spend at $${weeklySpend.toFixed(0)} — approaching weekly limit`,
+				};
+			}
 		}
 
 		return null;
-	}, [enabled, usageData, fiveHourYellowUsd, fiveHourRedUsd, weeklyYellowUsd, weeklyRedUsd]);
+	}, [
+		enabled,
+		usageData,
+		warningMode,
+		fiveHourYellowUsd,
+		fiveHourRedUsd,
+		weeklyYellowUsd,
+		weeklyRedUsd,
+		fiveHourYellowPct,
+		fiveHourRedPct,
+		weeklyYellowPct,
+		weeklyRedPct,
+		fiveHourBudgetTokens,
+		weeklyBudgetTokens,
+	]);
 
 	// Should we show the warning?
 	const shouldShow = useMemo(() => {

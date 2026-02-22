@@ -21,6 +21,7 @@ export interface PlanBudgetTrackerProps {
 	theme: Theme;
 	fiveHour: BudgetWindowData | null;
 	weekly: BudgetWindowData | null;
+	sonnetWeekly: BudgetWindowData | null;
 }
 
 function formatTokens(tokens: number): string {
@@ -88,8 +89,13 @@ function BudgetBar({
 	);
 }
 
-export function PlanBudgetTracker({ theme, fiveHour, weekly }: PlanBudgetTrackerProps) {
-	if (!fiveHour && !weekly) {
+export function PlanBudgetTracker({
+	theme,
+	fiveHour,
+	weekly,
+	sonnetWeekly,
+}: PlanBudgetTrackerProps) {
+	if (!fiveHour && !weekly && !sonnetWeekly) {
 		return (
 			<div className="text-sm py-4 text-center" style={{ color: theme.colors.textDim }}>
 				Budget tracking requires calibration data. Enter values from the Claude usage page below.
@@ -101,6 +107,7 @@ export function PlanBudgetTracker({ theme, fiveHour, weekly }: PlanBudgetTracker
 		<div className="flex flex-col gap-4">
 			{fiveHour && <BudgetBar theme={theme} label="5-Hour Window" data={fiveHour} />}
 			{weekly && <BudgetBar theme={theme} label="Weekly Limit" data={weekly} />}
+			{sonnetWeekly && <BudgetBar theme={theme} label="Sonnet-Only Limit" data={sonnetWeekly} />}
 		</div>
 	);
 }

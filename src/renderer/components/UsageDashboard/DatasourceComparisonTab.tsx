@@ -29,13 +29,20 @@ export interface DatasourceComparisonTabProps {
 	// Local stats data (from existing stats-db)
 	localCostUsd: number;
 	localBillableTokens: number;
+	/** Fixed weekly local billable tokens for budget bars (independent of time dropdown) */
+	localBillableTokensFixed?: number;
 	// Calibration state
 	calibration: PlanCalibration;
 	onCalibrationUpdate: (updated: PlanCalibration) => void;
 	// Refresh callback
 	onRefresh?: () => void;
 	// Honeycomb billable tokens getter for calibration
-	getHoneycombBillableTokens?: (window: '5hr' | 'weekly') => Promise<number>;
+	getHoneycombBillableTokens?: (window: '5hr' | 'weekly' | 'sonnet-weekly') => Promise<number>;
+	/** Currently selected time range from the dashboard dropdown */
+	timeRange: 'day' | 'week' | 'month' | 'year' | 'all';
+	localInputTokens?: number;
+	localOutputTokens?: number;
+	localCacheCreationTokens?: number;
 }
 
 export function DatasourceComparisonTab({
@@ -43,10 +50,15 @@ export function DatasourceComparisonTab({
 	honeycombUsageData,
 	localCostUsd,
 	localBillableTokens,
+	localBillableTokensFixed,
 	calibration,
 	onCalibrationUpdate,
 	onRefresh,
 	getHoneycombBillableTokens,
+	timeRange,
+	localInputTokens,
+	localOutputTokens,
+	localCacheCreationTokens,
 }: DatasourceComparisonTabProps) {
 	const [showCalibrationHistory, setShowCalibrationHistory] = useState(false);
 	const [isRefreshing, setIsRefreshing] = useState(false);
@@ -80,32 +92,22 @@ export function DatasourceComparisonTab({
 
 	const [divergenceRows, setDivergenceRows] = useState<DivergenceRow[]>([]);
 
-	// Compute divergence rows from archived Honeycomb data + local stats
+	// Compute divergence rows from live Honeycomb queries + local stats
 	useEffect(() => {
 		async function computeDivergence() {
 			try {
-				// Calculate date range (last 7 days)
-				const endDate = new Date();
-				endDate.setDate(endDate.getDate() - 1); // Yesterday
-				const startDate = new Date(endDate);
-				startDate.setDate(startDate.getDate() - 6); // 7 days back
+				// Map time range to seconds for the HC query
+				const timeRangeSeconds: Record<string, number> = {
+					day: 86400,
+					week: 604800,
+					month: 2592000,
+					year: 31536000,
+					all: 31536000,
+				};
+				const seconds = timeRangeSeconds[timeRange] || 604800;
 
-				const fmt = (d: Date) => d.toISOString().split('T')[0];
-				const startStr = fmt(startDate);
-				const endStr = fmt(endDate);
-
-				// Fetch both data sources in parallel
-				const [archiveRows, localCosts] = await Promise.all([
-					window.maestro.honeycomb.getArchivedDailyData('daily_cost_by_model', startStr, endStr),
-					window.maestro.stats.getDailyCosts('week'),
-				]);
-
-				// Sum Honeycomb cost per day across model breakdowns
-				const hcCostByDate: Record<string, number> = {};
-				for (const row of archiveRows as Array<{ date: string; data: { value?: number } }>) {
-					const val = typeof row.data?.value === 'number' ? row.data.value : 0;
-					hcCostByDate[row.date] = (hcCostByDate[row.date] || 0) + val;
-				}
+				// Fetch local data
+				const localCosts = await window.maestro.stats.getDailyCosts(timeRange);
 
 				// Build local cost lookup
 				const localCostByDate: Record<string, number> = {};
@@ -113,23 +115,152 @@ export function DatasourceComparisonTab({
 					localCostByDate[row.date] = row.localCost;
 				}
 
+				// Strategy: Use calculated_fields + breakdowns to get per-day data from MCP.
+				// The FORMAT_TIME function converts the timestamp to a date string,
+				// and using it as a breakdown gives us one row per date in the markdown table.
+				const hcByDate: Record<
+					string,
+					{ cost: number; input: number; output: number; cache: number }
+				> = {};
+
+				const extractNum = (obj: Record<string, unknown>, key: string): number => {
+					const v = obj[key];
+					return typeof v === 'number' ? v : typeof v === 'string' ? parseFloat(v) || 0 : 0;
+				};
+
+				// Attempt 1: calculated_fields + breakdowns for per-day data
+				let primaryFailed = false;
+				try {
+					const hcResult = (await window.maestro.honeycomb.query(
+						{
+							calculated_fields: [
+								{ name: 'day_bucket', expression: 'FORMAT_TIME("%Y-%m-%d", $.__timestamp__)' },
+							],
+							calculations: [
+								{ op: 'SUM', column: 'cost_usd', name: 'cost' },
+								{ op: 'SUM', column: 'input_tokens', name: 'input' },
+								{ op: 'SUM', column: 'output_tokens', name: 'output' },
+								{ op: 'SUM', column: 'cache_creation_tokens', name: 'cache_create' },
+							],
+							breakdowns: ['day_bucket'],
+							orders: [{ column: 'day_bucket', order: 'ascending' }],
+							time_range: seconds,
+							limit: 366,
+						},
+						{ ttlMs: 120000, label: `divergence-daily-${timeRange}` }
+					)) as {
+						data?: {
+							results?: Array<Record<string, unknown>>;
+							series?: Array<{ time: string; data: Record<string, unknown> }>;
+						};
+					};
+
+					// Process results — in MCP mode these come as flat rows with day_bucket column
+					const hcResults = hcResult?.data?.results || [];
+					for (const row of hcResults) {
+						const dateBucket = row['day_bucket'];
+						if (!dateBucket || typeof dateBucket !== 'string') continue;
+						const dateStr = dateBucket.split('T')[0];
+						if (!hcByDate[dateStr]) {
+							hcByDate[dateStr] = { cost: 0, input: 0, output: 0, cache: 0 };
+						}
+						hcByDate[dateStr].cost += extractNum(row, 'cost');
+						hcByDate[dateStr].input += extractNum(row, 'input');
+						hcByDate[dateStr].output += extractNum(row, 'output');
+						hcByDate[dateStr].cache += extractNum(row, 'cache_create');
+					}
+
+					// Also try series format (API mode)
+					const hcSeries = hcResult?.data?.series || [];
+					for (const point of hcSeries) {
+						if (!point.time) continue;
+						const dateStr = point.time.split('T')[0];
+						if (!hcByDate[dateStr]) {
+							hcByDate[dateStr] = { cost: 0, input: 0, output: 0, cache: 0 };
+						}
+						hcByDate[dateStr].cost += extractNum(point.data, 'cost');
+						hcByDate[dateStr].input += extractNum(point.data, 'input');
+						hcByDate[dateStr].output += extractNum(point.data, 'output');
+						hcByDate[dateStr].cache += extractNum(point.data, 'cache_create');
+					}
+
+					// If primary query returned no usable data, fall through to aggregate
+					if (Object.keys(hcByDate).length === 0) {
+						console.warn(
+							'[DatasourceComparisonTab] Per-day query returned no parseable results, falling back to aggregate'
+						);
+						primaryFailed = true;
+					}
+				} catch (err) {
+					console.warn(
+						'[DatasourceComparisonTab] Per-day HC query failed, trying aggregate fallback:',
+						err
+					);
+					primaryFailed = true;
+				}
+
+				// Attempt 2: Aggregate fallback — single total row
+				if (primaryFailed) {
+					try {
+						const fallbackResult = (await window.maestro.honeycomb.query(
+							{
+								calculations: [
+									{ op: 'SUM', column: 'cost_usd', name: 'cost' },
+									{ op: 'SUM', column: 'input_tokens', name: 'input' },
+									{ op: 'SUM', column: 'output_tokens', name: 'output' },
+									{ op: 'SUM', column: 'cache_creation_tokens', name: 'cache_create' },
+								],
+								time_range: seconds,
+							},
+							{ ttlMs: 120000, label: `divergence-aggregate-${timeRange}` }
+						)) as { data?: { results?: Array<Record<string, unknown>> } };
+
+						const aggRow = fallbackResult?.data?.results?.[0];
+						if (aggRow) {
+							const localDates = Object.keys(localCostByDate).sort();
+							if (localDates.length > 0) {
+								// Show one row labeled "Total" with aggregate values
+								hcByDate['Total'] = {
+									cost: extractNum(aggRow, 'cost'),
+									input: extractNum(aggRow, 'input'),
+									output: extractNum(aggRow, 'output'),
+									cache: extractNum(aggRow, 'cache_create'),
+								};
+								// Replace localCostByDate with a single Total row too
+								const totalLocalCost = Object.values(localCostByDate).reduce(
+									(sum, v) => sum + v,
+									0
+								);
+								for (const key of Object.keys(localCostByDate)) {
+									delete localCostByDate[key];
+								}
+								localCostByDate['Total'] = totalLocalCost;
+							}
+						}
+					} catch (fallbackErr) {
+						console.warn('[DatasourceComparisonTab] Aggregate fallback also failed:', fallbackErr);
+					}
+				}
+
 				// Get all unique dates from both sources
 				const allDates = [
-					...new Set([...Object.keys(hcCostByDate), ...Object.keys(localCostByDate)]),
+					...new Set([...Object.keys(hcByDate), ...Object.keys(localCostByDate)]),
 				].sort();
 
-				// Build divergence rows
+				// Build divergence rows with real cost deltas
 				const rows: DivergenceRow[] = allDates.map((date) => {
 					const localCost = localCostByDate[date] ?? 0;
-					const hcCost = hcCostByDate[date] ?? 0;
+					const hcData = hcByDate[date] ?? { cost: 0, input: 0, output: 0, cache: 0 };
+					const hcCost = hcData.cost;
 					const deltaCost = localCost - hcCost;
-					const deltaPct = hcCost > 0 ? (deltaCost / hcCost) * 100 : 0;
-
+					const deltaPct = hcCost > 0 ? (deltaCost / hcCost) * 100 : localCost > 0 ? 100 : 0;
+					// Compute token delta: sum of all HC token types vs local (cost-based proxy)
+					const hcTotalTokens = hcData.input + hcData.output + hcData.cache;
 					return {
 						period: date,
 						localCostUsd: localCost,
 						honeycombCostUsd: hcCost,
-						deltaTokens: 0, // Archive stores cost, not tokens
+						deltaTokens: Math.round(hcTotalTokens), // Show HC token count as reference
 						deltaPct,
 					};
 				});
@@ -141,7 +272,80 @@ export function DatasourceComparisonTab({
 		}
 
 		computeDivergence();
-	}, []);
+	}, [timeRange]);
+
+	// Time-range-specific Honeycomb data for Summary Cards
+	const [timeRangeHcData, setTimeRangeHcData] = useState<{
+		costUsd: number;
+		billableTokens: number;
+		inputTokens: number;
+		outputTokens: number;
+		cacheCreationTokens: number;
+	} | null>(null);
+	const [_timeRangeHcLoading, setTimeRangeHcLoading] = useState(false);
+
+	// Fetch Honeycomb data matching the selected time range for Summary Cards
+	useEffect(() => {
+		async function fetchTimeRangeHcData() {
+			// Map time range to seconds
+			const timeRangeSeconds: Record<string, number> = {
+				day: 86400, // 24 hours
+				week: 604800, // 7 days
+				month: 2592000, // 30 days
+				year: 31536000, // 365 days
+				all: 31536000, // cap at 1 year for "all"
+			};
+			const seconds = timeRangeSeconds[timeRange] || 604800;
+
+			setTimeRangeHcLoading(true);
+			try {
+				const result = (await window.maestro.honeycomb.query(
+					{
+						calculations: [
+							{ op: 'SUM', column: 'cost_usd', name: 'total_cost' },
+							{ op: 'SUM', column: 'input_tokens', name: 'input' },
+							{ op: 'SUM', column: 'output_tokens', name: 'output' },
+							{ op: 'SUM', column: 'cache_creation_tokens', name: 'cache_create' },
+						],
+						time_range: seconds,
+					},
+					{ ttlMs: 60000, label: `summary-${timeRange}` }
+				)) as { data?: { results?: Array<Record<string, unknown>> } };
+
+				const row = result?.data?.results?.[0] || {};
+				const extractNum = (key: string): number => {
+					const v = row[key];
+					if (typeof v === 'number') return v;
+					if (typeof v === 'string') return parseFloat(v) || 0;
+					return 0;
+				};
+
+				setTimeRangeHcData({
+					costUsd: extractNum('total_cost'),
+					billableTokens: extractNum('input') + extractNum('output') + extractNum('cache_create'),
+					inputTokens: extractNum('input'),
+					outputTokens: extractNum('output'),
+					cacheCreationTokens: extractNum('cache_create'),
+				});
+			} catch (err) {
+				console.warn('[DatasourceComparisonTab] Failed to fetch time-range HC data:', err);
+				// Fall back to weekly data from the usage service
+				if (honeycombUsageData) {
+					setTimeRangeHcData({
+						costUsd: honeycombUsageData.weeklySpendUsd,
+						billableTokens: honeycombUsageData.weeklyBillableTokens,
+						inputTokens: (honeycombUsageData as any).weeklyInputTokens ?? 0,
+						outputTokens: (honeycombUsageData as any).weeklyOutputTokens ?? 0,
+						cacheCreationTokens: (honeycombUsageData as any).weeklyCacheCreationTokens ?? 0,
+					});
+				}
+			} finally {
+				setTimeRangeHcLoading(false);
+			}
+		}
+
+		fetchTimeRangeHcData();
+	}, [timeRange, honeycombUsageData]);
 
 	const handleRefresh = useCallback(() => {
 		if (!onRefresh || isRefreshing) return;
@@ -150,27 +354,35 @@ export function DatasourceComparisonTab({
 		setTimeout(() => setIsRefreshing(false), 3000);
 	}, [onRefresh, isRefreshing]);
 
-	// Build summary data
-	const summaryData: DatasourceSummaryData | null = honeycombUsageData
-		? {
-				localCostUsd,
-				localBillableTokens,
-				honeycombCostUsd: honeycombUsageData.weeklySpendUsd,
-				honeycombBillableTokens: honeycombUsageData.weeklyBillableTokens,
-				calibrationPointCount: calibration.calibrationPoints.length,
-				calibrationConfidencePct: Math.max(
-					calibration.currentEstimates.fiveHour.confidencePct,
-					calibration.currentEstimates.weekly.confidencePct
-				),
-				flushState: 'stale',
-			}
-		: null;
+	// Build summary data — use time-range-specific HC data if available, else fall back to weekly
+	const summaryData: DatasourceSummaryData | null =
+		timeRangeHcData || honeycombUsageData
+			? {
+					localCostUsd,
+					localBillableTokens,
+					honeycombCostUsd: timeRangeHcData?.costUsd ?? honeycombUsageData?.weeklySpendUsd ?? 0,
+					honeycombBillableTokens:
+						timeRangeHcData?.billableTokens ?? honeycombUsageData?.weeklyBillableTokens ?? 0,
+					calibrationPointCount: calibration.calibrationPoints.length,
+					calibrationConfidencePct: Math.max(
+						calibration.currentEstimates.fiveHour.confidencePct,
+						calibration.currentEstimates.weekly.confidencePct
+					),
+					// Per-type token breakdown for tooltips
+					localInputTokens: localInputTokens,
+					localOutputTokens: localOutputTokens,
+					localCacheCreationTokens: localCacheCreationTokens,
+					honeycombInputTokens: timeRangeHcData?.inputTokens ?? 0,
+					honeycombOutputTokens: timeRangeHcData?.outputTokens ?? 0,
+					honeycombCacheCreationTokens: timeRangeHcData?.cacheCreationTokens ?? 0,
+				}
+			: null;
 
 	// Build budget data
 	const fiveHourBudget: BudgetWindowData | null =
 		calibration.currentEstimates.fiveHour.weightedMean > 0
 			? {
-					localTokens: localBillableTokens,
+					localTokens: localBillableTokensFixed ?? localBillableTokens,
 					honeycombTokens: honeycombUsageData?.fiveHourBillableTokens ?? 0,
 					calibratedBudget: calibration.currentEstimates.fiveHour.weightedMean,
 					resetLabel: calibration.fiveHourWindowResetAnchorUtc
@@ -192,10 +404,23 @@ export function DatasourceComparisonTab({
 	const weeklyBudget: BudgetWindowData | null =
 		calibration.currentEstimates.weekly.weightedMean > 0
 			? {
-					localTokens: localBillableTokens,
+					localTokens: localBillableTokensFixed ?? localBillableTokens,
 					honeycombTokens: honeycombUsageData?.weeklyBillableTokens ?? 0,
 					calibratedBudget: calibration.currentEstimates.weekly.weightedMean,
 					resetLabel: `Resets: ${calibration.weeklyResetDay} ${calibration.weeklyResetTime}`,
+				}
+			: null;
+
+	const sonnetWeeklyEstimate = (calibration.currentEstimates as any).sonnetWeekly || {
+		weightedMean: 0,
+	};
+	const sonnetWeeklyBudget: BudgetWindowData | null =
+		sonnetWeeklyEstimate.weightedMean > 0
+			? {
+					localTokens: localBillableTokensFixed ?? localBillableTokens,
+					honeycombTokens: honeycombUsageData?.sonnetWeeklyBillableTokens ?? 0,
+					calibratedBudget: sonnetWeeklyEstimate.weightedMean,
+					resetLabel: `Resets: ${calibration.sonnetResetDay || 'Sunday'} ${calibration.sonnetResetTime || '10:00'}`,
 				}
 			: null;
 
@@ -269,7 +494,12 @@ export function DatasourceComparisonTab({
 							</span>
 						)}
 					</div>
-					<PlanBudgetTracker theme={theme} fiveHour={fiveHourBudget} weekly={weeklyBudget} />
+					<PlanBudgetTracker
+						theme={theme}
+						fiveHour={fiveHourBudget}
+						weekly={weeklyBudget}
+						sonnetWeekly={sonnetWeeklyBudget}
+					/>
 				</div>
 
 				<div

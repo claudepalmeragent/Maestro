@@ -15,7 +15,7 @@ import { createPortal } from 'react-dom';
 import { X, Download } from 'lucide-react';
 import type { Theme } from '../types';
 import type { PlanCalibration, CalibrationPoint, BudgetEstimate } from '../types';
-import { formatTokenCount, exportCalibrationCsv } from '../utils/calibration';
+import { formatTokenCount, exportCalibrationCsv, recencyMultiplier } from '../utils/calibration';
 
 export interface CalibrationHistoryModalProps {
 	theme: Theme;
@@ -39,6 +39,11 @@ export function CalibrationHistoryModal({
 
 	const weeklyPoints = useMemo(
 		() => calibration.calibrationPoints.filter((p) => p.window === 'weekly'),
+		[calibration.calibrationPoints]
+	);
+
+	const sonnetWeeklyPoints = useMemo(
+		() => calibration.calibrationPoints.filter((p) => p.window === 'sonnet-weekly'),
 		[calibration.calibrationPoints]
 	);
 
@@ -119,6 +124,22 @@ export function CalibrationHistoryModal({
 						points={weeklyPoints}
 					/>
 
+					{/* Sonnet-Only Section */}
+					<ConvergenceSection
+						theme={theme}
+						title="Sonnet-Only Budget Estimate"
+						estimate={
+							(calibration.currentEstimates as any).sonnetWeekly || {
+								weightedMean: 0,
+								standardDeviation: 0,
+								confidencePct: 0,
+								activePoints: 0,
+								totalPoints: 0,
+							}
+						}
+						points={sonnetWeeklyPoints}
+					/>
+
 					{/* All Points Table */}
 					{calibration.calibrationPoints.length > 0 && (
 						<div>
@@ -136,7 +157,8 @@ export function CalibrationHistoryModal({
 												'Usage %',
 												'Billable',
 												'Derived Budget',
-												'Weight',
+												'Quality',
+												'Contribution',
 												'Status',
 											].map((h) => (
 												<th
@@ -150,62 +172,129 @@ export function CalibrationHistoryModal({
 										</tr>
 									</thead>
 									<tbody>
-										{calibration.calibrationPoints.map((point) => (
-											<tr
-												key={`${point.window}-${point.id}`}
-												style={{
-													borderBottom: `1px solid ${theme.colors.border}`,
-													opacity: point.isOutlier ? 0.5 : 1,
-												}}
-											>
-												<td className="px-2 py-1.5" style={{ color: theme.colors.textMain }}>
-													{point.id}
-												</td>
-												<td className="px-2 py-1.5" style={{ color: theme.colors.textMain }}>
-													{new Date(point.timestamp).toLocaleDateString()}
-												</td>
-												<td className="px-2 py-1.5" style={{ color: theme.colors.textMain }}>
-													{point.window}
-												</td>
-												<td
-													className="px-2 py-1.5 font-mono"
-													style={{ color: theme.colors.textMain }}
-												>
-													{point.claudeUsagePct}%
-												</td>
-												<td
-													className="px-2 py-1.5 font-mono"
-													style={{ color: theme.colors.textMain }}
-												>
-													{formatTokenCount(point.honeycombBillableTokens)}
-												</td>
-												<td
-													className="px-2 py-1.5 font-mono"
-													style={{ color: theme.colors.textMain }}
-												>
-													{formatTokenCount(point.derivedBudget)}
-												</td>
-												<td
-													className="px-2 py-1.5 font-mono"
-													style={{ color: theme.colors.textMain }}
-												>
-													{point.weight.toFixed(2)}
-												</td>
-												<td className="px-2 py-1.5">
-													<span
-														className="px-1.5 py-0.5 rounded text-xs"
+										{(() => {
+											// Pre-compute normalized contribution weights per window
+											const windowGroups: Record<
+												string,
+												{ points: typeof calibration.calibrationPoints; newestTs: string }
+											> = {};
+											for (const p of calibration.calibrationPoints) {
+												if (!windowGroups[p.window]) {
+													windowGroups[p.window] = { points: [], newestTs: p.timestamp };
+												}
+												windowGroups[p.window].points.push(p);
+												if (p.timestamp > windowGroups[p.window].newestTs) {
+													windowGroups[p.window].newestTs = p.timestamp;
+												}
+											}
+
+											const contributionMap = new Map<string, number | null>();
+											for (const [, group] of Object.entries(windowGroups)) {
+												const allOutliers = group.points.every((p) => p.isOutlier);
+												const contributing = allOutliers
+													? group.points
+													: group.points.filter((p) => !p.isOutlier);
+												const sumEffective = contributing.reduce(
+													(sum, p) =>
+														sum + p.weight * recencyMultiplier(p.timestamp, group.newestTs),
+													0
+												);
+
+												for (const p of group.points) {
+													const ew = p.weight * recencyMultiplier(p.timestamp, group.newestTs);
+													const key = `${p.window}-${p.id}`;
+													if (p.isOutlier && !allOutliers) {
+														contributionMap.set(key, null);
+													} else {
+														contributionMap.set(key, sumEffective > 0 ? ew / sumEffective : 0);
+													}
+												}
+											}
+
+											return calibration.calibrationPoints.map((point) => {
+												const key = `${point.window}-${point.id}`;
+												const contribution = contributionMap.get(key) ?? null;
+
+												return (
+													<tr
+														key={key}
 														style={{
-															backgroundColor: point.isOutlier
-																? 'rgba(239,68,68,0.15)'
-																: 'rgba(34,197,94,0.15)',
-															color: point.isOutlier ? '#ef4444' : '#22c55e',
+															borderBottom: `1px solid ${theme.colors.border}`,
+															opacity: point.isOutlier ? 0.5 : 1,
 														}}
 													>
-														{point.isOutlier ? 'Outlier' : 'Active'}
-													</span>
-												</td>
-											</tr>
-										))}
+														<td className="px-2 py-1.5" style={{ color: theme.colors.textMain }}>
+															{point.id}
+														</td>
+														<td className="px-2 py-1.5" style={{ color: theme.colors.textMain }}>
+															{new Date(point.timestamp).toLocaleDateString()}
+														</td>
+														<td className="px-2 py-1.5" style={{ color: theme.colors.textMain }}>
+															{point.window}
+														</td>
+														<td
+															className="px-2 py-1.5 font-mono"
+															style={{ color: theme.colors.textMain }}
+														>
+															{point.claudeUsagePct}%
+														</td>
+														<td
+															className="px-2 py-1.5 font-mono"
+															style={{ color: theme.colors.textMain }}
+														>
+															{formatTokenCount(point.honeycombBillableTokens)}
+														</td>
+														<td
+															className="px-2 py-1.5 font-mono"
+															style={{ color: theme.colors.textMain }}
+														>
+															{formatTokenCount(point.derivedBudget)}
+														</td>
+														<td
+															className="px-2 py-1.5 font-mono"
+															style={{ color: theme.colors.textMain }}
+														>
+															{point.weight.toFixed(2)}
+														</td>
+														<td
+															className="px-2 py-1.5 font-mono"
+															style={{
+																color:
+																	contribution === null
+																		? theme.colors.textDim
+																		: contribution! > 0.05
+																			? '#22c55e'
+																			: contribution! > 0.02
+																				? theme.colors.textMain
+																				: theme.colors.textDim,
+																fontWeight:
+																	contribution !== null && contribution! > 0.05 ? 600 : 400,
+															}}
+															title={
+																contribution !== null
+																	? `This point contributes ${(contribution! * 100).toFixed(1)}% of the ${point.window} budget estimate`
+																	: 'Excluded from estimate (outlier)'
+															}
+														>
+															{contribution !== null ? `${(contribution * 100).toFixed(1)}%` : '—'}
+														</td>
+														<td className="px-2 py-1.5">
+															<span
+																className="px-1.5 py-0.5 rounded text-xs"
+																style={{
+																	backgroundColor: point.isOutlier
+																		? 'rgba(239,68,68,0.15)'
+																		: 'rgba(34,197,94,0.15)',
+																	color: point.isOutlier ? '#ef4444' : '#22c55e',
+																}}
+															>
+																{point.isOutlier ? 'Outlier' : 'Active'}
+															</span>
+														</td>
+													</tr>
+												);
+											});
+										})()}
 									</tbody>
 								</table>
 							</div>

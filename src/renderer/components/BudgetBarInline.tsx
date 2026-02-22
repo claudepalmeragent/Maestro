@@ -14,6 +14,9 @@ interface BudgetBarInlineProps {
 	fiveHourBudget: number;
 	weeklyTokens: number;
 	weeklyBudget: number;
+	sonnetWeeklyTokens: number;
+	sonnetWeeklyBudget: number;
+	onClick?: () => void;
 }
 
 function MiniBar({ theme, label, pct }: { theme: Theme; label: string; pct: number }) {
@@ -51,18 +54,48 @@ export function BudgetBarInline({
 	fiveHourBudget,
 	weeklyTokens,
 	weeklyBudget,
+	sonnetWeeklyTokens,
+	sonnetWeeklyBudget,
+	onClick,
 }: BudgetBarInlineProps) {
 	// Self-hide when no calibration exists
-	if (fiveHourBudget <= 0 && weeklyBudget <= 0) return null;
+	if (fiveHourBudget <= 0 && weeklyBudget <= 0 && sonnetWeeklyBudget <= 0) return null;
 
 	const fiveHourPct =
 		fiveHourBudget > 0 ? Math.min(100, (fiveHourTokens / fiveHourBudget) * 100) : 0;
 	const weeklyPct = weeklyBudget > 0 ? Math.min(100, (weeklyTokens / weeklyBudget) * 100) : 0;
 
 	return (
-		<div className="flex items-center gap-3 ml-auto">
+		<div
+			className="flex items-center gap-3 ml-auto cursor-pointer hover:opacity-80 transition-opacity rounded px-1 -mx-1"
+			onClick={onClick}
+			title="Click to open Usage Dashboard"
+			role="button"
+			tabIndex={onClick ? 0 : undefined}
+			onKeyDown={
+				onClick
+					? (e) => {
+							if (e.key === 'Enter' || e.key === ' ') {
+								e.preventDefault();
+								onClick();
+							}
+						}
+					: undefined
+			}
+		>
 			{fiveHourBudget > 0 && <MiniBar theme={theme} label="5hr" pct={fiveHourPct} />}
 			{weeklyBudget > 0 && <MiniBar theme={theme} label="Wk" pct={weeklyPct} />}
+			{sonnetWeeklyBudget > 0 && (
+				<MiniBar
+					theme={theme}
+					label="Son"
+					pct={
+						sonnetWeeklyBudget > 0
+							? Math.min(100, (sonnetWeeklyTokens / sonnetWeeklyBudget) * 100)
+							: 0
+					}
+				/>
+			)}
 		</div>
 	);
 }

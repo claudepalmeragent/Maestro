@@ -2951,7 +2951,7 @@ interface MaestroAPI {
 		) => Promise<{ success: boolean; error?: string }>;
 		autoDiscoverEnv: () => Promise<string | null>;
 		getDataSourceMode: () => Promise<string>;
-		capacityCheck: () => Promise<unknown>;
+		capacityCheck: (task: unknown) => Promise<unknown>;
 		getArchiveState: () => Promise<unknown>;
 		archiveNow: () => Promise<unknown>;
 		isArchiveRunning: () => Promise<boolean>;

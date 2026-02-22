@@ -44,6 +44,7 @@ export interface HoneycombQuerySpec {
 	orders?: Array<{ column?: string; op?: string; order?: string }>;
 	filter_combination?: 'AND' | 'OR';
 	formulas?: Array<{ name: string; expression: string }>;
+	calculated_fields?: Array<{ name: string; expression: string }>;
 }
 
 /** Result from a Honeycomb query */

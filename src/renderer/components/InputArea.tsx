@@ -278,7 +278,7 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 
 	// Honeycomb usage data for spend warning sash and budget bars
 	const { data: honeycombUsageData, isConfigured: honeycombConfigured } = useHoneycombUsage();
-	const { planCalibration } = useSettings();
+	const { planCalibration, honeycombWarningSettings } = useSettings();
 	const { setUsageDashboardOpen, setUsageDashboardInitialTab } = useModalContext();
 
 	// PERF: Memoize activeTab lookup to avoid O(n) search on every render
@@ -596,6 +596,14 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 							fiveHourBudget={planCalibration?.currentEstimates?.fiveHour?.weightedMean ?? 0}
 							weeklyTokens={honeycombUsageData?.weeklyBillableTokens ?? 0}
 							weeklyBudget={planCalibration?.currentEstimates?.weekly?.weightedMean ?? 0}
+							sonnetWeeklyTokens={honeycombUsageData?.sonnetWeeklyBillableTokens ?? 0}
+							sonnetWeeklyBudget={
+								(planCalibration?.currentEstimates as any)?.sonnetWeekly?.weightedMean ?? 0
+							}
+							onClick={() => {
+								setUsageDashboardInitialTab('dscomparison');
+								setUsageDashboardOpen(true);
+							}}
 						/>
 					)}
 				</div>
@@ -1256,11 +1264,18 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 						<HoneycombWarningSash
 							theme={theme}
 							usageData={honeycombUsageData}
-							enabled={true}
-							fiveHourYellowUsd={40}
-							fiveHourRedUsd={60}
-							weeklyYellowUsd={400}
-							weeklyRedUsd={500}
+							enabled={honeycombWarningSettings?.honeycombWarningsEnabled ?? true}
+							fiveHourYellowUsd={honeycombWarningSettings?.fiveHourWarningYellowUsd ?? 40}
+							fiveHourRedUsd={honeycombWarningSettings?.fiveHourWarningRedUsd ?? 60}
+							weeklyYellowUsd={honeycombWarningSettings?.weeklyWarningYellowUsd ?? 400}
+							weeklyRedUsd={honeycombWarningSettings?.weeklyWarningRedUsd ?? 500}
+							fiveHourYellowPct={honeycombWarningSettings?.fiveHourWarningYellowPct ?? 60}
+							fiveHourRedPct={honeycombWarningSettings?.fiveHourWarningRedPct ?? 85}
+							weeklyYellowPct={honeycombWarningSettings?.weeklyWarningYellowPct ?? 70}
+							weeklyRedPct={honeycombWarningSettings?.weeklyWarningRedPct ?? 90}
+							warningMode={honeycombWarningSettings?.warningMode ?? 'both'}
+							fiveHourBudgetTokens={planCalibration?.currentEstimates?.fiveHour?.weightedMean ?? 0}
+							weeklyBudgetTokens={planCalibration?.currentEstimates?.weekly?.weightedMean ?? 0}
 							tabId={session.activeTabId}
 							onViewUsageDashboard={() => {
 								setUsageDashboardInitialTab('dscomparison');

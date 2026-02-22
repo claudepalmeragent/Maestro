@@ -352,7 +352,9 @@ export function HoneycombSettingsSection({
 								backgroundColor:
 									settings.warningMode === mode ? theme.colors.accent : 'transparent',
 								color:
-									settings.warningMode === mode ? theme.colors.accentText : theme.colors.textDim,
+									settings.warningMode === mode
+										? theme.colors.accentForeground
+										: theme.colors.textDim,
 								borderColor:
 									settings.warningMode === mode ? theme.colors.accent : theme.colors.border,
 							}}
@@ -370,192 +372,398 @@ export function HoneycombSettingsSection({
 			</div>
 
 			{/* ── 5-Hour Window USD Thresholds ── */}
-			<div
-				className="space-y-3 pt-3 border-t"
-				style={{ borderColor: theme.colors.border, ...disabledStyle }}
-			>
-				<div className="text-xs font-semibold" style={{ color: theme.colors.textMain }}>
-					5-Hour Window (USD)
-				</div>
-
-				{/* Yellow slider */}
-				<div>
-					<div className="flex items-center justify-between mb-1">
-						<label className="text-xs font-medium flex items-center gap-2">
-							<div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: '#eab308' }} />
-							Warning
-						</label>
-						<span
-							className="text-xs font-mono px-2 py-0.5 rounded"
-							style={{ backgroundColor: theme.colors.bgActivity, color: theme.colors.textMain }}
-						>
-							${settings.fiveHourWarningYellowUsd}
-						</span>
+			{settings.warningMode !== 'percentage' && (
+				<div
+					className="space-y-3 pt-3 border-t"
+					style={{ borderColor: theme.colors.border, ...disabledStyle }}
+				>
+					<div className="text-xs font-semibold" style={{ color: theme.colors.textMain }}>
+						5-Hour Window (USD)
 					</div>
-					<input
-						type="range"
-						min={10}
-						max={80}
-						step={5}
-						value={settings.fiveHourWarningYellowUsd}
-						onChange={(e) => {
-							const newYellow = Number(e.target.value);
-							if (newYellow >= settings.fiveHourWarningRedUsd) {
-								onUpdate({
-									fiveHourWarningYellowUsd: newYellow,
-									fiveHourWarningRedUsd: Math.min(100, newYellow + 10),
-								});
-							} else {
-								onUpdate({ fiveHourWarningYellowUsd: newYellow });
-							}
-						}}
-						className="w-full h-2 rounded-lg appearance-none cursor-pointer"
-						style={{
-							background: `linear-gradient(to right, #eab308 0%, #eab308 ${
-								((settings.fiveHourWarningYellowUsd - 10) / 70) * 100
-							}%, ${theme.colors.bgActivity} ${
-								((settings.fiveHourWarningYellowUsd - 10) / 70) * 100
-							}%, ${theme.colors.bgActivity} 100%)`,
-						}}
-					/>
-				</div>
 
-				{/* Red slider */}
-				<div>
-					<div className="flex items-center justify-between mb-1">
-						<label className="text-xs font-medium flex items-center gap-2">
-							<div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: '#ef4444' }} />
-							Critical
-						</label>
-						<span
-							className="text-xs font-mono px-2 py-0.5 rounded"
-							style={{ backgroundColor: theme.colors.bgActivity, color: theme.colors.textMain }}
-						>
-							${settings.fiveHourWarningRedUsd}
-						</span>
+					{/* Yellow slider */}
+					<div>
+						<div className="flex items-center justify-between mb-1">
+							<label className="text-xs font-medium flex items-center gap-2">
+								<div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: '#eab308' }} />
+								Warning
+							</label>
+							<span
+								className="text-xs font-mono px-2 py-0.5 rounded"
+								style={{ backgroundColor: theme.colors.bgActivity, color: theme.colors.textMain }}
+							>
+								${settings.fiveHourWarningYellowUsd}
+							</span>
+						</div>
+						<input
+							type="range"
+							min={10}
+							max={80}
+							step={5}
+							value={settings.fiveHourWarningYellowUsd}
+							onChange={(e) => {
+								const newYellow = Number(e.target.value);
+								if (newYellow >= settings.fiveHourWarningRedUsd) {
+									onUpdate({
+										fiveHourWarningYellowUsd: newYellow,
+										fiveHourWarningRedUsd: Math.min(100, newYellow + 10),
+									});
+								} else {
+									onUpdate({ fiveHourWarningYellowUsd: newYellow });
+								}
+							}}
+							className="w-full h-2 rounded-lg appearance-none cursor-pointer"
+							style={{
+								background: `linear-gradient(to right, #eab308 0%, #eab308 ${
+									((settings.fiveHourWarningYellowUsd - 10) / 70) * 100
+								}%, ${theme.colors.bgActivity} ${
+									((settings.fiveHourWarningYellowUsd - 10) / 70) * 100
+								}%, ${theme.colors.bgActivity} 100%)`,
+							}}
+						/>
 					</div>
-					<input
-						type="range"
-						min={20}
-						max={100}
-						step={5}
-						value={settings.fiveHourWarningRedUsd}
-						onChange={(e) => {
-							const newRed = Number(e.target.value);
-							if (newRed <= settings.fiveHourWarningYellowUsd) {
-								onUpdate({
-									fiveHourWarningRedUsd: newRed,
-									fiveHourWarningYellowUsd: Math.max(10, newRed - 10),
-								});
-							} else {
-								onUpdate({ fiveHourWarningRedUsd: newRed });
-							}
-						}}
-						className="w-full h-2 rounded-lg appearance-none cursor-pointer"
-						style={{
-							background: `linear-gradient(to right, #ef4444 0%, #ef4444 ${
-								((settings.fiveHourWarningRedUsd - 20) / 80) * 100
-							}%, ${theme.colors.bgActivity} ${
-								((settings.fiveHourWarningRedUsd - 20) / 80) * 100
-							}%, ${theme.colors.bgActivity} 100%)`,
-						}}
-					/>
+
+					{/* Red slider */}
+					<div>
+						<div className="flex items-center justify-between mb-1">
+							<label className="text-xs font-medium flex items-center gap-2">
+								<div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: '#ef4444' }} />
+								Critical
+							</label>
+							<span
+								className="text-xs font-mono px-2 py-0.5 rounded"
+								style={{ backgroundColor: theme.colors.bgActivity, color: theme.colors.textMain }}
+							>
+								${settings.fiveHourWarningRedUsd}
+							</span>
+						</div>
+						<input
+							type="range"
+							min={20}
+							max={100}
+							step={5}
+							value={settings.fiveHourWarningRedUsd}
+							onChange={(e) => {
+								const newRed = Number(e.target.value);
+								if (newRed <= settings.fiveHourWarningYellowUsd) {
+									onUpdate({
+										fiveHourWarningRedUsd: newRed,
+										fiveHourWarningYellowUsd: Math.max(10, newRed - 10),
+									});
+								} else {
+									onUpdate({ fiveHourWarningRedUsd: newRed });
+								}
+							}}
+							className="w-full h-2 rounded-lg appearance-none cursor-pointer"
+							style={{
+								background: `linear-gradient(to right, #ef4444 0%, #ef4444 ${
+									((settings.fiveHourWarningRedUsd - 20) / 80) * 100
+								}%, ${theme.colors.bgActivity} ${
+									((settings.fiveHourWarningRedUsd - 20) / 80) * 100
+								}%, ${theme.colors.bgActivity} 100%)`,
+							}}
+						/>
+					</div>
 				</div>
-			</div>
+			)}
+
+			{/* ── 5-Hour Window Percentage Thresholds ── */}
+			{settings.warningMode !== 'usd' && (
+				<div
+					className="space-y-3 pt-3 border-t"
+					style={{ borderColor: theme.colors.border, ...disabledStyle }}
+				>
+					<div className="text-xs font-semibold" style={{ color: theme.colors.textMain }}>
+						5-Hour Window (% of Budget)
+						{!hasCalibrationData && (
+							<span className="text-xs font-normal ml-2" style={{ color: theme.colors.warning }}>
+								Requires calibration
+							</span>
+						)}
+					</div>
+
+					{/* Yellow slider */}
+					<div>
+						<div className="flex items-center justify-between mb-1">
+							<label className="text-xs font-medium flex items-center gap-2">
+								<div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: '#eab308' }} />
+								Warning
+							</label>
+							<span
+								className="text-xs font-mono px-2 py-0.5 rounded"
+								style={{ backgroundColor: theme.colors.bgActivity, color: theme.colors.textMain }}
+							>
+								{settings.fiveHourWarningYellowPct}%
+							</span>
+						</div>
+						<input
+							type="range"
+							min={30}
+							max={90}
+							step={5}
+							value={settings.fiveHourWarningYellowPct}
+							onChange={(e) => {
+								const newYellow = Number(e.target.value);
+								if (newYellow >= settings.fiveHourWarningRedPct) {
+									onUpdate({
+										fiveHourWarningYellowPct: newYellow,
+										fiveHourWarningRedPct: Math.min(100, newYellow + 5),
+									});
+								} else {
+									onUpdate({ fiveHourWarningYellowPct: newYellow });
+								}
+							}}
+							className="w-full h-2 rounded-lg appearance-none cursor-pointer"
+							style={{
+								background: `linear-gradient(to right, #eab308 0%, #eab308 ${
+									((settings.fiveHourWarningYellowPct - 30) / 60) * 100
+								}%, ${theme.colors.bgActivity} ${
+									((settings.fiveHourWarningYellowPct - 30) / 60) * 100
+								}%, ${theme.colors.bgActivity} 100%)`,
+							}}
+						/>
+					</div>
+
+					{/* Red slider */}
+					<div>
+						<div className="flex items-center justify-between mb-1">
+							<label className="text-xs font-medium flex items-center gap-2">
+								<div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: '#ef4444' }} />
+								Critical
+							</label>
+							<span
+								className="text-xs font-mono px-2 py-0.5 rounded"
+								style={{ backgroundColor: theme.colors.bgActivity, color: theme.colors.textMain }}
+							>
+								{settings.fiveHourWarningRedPct}%
+							</span>
+						</div>
+						<input
+							type="range"
+							min={50}
+							max={100}
+							step={5}
+							value={settings.fiveHourWarningRedPct}
+							onChange={(e) => {
+								const newRed = Number(e.target.value);
+								if (newRed <= settings.fiveHourWarningYellowPct) {
+									onUpdate({
+										fiveHourWarningRedPct: newRed,
+										fiveHourWarningYellowPct: Math.max(30, newRed - 5),
+									});
+								} else {
+									onUpdate({ fiveHourWarningRedPct: newRed });
+								}
+							}}
+							className="w-full h-2 rounded-lg appearance-none cursor-pointer"
+							style={{
+								background: `linear-gradient(to right, #ef4444 0%, #ef4444 ${
+									((settings.fiveHourWarningRedPct - 50) / 50) * 100
+								}%, ${theme.colors.bgActivity} ${
+									((settings.fiveHourWarningRedPct - 50) / 50) * 100
+								}%, ${theme.colors.bgActivity} 100%)`,
+							}}
+						/>
+					</div>
+				</div>
+			)}
 
 			{/* ── Weekly USD Thresholds ── */}
-			<div
-				className="space-y-3 pt-3 border-t"
-				style={{ borderColor: theme.colors.border, ...disabledStyle }}
-			>
-				<div className="text-xs font-semibold" style={{ color: theme.colors.textMain }}>
-					Weekly Spend (USD)
-				</div>
-
-				{/* Yellow slider */}
-				<div>
-					<div className="flex items-center justify-between mb-1">
-						<label className="text-xs font-medium flex items-center gap-2">
-							<div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: '#eab308' }} />
-							Warning
-						</label>
-						<span
-							className="text-xs font-mono px-2 py-0.5 rounded"
-							style={{ backgroundColor: theme.colors.bgActivity, color: theme.colors.textMain }}
-						>
-							${settings.weeklyWarningYellowUsd}
-						</span>
+			{settings.warningMode !== 'percentage' && (
+				<div
+					className="space-y-3 pt-3 border-t"
+					style={{ borderColor: theme.colors.border, ...disabledStyle }}
+				>
+					<div className="text-xs font-semibold" style={{ color: theme.colors.textMain }}>
+						Weekly Spend (USD)
 					</div>
-					<input
-						type="range"
-						min={100}
-						max={800}
-						step={25}
-						value={settings.weeklyWarningYellowUsd}
-						onChange={(e) => {
-							const newYellow = Number(e.target.value);
-							if (newYellow >= settings.weeklyWarningRedUsd) {
-								onUpdate({
-									weeklyWarningYellowUsd: newYellow,
-									weeklyWarningRedUsd: Math.min(1000, newYellow + 50),
-								});
-							} else {
-								onUpdate({ weeklyWarningYellowUsd: newYellow });
-							}
-						}}
-						className="w-full h-2 rounded-lg appearance-none cursor-pointer"
-						style={{
-							background: `linear-gradient(to right, #eab308 0%, #eab308 ${
-								((settings.weeklyWarningYellowUsd - 100) / 700) * 100
-							}%, ${theme.colors.bgActivity} ${
-								((settings.weeklyWarningYellowUsd - 100) / 700) * 100
-							}%, ${theme.colors.bgActivity} 100%)`,
-						}}
-					/>
-				</div>
 
-				{/* Red slider */}
-				<div>
-					<div className="flex items-center justify-between mb-1">
-						<label className="text-xs font-medium flex items-center gap-2">
-							<div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: '#ef4444' }} />
-							Critical
-						</label>
-						<span
-							className="text-xs font-mono px-2 py-0.5 rounded"
-							style={{ backgroundColor: theme.colors.bgActivity, color: theme.colors.textMain }}
-						>
-							${settings.weeklyWarningRedUsd}
-						</span>
+					{/* Yellow slider */}
+					<div>
+						<div className="flex items-center justify-between mb-1">
+							<label className="text-xs font-medium flex items-center gap-2">
+								<div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: '#eab308' }} />
+								Warning
+							</label>
+							<span
+								className="text-xs font-mono px-2 py-0.5 rounded"
+								style={{ backgroundColor: theme.colors.bgActivity, color: theme.colors.textMain }}
+							>
+								${settings.weeklyWarningYellowUsd}
+							</span>
+						</div>
+						<input
+							type="range"
+							min={100}
+							max={800}
+							step={25}
+							value={settings.weeklyWarningYellowUsd}
+							onChange={(e) => {
+								const newYellow = Number(e.target.value);
+								if (newYellow >= settings.weeklyWarningRedUsd) {
+									onUpdate({
+										weeklyWarningYellowUsd: newYellow,
+										weeklyWarningRedUsd: Math.min(1000, newYellow + 50),
+									});
+								} else {
+									onUpdate({ weeklyWarningYellowUsd: newYellow });
+								}
+							}}
+							className="w-full h-2 rounded-lg appearance-none cursor-pointer"
+							style={{
+								background: `linear-gradient(to right, #eab308 0%, #eab308 ${
+									((settings.weeklyWarningYellowUsd - 100) / 700) * 100
+								}%, ${theme.colors.bgActivity} ${
+									((settings.weeklyWarningYellowUsd - 100) / 700) * 100
+								}%, ${theme.colors.bgActivity} 100%)`,
+							}}
+						/>
 					</div>
-					<input
-						type="range"
-						min={200}
-						max={1000}
-						step={25}
-						value={settings.weeklyWarningRedUsd}
-						onChange={(e) => {
-							const newRed = Number(e.target.value);
-							if (newRed <= settings.weeklyWarningYellowUsd) {
-								onUpdate({
-									weeklyWarningRedUsd: newRed,
-									weeklyWarningYellowUsd: Math.max(100, newRed - 50),
-								});
-							} else {
-								onUpdate({ weeklyWarningRedUsd: newRed });
-							}
-						}}
-						className="w-full h-2 rounded-lg appearance-none cursor-pointer"
-						style={{
-							background: `linear-gradient(to right, #ef4444 0%, #ef4444 ${
-								((settings.weeklyWarningRedUsd - 200) / 800) * 100
-							}%, ${theme.colors.bgActivity} ${
-								((settings.weeklyWarningRedUsd - 200) / 800) * 100
-							}%, ${theme.colors.bgActivity} 100%)`,
-						}}
-					/>
+
+					{/* Red slider */}
+					<div>
+						<div className="flex items-center justify-between mb-1">
+							<label className="text-xs font-medium flex items-center gap-2">
+								<div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: '#ef4444' }} />
+								Critical
+							</label>
+							<span
+								className="text-xs font-mono px-2 py-0.5 rounded"
+								style={{ backgroundColor: theme.colors.bgActivity, color: theme.colors.textMain }}
+							>
+								${settings.weeklyWarningRedUsd}
+							</span>
+						</div>
+						<input
+							type="range"
+							min={200}
+							max={1000}
+							step={25}
+							value={settings.weeklyWarningRedUsd}
+							onChange={(e) => {
+								const newRed = Number(e.target.value);
+								if (newRed <= settings.weeklyWarningYellowUsd) {
+									onUpdate({
+										weeklyWarningRedUsd: newRed,
+										weeklyWarningYellowUsd: Math.max(100, newRed - 50),
+									});
+								} else {
+									onUpdate({ weeklyWarningRedUsd: newRed });
+								}
+							}}
+							className="w-full h-2 rounded-lg appearance-none cursor-pointer"
+							style={{
+								background: `linear-gradient(to right, #ef4444 0%, #ef4444 ${
+									((settings.weeklyWarningRedUsd - 200) / 800) * 100
+								}%, ${theme.colors.bgActivity} ${
+									((settings.weeklyWarningRedUsd - 200) / 800) * 100
+								}%, ${theme.colors.bgActivity} 100%)`,
+							}}
+						/>
+					</div>
 				</div>
-			</div>
+			)}
+
+			{/* ── Weekly Percentage Thresholds ── */}
+			{settings.warningMode !== 'usd' && (
+				<div
+					className="space-y-3 pt-3 border-t"
+					style={{ borderColor: theme.colors.border, ...disabledStyle }}
+				>
+					<div className="text-xs font-semibold" style={{ color: theme.colors.textMain }}>
+						Weekly (% of Budget)
+						{!hasCalibrationData && (
+							<span className="text-xs font-normal ml-2" style={{ color: theme.colors.warning }}>
+								Requires calibration
+							</span>
+						)}
+					</div>
+
+					{/* Yellow slider */}
+					<div>
+						<div className="flex items-center justify-between mb-1">
+							<label className="text-xs font-medium flex items-center gap-2">
+								<div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: '#eab308' }} />
+								Warning
+							</label>
+							<span
+								className="text-xs font-mono px-2 py-0.5 rounded"
+								style={{ backgroundColor: theme.colors.bgActivity, color: theme.colors.textMain }}
+							>
+								{settings.weeklyWarningYellowPct}%
+							</span>
+						</div>
+						<input
+							type="range"
+							min={30}
+							max={90}
+							step={5}
+							value={settings.weeklyWarningYellowPct}
+							onChange={(e) => {
+								const newYellow = Number(e.target.value);
+								if (newYellow >= settings.weeklyWarningRedPct) {
+									onUpdate({
+										weeklyWarningYellowPct: newYellow,
+										weeklyWarningRedPct: Math.min(100, newYellow + 5),
+									});
+								} else {
+									onUpdate({ weeklyWarningYellowPct: newYellow });
+								}
+							}}
+							className="w-full h-2 rounded-lg appearance-none cursor-pointer"
+							style={{
+								background: `linear-gradient(to right, #eab308 0%, #eab308 ${
+									((settings.weeklyWarningYellowPct - 30) / 60) * 100
+								}%, ${theme.colors.bgActivity} ${
+									((settings.weeklyWarningYellowPct - 30) / 60) * 100
+								}%, ${theme.colors.bgActivity} 100%)`,
+							}}
+						/>
+					</div>
+
+					{/* Red slider */}
+					<div>
+						<div className="flex items-center justify-between mb-1">
+							<label className="text-xs font-medium flex items-center gap-2">
+								<div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: '#ef4444' }} />
+								Critical
+							</label>
+							<span
+								className="text-xs font-mono px-2 py-0.5 rounded"
+								style={{ backgroundColor: theme.colors.bgActivity, color: theme.colors.textMain }}
+							>
+								{settings.weeklyWarningRedPct}%
+							</span>
+						</div>
+						<input
+							type="range"
+							min={50}
+							max={100}
+							step={5}
+							value={settings.weeklyWarningRedPct}
+							onChange={(e) => {
+								const newRed = Number(e.target.value);
+								if (newRed <= settings.weeklyWarningYellowPct) {
+									onUpdate({
+										weeklyWarningRedPct: newRed,
+										weeklyWarningYellowPct: Math.max(30, newRed - 5),
+									});
+								} else {
+									onUpdate({ weeklyWarningRedPct: newRed });
+								}
+							}}
+							className="w-full h-2 rounded-lg appearance-none cursor-pointer"
+							style={{
+								background: `linear-gradient(to right, #ef4444 0%, #ef4444 ${
+									((settings.weeklyWarningRedPct - 50) / 50) * 100
+								}%, ${theme.colors.bgActivity} ${
+									((settings.weeklyWarningRedPct - 50) / 50) * 100
+								}%, ${theme.colors.bgActivity} 100%)`,
+							}}
+						/>
+					</div>
+				</div>
+			)}
 
 			{/* ── Monthly Sessions ── */}
 			<div

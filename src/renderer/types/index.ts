@@ -959,7 +959,7 @@ export interface ContextManagementSettings {
 export interface CalibrationPoint {
 	id: number;
 	timestamp: string;
-	window: '5hr' | 'weekly';
+	window: '5hr' | 'weekly' | 'sonnet-weekly';
 	claudeUsagePct: number;
 	honeycombBillableTokens: number;
 	derivedBudget: number;
@@ -981,12 +981,16 @@ export interface PlanCalibration {
 	currentEstimates: {
 		fiveHour: BudgetEstimate;
 		weekly: BudgetEstimate;
+		sonnetWeekly: BudgetEstimate;
 	};
 	weeklyResetDay: string;
 	weeklyResetTime: string;
 	weeklyResetTimezone: string;
 	lastCalibratedAt: string;
 	fiveHourWindowResetAnchorUtc?: string;
+	sonnetResetDay: string;
+	sonnetResetTime: string;
+	sonnetResetTimezone: string;
 }
 
 /** Knowledge Graph entry for storing session learnings */

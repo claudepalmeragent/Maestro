@@ -410,11 +410,12 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 	const { data: honeycombUsageDataForCalibration } = useHoneycombUsage();
 
 	const getHoneycombBillableTokens = useCallback(
-		async (window: '5hr' | 'weekly'): Promise<number> => {
+		async (window: '5hr' | 'weekly' | 'sonnet-weekly'): Promise<number> => {
 			if (!honeycombUsageDataForCalibration) throw new Error('Honeycomb data not available');
-			return window === '5hr'
-				? honeycombUsageDataForCalibration.fiveHourBillableTokens
-				: honeycombUsageDataForCalibration.weeklyBillableTokens;
+			if (window === '5hr') return honeycombUsageDataForCalibration.fiveHourBillableTokens;
+			if (window === 'sonnet-weekly')
+				return honeycombUsageDataForCalibration.sonnetWeeklyBillableTokens;
+			return honeycombUsageDataForCalibration.weeklyBillableTokens;
 		},
 		[honeycombUsageDataForCalibration]
 	);

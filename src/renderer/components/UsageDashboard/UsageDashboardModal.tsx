@@ -157,16 +157,22 @@ export function UsageDashboardModal({
 	);
 
 	const getHoneycombBillableTokens = useCallback(
-		async (window: '5hr' | 'weekly'): Promise<number> => {
+		async (window: '5hr' | 'weekly' | 'sonnet-weekly'): Promise<number> => {
 			if (!honeycombUsageData) throw new Error('Honeycomb data not available');
-			return window === '5hr'
-				? honeycombUsageData.fiveHourBillableTokens
-				: honeycombUsageData.weeklyBillableTokens;
+			if (window === '5hr') return honeycombUsageData.fiveHourBillableTokens;
+			if (window === 'sonnet-weekly') return honeycombUsageData.sonnetWeeklyBillableTokens;
+			return honeycombUsageData.weeklyBillableTokens;
 		},
 		[honeycombUsageData]
 	);
 
 	const [data, setData] = useState<StatsAggregation | null>(null);
+	const [weeklyLocalData, setWeeklyLocalData] = useState<{
+		billableTokens: number;
+		inputTokens: number;
+		outputTokens: number;
+		cacheCreationTokens: number;
+	} | null>(null);
 	const [dailyCostData, setDailyCostData] = useState<DailyCostData[]>([]);
 	const [modelCostData, setModelCostData] = useState<ModelCostData[]>([]);
 	const [agentCostData, setAgentCostData] = useState<AgentCostData[]>([]);
@@ -263,6 +269,24 @@ export function UsageDashboardModal({
 		},
 		[timeRange]
 	);
+
+	// Fetch fixed weekly local data for budget bars (independent of time range dropdown)
+	useEffect(() => {
+		if (!isOpen) return;
+		window.maestro.stats
+			.getAggregation('week')
+			.then((weekStats: any) => {
+				if (weekStats) {
+					setWeeklyLocalData({
+						billableTokens: (weekStats.totalInputTokens ?? 0) + (weekStats.totalOutputTokens ?? 0),
+						inputTokens: weekStats.totalInputTokens ?? 0,
+						outputTokens: weekStats.totalOutputTokens ?? 0,
+						cacheCreationTokens: weekStats.totalCacheCreationInputTokens ?? 0,
+					});
+				}
+			})
+			.catch(() => {});
+	}, [isOpen]);
 
 	// Initial fetch and real-time updates subscription
 	useEffect(() => {
@@ -718,10 +742,18 @@ export function UsageDashboardModal({
 								honeycombUsageData={honeycombUsageData}
 								localCostUsd={data?.totalCostUsd ?? 0}
 								localBillableTokens={(data?.totalInputTokens ?? 0) + (data?.totalOutputTokens ?? 0)}
+								localBillableTokensFixed={
+									weeklyLocalData?.billableTokens ??
+									(data?.totalInputTokens ?? 0) + (data?.totalOutputTokens ?? 0)
+								}
 								calibration={planCalibration}
 								onCalibrationUpdate={setPlanCalibration}
 								onRefresh={refreshHoneycomb}
 								getHoneycombBillableTokens={getHoneycombBillableTokens}
+								timeRange={timeRange}
+								localInputTokens={data?.totalInputTokens ?? 0}
+								localOutputTokens={data?.totalOutputTokens ?? 0}
+								localCacheCreationTokens={data?.totalCacheCreationInputTokens ?? 0}
 							/>
 						</div>
 					) : loading && !data ? (

@@ -25,7 +25,7 @@ export interface PlanCalibrationSettingsProps {
 	calibration: PlanCalibration;
 	onCalibrationUpdate: (updated: PlanCalibration) => void;
 	onViewHistory: () => void;
-	getHoneycombBillableTokens?: (window: '5hr' | 'weekly') => Promise<number>;
+	getHoneycombBillableTokens?: (window: '5hr' | 'weekly' | 'sonnet-weekly') => Promise<number>;
 	onSaveComplete?: () => void;
 }
 
@@ -45,6 +45,9 @@ export function PlanCalibrationSettings({
 	// Weekly inputs
 	const [weeklyPct, setWeeklyPct] = useState('');
 
+	// Sonnet-only inputs
+	const [sonnetPct, setSonnetPct] = useState('');
+
 	const [isSaving, setIsSaving] = useState(false);
 	const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -56,15 +59,17 @@ export function PlanCalibrationSettings({
 
 		const fiveHourVal = Number(fiveHourPct);
 		const weeklyVal = Number(weeklyPct);
+		const sonnetVal = Number(sonnetPct);
 
-		if (!fiveHourVal && !weeklyVal) {
+		if (!fiveHourVal && !weeklyVal && !sonnetVal) {
 			setSaveError('Enter at least one usage percentage');
 			return;
 		}
 
 		if (
 			(fiveHourVal && (fiveHourVal < 1 || fiveHourVal > 100)) ||
-			(weeklyVal && (weeklyVal < 1 || weeklyVal > 100))
+			(weeklyVal && (weeklyVal < 1 || weeklyVal > 100)) ||
+			(sonnetVal && (sonnetVal < 1 || sonnetVal > 100))
 		) {
 			setSaveError('Usage percentage must be between 1 and 100');
 			return;
@@ -95,9 +100,17 @@ export function PlanCalibrationSettings({
 				allPoints.push(point);
 			}
 
+			if (sonnetVal > 0) {
+				const tokens = await getHoneycombBillableTokens('sonnet-weekly');
+				const point = createCalibrationPoint(allPoints, 'sonnet-weekly', sonnetVal, tokens);
+				newPoints.push(point);
+				allPoints.push(point);
+			}
+
 			// Recompute estimates with all points
 			const fiveHourEstimate = computeBudgetEstimate(allPoints, '5hr');
 			const weeklyEstimate = computeBudgetEstimate(allPoints, 'weekly');
+			const sonnetWeeklyEstimate = computeBudgetEstimate(allPoints, 'sonnet-weekly');
 
 			const calibrationUpdate: PlanCalibration = {
 				...calibration,
@@ -105,6 +118,7 @@ export function PlanCalibrationSettings({
 				currentEstimates: {
 					fiveHour: fiveHourEstimate,
 					weekly: weeklyEstimate,
+					sonnetWeekly: sonnetWeeklyEstimate,
 				},
 				lastCalibratedAt: new Date().toISOString(),
 			};
@@ -140,6 +154,7 @@ export function PlanCalibrationSettings({
 			setFiveHourTimeH('');
 			setFiveHourTimeM('');
 			setWeeklyPct('');
+			setSonnetPct('');
 		} catch (err) {
 			setSaveError(err instanceof Error ? err.message : 'Failed to save calibration');
 		} finally {
@@ -148,6 +163,7 @@ export function PlanCalibrationSettings({
 	}, [
 		fiveHourPct,
 		weeklyPct,
+		sonnetPct,
 		fiveHourTimeH,
 		fiveHourTimeM,
 		calibration,
@@ -157,6 +173,13 @@ export function PlanCalibrationSettings({
 	]);
 
 	const { fiveHour, weekly } = calibration.currentEstimates;
+	const sonnetWeekly = (calibration.currentEstimates as any).sonnetWeekly || {
+		weightedMean: 0,
+		standardDeviation: 0,
+		confidencePct: 0,
+		activePoints: 0,
+		totalPoints: 0,
+	};
 
 	return (
 		<div className="space-y-4">
@@ -239,95 +262,177 @@ export function PlanCalibrationSettings({
 				)}
 			</div>
 
-			{/* Weekly Limit */}
-			<div className="space-y-2">
-				<div className="text-sm font-medium" style={{ color: theme.colors.textMain }}>
-					Weekly Limit
-				</div>
-				<div className="flex items-center gap-2">
-					<label className="text-sm" style={{ color: theme.colors.textDim }}>
-						Usage %:
-					</label>
-					<input
-						type="number"
-						min={1}
-						max={100}
-						value={weeklyPct}
-						onChange={(e) => setWeeklyPct(e.target.value)}
-						placeholder="71"
-						className="w-16 px-2 py-1 text-sm rounded border"
-						style={{
-							backgroundColor: theme.colors.bgMain,
-							borderColor: theme.colors.border,
-							color: theme.colors.textMain,
-						}}
-					/>
-					<span className="text-sm" style={{ color: theme.colors.textDim }}>
-						%
-					</span>
-				</div>
-
-				<div className="flex items-center gap-2 mt-1">
-					<label className="text-sm" style={{ color: theme.colors.textDim }}>
-						Resets:
-					</label>
-					<select
-						value={calibration.weeklyResetDay}
-						onChange={(e) =>
-							onCalibrationUpdate({ ...calibration, weeklyResetDay: e.target.value })
-						}
-						className="text-sm px-2 py-1 rounded border"
-						style={{
-							backgroundColor: theme.colors.bgMain,
-							borderColor: theme.colors.border,
-							color: theme.colors.textMain,
-						}}
-					>
-						{['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].map(
-							(day) => (
-								<option key={day} value={day}>
-									{day}
-								</option>
-							)
-						)}
-					</select>
-					<span className="text-sm" style={{ color: theme.colors.textDim }}>
-						at
-					</span>
-					<input
-						type="time"
-						value={calibration.weeklyResetTime}
-						onChange={(e) =>
-							onCalibrationUpdate({ ...calibration, weeklyResetTime: e.target.value })
-						}
-						className="text-sm px-2 py-1 rounded border"
-						style={{
-							backgroundColor: theme.colors.bgMain,
-							borderColor: theme.colors.border,
-							color: theme.colors.textMain,
-						}}
-					/>
-				</div>
-
-				{weekly.totalPoints > 0 && (
-					<div className="text-sm" style={{ color: theme.colors.textDim }}>
-						Budget estimate: {formatTokenCount(weekly.weightedMean)} tokens &plusmn;
-						{weekly.confidencePct.toFixed(1)}% ({weekly.activePoints} calibration
-						{weekly.activePoints !== 1 ? 's' : ''})
+			{/* Weekly + Sonnet side-by-side */}
+			<div className="grid grid-cols-2 gap-4">
+				{/* Weekly Limit */}
+				<div className="space-y-2">
+					<div className="text-sm font-medium" style={{ color: theme.colors.textMain }}>
+						Weekly Limit
 					</div>
-				)}
+					<div className="flex items-center gap-2">
+						<label className="text-sm" style={{ color: theme.colors.textDim }}>
+							Usage %:
+						</label>
+						<input
+							type="number"
+							min={1}
+							max={100}
+							value={weeklyPct}
+							onChange={(e) => setWeeklyPct(e.target.value)}
+							placeholder="71"
+							className="w-16 px-2 py-1 text-sm rounded border"
+							style={{
+								backgroundColor: theme.colors.bgMain,
+								borderColor: theme.colors.border,
+								color: theme.colors.textMain,
+							}}
+						/>
+						<span className="text-sm" style={{ color: theme.colors.textDim }}>
+							%
+						</span>
+					</div>
+
+					<div className="flex items-center gap-2 mt-1">
+						<label className="text-sm" style={{ color: theme.colors.textDim }}>
+							Resets:
+						</label>
+						<select
+							value={calibration.weeklyResetDay}
+							onChange={(e) =>
+								onCalibrationUpdate({ ...calibration, weeklyResetDay: e.target.value })
+							}
+							className="text-sm px-2 py-1 rounded border"
+							style={{
+								backgroundColor: theme.colors.bgMain,
+								borderColor: theme.colors.border,
+								color: theme.colors.textMain,
+							}}
+						>
+							{['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].map(
+								(day) => (
+									<option key={day} value={day}>
+										{day}
+									</option>
+								)
+							)}
+						</select>
+						<span className="text-sm" style={{ color: theme.colors.textDim }}>
+							at
+						</span>
+						<input
+							type="time"
+							value={calibration.weeklyResetTime}
+							onChange={(e) =>
+								onCalibrationUpdate({ ...calibration, weeklyResetTime: e.target.value })
+							}
+							className="text-sm px-2 py-1 rounded border"
+							style={{
+								backgroundColor: theme.colors.bgMain,
+								borderColor: theme.colors.border,
+								color: theme.colors.textMain,
+							}}
+						/>
+					</div>
+
+					{weekly.totalPoints > 0 && (
+						<div className="text-xs" style={{ color: theme.colors.textDim }}>
+							Budget: {formatTokenCount(weekly.weightedMean)} &plusmn;
+							{weekly.confidencePct.toFixed(0)}% ({weekly.activePoints} pt
+							{weekly.activePoints !== 1 ? 's' : ''})
+						</div>
+					)}
+				</div>
+
+				{/* Sonnet-Only Limit */}
+				<div className="space-y-2">
+					<div className="text-sm font-medium" style={{ color: theme.colors.textMain }}>
+						Sonnet-Only Limit
+					</div>
+					<div className="flex items-center gap-2">
+						<label className="text-sm" style={{ color: theme.colors.textDim }}>
+							Usage %:
+						</label>
+						<input
+							type="number"
+							min={1}
+							max={100}
+							value={sonnetPct}
+							onChange={(e) => setSonnetPct(e.target.value)}
+							placeholder="35"
+							className="w-16 px-2 py-1 text-sm rounded border"
+							style={{
+								backgroundColor: theme.colors.bgMain,
+								borderColor: theme.colors.border,
+								color: theme.colors.textMain,
+							}}
+						/>
+						<span className="text-sm" style={{ color: theme.colors.textDim }}>
+							%
+						</span>
+					</div>
+
+					<div className="flex items-center gap-2 mt-1">
+						<label className="text-sm" style={{ color: theme.colors.textDim }}>
+							Resets:
+						</label>
+						<select
+							value={calibration.sonnetResetDay || 'Sunday'}
+							onChange={(e) =>
+								onCalibrationUpdate({ ...calibration, sonnetResetDay: e.target.value })
+							}
+							className="text-sm px-2 py-1 rounded border"
+							style={{
+								backgroundColor: theme.colors.bgMain,
+								borderColor: theme.colors.border,
+								color: theme.colors.textMain,
+							}}
+						>
+							{['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].map(
+								(day) => (
+									<option key={day} value={day}>
+										{day}
+									</option>
+								)
+							)}
+						</select>
+						<span className="text-sm" style={{ color: theme.colors.textDim }}>
+							at
+						</span>
+						<input
+							type="time"
+							value={calibration.sonnetResetTime || '10:00'}
+							onChange={(e) =>
+								onCalibrationUpdate({ ...calibration, sonnetResetTime: e.target.value })
+							}
+							className="text-sm px-2 py-1 rounded border"
+							style={{
+								backgroundColor: theme.colors.bgMain,
+								borderColor: theme.colors.border,
+								color: theme.colors.textMain,
+							}}
+						/>
+					</div>
+
+					{sonnetWeekly.totalPoints > 0 && (
+						<div className="text-xs" style={{ color: theme.colors.textDim }}>
+							Budget: {formatTokenCount(sonnetWeekly.weightedMean)} &plusmn;
+							{sonnetWeekly.confidencePct.toFixed(0)}% ({sonnetWeekly.activePoints} pt
+							{sonnetWeekly.activePoints !== 1 ? 's' : ''})
+						</div>
+					)}
+				</div>
 			</div>
 
 			{/* Actions */}
 			<div className="flex items-center gap-3 pt-2">
 				<button
 					onClick={handleSave}
-					disabled={isSaving || (!fiveHourPct && !weeklyPct)}
+					disabled={isSaving || (!fiveHourPct && !weeklyPct && !sonnetPct)}
 					className="px-4 py-1.5 text-sm font-medium rounded transition-colors"
 					style={{
 						backgroundColor: theme.colors.accent,
 						color: theme.colors.accentForeground,
-						opacity: isSaving || (!fiveHourPct && !weeklyPct) ? 0.5 : 1,
+						opacity: isSaving || (!fiveHourPct && !weeklyPct && !sonnetPct) ? 0.5 : 1,
 					}}
 				>
 					{isSaving ? 'Saving...' : 'Save Calibration'}

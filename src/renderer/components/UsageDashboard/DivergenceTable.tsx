@@ -8,6 +8,7 @@
  */
 
 import type { Theme } from '../../types';
+import { formatTokenCount } from '../../utils/calibration';
 
 export interface DivergenceRow {
 	period: string;
@@ -59,7 +60,7 @@ export function DivergenceTable({ theme, rows }: DivergenceTableProps) {
 				<table className="w-full text-sm">
 					<thead className="sticky top-0" style={{ backgroundColor: theme.colors.bgMain }}>
 						<tr style={{ borderBottom: `1px solid ${theme.colors.border}` }}>
-							{['Period', 'Local', 'Honeycomb', 'Δ Tokens', 'Δ %', 'Status'].map((h) => (
+							{['Period', 'Local ($)', 'Honeycomb ($)', 'HC Tokens', 'Δ %', 'Status'].map((h) => (
 								<th
 									key={h}
 									className="px-3 py-2 text-left font-medium"
@@ -85,7 +86,7 @@ export function DivergenceTable({ theme, rows }: DivergenceTableProps) {
 										${row.honeycombCostUsd.toFixed(2)}
 									</td>
 									<td className="px-3 py-2 font-mono" style={{ color: theme.colors.textMain }}>
-										{formatTokenDelta(row.deltaTokens)}
+										{row.deltaTokens > 0 ? formatTokenCount(row.deltaTokens) : '—'}
 									</td>
 									<td className="px-3 py-2 font-mono" style={{ color: theme.colors.textMain }}>
 										{row.deltaPct >= 0 ? '+' : ''}

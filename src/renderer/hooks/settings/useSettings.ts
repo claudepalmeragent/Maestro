@@ -58,12 +58,22 @@ const DEFAULT_PLAN_CALIBRATION: PlanCalibration = {
 			activePoints: 0,
 			totalPoints: 0,
 		},
+		sonnetWeekly: {
+			weightedMean: 0,
+			standardDeviation: 0,
+			confidencePct: 0,
+			activePoints: 0,
+			totalPoints: 0,
+		},
 	},
 	weeklyResetDay: 'Sunday',
 	weeklyResetTime: '10:00',
 	weeklyResetTimezone: 'America/Los_Angeles',
 	lastCalibratedAt: '',
 	fiveHourWindowResetAnchorUtc: '',
+	sonnetResetDay: 'Sunday',
+	sonnetResetTime: '10:00',
+	sonnetResetTimezone: 'America/Los_Angeles',
 };
 
 // Default context management settings

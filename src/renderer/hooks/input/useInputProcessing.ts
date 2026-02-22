@@ -7,6 +7,7 @@ import type {
 	CustomAICommand,
 	BatchRunState,
 } from '../../types';
+import type { CapacityCheckModalData } from '../../components/CapacityCheckModal';
 import { getActiveTab } from '../../utils/tabHelpers';
 import { generateId } from '../../utils/ids';
 import { substituteTemplateVariables } from '../../utils/templateVariables';
@@ -68,6 +69,10 @@ export interface UseInputProcessingDeps {
 	onWizardSendMessage?: (content: string) => Promise<void>;
 	/** Whether the wizard is currently active for the active tab */
 	isWizardActive?: boolean;
+	/** Callback to show the interactive capacity check modal */
+	setInteractiveCapacityCheck?: (data: CapacityCheckModalData | null) => void;
+	/** Ref that App.tsx sets to resume the send after "Run Anyway" is clicked */
+	interactiveCapacityResumeRef?: React.MutableRefObject<(() => void) | null>;
 }
 
 /**
@@ -122,6 +127,8 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 		onWizardCommand,
 		onWizardSendMessage,
 		isWizardActive,
+		setInteractiveCapacityCheck,
+		interactiveCapacityResumeRef,
 	} = deps;
 
 	// Ref for the processInput function so external code can access the latest version
@@ -706,6 +713,72 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 
 						// Use agent.path (full path) if available, otherwise fall back to agent.command
 						const commandToUse = agent.path || agent.command;
+
+						// Interactive capacity check (pre-send gate)
+						if (setInteractiveCapacityCheck) {
+							try {
+								const settings = (await window.maestro.settings.getAll()) as Record<
+									string,
+									unknown
+								>;
+								const warningSettings = (settings.honeycombWarningSettings || {}) as Record<
+									string,
+									unknown
+								>;
+								const shouldCheck = warningSettings.capacityCheckInteractive ?? true;
+
+								if (shouldCheck) {
+									const checkResult = (await window.maestro.honeycomb.capacityCheck({
+										description: capturedInputValue.slice(0, 100),
+										estimatedTokens: null,
+										isAutoRun: false,
+									})) as any;
+
+									if (checkResult && !checkResult.canProceed) {
+										// Show modal and pause — store a resume callback
+										setInteractiveCapacityCheck({
+											reason: checkResult.reason || 'both',
+											fiveHourPct: checkResult.currentUsage?.fiveHour?.asPercentOfBudget ?? 0,
+											weeklyPct: checkResult.currentUsage?.weekly?.asPercentOfBudget ?? 0,
+											taskComplexity: checkResult.taskComplexity || 'SMALL',
+											estimatedTaskPct: checkResult.estimatedTaskPct || 5,
+											safetyBufferPct: checkResult.safetyBufferPct || 20,
+											complexityDetail: 'Interactive message',
+										});
+
+										// Set up resume callback — when "Run Anyway" is clicked, re-invoke processInput
+										if (interactiveCapacityResumeRef) {
+											interactiveCapacityResumeRef.current = () => {
+												// Bypass capacity check on retry by calling spawn directly
+												// We already have all the state we need in this closure
+												window.maestro.process
+													.spawn({
+														sessionId: targetSessionId,
+														toolType: freshSession.toolType,
+														cwd: freshSession.cwd,
+														command: commandToUse,
+														args: spawnArgs,
+														prompt: capturedInputValue,
+														images: capturedImages.length > 0 ? capturedImages : undefined,
+														agentSessionId: tabAgentSessionId ?? undefined,
+														readOnlyMode: isReadOnly,
+													})
+													.catch((err: unknown) => {
+														console.error('[InputProcessing] Resume spawn failed:', err);
+													});
+											};
+										}
+
+										return; // Don't proceed — wait for user decision
+									}
+								}
+							} catch (err) {
+								console.warn(
+									'[InputProcessing] Interactive capacity check failed, proceeding:',
+									err
+								);
+							}
+						}
 
 						// If user sends only an image without text, inject the default image-only prompt
 						const hasImages = capturedImages.length > 0;

@@ -13,6 +13,11 @@ export interface HoneycombUsageData {
 	fiveHourBillableTokens: number;
 	weeklySpendUsd: number;
 	weeklyBillableTokens: number;
+	weeklyInputTokens: number;
+	weeklyOutputTokens: number;
+	weeklyCacheCreationTokens: number;
+	sonnetWeeklySpendUsd: number;
+	sonnetWeeklyBillableTokens: number;
 	monthlySessions: number;
 	lastUpdatedAt: number;
 	stale: boolean;

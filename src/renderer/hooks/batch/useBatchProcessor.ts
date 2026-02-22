@@ -9,6 +9,7 @@ import type {
 	AutoRunStats,
 	AgentError,
 } from '../../types';
+import type { CapacityCheckModalData } from '../../components/CapacityCheckModal';
 import {
 	getBadgeForTime,
 	getNextBadge,
@@ -113,6 +114,10 @@ interface UseBatchProcessorReturn {
 	// Subagent tracking (Progress Enhancement)
 	setSubagentActive: (sessionId: string, subagentType: string) => void;
 	clearSubagentActive: (sessionId: string) => void;
+	// Capacity check (Pre-run gate)
+	capacityCheckData: CapacityCheckModalData | null;
+	onCapacityCancel: () => void;
+	onCapacityRunAnyway: () => void;
 }
 
 type ErrorResolutionAction = 'resume' | 'skip-document' | 'abort';
@@ -255,6 +260,14 @@ export function useBatchProcessor({
 
 	// Custom prompts per session
 	const [customPrompts, setCustomPrompts] = useState<Record<string, string>>({});
+
+	// Capacity check state
+	const [capacityCheckData, setCapacityCheckData] = useState<CapacityCheckModalData | null>(null);
+	const [pendingBatchStart, setPendingBatchStart] = useState<{
+		sessionId: string;
+		config: BatchRunConfig;
+		folderPath: string;
+	} | null>(null);
 
 	/**
 	 * Handle progress updates from document polling (Option D - Progress Enhancement)
@@ -721,9 +734,9 @@ export function useBatchProcessor({
 	const readDocAndCountTasks = documentProcessor.readDocAndCountTasks;
 
 	/**
-	 * Start a batch processing run for a specific session with multi-document support
+	 * Internal batch start logic (no capacity check gate)
 	 */
-	const startBatchRun = useCallback(
+	const startBatchRunInternal = useCallback(
 		async (sessionId: string, config: BatchRunConfig, folderPath: string) => {
 			window.maestro.logger.log('info', 'startBatchRun called', 'BatchProcessor', {
 				sessionId,
@@ -1836,6 +1849,73 @@ export function useBatchProcessor({
 	);
 
 	/**
+	 * Public startBatchRun with pre-run capacity check gate
+	 */
+	const startBatchRun = useCallback(
+		async (sessionId: string, config: BatchRunConfig, folderPath: string) => {
+			// Pre-run capacity check
+			try {
+				const settings = (await window.maestro.settings.getAll()) as Record<string, unknown>;
+				const warningSettings = (settings.honeycombWarningSettings || {}) as Record<
+					string,
+					unknown
+				>;
+				const isAutoRun = true; // This is the batch/Auto Run path
+				const shouldCheck = isAutoRun
+					? (warningSettings.capacityCheckAutoRun ?? true)
+					: (warningSettings.capacityCheckInteractive ?? true);
+
+				if (shouldCheck) {
+					console.log('[BatchProcessor] Running pre-run capacity check...');
+					const result = (await window.maestro.honeycomb.capacityCheck({
+						description: config.documents.map((d) => d.filename).join(', '),
+						estimatedTokens: null,
+						isAutoRun,
+					})) as any;
+
+					if (result && !result.canProceed) {
+						// Show the capacity check modal and pause
+						setCapacityCheckData({
+							reason: result.reason || 'both',
+							fiveHourPct: result.currentUsage?.fiveHour?.asPercentOfBudget ?? 0,
+							weeklyPct: result.currentUsage?.weekly?.asPercentOfBudget ?? 0,
+							taskComplexity: result.taskComplexity || 'MEDIUM',
+							estimatedTaskPct: result.estimatedTaskPct || 20,
+							safetyBufferPct: result.safetyBufferPct || 20,
+						});
+						setPendingBatchStart({ sessionId, config, folderPath });
+						return; // Don't proceed — wait for user decision
+					}
+				} else {
+					console.log('[BatchProcessor] Capacity check disabled in settings, skipping');
+				}
+			} catch (err) {
+				// If capacity check fails, log and proceed anyway
+				window.maestro.logger.log('warn', 'Capacity check failed, proceeding', 'BatchProcessor', {
+					error: String(err),
+				});
+			}
+
+			startBatchRunInternal(sessionId, config, folderPath);
+		},
+		[startBatchRunInternal]
+	);
+
+	const handleCapacityCancel = useCallback(() => {
+		setCapacityCheckData(null);
+		setPendingBatchStart(null);
+	}, []);
+
+	const handleCapacityRunAnyway = useCallback(() => {
+		const pending = pendingBatchStart;
+		setCapacityCheckData(null);
+		setPendingBatchStart(null);
+		if (pending) {
+			startBatchRunInternal(pending.sessionId, pending.config, pending.folderPath);
+		}
+	}, [pendingBatchStart, startBatchRunInternal]);
+
+	/**
 	 * Request to stop the batch run for a specific session after current task completes
 	 * Note: No isMountedRef check here - stop requests should always be honored.
 	 * All operations are safe: ref updates, reducer dispatch (React handles gracefully), and broadcasts.
@@ -2072,5 +2152,9 @@ export function useBatchProcessor({
 		// Subagent tracking (Progress Enhancement)
 		setSubagentActive,
 		clearSubagentActive,
+		// Capacity check (Pre-run gate)
+		capacityCheckData,
+		onCapacityCancel: handleCapacityCancel,
+		onCapacityRunAnyway: handleCapacityRunAnyway,
 	};
 }

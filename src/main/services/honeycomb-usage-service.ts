@@ -25,6 +25,12 @@ export interface UsageData {
 	fiveHourBillableTokens: number;
 	weeklySpendUsd: number;
 	weeklyBillableTokens: number;
+	// Per-type token breakdown for weekly window (used by Summary Cards and tooltips)
+	weeklyInputTokens: number;
+	weeklyOutputTokens: number;
+	weeklyCacheCreationTokens: number;
+	sonnetWeeklySpendUsd: number;
+	sonnetWeeklyBillableTokens: number;
 	monthlySessions: number;
 	lastUpdatedAt: number;
 	stale: boolean;
@@ -55,15 +61,25 @@ const FIVE_HOUR_QUERY: HoneycombQuerySpec = {
 	time_range: 18000, // 5 hours in seconds
 };
 
-/** Weekly: SUM(cost_usd) + billable token totals */
-const WEEKLY_QUERY: HoneycombQuerySpec = {
+/** Weekly: SUM(cost_usd) + billable token totals — base template, aligned at poll time */
+const WEEKLY_QUERY_BASE: HoneycombQuerySpec = {
 	calculations: [
 		{ op: 'SUM', column: 'cost_usd', name: 'total_cost' },
 		{ op: 'SUM', column: 'input_tokens', name: 'input' },
 		{ op: 'SUM', column: 'output_tokens', name: 'output' },
 		{ op: 'SUM', column: 'cache_creation_tokens', name: 'cache_create' },
 	],
-	time_range: 604800, // 7 days in seconds
+};
+
+/** Sonnet-only weekly: same columns but filtered to Sonnet models — base template */
+const SONNET_WEEKLY_QUERY_BASE: HoneycombQuerySpec = {
+	calculations: [
+		{ op: 'SUM', column: 'cost_usd', name: 'total_cost' },
+		{ op: 'SUM', column: 'input_tokens', name: 'input' },
+		{ op: 'SUM', column: 'output_tokens', name: 'output' },
+		{ op: 'SUM', column: 'cache_creation_tokens', name: 'cache_create' },
+	],
+	filters: [{ column: 'model', op: 'contains', value: 'sonnet' }],
 };
 
 /** Monthly sessions: COUNT_DISTINCT(session.id) */
@@ -71,6 +87,105 @@ const MONTHLY_SESSIONS_QUERY: HoneycombQuerySpec = {
 	calculations: [{ op: 'COUNT_DISTINCT', column: 'session.id' }],
 	time_range: 2419200, // 28 days in seconds
 };
+
+// ============================================================================
+// Weekly Window Alignment Helper
+// ============================================================================
+
+/**
+ * Compute the start of the current weekly window from a reset schedule.
+ * Returns epoch seconds for the most recent reset boundary.
+ *
+ * @param resetDay - Day of week: 'Sunday', 'Monday', etc.
+ * @param resetTime - Time in HH:MM format (e.g., '10:00')
+ * @param resetTimezone - IANA timezone (e.g., 'America/Los_Angeles')
+ * @returns epoch seconds of the current window start, or null if inputs invalid
+ */
+function computeWeeklyWindowStart(
+	resetDay: string,
+	resetTime: string,
+	resetTimezone: string
+): number | null {
+	const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+	const targetDayIndex = dayNames.indexOf(resetDay);
+	if (targetDayIndex === -1) return null;
+
+	const [hours, minutes] = (resetTime || '10:00').split(':').map(Number);
+	if (isNaN(hours) || isNaN(minutes)) return null;
+
+	// Build a date string for "today at reset time in the given timezone"
+	// Then walk backwards to find the most recent occurrence of resetDay at resetTime
+	const now = new Date();
+
+	// Create a formatter to get current day-of-week in the target timezone
+	const dayFormatter = new Intl.DateTimeFormat('en-US', {
+		weekday: 'long',
+		timeZone: resetTimezone,
+	});
+	const timeFormatter = new Intl.DateTimeFormat('en-US', {
+		hour: 'numeric',
+		minute: 'numeric',
+		hour12: false,
+		timeZone: resetTimezone,
+	});
+
+	const currentDayName = dayFormatter.format(now);
+	const currentDayIndex = dayNames.indexOf(currentDayName);
+	if (currentDayIndex === -1) return null;
+
+	// How many days ago was the target reset day?
+	let daysBack = (currentDayIndex - targetDayIndex + 7) % 7;
+
+	// If it's the reset day, check if we've passed the reset time yet
+	if (daysBack === 0) {
+		const currentTimeParts = timeFormatter.format(now).split(':').map(Number);
+		const currentMinutesSinceMidnight = currentTimeParts[0] * 60 + currentTimeParts[1];
+		const resetMinutesSinceMidnight = hours * 60 + minutes;
+		if (currentMinutesSinceMidnight < resetMinutesSinceMidnight) {
+			// Haven't reached reset time yet, go back a full week
+			daysBack = 7;
+		}
+	}
+
+	// Construct the reset datetime. We need to work in the target timezone.
+	// Use a known UTC offset approach for the target timezone.
+	const resetDate = new Date(now);
+	resetDate.setDate(resetDate.getDate() - daysBack);
+
+	// Format resetDate in target timezone to get the date parts
+	const dateFormatter = new Intl.DateTimeFormat('en-US', {
+		year: 'numeric',
+		month: '2-digit',
+		day: '2-digit',
+		timeZone: resetTimezone,
+	});
+	const dateParts = dateFormatter.formatToParts(resetDate);
+	const year = dateParts.find((p) => p.type === 'year')?.value;
+	const month = dateParts.find((p) => p.type === 'month')?.value;
+	const day = dateParts.find((p) => p.type === 'day')?.value;
+
+	// Build an ISO-like string in the target timezone and parse it
+	const isoString = `${year}-${month}-${day}T${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00`;
+
+	// Parse in the target timezone by creating dates and comparing
+	const tempDate = new Date(isoString + 'Z'); // treat as UTC first
+
+	// Find offset by formatting a known epoch time using toLocaleString round-trip
+	const probe = new Date();
+	const utcString = probe.toLocaleString('en-US', { timeZone: 'UTC' });
+	const tzString = probe.toLocaleString('en-US', { timeZone: resetTimezone });
+	const utcProbe = new Date(utcString);
+	const tzProbe = new Date(tzString);
+	const offsetMs = utcProbe.getTime() - tzProbe.getTime();
+
+	// The reset time in UTC = local reset time + offset
+	const resetUtcMs = tempDate.getTime() + offsetMs;
+
+	// Safety: if this is in the future, go back a week
+	const finalMs = resetUtcMs > now.getTime() ? resetUtcMs - 7 * 24 * 60 * 60 * 1000 : resetUtcMs;
+
+	return Math.floor(finalMs / 1000);
+}
 
 // ============================================================================
 // Singleton
@@ -121,6 +236,7 @@ export class HoneycombUsageService {
 		const store = getSettingsStore();
 		const planCal = store.get('planCalibration', null) as any;
 		if (planCal && planCal.calibrationPoints?.length > 0) {
+			const FIVE_HOURS_MS = 5 * 60 * 60 * 1000;
 			const fiveHrPoints = planCal.calibrationPoints.filter(
 				(p: any) => p.window === '5hr' && (p.timeRemainingInWindow || p.timeIntoWindow)
 			);
@@ -128,21 +244,32 @@ export class HoneycombUsageService {
 				let bestPoint = fiveHrPoints[0];
 				let bestRemainingMs = Infinity;
 				for (const p of fiveHrPoints) {
-					const timeField = p.timeRemainingInWindow || p.timeIntoWindow;
-					const match = timeField?.match(/(\d+)h\s*(\d+)m/);
-					if (match) {
-						const remainingMs = (parseInt(match[1]) * 60 + parseInt(match[2])) * 60 * 1000;
-						if (remainingMs < bestRemainingMs) {
-							bestRemainingMs = remainingMs;
-							bestPoint = p;
-						}
+					let remainingMs: number;
+					const remainingField = p.timeRemainingInWindow;
+					const intoField = p.timeIntoWindow;
+
+					if (remainingField) {
+						const match = remainingField.match(/(\d+)h\s*(\d+)m/);
+						if (!match) continue;
+						remainingMs = (parseInt(match[1]) * 60 + parseInt(match[2])) * 60 * 1000;
+					} else if (intoField) {
+						const match = intoField.match(/(\d+)h\s*(\d+)m/);
+						if (!match) continue;
+						const intoMs = (parseInt(match[1]) * 60 + parseInt(match[2])) * 60 * 1000;
+						remainingMs = FIVE_HOURS_MS - intoMs;
+						if (remainingMs <= 0) continue; // Invalid — skip
+					} else {
+						continue;
+					}
+
+					if (remainingMs < bestRemainingMs) {
+						bestRemainingMs = remainingMs;
+						bestPoint = p;
 					}
 				}
-				const timeField = bestPoint.timeRemainingInWindow || bestPoint.timeIntoWindow;
-				const match = timeField?.match(/(\d+)h\s*(\d+)m/);
-				if (match) {
-					const remainingMs = (parseInt(match[1]) * 60 + parseInt(match[2])) * 60 * 1000;
-					const windowEndMs = new Date(bestPoint.timestamp).getTime() + remainingMs;
+				// Use the bestRemainingMs we already computed
+				if (bestRemainingMs < Infinity) {
+					const windowEndMs = new Date(bestPoint.timestamp).getTime() + bestRemainingMs;
 					const anchorDate = new Date(windowEndMs);
 					store.set('planCalibration', {
 						...planCal,
@@ -228,14 +355,23 @@ export class HoneycombUsageService {
 	/**
 	 * Get a usage estimate for a specific window.
 	 */
-	getWindowEstimate(window: '5hr' | 'weekly'): UsageEstimate | null {
+	getWindowEstimate(window: '5hr' | 'weekly' | 'sonnet-weekly'): UsageEstimate | null {
 		if (!this.latestData) return null;
 
 		if (window === '5hr') {
 			return {
 				billableTokens: this.latestData.fiveHourBillableTokens,
 				spendUsd: this.latestData.fiveHourSpendUsd,
-				asPercentOfBudget: null, // Computed by capacity checker using calibration data
+				asPercentOfBudget: null,
+				stale: this.latestData.stale,
+			};
+		}
+
+		if (window === 'sonnet-weekly') {
+			return {
+				billableTokens: this.latestData.sonnetWeeklyBillableTokens,
+				spendUsd: this.latestData.sonnetWeeklySpendUsd,
+				asPercentOfBudget: null,
 				stale: this.latestData.stale,
 			};
 		}
@@ -300,14 +436,77 @@ export class HoneycombUsageService {
 				logger.debug('5hr window: no anchor, using rolling 5-hour lookback', LOG_CONTEXT);
 			}
 
+			// Build aligned weekly query from reset schedule
+			let weeklyQuery: HoneycombQuerySpec;
+			const weeklyResetDay = planCalibration?.weeklyResetDay;
+			const weeklyResetTime = planCalibration?.weeklyResetTime;
+			const weeklyResetTz = planCalibration?.weeklyResetTimezone;
+			if (weeklyResetDay && weeklyResetTime && weeklyResetTz) {
+				const windowStart = computeWeeklyWindowStart(
+					weeklyResetDay,
+					weeklyResetTime,
+					weeklyResetTz
+				);
+				if (windowStart) {
+					weeklyQuery = {
+						...WEEKLY_QUERY_BASE,
+						start_time: windowStart,
+						end_time: Math.floor(Date.now() / 1000),
+					};
+					logger.debug(
+						`Weekly window aligned: start=${new Date(windowStart * 1000).toISOString()}, ` +
+							`resetDay=${weeklyResetDay}, resetTime=${weeklyResetTime}`,
+						LOG_CONTEXT
+					);
+				} else {
+					weeklyQuery = { ...WEEKLY_QUERY_BASE, time_range: 604800 }; // fallback
+					logger.debug(
+						'Weekly window: alignment failed, using rolling 7-day lookback',
+						LOG_CONTEXT
+					);
+				}
+			} else {
+				weeklyQuery = { ...WEEKLY_QUERY_BASE, time_range: 604800 }; // fallback
+				logger.debug('Weekly window: no reset schedule, using rolling 7-day lookback', LOG_CONTEXT);
+			}
+
+			// Build aligned sonnet-weekly query from its own separate reset schedule
+			let sonnetWeeklyQuery: HoneycombQuerySpec;
+			const sonnetResetDay = planCalibration?.sonnetResetDay;
+			const sonnetResetTime = planCalibration?.sonnetResetTime;
+			const sonnetResetTz = planCalibration?.sonnetResetTimezone;
+			if (sonnetResetDay && sonnetResetTime && sonnetResetTz) {
+				const windowStart = computeWeeklyWindowStart(
+					sonnetResetDay,
+					sonnetResetTime,
+					sonnetResetTz
+				);
+				if (windowStart) {
+					sonnetWeeklyQuery = {
+						...SONNET_WEEKLY_QUERY_BASE,
+						start_time: windowStart,
+						end_time: Math.floor(Date.now() / 1000),
+					};
+					logger.debug(
+						`Sonnet weekly window aligned: start=${new Date(windowStart * 1000).toISOString()}, ` +
+							`resetDay=${sonnetResetDay}, resetTime=${sonnetResetTime}`,
+						LOG_CONTEXT
+					);
+				} else {
+					sonnetWeeklyQuery = { ...SONNET_WEEKLY_QUERY_BASE, time_range: 604800 }; // fallback
+				}
+			} else {
+				sonnetWeeklyQuery = { ...SONNET_WEEKLY_QUERY_BASE, time_range: 604800 }; // fallback
+			}
+
 			// Run queries (differentiated TTLs, sequential with short delays)
-			const [fiveHourResult, weeklyResult, sessionsResult] = await Promise.all([
+			const [fiveHourResult, weeklyResult, sessionsResult, sonnetWeeklyResult] = await Promise.all([
 				client.query(fiveHourQuery, {
 					ttlMs: DEFAULT_TTL.FIVE_HOUR,
 					bypassCache,
 					label: '5hr-usage',
 				}),
-				client.query(WEEKLY_QUERY, {
+				client.query(weeklyQuery, {
 					ttlMs: DEFAULT_TTL.WEEKLY,
 					bypassCache,
 					label: 'weekly-usage',
@@ -317,12 +516,18 @@ export class HoneycombUsageService {
 					bypassCache,
 					label: 'monthly-sessions',
 				}),
+				client.query(sonnetWeeklyQuery, {
+					ttlMs: DEFAULT_TTL.WEEKLY,
+					bypassCache,
+					label: 'sonnet-weekly-usage',
+				}),
 			]);
 
 			// Extract values from results
 			const fiveHourRow = fiveHourResult.data?.results?.[0] || {};
 			const weeklyRow = weeklyResult.data?.results?.[0] || {};
 			const sessionsRow = sessionsResult.data?.results?.[0] || {};
+			const sonnetWeeklyRow = sonnetWeeklyResult.data?.results?.[0] || {};
 
 			const data: UsageData = {
 				fiveHourSpendUsd: this.extractNumber(fiveHourRow, 'total_cost'),
@@ -335,6 +540,14 @@ export class HoneycombUsageService {
 					this.extractNumber(weeklyRow, 'input') +
 					this.extractNumber(weeklyRow, 'output') +
 					this.extractNumber(weeklyRow, 'cache_create'),
+				weeklyInputTokens: this.extractNumber(weeklyRow, 'input'),
+				weeklyOutputTokens: this.extractNumber(weeklyRow, 'output'),
+				weeklyCacheCreationTokens: this.extractNumber(weeklyRow, 'cache_create'),
+				sonnetWeeklySpendUsd: this.extractNumber(sonnetWeeklyRow, 'total_cost'),
+				sonnetWeeklyBillableTokens:
+					this.extractNumber(sonnetWeeklyRow, 'input') +
+					this.extractNumber(sonnetWeeklyRow, 'output') +
+					this.extractNumber(sonnetWeeklyRow, 'cache_create'),
 				monthlySessions: this.extractNumber(sessionsRow, 'COUNT_DISTINCT(session.id)'),
 				lastUpdatedAt: Date.now(),
 				stale: false,
@@ -346,6 +559,7 @@ export class HoneycombUsageService {
 			logger.debug(
 				`Poll complete: 5hr=$${data.fiveHourSpendUsd.toFixed(2)} (${(data.fiveHourBillableTokens / 1000).toFixed(0)}K tokens), ` +
 					`weekly=$${data.weeklySpendUsd.toFixed(2)} (${(data.weeklyBillableTokens / 1000).toFixed(0)}K tokens), ` +
+					`sonnet-wk=$${data.sonnetWeeklySpendUsd.toFixed(2)} (${(data.sonnetWeeklyBillableTokens / 1000).toFixed(0)}K tokens), ` +
 					`sessions=${data.monthlySessions}`,
 				LOG_CONTEXT
 			);

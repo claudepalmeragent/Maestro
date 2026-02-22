@@ -31,6 +31,8 @@ import { EmptyStateView } from './components/EmptyStateView';
 import { MarketplaceModal } from './components/MarketplaceModal';
 import { DocumentGraphView } from './components/DocumentGraph/DocumentGraphView';
 import { DeleteAgentConfirmModal } from './components/DeleteAgentConfirmModal';
+import { CapacityCheckModal } from './components/CapacityCheckModal';
+import type { CapacityCheckModalData } from './components/CapacityCheckModal';
 
 // Group Chat Components
 import { GroupChatPanel } from './components/GroupChatPanel';
@@ -6535,6 +6537,10 @@ You are taking over this conversation. Based on the context above, provide a bri
 		// Subagent tracking (Progress Enhancement)
 		setSubagentActive,
 		clearSubagentActive,
+		// Capacity check (Pre-run gate)
+		capacityCheckData,
+		onCapacityCancel,
+		onCapacityRunAnyway,
 	} = useBatchProcessor({
 		sessions,
 		groups,
@@ -6837,6 +6843,23 @@ You are taking over this conversation. Based on the context above, provide a bri
 			}
 		},
 	});
+
+	// Interactive capacity check state (separate from Auto Run batch capacity check)
+	const [interactiveCapacityData, setInteractiveCapacityData] =
+		useState<CapacityCheckModalData | null>(null);
+	const interactiveCapacityResumeRef = useRef<(() => void) | null>(null);
+
+	const handleInteractiveCapacityCancel = useCallback(() => {
+		setInteractiveCapacityData(null);
+		interactiveCapacityResumeRef.current = null;
+	}, []);
+
+	const handleInteractiveCapacityRunAnyway = useCallback(() => {
+		setInteractiveCapacityData(null);
+		const resume = interactiveCapacityResumeRef.current;
+		interactiveCapacityResumeRef.current = null;
+		if (resume) resume();
+	}, []);
 
 	// Update refs for batch processor error handling (Phase 5.10)
 	// These are used by the agent error handler which runs in a useEffect with empty deps
@@ -7505,6 +7528,9 @@ You are taking over this conversation. Based on the context above, provide a bri
 		onWizardCommand: handleWizardCommand,
 		onWizardSendMessage: sendWizardMessageWithThinking,
 		isWizardActive: isWizardActiveForCurrentTab,
+		// Interactive capacity check
+		setInteractiveCapacityCheck: setInteractiveCapacityData,
+		interactiveCapacityResumeRef,
 	});
 
 	// Auto-send context when a tab with autoSendOnActivate becomes active
@@ -13721,6 +13747,17 @@ You are taking over this conversation. Based on the context above, provide a bri
 						onClose={handleCloseDeleteAgentModal}
 					/>
 				)}
+
+				{/* Capacity Check Modal (Pre-run gate for Auto Run AND interactive) */}
+				<CapacityCheckModal
+					theme={theme}
+					data={(capacityCheckData || interactiveCapacityData)!}
+					isOpen={capacityCheckData !== null || interactiveCapacityData !== null}
+					onCancel={capacityCheckData !== null ? onCapacityCancel : handleInteractiveCapacityCancel}
+					onRunAnyway={
+						capacityCheckData !== null ? onCapacityRunAnyway : handleInteractiveCapacityRunAnyway
+					}
+				/>
 
 				{/* --- EMPTY STATE VIEW (when no sessions) --- */}
 				{sessions.length === 0 && !isMobileLandscape ? (
