@@ -66,6 +66,13 @@ export function DatasourceComparisonTab({
 
 	const [planLabel, setPlanLabel] = useState<string>('');
 
+	const [freeTokenStats, setFreeTokenStats] = useState<{
+		totalBillableTokens: number;
+		totalInputTokens: number;
+		totalOutputTokens: number;
+		totalCacheCreationTokens: number;
+	} | null>(null);
+
 	// Detect billing plan from recent stats
 	useEffect(() => {
 		window.maestro.stats
@@ -89,6 +96,23 @@ export function DatasourceComparisonTab({
 			})
 			.catch(() => {});
 	}, []);
+
+	// Fetch free token stats from local stats DB for Local Models budget
+	useEffect(() => {
+		let mounted = true;
+		const fetchFreeStats = async () => {
+			try {
+				const stats = await window.maestro.stats.getFreeTokenStats(timeRange);
+				if (mounted) setFreeTokenStats(stats);
+			} catch {
+				// Silently ignore — free token stats are informational only
+			}
+		};
+		fetchFreeStats();
+		return () => {
+			mounted = false;
+		};
+	}, [timeRange]);
 
 	const [divergenceRows, setDivergenceRows] = useState<DivergenceRow[]>([]);
 
@@ -142,6 +166,7 @@ export function DatasourceComparisonTab({
 								{ op: 'SUM', column: 'output_tokens', name: 'output' },
 								{ op: 'SUM', column: 'cache_creation_tokens', name: 'cache_create' },
 							],
+							filters: [{ column: 'model', op: 'starts-with', value: 'claude-' }],
 							breakdowns: ['day_bucket'],
 							orders: [{ column: 'day_bucket', order: 'ascending' }],
 							time_range: seconds,
@@ -210,6 +235,7 @@ export function DatasourceComparisonTab({
 									{ op: 'SUM', column: 'output_tokens', name: 'output' },
 									{ op: 'SUM', column: 'cache_creation_tokens', name: 'cache_create' },
 								],
+								filters: [{ column: 'model', op: 'starts-with', value: 'claude-' }],
 								time_range: seconds,
 							},
 							{ ttlMs: 120000, label: `divergence-aggregate-${timeRange}` }
@@ -307,6 +333,7 @@ export function DatasourceComparisonTab({
 							{ op: 'SUM', column: 'output_tokens', name: 'output' },
 							{ op: 'SUM', column: 'cache_creation_tokens', name: 'cache_create' },
 						],
+						filters: [{ column: 'model', op: 'starts-with', value: 'claude-' }],
 						time_range: seconds,
 					},
 					{ ttlMs: 60000, label: `summary-${timeRange}` }
@@ -375,6 +402,11 @@ export function DatasourceComparisonTab({
 					honeycombInputTokens: timeRangeHcData?.inputTokens ?? 0,
 					honeycombOutputTokens: timeRangeHcData?.outputTokens ?? 0,
 					honeycombCacheCreationTokens: timeRangeHcData?.cacheCreationTokens ?? 0,
+					// Free tokens from local stats DB (for Local card tooltip)
+					localFreeInputTokens: freeTokenStats?.totalInputTokens ?? 0,
+					localFreeOutputTokens: freeTokenStats?.totalOutputTokens ?? 0,
+					localFreeCacheCreationTokens: freeTokenStats?.totalCacheCreationTokens ?? 0,
+					localFreeTotalTokens: freeTokenStats?.totalBillableTokens ?? 0,
 				}
 			: null;
 
@@ -421,6 +453,18 @@ export function DatasourceComparisonTab({
 					honeycombTokens: honeycombUsageData?.sonnetWeeklyBillableTokens ?? 0,
 					calibratedBudget: sonnetWeeklyEstimate.weightedMean,
 					resetLabel: `Resets: ${calibration.sonnetResetDay || 'Sunday'} ${calibration.sonnetResetTime || '10:00'}`,
+				}
+			: null;
+
+	// Local Models: free tokens from local stats DB against the weekly calibrated budget
+	const localModelsBudget: BudgetWindowData | null =
+		calibration.currentEstimates.weekly.weightedMean > 0 &&
+		(freeTokenStats?.totalBillableTokens ?? 0) > 0
+			? {
+					localTokens: freeTokenStats?.totalBillableTokens ?? 0,
+					honeycombTokens: 0, // Not from Honeycomb — from local stats DB
+					calibratedBudget: calibration.currentEstimates.weekly.weightedMean,
+					resetLabel: `Resets: ${calibration.weeklyResetDay} ${calibration.weeklyResetTime}`,
 				}
 			: null;
 
@@ -499,6 +543,7 @@ export function DatasourceComparisonTab({
 						fiveHour={fiveHourBudget}
 						weekly={weeklyBudget}
 						sonnetWeekly={sonnetWeeklyBudget}
+						localModels={localModelsBudget}
 					/>
 				</div>
 
