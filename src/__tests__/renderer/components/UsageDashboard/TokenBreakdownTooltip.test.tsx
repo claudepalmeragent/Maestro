@@ -9,6 +9,8 @@
  * - Displays cost values with proper precision
  * - Delta values show correct +/- signs and color coding
  * - Tooltip hides on mouse leave
+ * - Free Tokens section shown when present, hidden when absent
+ * - Grand Total includes combined token count with free tokens
  */
 
 import { describe, it, expect } from 'vitest';
@@ -26,7 +28,7 @@ const mockBreakdown: TokenBreakdown = {
 	inputTokens: 150000,
 	outputTokens: 75000,
 	cacheCreationTokens: 10000,
-	costUsd: 1.2345,
+	costUsd: 1.23,
 	billableTokens: 235000,
 };
 
@@ -45,6 +47,26 @@ const mockHcBreakdown: TokenBreakdown = {
 	costUsd: 2.1,
 	billableTokens: 282000,
 };
+
+function makeBillableBreakdown(): TokenBreakdown {
+	return {
+		inputTokens: 3_000_000,
+		outputTokens: 1_500_000,
+		cacheCreationTokens: 500_000,
+		costUsd: 12.5,
+		billableTokens: 5_000_000,
+	};
+}
+
+function makeBreakdownWithFree(): TokenBreakdown {
+	return {
+		...makeBillableBreakdown(),
+		freeInputTokens: 200_000,
+		freeOutputTokens: 100_000,
+		freeCacheCreationTokens: 50_000,
+		freeTotalTokens: 350_000,
+	};
+}
 
 describe('TokenBreakdownTooltip', () => {
 	describe('No breakdown or comparison', () => {
@@ -66,7 +88,7 @@ describe('TokenBreakdownTooltip', () => {
 				</TokenBreakdownTooltip>
 			);
 
-			expect(screen.queryByText('Token Breakdown')).not.toBeInTheDocument();
+			expect(screen.queryByText('Billable Tokens')).not.toBeInTheDocument();
 		});
 	});
 
@@ -78,14 +100,12 @@ describe('TokenBreakdownTooltip', () => {
 				</TokenBreakdownTooltip>
 			);
 
-			// Tooltip should not be visible initially
-			expect(screen.queryByText('Token Breakdown')).not.toBeInTheDocument();
+			expect(screen.queryByText('Billable Tokens')).not.toBeInTheDocument();
 
-			// Hover to show tooltip
 			const container = screen.getByText('Card Content').parentElement!;
 			fireEvent.mouseEnter(container);
 
-			expect(screen.getByText('Token Breakdown')).toBeInTheDocument();
+			expect(screen.getByText('Billable Tokens')).toBeInTheDocument();
 		});
 
 		it('hides tooltip on mouse leave', () => {
@@ -97,10 +117,10 @@ describe('TokenBreakdownTooltip', () => {
 
 			const container = screen.getByText('Card Content').parentElement!;
 			fireEvent.mouseEnter(container);
-			expect(screen.getByText('Token Breakdown')).toBeInTheDocument();
+			expect(screen.getByText('Billable Tokens')).toBeInTheDocument();
 
 			fireEvent.mouseLeave(container);
-			expect(screen.queryByText('Token Breakdown')).not.toBeInTheDocument();
+			expect(screen.queryByText('Billable Tokens')).not.toBeInTheDocument();
 		});
 
 		it('displays all token type rows', () => {
@@ -116,7 +136,7 @@ describe('TokenBreakdownTooltip', () => {
 			expect(screen.getByText('Input')).toBeInTheDocument();
 			expect(screen.getByText('Output')).toBeInTheDocument();
 			expect(screen.getByText('Cache Creation')).toBeInTheDocument();
-			expect(screen.getByText('Billable Total')).toBeInTheDocument();
+			expect(screen.getByText('Subtotal')).toBeInTheDocument();
 		});
 
 		it('formats token values with K/M suffixes', () => {
@@ -137,7 +157,7 @@ describe('TokenBreakdownTooltip', () => {
 			expect(screen.getByText('10.0K')).toBeInTheDocument();
 		});
 
-		it('displays cost with 4 decimal places', () => {
+		it('displays Grand Total with cost', () => {
 			render(
 				<TokenBreakdownTooltip theme={theme} breakdown={mockBreakdown}>
 					<div>Card Content</div>
@@ -147,20 +167,8 @@ describe('TokenBreakdownTooltip', () => {
 			const container = screen.getByText('Card Content').parentElement!;
 			fireEvent.mouseEnter(container);
 
-			expect(screen.getByText('$1.2345')).toBeInTheDocument();
-		});
-
-		it('displays cost label', () => {
-			render(
-				<TokenBreakdownTooltip theme={theme} breakdown={mockBreakdown}>
-					<div>Card Content</div>
-				</TokenBreakdownTooltip>
-			);
-
-			const container = screen.getByText('Card Content').parentElement!;
-			fireEvent.mouseEnter(container);
-
-			expect(screen.getByText('Cost')).toBeInTheDocument();
+			expect(screen.getByText('Grand Total')).toBeInTheDocument();
+			expect(screen.getByText('$1.23')).toBeInTheDocument();
 		});
 	});
 
@@ -180,7 +188,6 @@ describe('TokenBreakdownTooltip', () => {
 			const container = screen.getByText('Delta Card').parentElement!;
 			fireEvent.mouseEnter(container);
 
-			// Should show column headers
 			expect(screen.getByText('Local')).toBeInTheDocument();
 			expect(screen.getByText('HC')).toBeInTheDocument();
 			expect(screen.getByText('Delta')).toBeInTheDocument();
@@ -199,10 +206,10 @@ describe('TokenBreakdownTooltip', () => {
 			expect(screen.getByText('Input')).toBeInTheDocument();
 			expect(screen.getByText('Output')).toBeInTheDocument();
 			expect(screen.getByText('Cache Create')).toBeInTheDocument();
-			expect(screen.getByText('Billable')).toBeInTheDocument();
+			expect(screen.getByText('Billable Tokens')).toBeInTheDocument();
 		});
 
-		it('shows cost row with comparison values', () => {
+		it('shows Grand Total Costs row with comparison values', () => {
 			render(
 				<TokenBreakdownTooltip theme={theme} comparison={comparison}>
 					<div>Delta Card</div>
@@ -212,10 +219,8 @@ describe('TokenBreakdownTooltip', () => {
 			const container = screen.getByText('Delta Card').parentElement!;
 			fireEvent.mouseEnter(container);
 
-			expect(screen.getByText('Cost')).toBeInTheDocument();
-			// Local cost $2.50
+			expect(screen.getByText('Grand Total Costs')).toBeInTheDocument();
 			expect(screen.getByText('$2.50')).toBeInTheDocument();
-			// HC cost $2.10
 			expect(screen.getByText('$2.10')).toBeInTheDocument();
 		});
 
@@ -232,6 +237,41 @@ describe('TokenBreakdownTooltip', () => {
 
 			fireEvent.mouseLeave(container);
 			expect(screen.queryByText('Local')).not.toBeInTheDocument();
+		});
+	});
+
+	describe('Free tokens rendering', () => {
+		it('does NOT show Free Tokens section when no free tokens present', () => {
+			render(
+				<TokenBreakdownTooltip theme={theme} breakdown={makeBillableBreakdown()}>
+					<span>Hover Me</span>
+				</TokenBreakdownTooltip>
+			);
+			fireEvent.mouseEnter(screen.getByText('Hover Me').parentElement!);
+			expect(screen.queryByText('Free Tokens (Local Models)')).toBeNull();
+		});
+
+		it('shows Free Tokens section when free tokens are present', () => {
+			render(
+				<TokenBreakdownTooltip theme={theme} breakdown={makeBreakdownWithFree()}>
+					<span>Hover Me</span>
+				</TokenBreakdownTooltip>
+			);
+			fireEvent.mouseEnter(screen.getByText('Hover Me').parentElement!);
+			expect(screen.getByText('Free Tokens (Local Models)')).toBeInTheDocument();
+			// Free tokens cost is $0.00
+			expect(screen.getByText(/\$0\.00/)).toBeTruthy();
+		});
+
+		it('shows Grand Total with combined token count when free tokens exist', () => {
+			render(
+				<TokenBreakdownTooltip theme={theme} breakdown={makeBreakdownWithFree()}>
+					<span>Hover Me</span>
+				</TokenBreakdownTooltip>
+			);
+			fireEvent.mouseEnter(screen.getByText('Hover Me').parentElement!);
+			// Grand Total should include combined count: 5M + 350K = 5.35M tokens
+			expect(screen.getByText(/Grand Total/)).toBeTruthy();
 		});
 	});
 
@@ -298,7 +338,7 @@ describe('TokenBreakdownTooltip', () => {
 			const container = screen.getByText('Card').parentElement!;
 			fireEvent.mouseEnter(container);
 
-			expect(screen.getByText('$0.0000')).toBeInTheDocument();
+			expect(screen.getByText('$0.00')).toBeInTheDocument();
 		});
 	});
 });

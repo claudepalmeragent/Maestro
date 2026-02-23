@@ -9,6 +9,7 @@
  * - No tooltip appears for Confidence card
  * - Confidence level computed correctly (HIGH/MEDIUM/LOW)
  * - Loading skeleton shown when data is null
+ * - Honeycomb free token fields flow through correctly
  */
 
 import { describe, it, expect } from 'vitest';
@@ -120,7 +121,6 @@ describe('DatasourceSummaryCards', () => {
 		});
 
 		it('shows MEDIUM confidence for intermediate cases', () => {
-			// effective = 80 * min(1, 2/5) = 80 * 0.4 = 32 ≤ 50 → LOW with old values
 			// Use values that produce MEDIUM: effective = 75 * min(1, 5/5) = 75 > 50 → MEDIUM
 			const medConfData: DatasourceSummaryData = {
 				localCostUsd: 2.0,
@@ -151,7 +151,6 @@ describe('DatasourceSummaryCards', () => {
 		});
 
 		it('shows HIGH confidence regardless of divergence between local and HC costs', () => {
-			// Old formula would show LOW due to high divergence; new formula ignores divergence
 			// effective = 99 * min(1, 10/5) = 99 * 1 = 99 > 85 → HIGH
 			const highDivergenceData: DatasourceSummaryData = {
 				localCostUsd: 10.0,
@@ -187,18 +186,18 @@ describe('DatasourceSummaryCards', () => {
 		it('shows single breakdown tooltip on hover over Local card', () => {
 			render(<DatasourceSummaryCards theme={theme} data={mockData} />);
 
-			// Find the Local card text and hover over its wrapper
 			const localLabel = screen.getByText('Local');
 			const cardWrapper = localLabel.closest('.relative');
 			expect(cardWrapper).not.toBeNull();
 
 			fireEvent.mouseEnter(cardWrapper!);
 
-			expect(screen.getByText('Token Breakdown')).toBeInTheDocument();
+			// Component renders "Billable Tokens" as the header
+			expect(screen.getByText('Billable Tokens')).toBeInTheDocument();
 			expect(screen.getByText('Input')).toBeInTheDocument();
 			expect(screen.getByText('Output')).toBeInTheDocument();
 			expect(screen.getByText('Cache Creation')).toBeInTheDocument();
-			expect(screen.getByText('Billable Total')).toBeInTheDocument();
+			expect(screen.getByText('Subtotal')).toBeInTheDocument();
 		});
 
 		it('shows token values in Local card tooltip', () => {
@@ -208,7 +207,7 @@ describe('DatasourceSummaryCards', () => {
 			const cardWrapper = localLabel.closest('.relative');
 			fireEvent.mouseEnter(cardWrapper!);
 
-			// 200000 -> 200.0K
+			// 200000 -> 200.0K (uses 1 decimal in K range)
 			expect(screen.getByText('200.0K')).toBeInTheDocument();
 			// 100000 -> 100.0K
 			expect(screen.getByText('100.0K')).toBeInTheDocument();
@@ -225,7 +224,7 @@ describe('DatasourceSummaryCards', () => {
 
 			fireEvent.mouseEnter(cardWrapper!);
 
-			expect(screen.getByText('Token Breakdown')).toBeInTheDocument();
+			expect(screen.getByText('Billable Tokens')).toBeInTheDocument();
 		});
 
 		it('shows comparison breakdown tooltip on hover over Divergence card', () => {
@@ -249,12 +248,10 @@ describe('DatasourceSummaryCards', () => {
 			render(<DatasourceSummaryCards theme={theme} data={mockData} />);
 
 			const confLabel = screen.getByText('Confidence');
-			// Confidence card has no .relative wrapper since no breakdown/comparison
 			const cardDiv = confLabel.closest('div');
 			fireEvent.mouseEnter(cardDiv!);
 
-			// No tooltip content should appear
-			expect(screen.queryByText('Token Breakdown')).not.toBeInTheDocument();
+			expect(screen.queryByText('Billable Tokens')).not.toBeInTheDocument();
 			expect(screen.queryByText('HC')).not.toBeInTheDocument();
 		});
 
@@ -265,24 +262,84 @@ describe('DatasourceSummaryCards', () => {
 			const cardWrapper = localLabel.closest('.relative');
 
 			fireEvent.mouseEnter(cardWrapper!);
-			expect(screen.getByText('Token Breakdown')).toBeInTheDocument();
+			expect(screen.getByText('Billable Tokens')).toBeInTheDocument();
 
 			fireEvent.mouseLeave(cardWrapper!);
-			expect(screen.queryByText('Token Breakdown')).not.toBeInTheDocument();
+			expect(screen.queryByText('Billable Tokens')).not.toBeInTheDocument();
 		});
 
 		it('does not render tooltips when breakdown data is unavailable', () => {
 			render(<DatasourceSummaryCards theme={theme} data={mockDataNoBreakdown} />);
 
-			// Cards should still render
 			expect(screen.getByText('Local')).toBeInTheDocument();
 			expect(screen.getByText('Honeycomb')).toBeInTheDocument();
 
-			// No .relative wrappers since no tooltips (TokenBreakdownTooltip renders children directly)
 			const localLabel = screen.getByText('Local');
 			const relativeWrapper = localLabel.closest('.relative');
-			// When no breakdown, TokenBreakdownTooltip renders children directly without .relative wrapper
 			expect(relativeWrapper).toBeNull();
+		});
+	});
+
+	describe('Honeycomb free token fields', () => {
+		it('includes honeycomb free token fields in hcBreakdown when present', () => {
+			const data: DatasourceSummaryData = {
+				...mockData,
+				honeycombFreeInputTokens: 200_000,
+				honeycombFreeOutputTokens: 100_000,
+				honeycombFreeCacheCreationTokens: 50_000,
+				honeycombFreeTotalTokens: 350_000,
+			};
+			// Renders without errors when HC free token fields are populated
+			const { container } = render(<DatasourceSummaryCards theme={theme} data={data} />);
+			const cards = container.querySelectorAll('.rounded-lg');
+			expect(cards.length).toBe(4);
+		});
+
+		it('shows Free Tokens section in HC card tooltip when free tokens are present', () => {
+			const data: DatasourceSummaryData = {
+				...mockData,
+				honeycombFreeInputTokens: 200_000,
+				honeycombFreeOutputTokens: 100_000,
+				honeycombFreeCacheCreationTokens: 50_000,
+				honeycombFreeTotalTokens: 350_000,
+			};
+			render(<DatasourceSummaryCards theme={theme} data={data} />);
+
+			const hcLabel = screen.getByText('Honeycomb');
+			const cardWrapper = hcLabel.closest('.relative');
+			fireEvent.mouseEnter(cardWrapper!);
+
+			expect(screen.getByText('Free Tokens (Local Models)')).toBeInTheDocument();
+		});
+
+		it('does NOT show Free Tokens section in HC card when free tokens are zero', () => {
+			const data: DatasourceSummaryData = {
+				...mockData,
+				honeycombFreeInputTokens: 0,
+				honeycombFreeOutputTokens: 0,
+				honeycombFreeCacheCreationTokens: 0,
+				honeycombFreeTotalTokens: 0,
+			};
+			render(<DatasourceSummaryCards theme={theme} data={data} />);
+
+			const hcLabel = screen.getByText('Honeycomb');
+			const cardWrapper = hcLabel.closest('.relative');
+			fireEvent.mouseEnter(cardWrapper!);
+
+			expect(screen.queryByText('Free Tokens (Local Models)')).not.toBeInTheDocument();
+		});
+
+		it('includes local free token fields in localBreakdown when present', () => {
+			const data: DatasourceSummaryData = {
+				...mockData,
+				localFreeInputTokens: 500_000,
+				localFreeOutputTokens: 200_000,
+				localFreeCacheCreationTokens: 100_000,
+				localFreeTotalTokens: 800_000,
+			};
+			const { container } = render(<DatasourceSummaryCards theme={theme} data={data} />);
+			const cards = container.querySelectorAll('.rounded-lg');
+			expect(cards.length).toBe(4);
 		});
 	});
 });

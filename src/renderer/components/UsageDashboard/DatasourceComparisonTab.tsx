@@ -309,54 +309,92 @@ export function DatasourceComparisonTab({
 		cacheCreationTokens: number;
 	} | null>(null);
 	const [_timeRangeHcLoading, setTimeRangeHcLoading] = useState(false);
+	const [timeRangeHcAllData, setTimeRangeHcAllData] = useState<{
+		billableTokens: number;
+		inputTokens: number;
+		outputTokens: number;
+		cacheCreationTokens: number;
+	} | null>(null);
 
 	// Fetch Honeycomb data matching the selected time range for Summary Cards
 	useEffect(() => {
 		async function fetchTimeRangeHcData() {
-			// Map time range to seconds
 			const timeRangeSeconds: Record<string, number> = {
-				day: 86400, // 24 hours
-				week: 604800, // 7 days
-				month: 2592000, // 30 days
-				year: 31536000, // 365 days
-				all: 31536000, // cap at 1 year for "all"
+				day: 86400,
+				week: 604800,
+				month: 2592000,
+				year: 31536000,
+				all: 31536000,
 			};
 			const seconds = timeRangeSeconds[timeRange] || 604800;
 
 			setTimeRangeHcLoading(true);
 			try {
-				const result = (await window.maestro.honeycomb.query(
-					{
-						calculations: [
-							{ op: 'SUM', column: 'cost_usd', name: 'total_cost' },
-							{ op: 'SUM', column: 'input_tokens', name: 'input' },
-							{ op: 'SUM', column: 'output_tokens', name: 'output' },
-							{ op: 'SUM', column: 'cache_creation_tokens', name: 'cache_create' },
-						],
-						filters: [{ column: 'model', op: 'starts-with', value: 'claude-' }],
-						time_range: seconds,
-					},
-					{ ttlMs: 60000, label: `summary-${timeRange}` }
-				)) as { data?: { results?: Array<Record<string, unknown>> } };
+				// Run two queries in parallel: billable-only (cloud providers) and all tokens
+				const [billableResult, allResult] = await Promise.all([
+					window.maestro.honeycomb.query(
+						{
+							calculations: [
+								{ op: 'SUM', column: 'cost_usd', name: 'total_cost' },
+								{ op: 'SUM', column: 'input_tokens', name: 'input' },
+								{ op: 'SUM', column: 'output_tokens', name: 'output' },
+								{ op: 'SUM', column: 'cache_creation_tokens', name: 'cache_create' },
+							],
+							filters: [{ column: 'model', op: 'starts-with', value: 'claude-' }],
+							time_range: seconds,
+						},
+						{ ttlMs: 60000, label: `summary-billable-${timeRange}` }
+					) as Promise<{ data?: { results?: Array<Record<string, unknown>> } }>,
+					window.maestro.honeycomb.query(
+						{
+							calculations: [
+								{ op: 'SUM', column: 'input_tokens', name: 'input' },
+								{ op: 'SUM', column: 'output_tokens', name: 'output' },
+								{ op: 'SUM', column: 'cache_creation_tokens', name: 'cache_create' },
+							],
+							time_range: seconds,
+						},
+						{ ttlMs: 60000, label: `summary-all-${timeRange}` }
+					) as Promise<{ data?: { results?: Array<Record<string, unknown>> } }>,
+				]);
 
-				const row = result?.data?.results?.[0] || {};
-				const extractNum = (key: string): number => {
-					const v = row[key];
+				const billableRow = billableResult?.data?.results?.[0] || {};
+				const allRow = allResult?.data?.results?.[0] || {};
+
+				const extractNum = (obj: Record<string, unknown>, key: string): number => {
+					const v = obj[key];
 					if (typeof v === 'number') return v;
 					if (typeof v === 'string') return parseFloat(v) || 0;
 					return 0;
 				};
 
 				setTimeRangeHcData({
-					costUsd: extractNum('total_cost'),
-					billableTokens: extractNum('input') + extractNum('output') + extractNum('cache_create'),
-					inputTokens: extractNum('input'),
-					outputTokens: extractNum('output'),
-					cacheCreationTokens: extractNum('cache_create'),
+					costUsd: extractNum(billableRow, 'total_cost'),
+					billableTokens:
+						extractNum(billableRow, 'input') +
+						extractNum(billableRow, 'output') +
+						extractNum(billableRow, 'cache_create'),
+					inputTokens: extractNum(billableRow, 'input'),
+					outputTokens: extractNum(billableRow, 'output'),
+					cacheCreationTokens: extractNum(billableRow, 'cache_create'),
+				});
+
+				// Compute free tokens = all tokens minus billable tokens
+				const allInput = extractNum(allRow, 'input');
+				const allOutput = extractNum(allRow, 'output');
+				const allCache = extractNum(allRow, 'cache_create');
+				const billableInput = extractNum(billableRow, 'input');
+				const billableOutput = extractNum(billableRow, 'output');
+				const billableCache = extractNum(billableRow, 'cache_create');
+
+				setTimeRangeHcAllData({
+					billableTokens: allInput + allOutput + allCache,
+					inputTokens: Math.max(0, allInput - billableInput),
+					outputTokens: Math.max(0, allOutput - billableOutput),
+					cacheCreationTokens: Math.max(0, allCache - billableCache),
 				});
 			} catch (err) {
 				console.warn('[DatasourceComparisonTab] Failed to fetch time-range HC data:', err);
-				// Fall back to weekly data from the usage service
 				if (honeycombUsageData) {
 					setTimeRangeHcData({
 						costUsd: honeycombUsageData.weeklySpendUsd,
@@ -366,6 +404,7 @@ export function DatasourceComparisonTab({
 						cacheCreationTokens: (honeycombUsageData as any).weeklyCacheCreationTokens ?? 0,
 					});
 				}
+				setTimeRangeHcAllData(null);
 			} finally {
 				setTimeRangeHcLoading(false);
 			}
@@ -407,6 +446,14 @@ export function DatasourceComparisonTab({
 					localFreeOutputTokens: freeTokenStats?.totalOutputTokens ?? 0,
 					localFreeCacheCreationTokens: freeTokenStats?.totalCacheCreationTokens ?? 0,
 					localFreeTotalTokens: freeTokenStats?.totalBillableTokens ?? 0,
+					// Free tokens from local models as tracked by Honeycomb
+					honeycombFreeInputTokens: timeRangeHcAllData?.inputTokens ?? 0,
+					honeycombFreeOutputTokens: timeRangeHcAllData?.outputTokens ?? 0,
+					honeycombFreeCacheCreationTokens: timeRangeHcAllData?.cacheCreationTokens ?? 0,
+					honeycombFreeTotalTokens:
+						(timeRangeHcAllData?.inputTokens ?? 0) +
+						(timeRangeHcAllData?.outputTokens ?? 0) +
+						(timeRangeHcAllData?.cacheCreationTokens ?? 0),
 				}
 			: null;
 
@@ -457,12 +504,17 @@ export function DatasourceComparisonTab({
 			: null;
 
 	// Local Models: free tokens from local stats DB against the weekly calibrated budget
+	const hcFreeTokenTotal =
+		(timeRangeHcAllData?.inputTokens ?? 0) +
+		(timeRangeHcAllData?.outputTokens ?? 0) +
+		(timeRangeHcAllData?.cacheCreationTokens ?? 0);
+
 	const localModelsBudget: BudgetWindowData | null =
 		calibration.currentEstimates.weekly.weightedMean > 0 &&
-		(freeTokenStats?.totalBillableTokens ?? 0) > 0
+		((freeTokenStats?.totalBillableTokens ?? 0) > 0 || hcFreeTokenTotal > 0)
 			? {
 					localTokens: freeTokenStats?.totalBillableTokens ?? 0,
-					honeycombTokens: 0, // Not from Honeycomb — from local stats DB
+					honeycombTokens: hcFreeTokenTotal,
 					calibratedBudget: calibration.currentEstimates.weekly.weightedMean,
 					resetLabel: `Resets: ${calibration.weeklyResetDay} ${calibration.weeklyResetTime}`,
 				}

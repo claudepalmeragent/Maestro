@@ -25,6 +25,16 @@ export interface DatasourceSummaryData {
 	honeycombInputTokens?: number;
 	honeycombOutputTokens?: number;
 	honeycombCacheCreationTokens?: number;
+	// Free tokens from local models (from local stats DB, optional)
+	localFreeInputTokens?: number;
+	localFreeOutputTokens?: number;
+	localFreeCacheCreationTokens?: number;
+	localFreeTotalTokens?: number;
+	// Free tokens from local models as tracked by Honeycomb (optional)
+	honeycombFreeInputTokens?: number;
+	honeycombFreeOutputTokens?: number;
+	honeycombFreeCacheCreationTokens?: number;
+	honeycombFreeTotalTokens?: number;
 }
 
 export interface DatasourceSummaryCardsProps {
@@ -87,6 +97,10 @@ export function DatasourceSummaryCards({ theme, data }: DatasourceSummaryCardsPr
 					cacheCreationTokens: data.localCacheCreationTokens ?? 0,
 					costUsd: data.localCostUsd,
 					billableTokens: data.localBillableTokens,
+					freeInputTokens: data.localFreeInputTokens,
+					freeOutputTokens: data.localFreeOutputTokens,
+					freeCacheCreationTokens: data.localFreeCacheCreationTokens,
+					freeTotalTokens: data.localFreeTotalTokens,
 				}
 			: undefined;
 
@@ -98,6 +112,10 @@ export function DatasourceSummaryCards({ theme, data }: DatasourceSummaryCardsPr
 					cacheCreationTokens: data.honeycombCacheCreationTokens ?? 0,
 					costUsd: data.honeycombCostUsd,
 					billableTokens: data.honeycombBillableTokens,
+					freeInputTokens: data.honeycombFreeInputTokens,
+					freeOutputTokens: data.honeycombFreeOutputTokens,
+					freeCacheCreationTokens: data.honeycombFreeCacheCreationTokens,
+					freeTotalTokens: data.honeycombFreeTotalTokens,
 				}
 			: undefined;
 
