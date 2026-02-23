@@ -81,6 +81,33 @@ export function isClaudeModelId(modelId: string): boolean {
 }
 
 /**
+ * Known cloud provider model ID prefixes.
+ * Any model whose ID does NOT start with one of these patterns is classified as "free"
+ * (e.g., local Ollama models like 'qwen3-coder:30b', '<synthetic>', etc.).
+ *
+ * This is EXCLUSION-based: unknown models are free by default.
+ * Only models matching a known cloud provider pattern count toward billable usage.
+ */
+export const CLOUD_PROVIDER_PATTERNS: readonly string[] = [
+	'claude-',
+	'gpt-',
+	'o1-',
+	'o3-',
+	'o4-',
+	'gemini-',
+] as const;
+
+/**
+ * Check if a model ID belongs to a known cloud provider (billable).
+ * Returns false for local/free models (Ollama, custom, etc.).
+ */
+export function isCloudProviderModel(modelId: string): boolean {
+	if (!modelId) return false;
+	const lower = modelId.toLowerCase().trim();
+	return CLOUD_PROVIDER_PATTERNS.some((prefix) => lower.startsWith(prefix));
+}
+
+/**
  * Get pricing configuration for a specific Claude model
  *
  * @param modelId - The model ID (can be full ID or alias)

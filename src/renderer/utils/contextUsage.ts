@@ -92,12 +92,19 @@ export function estimateContextUsage(
 		| 'cacheCreationInputTokens'
 		| 'contextWindow'
 	>,
-	agentId?: ToolType
+	agentId?: ToolType,
+	/** Override context window from session env vars (e.g., CLAUDE_CODE_MAX_CONTEXT_WINDOW) */
+	envContextWindow?: number
 ): number | null {
 	// Calculate total context using agent-specific semantics
 	const totalContextTokens = calculateContextTokens(stats, agentId);
 
-	// If context window is provided and valid, use it
+	// Priority 1: Env var override (from CLAUDE_CODE_MAX_CONTEXT_WINDOW)
+	if (envContextWindow && envContextWindow > 0) {
+		return Math.min(100, Math.round((totalContextTokens / envContextWindow) * 100));
+	}
+
+	// Priority 2: If context window is provided and valid, use it
 	if (stats.contextWindow && stats.contextWindow > 0) {
 		return Math.min(100, Math.round((totalContextTokens / stats.contextWindow) * 100));
 	}

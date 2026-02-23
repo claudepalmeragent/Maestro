@@ -16,11 +16,31 @@ interface BudgetBarInlineProps {
 	weeklyBudget: number;
 	sonnetWeeklyTokens: number;
 	sonnetWeeklyBudget: number;
+	/** Free tokens from local models (weekly window, from local stats DB) */
+	localModelTokens: number;
+	/** Budget for local model comparison — synced with weekly calibrated budget */
+	localModelBudget: number;
 	onClick?: () => void;
 }
 
-function MiniBar({ theme, label, pct }: { theme: Theme; label: string; pct: number }) {
-	const barColor = pct >= 85 ? '#ef4444' : pct >= 60 ? '#eab308' : theme.colors.accent;
+function MiniBar({
+	theme,
+	label,
+	pct,
+	alwaysGreen,
+}: {
+	theme: Theme;
+	label: string;
+	pct: number;
+	alwaysGreen?: boolean;
+}) {
+	const barColor = alwaysGreen
+		? '#22c55e'
+		: pct >= 85
+			? '#ef4444'
+			: pct >= 60
+				? '#eab308'
+				: theme.colors.accent;
 
 	return (
 		<div className="flex items-center gap-1.5">
@@ -56,14 +76,20 @@ export function BudgetBarInline({
 	weeklyBudget,
 	sonnetWeeklyTokens,
 	sonnetWeeklyBudget,
+	localModelTokens,
+	localModelBudget,
 	onClick,
 }: BudgetBarInlineProps) {
 	// Self-hide when no calibration exists
-	if (fiveHourBudget <= 0 && weeklyBudget <= 0 && sonnetWeeklyBudget <= 0) return null;
+	if (fiveHourBudget <= 0 && weeklyBudget <= 0 && sonnetWeeklyBudget <= 0 && localModelBudget <= 0)
+		return null;
 
 	const fiveHourPct =
 		fiveHourBudget > 0 ? Math.min(100, (fiveHourTokens / fiveHourBudget) * 100) : 0;
 	const weeklyPct = weeklyBudget > 0 ? Math.min(100, (weeklyTokens / weeklyBudget) * 100) : 0;
+
+	// Local models: no cap at 100% for the displayed percentage, but bar itself caps at 100%
+	const localModelPct = localModelBudget > 0 ? (localModelTokens / localModelBudget) * 100 : 0;
 
 	return (
 		<div
@@ -95,6 +121,9 @@ export function BudgetBarInline({
 							: 0
 					}
 				/>
+			)}
+			{localModelBudget > 0 && (
+				<MiniBar theme={theme} label="Lcl" pct={localModelPct} alwaysGreen />
 			)}
 		</div>
 	);

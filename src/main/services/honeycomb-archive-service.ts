@@ -13,6 +13,7 @@
 import { getHoneycombQueryClient, DEFAULT_TTL } from './honeycomb-query-client';
 import type { HoneycombQuerySpec, HoneycombQueryResult } from './honeycomb-query-client';
 import { getHoneycombArchiveDB } from './honeycomb-archive-db';
+import { isCloudProviderModel } from '../utils/claude-pricing';
 import { logger } from '../utils/logger';
 
 // ============================================================================
@@ -77,8 +78,9 @@ function buildArchiveQueries(startTime: number, endTime: number): ArchiveQuery[]
 					{ op: 'SUM', column: 'cache_read_tokens' },
 					{ op: 'SUM', column: 'cache_creation_tokens' },
 				],
+				breakdowns: ['model'],
 			},
-			hasBreakdowns: false,
+			hasBreakdowns: true,
 		},
 		{
 			name: 'daily_session_count',
@@ -265,6 +267,236 @@ export class HoneycombArchiveService {
 	 */
 	isArchiving(): boolean {
 		return this.archiving;
+	}
+
+	/**
+	 * One-time backfill: Re-query Honeycomb for historical per-model breakdown data
+	 * and update honeycomb_daily rows with properly classified billable/free splits.
+	 *
+	 * This fixes "All Time" views that were polluted with free model tokens.
+	 */
+	async runBackfill(): Promise<{ updatedDates: string[]; errors: string[] }> {
+		const db = getHoneycombArchiveDB();
+		const client = getHoneycombQueryClient();
+		const updatedDates: string[] = [];
+		const errors: string[] = [];
+
+		logger.info('Starting historical model breakdown backfill...', LOG_CONTEXT);
+
+		try {
+			// Determine the date range to backfill
+			const unbackfilledDates = db.getUnbackfilledDates('daily_token_volumes');
+			if (unbackfilledDates.length === 0) {
+				logger.info(
+					'No dates need backfilling — all rows already have model breakdowns',
+					LOG_CONTEXT
+				);
+				return { updatedDates, errors };
+			}
+
+			const startDate = unbackfilledDates[0];
+			const endDate = unbackfilledDates[unbackfilledDates.length - 1];
+
+			logger.info(
+				`Backfilling ${unbackfilledDates.length} dates: ${startDate} to ${endDate}`,
+				LOG_CONTEXT
+			);
+
+			// Query Honeycomb for per-model token breakdown across the full date range
+			const startEpoch = Math.floor(new Date(startDate + 'T00:00:00Z').getTime() / 1000);
+			const endEpoch = Math.floor(new Date(endDate + 'T23:59:59Z').getTime() / 1000);
+
+			const tokenResult = await client.query(
+				{
+					calculations: [
+						{ op: 'SUM', column: 'input_tokens', name: 'input' },
+						{ op: 'SUM', column: 'output_tokens', name: 'output' },
+						{ op: 'SUM', column: 'cache_read_tokens', name: 'cache_read' },
+						{ op: 'SUM', column: 'cache_creation_tokens', name: 'cache_create' },
+						{ op: 'SUM', column: 'cost_usd', name: 'cost' },
+					],
+					breakdowns: ['model'],
+					start_time: startEpoch,
+					end_time: endEpoch,
+					granularity: 86400, // 1 day
+				},
+				{ ttlMs: 0, label: 'backfill-model-breakdown' }
+			);
+
+			// Process results — series format gives per-day, per-model data
+			const resultRows = tokenResult.data?.results || [];
+			const series = tokenResult.data?.series || [];
+
+			// Build per-date, per-model classification
+			type DateModelData = Record<
+				string,
+				{
+					billable: {
+						input: number;
+						output: number;
+						cacheRead: number;
+						cacheCreate: number;
+						cost: number;
+					};
+					free: {
+						input: number;
+						output: number;
+						cacheRead: number;
+						cacheCreate: number;
+						cost: number;
+					};
+					models: { billable: string[]; free: string[] };
+				}
+			>;
+
+			const dateData: DateModelData = {};
+
+			// Helper to extract number
+			const extractNum = (obj: Record<string, unknown>, key: string): number => {
+				const v = obj[key];
+				return typeof v === 'number' ? v : typeof v === 'string' ? parseFloat(v) || 0 : 0;
+			};
+
+			// Process series format (time-bucketed)
+			for (const point of series) {
+				if (!point.time) continue;
+				const dateStr = String(point.time).split('T')[0];
+				const modelId = String((point as any).model || point.data?.model || '');
+
+				if (!dateData[dateStr]) {
+					dateData[dateStr] = {
+						billable: { input: 0, output: 0, cacheRead: 0, cacheCreate: 0, cost: 0 },
+						free: { input: 0, output: 0, cacheRead: 0, cacheCreate: 0, cost: 0 },
+						models: { billable: [], free: [] },
+					};
+				}
+
+				const input = extractNum(point.data || {}, 'input');
+				const output = extractNum(point.data || {}, 'output');
+				const cacheRead = extractNum(point.data || {}, 'cache_read');
+				const cacheCreate = extractNum(point.data || {}, 'cache_create');
+				const cost = extractNum(point.data || {}, 'cost');
+
+				if (isCloudProviderModel(modelId)) {
+					dateData[dateStr].billable.input += input;
+					dateData[dateStr].billable.output += output;
+					dateData[dateStr].billable.cacheRead += cacheRead;
+					dateData[dateStr].billable.cacheCreate += cacheCreate;
+					dateData[dateStr].billable.cost += cost;
+					if (modelId && !dateData[dateStr].models.billable.includes(modelId)) {
+						dateData[dateStr].models.billable.push(modelId);
+					}
+				} else {
+					dateData[dateStr].free.input += input;
+					dateData[dateStr].free.output += output;
+					dateData[dateStr].free.cacheRead += cacheRead;
+					dateData[dateStr].free.cacheCreate += cacheCreate;
+					dateData[dateStr].free.cost += cost;
+					if (modelId && !dateData[dateStr].models.free.includes(modelId)) {
+						dateData[dateStr].models.free.push(modelId);
+					}
+				}
+			}
+
+			// Also process flat results (if series is empty)
+			if (series.length === 0 && resultRows.length > 0) {
+				// Flat results from MCP — each row has a model field
+				// Without granularity-based time buckets, treat as aggregate for the full range
+				for (const row of resultRows) {
+					const modelId = String(row['model'] || '');
+					const input = extractNum(row, 'input');
+					const output = extractNum(row, 'output');
+					const cacheRead = extractNum(row, 'cache_read');
+					const cacheCreate = extractNum(row, 'cache_create');
+					const cost = extractNum(row, 'cost');
+
+					// Distribute aggregate totals evenly across all unbackfilled dates
+					const dateCount = unbackfilledDates.length;
+					const perDateInput = input / dateCount;
+					const perDateOutput = output / dateCount;
+					const perDateCacheRead = cacheRead / dateCount;
+					const perDateCacheCreate = cacheCreate / dateCount;
+					const perDateCost = cost / dateCount;
+
+					for (const date of unbackfilledDates) {
+						if (!dateData[date]) {
+							dateData[date] = {
+								billable: { input: 0, output: 0, cacheRead: 0, cacheCreate: 0, cost: 0 },
+								free: { input: 0, output: 0, cacheRead: 0, cacheCreate: 0, cost: 0 },
+								models: { billable: [], free: [] },
+							};
+						}
+
+						if (isCloudProviderModel(modelId)) {
+							dateData[date].billable.input += perDateInput;
+							dateData[date].billable.output += perDateOutput;
+							dateData[date].billable.cacheRead += perDateCacheRead;
+							dateData[date].billable.cacheCreate += perDateCacheCreate;
+							dateData[date].billable.cost += perDateCost;
+							if (modelId && !dateData[date].models.billable.includes(modelId)) {
+								dateData[date].models.billable.push(modelId);
+							}
+						} else {
+							dateData[date].free.input += perDateInput;
+							dateData[date].free.output += perDateOutput;
+							dateData[date].free.cacheRead += perDateCacheRead;
+							dateData[date].free.cacheCreate += perDateCacheCreate;
+							dateData[date].free.cost += perDateCost;
+							if (modelId && !dateData[date].models.free.includes(modelId)) {
+								dateData[date].models.free.push(modelId);
+							}
+						}
+					}
+
+					logger.warn(
+						`Backfill: MCP returned flat results without time buckets for model '${modelId}'. Per-date breakdown is approximate (evenly distributed).`,
+						LOG_CONTEXT
+					);
+				}
+			}
+
+			// Update archive rows
+			for (const [date, data] of Object.entries(dateData)) {
+				try {
+					db.backfillDailyRow(date, 'daily_token_volumes', null, {
+						billable: data.billable,
+						free: data.free,
+						models: data.models,
+						backfilled_at: new Date().toISOString(),
+					});
+					updatedDates.push(date);
+				} catch (err) {
+					const errMsg = err instanceof Error ? err.message : String(err);
+					errors.push(`Failed to update ${date}: ${errMsg}`);
+					logger.error(`Backfill error for ${date}: ${errMsg}`, LOG_CONTEXT);
+				}
+			}
+
+			// Mark unbackfilled dates that had no Honeycomb data (outside retention or no activity)
+			for (const date of unbackfilledDates) {
+				if (!dateData[date]) {
+					logger.warn(
+						`Backfill: No Honeycomb data for ${date} — may be outside retention`,
+						LOG_CONTEXT
+					);
+				}
+			}
+
+			logger.info(
+				`Backfill complete: ${updatedDates.length} dates updated, ${errors.length} errors`,
+				LOG_CONTEXT
+			);
+
+			// Store backfill metadata
+			db.setMeta('last_backfill_date', new Date().toISOString());
+			db.setMeta('backfill_dates_updated', String(updatedDates.length));
+		} catch (error) {
+			const errMsg = error instanceof Error ? error.message : String(error);
+			logger.error(`Backfill failed: ${errMsg}`, LOG_CONTEXT);
+			errors.push(`Backfill failed: ${errMsg}`);
+		}
+
+		return { updatedDates, errors };
 	}
 
 	// ============================================================================

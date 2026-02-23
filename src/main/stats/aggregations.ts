@@ -733,6 +733,74 @@ export function getCostsByAgent(db: Database.Database, range: StatsTimeRange): A
 }
 
 // ============================================================================
+// Free Token Stats (for DS Comparison tab — does NOT filter existing queries)
+// ============================================================================
+
+export interface FreeTokenStats {
+	totalInputTokens: number;
+	totalOutputTokens: number;
+	totalCacheCreationTokens: number;
+	totalBillableTokens: number;
+	queryCount: number;
+	models: string[];
+}
+
+/**
+ * Query free (local model) token stats for a time range.
+ * Free tokens are those with maestro_billing_mode = 'free'.
+ *
+ * This is a STANDALONE query — it does NOT modify any existing aggregation queries.
+ * Used by the DS Comparison tab to display free token data alongside totals.
+ */
+export function queryFreeTokenStats(db: Database.Database, startTime: number): FreeTokenStats {
+	const perfStart = perfMetrics.start();
+	const result = db
+		.prepare(
+			`
+      SELECT
+        COALESCE(SUM(input_tokens), 0) as input_tokens,
+        COALESCE(SUM(output_tokens), 0) as output_tokens,
+        COALESCE(SUM(cache_creation_input_tokens), 0) as cache_creation_tokens,
+        COUNT(*) as query_count,
+        GROUP_CONCAT(DISTINCT COALESCE(anthropic_model, 'unknown')) as models
+      FROM query_events
+      WHERE start_time >= ? AND maestro_billing_mode = 'free'
+    `
+		)
+		.get(startTime) as {
+		input_tokens: number;
+		output_tokens: number;
+		cache_creation_tokens: number;
+		query_count: number;
+		models: string | null;
+	};
+
+	perfMetrics.end(perfStart, 'queryFreeTokenStats');
+
+	const inputTokens = result.input_tokens || 0;
+	const outputTokens = result.output_tokens || 0;
+	const cacheCreationTokens = result.cache_creation_tokens || 0;
+
+	return {
+		totalInputTokens: inputTokens,
+		totalOutputTokens: outputTokens,
+		totalCacheCreationTokens: cacheCreationTokens,
+		totalBillableTokens: inputTokens + outputTokens + cacheCreationTokens,
+		queryCount: result.query_count || 0,
+		models: result.models ? result.models.split(',').filter(Boolean) : [],
+	};
+}
+
+/**
+ * Get free token stats for a time range.
+ * Convenience function that applies the time range filter.
+ */
+export function getFreeTokenStats(db: Database.Database, range: StatsTimeRange): FreeTokenStats {
+	const startTime = getTimeRangeStart(range);
+	return queryFreeTokenStats(db, startTime);
+}
+
+// ============================================================================
 // Orchestrator
 // ============================================================================
 

@@ -150,6 +150,25 @@ export class HoneycombArchiveDB {
 			this.db.pragma('journal_mode = WAL');
 			this.db.pragma('synchronous = NORMAL');
 			this.db.exec(SCHEMA_SQL);
+
+			// Migration: Add data_backup column for backfill reversibility
+			try {
+				this.db.exec(`ALTER TABLE honeycomb_daily ADD COLUMN data_backup JSON`);
+				logger.info('Added data_backup column to honeycomb_daily', LOG_CONTEXT);
+			} catch {
+				// Column already exists — this is expected after first run
+			}
+
+			// Migration: Add model_breakdown_available flag
+			try {
+				this.db.exec(
+					`ALTER TABLE honeycomb_daily ADD COLUMN model_breakdown_available INTEGER DEFAULT 0`
+				);
+				logger.info('Added model_breakdown_available column to honeycomb_daily', LOG_CONTEXT);
+			} catch {
+				// Column already exists — this is expected after first run
+			}
+
 			logger.info(`Archive database initialized at ${this.dbPath}`, LOG_CONTEXT);
 		} catch (error) {
 			logger.error(`Failed to initialize archive database: ${error}`, LOG_CONTEXT);
@@ -235,6 +254,46 @@ export class HoneycombArchiveDB {
 			breakdown_key: row.breakdown_key,
 			data: JSON.parse(row.data),
 		}));
+	}
+
+	/**
+	 * Update a daily row with model breakdown data, backing up the original.
+	 */
+	backfillDailyRow(
+		date: string,
+		queryName: string,
+		breakdownKey: string | null,
+		newData: unknown
+	): void {
+		const db = this.getDB();
+		// Backup original data before overwriting
+		db.prepare(
+			`
+			UPDATE honeycomb_daily
+			SET data_backup = CASE WHEN data_backup IS NULL THEN data ELSE data_backup END,
+			    data = ?,
+			    model_breakdown_available = 1,
+			    updated_at = datetime('now')
+			WHERE date = ? AND query_name = ? AND breakdown_key IS ?
+		`
+		).run(JSON.stringify(newData), date, queryName, breakdownKey);
+	}
+
+	/**
+	 * Get all dates that have NOT been backfilled with model breakdowns.
+	 */
+	getUnbackfilledDates(queryName: string): string[] {
+		const db = this.getDB();
+		const rows = db
+			.prepare(
+				`
+			SELECT DISTINCT date FROM honeycomb_daily
+			WHERE query_name = ? AND (model_breakdown_available IS NULL OR model_breakdown_available = 0)
+			ORDER BY date ASC
+		`
+			)
+			.all(queryName) as Array<{ date: string }>;
+		return rows.map((r) => r.date);
 	}
 
 	/**

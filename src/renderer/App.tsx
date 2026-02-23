@@ -3047,16 +3047,33 @@ function MaestroConsoleInner() {
 				? usageStats.inputTokens + usageStats.cacheCreationInputTokens
 				: usageStats.inputTokens + usageStats.outputTokens;
 
+			// Check for CLAUDE_CODE_MAX_CONTEXT_WINDOW env var override from session config
+			// This is set per-VM in the startup script for local Ollama models with smaller context windows
+			const envContextWindowStr = sessionForUsage?.customEnvVars?.CLAUDE_CODE_MAX_CONTEXT_WINDOW;
+			const envContextWindow = envContextWindowStr
+				? parseInt(String(envContextWindowStr), 10)
+				: undefined;
+			const validEnvContextWindow =
+				envContextWindow && !isNaN(envContextWindow) && envContextWindow > 0
+					? envContextWindow
+					: undefined;
+
 			// Calculate context percentage, falling back to agent-specific defaults if contextWindow not provided
+			// Priority: envContextWindow (from env var) → usageStats.contextWindow → agent default
 			let contextPercentage: number;
-			if (usageStats.contextWindow > 0) {
+			if (validEnvContextWindow) {
+				contextPercentage = Math.min(
+					Math.round((currentContextTokens / validEnvContextWindow) * 100),
+					100
+				);
+			} else if (usageStats.contextWindow > 0) {
 				contextPercentage = Math.min(
 					Math.round((currentContextTokens / usageStats.contextWindow) * 100),
 					100
 				);
 			} else {
 				// Use fallback estimation with agent-specific default context window
-				const estimated = estimateContextUsage(usageStats, agentToolType);
+				const estimated = estimateContextUsage(usageStats, agentToolType, validEnvContextWindow);
 				contextPercentage = estimated ?? 0;
 			}
 

@@ -22,6 +22,7 @@ export interface PlanBudgetTrackerProps {
 	fiveHour: BudgetWindowData | null;
 	weekly: BudgetWindowData | null;
 	sonnetWeekly: BudgetWindowData | null;
+	localModels: BudgetWindowData | null;
 }
 
 function formatTokens(tokens: number): string {
@@ -34,17 +35,27 @@ function BudgetBar({
 	theme,
 	label,
 	data,
+	alwaysGreen,
 }: {
 	theme: Theme;
 	label: string;
 	data: BudgetWindowData;
+	alwaysGreen?: boolean;
 }) {
-	const pct =
+	const rawPct =
 		data.calibratedBudget > 0
-			? Math.min(100, (data.honeycombTokens / data.calibratedBudget) * 100)
+			? ((alwaysGreen ? data.localTokens : data.honeycombTokens) / data.calibratedBudget) * 100
 			: 0;
+	const pct = Math.min(100, rawPct);
+	const displayPct = alwaysGreen ? rawPct : pct;
 
-	const barColor = pct >= 85 ? '#ef4444' : pct >= 60 ? '#eab308' : theme.colors.accent;
+	const barColor = alwaysGreen
+		? '#22c55e'
+		: pct >= 85
+			? '#ef4444'
+			: pct >= 60
+				? '#eab308'
+				: theme.colors.accent;
 
 	return (
 		<div className="flex-1">
@@ -53,7 +64,7 @@ function BudgetBar({
 					{label}
 				</span>
 				<span className="text-sm font-mono font-bold" style={{ color: barColor }}>
-					{pct.toFixed(0)}%
+					{displayPct.toFixed(0)}%
 				</span>
 			</div>
 
@@ -94,8 +105,9 @@ export function PlanBudgetTracker({
 	fiveHour,
 	weekly,
 	sonnetWeekly,
+	localModels,
 }: PlanBudgetTrackerProps) {
-	if (!fiveHour && !weekly && !sonnetWeekly) {
+	if (!fiveHour && !weekly && !sonnetWeekly && !localModels) {
 		return (
 			<div className="text-sm py-4 text-center" style={{ color: theme.colors.textDim }}>
 				Budget tracking requires calibration data. Enter values from the Claude usage page below.
@@ -108,6 +120,9 @@ export function PlanBudgetTracker({
 			{fiveHour && <BudgetBar theme={theme} label="5-Hour Window" data={fiveHour} />}
 			{weekly && <BudgetBar theme={theme} label="Weekly Limit" data={weekly} />}
 			{sonnetWeekly && <BudgetBar theme={theme} label="Sonnet-Only Limit" data={sonnetWeekly} />}
+			{localModels && (
+				<BudgetBar theme={theme} label="Local Models" data={localModels} alwaysGreen />
+			)}
 		</div>
 	);
 }

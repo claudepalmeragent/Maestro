@@ -468,4 +468,13 @@ export function registerStatsHandlers(deps: StatsHandlerDependencies): void {
 			return db.getCostsByAgent(range);
 		})
 	);
+
+	// Get free token stats for DS Comparison tab
+	ipcMain.handle(
+		'stats:get-free-token-stats',
+		withIpcErrorLogging(handlerOpts('getFreeTokenStats'), async (range: StatsTimeRange) => {
+			const db = getStatsDB();
+			return db.getFreeTokenStats(range);
+		})
+	);
 }

@@ -176,6 +176,11 @@ interface MaestroAPI {
 		get: (key: string) => Promise<unknown>;
 		set: (key: string, value: unknown) => Promise<boolean>;
 		getAll: () => Promise<Record<string, unknown>>;
+		resetCalibration: () => Promise<{
+			success: boolean;
+			pointsCleared: number;
+			backupPath: string | null;
+		}>;
 	};
 	sessions: {
 		getAll: () => Promise<any[]>;
@@ -2496,6 +2501,15 @@ interface MaestroAPI {
 				billingMode: 'api' | 'max' | 'free';
 			}>
 		>;
+		// Get free token stats for DS Comparison tab
+		getFreeTokenStats: (range: 'day' | 'week' | 'month' | 'year' | 'all') => Promise<{
+			totalInputTokens: number;
+			totalOutputTokens: number;
+			totalCacheCreationTokens: number;
+			totalBillableTokens: number;
+			queryCount: number;
+			models: string[];
+		}>;
 	};
 	// Audit API (usage auditing - compare Anthropic vs Maestro data)
 	audit: {

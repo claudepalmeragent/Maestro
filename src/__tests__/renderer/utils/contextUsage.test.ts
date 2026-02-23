@@ -125,6 +125,72 @@ describe('estimateContextUsage', () => {
 		});
 	});
 
+	describe('envContextWindow override', () => {
+		it('should use envContextWindow when provided (priority over stats.contextWindow)', () => {
+			const stats = createStats({ inputTokens: 16000, contextWindow: 200000 });
+			// envContextWindow=32768 should take priority over contextWindow=200000
+			const result = estimateContextUsage(stats, 'claude-code', 32768);
+			// 16000 / 32768 = 48.8% -> 49%
+			expect(result).toBe(49);
+		});
+
+		it('should use envContextWindow when stats.contextWindow is 0', () => {
+			const stats = createStats({ inputTokens: 8000, contextWindow: 0 });
+			const result = estimateContextUsage(stats, 'claude-code', 32768);
+			// 8000 / 32768 = 24.4% -> 24%
+			expect(result).toBe(24);
+		});
+
+		it('should ignore envContextWindow when it is 0', () => {
+			const stats = createStats({ inputTokens: 10000, contextWindow: 100000 });
+			const result = estimateContextUsage(stats, 'claude-code', 0);
+			// Should fall through to stats.contextWindow: 10000 / 100000 = 10%
+			expect(result).toBe(10);
+		});
+
+		it('should ignore envContextWindow when it is negative', () => {
+			const stats = createStats({ inputTokens: 10000, contextWindow: 100000 });
+			const result = estimateContextUsage(stats, 'claude-code', -1);
+			// Should fall through to stats.contextWindow: 10000 / 100000 = 10%
+			expect(result).toBe(10);
+		});
+
+		it('should ignore envContextWindow when it is undefined', () => {
+			const stats = createStats({ inputTokens: 10000, contextWindow: 0 });
+			const result = estimateContextUsage(stats, 'claude-code', undefined);
+			// Should fall through to agent default: 10000 / 200000 = 5%
+			expect(result).toBe(5);
+		});
+
+		it('should cap at 100% with envContextWindow', () => {
+			const stats = createStats({ inputTokens: 40000, cacheCreationInputTokens: 5000 });
+			const result = estimateContextUsage(stats, 'claude-code', 32768);
+			// (40000 + 5000) / 32768 = 137% -> capped at 100%
+			expect(result).toBe(100);
+		});
+
+		it('should work correctly for local model with small context window', () => {
+			// Simulates a local Ollama model with 32k context
+			const stats = createStats({
+				inputTokens: 3000,
+				outputTokens: 1000,
+				cacheCreationInputTokens: 2000,
+				contextWindow: 0, // Agent doesn't report context window
+			});
+			const result = estimateContextUsage(stats, 'claude-code', 32768);
+			// (3000 + 2000) / 32768 = 15.3% -> 15%
+			expect(result).toBe(15);
+		});
+
+		it('should not affect behavior when envContextWindow is not provided (cloud VMs)', () => {
+			// Simulates cloud VM where env var is NOT set
+			const stats = createStats({ inputTokens: 10000, contextWindow: 0 });
+			const result = estimateContextUsage(stats, 'claude-code');
+			// Falls through to default: 10000 / 200000 = 5%
+			expect(result).toBe(5);
+		});
+	});
+
 	describe('cacheReadInputTokens handling', () => {
 		it('should handle undefined cacheReadInputTokens', () => {
 			const stats = createStats({

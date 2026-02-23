@@ -332,6 +332,18 @@ export function createStatsApi() {
 				billingMode: 'api' | 'max' | 'free';
 			}>
 		> => ipcRenderer.invoke('stats:get-costs-by-agent', range),
+
+		// Get free token stats for DS Comparison tab
+		getFreeTokenStats: (
+			range: 'day' | 'week' | 'month' | 'year' | 'all'
+		): Promise<{
+			totalInputTokens: number;
+			totalOutputTokens: number;
+			totalCacheCreationTokens: number;
+			totalBillableTokens: number;
+			queryCount: number;
+			models: string[];
+		}> => ipcRenderer.invoke('stats:get-free-token-stats', range),
 	};
 }
 

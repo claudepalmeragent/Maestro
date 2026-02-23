@@ -14,6 +14,7 @@ import { ipcMain, app } from 'electron';
 import Store from 'electron-store';
 import * as path from 'path';
 import * as fs from 'fs/promises';
+import { writeFileSync } from 'fs';
 import { logger } from '../../utils/logger';
 import { getThemeById } from '../../themes';
 import { WebServer } from '../../web-server';
@@ -118,6 +119,66 @@ export function registerPersistenceHandlers(deps: PersistenceHandlerDependencies
 		const settings = settingsStore.store;
 		logger.debug('All settings retrieved', 'Settings', { count: Object.keys(settings).length });
 		return settings;
+	});
+
+	ipcMain.handle('calibration:reset', async () => {
+		const planCalibration = settingsStore.get('planCalibration') as any;
+
+		if (!planCalibration || !planCalibration.calibrationPoints?.length) {
+			logger.info('Calibration reset: no points to reset', 'Calibration');
+			return { success: true, pointsCleared: 0, backupPath: null };
+		}
+
+		// Back up full calibration object as timestamped JSON
+		const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+		const backupDir = app.getPath('userData');
+		const backupPath = path.join(backupDir, `calibration-backup-${timestamp}.json`);
+		writeFileSync(backupPath, JSON.stringify(planCalibration, null, 2), 'utf-8');
+		logger.info(`Calibration backup saved: ${backupPath}`, 'Calibration');
+
+		const pointsCleared = planCalibration.calibrationPoints.length;
+
+		// Reset points and estimates, preserve schedule configuration
+		const resetCalibration = {
+			calibrationPoints: [],
+			currentEstimates: {
+				fiveHour: {
+					weightedMean: 0,
+					standardDeviation: 0,
+					confidencePct: 0,
+					activePoints: 0,
+					totalPoints: 0,
+				},
+				weekly: {
+					weightedMean: 0,
+					standardDeviation: 0,
+					confidencePct: 0,
+					activePoints: 0,
+					totalPoints: 0,
+				},
+				sonnetWeekly: {
+					weightedMean: 0,
+					standardDeviation: 0,
+					confidencePct: 0,
+					activePoints: 0,
+					totalPoints: 0,
+				},
+			},
+			// Preserve user's schedule settings
+			weeklyResetDay: planCalibration.weeklyResetDay ?? 'Sunday',
+			weeklyResetTime: planCalibration.weeklyResetTime ?? '10:00',
+			weeklyResetTimezone: planCalibration.weeklyResetTimezone ?? 'America/Los_Angeles',
+			lastCalibratedAt: '',
+			fiveHourWindowResetAnchorUtc: planCalibration.fiveHourWindowResetAnchorUtc ?? '',
+			sonnetResetDay: planCalibration.sonnetResetDay ?? 'Sunday',
+			sonnetResetTime: planCalibration.sonnetResetTime ?? '10:00',
+			sonnetResetTimezone: planCalibration.sonnetResetTimezone ?? 'America/Los_Angeles',
+		};
+
+		settingsStore.set('planCalibration', resetCalibration);
+		logger.info(`Calibration reset: cleared ${pointsCleared} points`, 'Calibration');
+
+		return { success: true, pointsCleared, backupPath };
 	});
 
 	// Sessions persistence

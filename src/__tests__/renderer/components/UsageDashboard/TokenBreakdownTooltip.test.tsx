@@ -275,6 +275,98 @@ describe('TokenBreakdownTooltip', () => {
 		});
 	});
 
+	describe('Comparison free tokens rendering', () => {
+		it('shows Free Tokens section in comparison tooltip when free tokens exist on local side', () => {
+			const comparison = {
+				local: {
+					inputTokens: 3_000_000,
+					outputTokens: 1_500_000,
+					cacheCreationTokens: 500_000,
+					costUsd: 12.5,
+					billableTokens: 5_000_000,
+					freeInputTokens: 200_000,
+					freeOutputTokens: 100_000,
+					freeCacheCreationTokens: 50_000,
+					freeTotalTokens: 350_000,
+				},
+				honeycomb: {
+					inputTokens: 3_050_000,
+					outputTokens: 1_550_000,
+					cacheCreationTokens: 500_000,
+					costUsd: 12.8,
+					billableTokens: 5_100_000,
+					freeInputTokens: 180_000,
+					freeOutputTokens: 90_000,
+					freeCacheCreationTokens: 45_000,
+					freeTotalTokens: 315_000,
+				},
+			};
+			render(
+				<TokenBreakdownTooltip theme={theme} comparison={comparison}>
+					<span>Delta Card</span>
+				</TokenBreakdownTooltip>
+			);
+			fireEvent.mouseEnter(screen.getByText('Delta Card').parentElement!);
+			expect(screen.getByText('Free Tokens (Local Models)')).toBeTruthy();
+		});
+
+		it('does NOT show Free Tokens section in comparison tooltip when no free tokens on either side', () => {
+			const comparison = {
+				local: {
+					inputTokens: 3_000_000,
+					outputTokens: 1_500_000,
+					cacheCreationTokens: 500_000,
+					costUsd: 12.5,
+					billableTokens: 5_000_000,
+				},
+				honeycomb: {
+					inputTokens: 3_050_000,
+					outputTokens: 1_550_000,
+					cacheCreationTokens: 500_000,
+					costUsd: 12.8,
+					billableTokens: 5_100_000,
+				},
+			};
+			render(
+				<TokenBreakdownTooltip theme={theme} comparison={comparison}>
+					<span>Delta Card</span>
+				</TokenBreakdownTooltip>
+			);
+			fireEvent.mouseEnter(screen.getByText('Delta Card').parentElement!);
+			expect(screen.queryByText('Free Tokens (Local Models)')).toBeNull();
+		});
+
+		it('shows Free Tokens in comparison when only HC side has free tokens', () => {
+			const comparison = {
+				local: {
+					inputTokens: 3_000_000,
+					outputTokens: 1_500_000,
+					cacheCreationTokens: 500_000,
+					costUsd: 12.5,
+					billableTokens: 5_000_000,
+				},
+				honeycomb: {
+					inputTokens: 3_050_000,
+					outputTokens: 1_550_000,
+					cacheCreationTokens: 500_000,
+					costUsd: 12.8,
+					billableTokens: 5_100_000,
+					freeInputTokens: 180_000,
+					freeOutputTokens: 90_000,
+					freeCacheCreationTokens: 45_000,
+					freeTotalTokens: 315_000,
+				},
+			};
+			render(
+				<TokenBreakdownTooltip theme={theme} comparison={comparison}>
+					<span>Delta Card</span>
+				</TokenBreakdownTooltip>
+			);
+			fireEvent.mouseEnter(screen.getByText('Delta Card').parentElement!);
+			expect(screen.getByText('Free Tokens (Local Models)')).toBeTruthy();
+		});
+	});
+
 	describe('Token formatting edge cases', () => {
 		it('formats millions with M suffix and 2 decimal places', () => {
 			const bigBreakdown: TokenBreakdown = {

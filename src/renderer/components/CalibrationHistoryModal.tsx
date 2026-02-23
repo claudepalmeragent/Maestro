@@ -369,6 +369,10 @@ function ConvergenceSection({
 		.map((p, i) => `${i === 0 ? 'M' : 'L'} ${toX(i)} ${toY(p.derivedBudget)}`)
 		.join(' ');
 
+	// Dynamic point radius — shrinks as data density increases
+	const pointRadius = Math.max(2, Math.min(5, Math.round(120 / points.length)));
+	const outlierRadius = Math.max(1.5, pointRadius - 1);
+
 	// Confidence band (mean +/- sigma)
 	const meanY = toY(estimate.weightedMean);
 	const upperY = toY(estimate.weightedMean + estimate.standardDeviation);
@@ -417,7 +421,12 @@ function ConvergenceSection({
 					/>
 
 					{/* Data line */}
-					<path d={linePath} fill="none" stroke={theme.colors.accent} strokeWidth={2.5} />
+					<path
+						d={linePath}
+						fill="none"
+						stroke={theme.colors.accent}
+						strokeWidth={points.length > 40 ? 1.5 : 2.5}
+					/>
 
 					{/* Data points */}
 					{points.map((p, i) => (
@@ -425,7 +434,7 @@ function ConvergenceSection({
 							key={p.id}
 							cx={toX(i)}
 							cy={toY(p.derivedBudget)}
-							r={p.isOutlier ? 4 : 5}
+							r={p.isOutlier ? outlierRadius : pointRadius}
 							fill={p.isOutlier ? '#ef4444' : theme.colors.accent}
 							opacity={p.isOutlier ? 0.5 : 1}
 						/>

@@ -26,6 +26,7 @@ export interface HoneycombPreloadAPI {
 	onFlushStatusUpdate: (callback: (status: unknown) => void) => () => void;
 	getArchiveState: () => Promise<unknown>;
 	archiveNow: () => Promise<unknown>;
+	runArchiveBackfill: () => Promise<{ updatedDates: string[]; errors: string[] }>;
 	isArchiveRunning: () => Promise<boolean>;
 	getArchivedDailyData: (
 		queryName: string,
@@ -81,6 +82,7 @@ export function createHoneycombAPI(): HoneycombPreloadAPI {
 		},
 		getArchiveState: () => ipcRenderer.invoke('honeycomb:archive-state'),
 		archiveNow: () => ipcRenderer.invoke('honeycomb:archive-now'),
+		runArchiveBackfill: () => ipcRenderer.invoke('honeycomb:archive-backfill'),
 		isArchiveRunning: () => ipcRenderer.invoke('honeycomb:archive-is-running'),
 		getArchivedDailyData: (
 			queryName: string,

@@ -26,6 +26,12 @@ export function createSettingsApi() {
 		get: (key: string) => ipcRenderer.invoke('settings:get', key),
 		set: (key: string, value: unknown) => ipcRenderer.invoke('settings:set', key, value),
 		getAll: () => ipcRenderer.invoke('settings:getAll'),
+		resetCalibration: () =>
+			ipcRenderer.invoke('calibration:reset') as Promise<{
+				success: boolean;
+				pointsCleared: number;
+				backupPath: string | null;
+			}>,
 	};
 }
 

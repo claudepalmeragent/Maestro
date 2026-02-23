@@ -137,6 +137,36 @@ describe('calibration utilities', () => {
 		});
 	});
 
+	describe('calibration point radius scaling', () => {
+		// Replicates the formula: Math.max(2, Math.min(5, Math.round(120 / count)))
+		const calcRadius = (count: number) => Math.max(2, Math.min(5, Math.round(120 / count)));
+		const calcOutlierRadius = (count: number) => Math.max(1.5, calcRadius(count) - 1);
+
+		it('returns max radius (5) for small point counts', () => {
+			expect(calcRadius(1)).toBe(5);
+			expect(calcRadius(10)).toBe(5);
+			expect(calcRadius(24)).toBe(5);
+		});
+
+		it('scales down for medium point counts', () => {
+			expect(calcRadius(30)).toBe(4);
+			expect(calcRadius(40)).toBe(3);
+		});
+
+		it('reaches minimum radius (2) for large point counts', () => {
+			expect(calcRadius(60)).toBe(2);
+			expect(calcRadius(100)).toBe(2);
+			expect(calcRadius(200)).toBe(2);
+		});
+
+		it('outlier radius is 1 less than normal (min 1.5)', () => {
+			expect(calcOutlierRadius(10)).toBe(4);
+			expect(calcOutlierRadius(30)).toBe(3);
+			expect(calcOutlierRadius(60)).toBe(1.5);
+			expect(calcOutlierRadius(100)).toBe(1.5);
+		});
+	});
+
 	describe('computeBudgetEstimate', () => {
 		it('returns zero estimate for empty points', () => {
 			const result = computeBudgetEstimate([], '5hr');

@@ -58,9 +58,11 @@ import {
 	getDailyCosts,
 	getCostsByModel,
 	getCostsByAgent,
+	getFreeTokenStats,
 	type DailyCostData,
 	type ModelCostData,
 	type AgentCostData,
+	type FreeTokenStats,
 } from './aggregations';
 import { clearOldData, exportToCsv } from './data-management';
 
@@ -548,6 +550,10 @@ export class StatsDB {
 
 	getCostsByAgent(range: StatsTimeRange): AgentCostData[] {
 		return getCostsByAgent(this.database, range);
+	}
+
+	getFreeTokenStats(range: StatsTimeRange): FreeTokenStats {
+		return getFreeTokenStats(this.database, range);
 	}
 
 	// ============================================================================

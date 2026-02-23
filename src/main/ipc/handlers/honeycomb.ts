@@ -153,6 +153,20 @@ export function registerHoneycombHandlers(): void {
 		}
 	);
 
+	// Run historical backfill for model breakdowns
+	ipcMain.handle('honeycomb:archive-backfill', async () => {
+		try {
+			const { getHoneycombArchiveService } =
+				await import('../../services/honeycomb-archive-service');
+			const service = getHoneycombArchiveService();
+			return await service.runBackfill();
+		} catch (error) {
+			const errMsg = error instanceof Error ? error.message : String(error);
+			logger.error(`Backfill IPC failed: ${errMsg}`, LOG_CONTEXT);
+			return { updatedDates: [], errors: [errMsg] };
+		}
+	});
+
 	// Auto-discover environment slug via MCP
 	ipcMain.handle('honeycomb:auto-discover-env', async () => {
 		try {

@@ -276,6 +276,9 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 	// Get agent capabilities for conditional feature rendering
 	const { hasCapability } = useAgentCapabilities(session.toolType);
 
+	// Free token count for local models budget bar
+	const [freeTokenCount, setFreeTokenCount] = useState(0);
+
 	// Honeycomb usage data for spend warning sash and budget bars
 	const { data: honeycombUsageData, isConfigured: honeycombConfigured } = useHoneycombUsage();
 	const { planCalibration, honeycombWarningSettings } = useSettings();
@@ -324,6 +327,25 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 		session.sessionSshRemoteConfig?.remoteId,
 		session.id,
 	]);
+
+	// Fetch free token stats for local models budget bar
+	useEffect(() => {
+		let mounted = true;
+		const fetchFreeStats = async () => {
+			try {
+				const stats = await window.maestro.stats.getFreeTokenStats('week');
+				if (mounted) setFreeTokenCount(stats.totalBillableTokens);
+			} catch {
+				// Silently ignore — free token stats are informational only
+			}
+		};
+		fetchFreeStats();
+		const interval = setInterval(fetchFreeStats, 60000); // Refresh every 60s
+		return () => {
+			mounted = false;
+			clearInterval(interval);
+		};
+	}, []);
 
 	// Sync effort toggle when switching tabs/sessions
 	// Without this, useState preserves the old session's effort level
@@ -600,6 +622,8 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 							sonnetWeeklyBudget={
 								(planCalibration?.currentEstimates as any)?.sonnetWeekly?.weightedMean ?? 0
 							}
+							localModelTokens={freeTokenCount}
+							localModelBudget={planCalibration?.currentEstimates?.weekly?.weightedMean ?? 0}
 							onClick={() => {
 								setUsageDashboardInitialTab('dscomparison');
 								setUsageDashboardOpen(true);

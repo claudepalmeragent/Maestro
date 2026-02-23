@@ -51,6 +51,13 @@ export function PlanCalibrationSettings({
 	const [isSaving, setIsSaving] = useState(false);
 	const [saveError, setSaveError] = useState<string | null>(null);
 
+	// Reset calibration state
+	const [showResetConfirm, setShowResetConfirm] = useState(false);
+	const [resetResult, setResetResult] = useState<{
+		pointsCleared: number;
+		backupPath: string | null;
+	} | null>(null);
+
 	const handleSave = useCallback(async () => {
 		if (!getHoneycombBillableTokens) {
 			setSaveError('Honeycomb not connected');
@@ -171,6 +178,53 @@ export function PlanCalibrationSettings({
 		getHoneycombBillableTokens,
 		onSaveComplete,
 	]);
+
+	const handleResetCalibration = useCallback(async () => {
+		try {
+			const result = await window.maestro.settings.resetCalibration();
+			if (result.success) {
+				setResetResult({ pointsCleared: result.pointsCleared, backupPath: result.backupPath });
+				// Update local state — preserve schedule config from current calibration
+				onCalibrationUpdate({
+					calibrationPoints: [],
+					currentEstimates: {
+						fiveHour: {
+							weightedMean: 0,
+							standardDeviation: 0,
+							confidencePct: 0,
+							activePoints: 0,
+							totalPoints: 0,
+						},
+						weekly: {
+							weightedMean: 0,
+							standardDeviation: 0,
+							confidencePct: 0,
+							activePoints: 0,
+							totalPoints: 0,
+						},
+						sonnetWeekly: {
+							weightedMean: 0,
+							standardDeviation: 0,
+							confidencePct: 0,
+							activePoints: 0,
+							totalPoints: 0,
+						},
+					},
+					weeklyResetDay: calibration.weeklyResetDay,
+					weeklyResetTime: calibration.weeklyResetTime,
+					weeklyResetTimezone: calibration.weeklyResetTimezone,
+					lastCalibratedAt: '',
+					fiveHourWindowResetAnchorUtc: calibration.fiveHourWindowResetAnchorUtc,
+					sonnetResetDay: calibration.sonnetResetDay,
+					sonnetResetTime: calibration.sonnetResetTime,
+					sonnetResetTimezone: calibration.sonnetResetTimezone,
+				});
+			}
+		} catch (err) {
+			console.error('Calibration reset failed:', err);
+		}
+		setShowResetConfirm(false);
+	}, [calibration, onCalibrationUpdate]);
 
 	const { fiveHour, weekly } = calibration.currentEstimates;
 	const sonnetWeekly = (calibration.currentEstimates as any).sonnetWeekly || {
@@ -450,6 +504,89 @@ export function PlanCalibrationSettings({
 					<History className="w-3 h-3" />
 					View History & Convergence...
 				</button>
+			</div>
+
+			{/* Reset Calibration */}
+			<div
+				style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--border-color, #333)' }}
+			>
+				{!showResetConfirm && !resetResult && (
+					<button
+						onClick={() => setShowResetConfirm(true)}
+						disabled={!calibration.calibrationPoints.length}
+						style={{
+							padding: '6px 12px',
+							backgroundColor: 'transparent',
+							color: calibration.calibrationPoints.length ? '#ef4444' : '#666',
+							border: `1px solid ${calibration.calibrationPoints.length ? '#ef4444' : '#444'}`,
+							borderRadius: 4,
+							cursor: calibration.calibrationPoints.length ? 'pointer' : 'not-allowed',
+							fontSize: 12,
+						}}
+					>
+						Reset All Calibration Points ({calibration.calibrationPoints.length})
+					</button>
+				)}
+				{showResetConfirm && (
+					<div style={{ fontSize: 12, color: '#ef4444' }}>
+						<p style={{ margin: '0 0 8px' }}>
+							This will clear all {calibration.calibrationPoints.length} calibration points and zero
+							out budget estimates. A JSON backup will be saved automatically. Continue?
+						</p>
+						<button
+							onClick={handleResetCalibration}
+							style={{
+								padding: '4px 10px',
+								backgroundColor: '#ef4444',
+								color: '#fff',
+								border: 'none',
+								borderRadius: 4,
+								cursor: 'pointer',
+								fontSize: 12,
+								marginRight: 8,
+							}}
+						>
+							Yes, Reset
+						</button>
+						<button
+							onClick={() => setShowResetConfirm(false)}
+							style={{
+								padding: '4px 10px',
+								backgroundColor: 'transparent',
+								color: '#ccc',
+								border: '1px solid #555',
+								borderRadius: 4,
+								cursor: 'pointer',
+								fontSize: 12,
+							}}
+						>
+							Cancel
+						</button>
+					</div>
+				)}
+				{resetResult && (
+					<div style={{ fontSize: 12, color: '#22c55e' }}>
+						<p style={{ margin: 0 }}>
+							Cleared {resetResult.pointsCleared} calibration points. Backup saved to:{' '}
+							{resetResult.backupPath}
+						</p>
+						<button
+							onClick={() => setResetResult(null)}
+							style={{
+								marginTop: 6,
+								padding: '4px 10px',
+								backgroundColor: 'transparent',
+								color: '#ccc',
+								border: '1px solid #555',
+								borderRadius: 4,
+								cursor: 'pointer',
+								fontSize: 12,
+							}}
+						>
+							Dismiss
+						</button>
+					</div>
+				)}
 			</div>
 
 			{saveError && (
