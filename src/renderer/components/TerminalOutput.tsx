@@ -15,6 +15,7 @@ import {
 	BookmarkPlus,
 	ThumbsUp,
 	ThumbsDown,
+	Pin,
 } from 'lucide-react';
 import type { Session, Theme, LogEntry, FocusArea } from '../types';
 import type { FileNode } from '../types/fileTree';
@@ -34,6 +35,34 @@ import { MarkdownRenderer } from './MarkdownRenderer';
 import { QueuedItemsList } from './QueuedItemsList';
 import { LogFilterControls } from './LogFilterControls';
 import { generateTerminalProseStyles } from '../utils/markdownConfig';
+
+// ============================================================================
+// LiveElapsedCounter - Live streaming counter for AI responses
+// ============================================================================
+
+/** Live elapsed counter shown during AI response streaming. Updates every second. */
+const LiveElapsedCounter = memo(
+	({ startTime, textColor }: { startTime: number; textColor: string }) => {
+		const [seconds, setSeconds] = useState(Math.floor((Date.now() - startTime) / 1000));
+
+		useEffect(() => {
+			const interval = setInterval(() => {
+				setSeconds(Math.floor((Date.now() - startTime) / 1000));
+			}, 1000);
+			return () => clearInterval(interval);
+		}, [startTime]);
+
+		// Only show after 5 seconds threshold
+		if (seconds < 5) return null;
+
+		return (
+			<div className="text-[9px] mt-0.5" style={{ color: textColor, opacity: 0.8 }}>
+				{seconds}s...
+			</div>
+		);
+	}
+);
+LiveElapsedCounter.displayName = 'LiveElapsedCounter';
 
 // ============================================================================
 // LogItem - Memoized component for individual log entries
@@ -100,6 +129,7 @@ interface LogItemProps {
 	onShowErrorDetails?: () => void;
 	// Rate AI response callback
 	onRateResponse?: (logId: string, rating: 'liked' | 'disliked' | null) => void;
+	onPinMessage?: (logId: string) => void;
 }
 
 const LogItemComponent = memo(
@@ -143,6 +173,7 @@ const LogItemComponent = memo(
 		onFileClick,
 		onShowErrorDetails,
 		onRateResponse,
+		onPinMessage,
 	}: LogItemProps) => {
 		// Ref for the log item container - used for scroll-into-view on expand
 		const logItemRef = useRef<HTMLDivElement>(null);
@@ -373,6 +404,25 @@ const LogItemComponent = memo(
 							</>
 						);
 					})()}
+					{/* Elapsed time for AI responses */}
+					{(log.source === 'ai' || log.source === 'stdout') &&
+						log.elapsedMs &&
+						log.elapsedMs >= 5000 && (
+							<div className="text-[9px] mt-0.5" style={{ opacity: 0.8 }}>
+								{log.elapsedMs < 60000
+									? `${Math.floor(log.elapsedMs / 1000)}s`
+									: `${Math.floor(log.elapsedMs / 60000)}m ${Math.floor((log.elapsedMs % 60000) / 1000)}s`}
+							</div>
+						)}
+					{/* Live streaming counter for AI responses (before elapsedMs is set) */}
+					{(log.source === 'ai' || log.source === 'stdout') &&
+						!log.elapsedMs &&
+						log.streamStartTime && (
+							<LiveElapsedCounter
+								startTime={log.streamStartTime}
+								textColor={theme.colors.textDim}
+							/>
+						)}
 				</div>
 				<div
 					className={`flex-1 min-w-0 p-4 pb-10 rounded-xl border ${isUserMessage ? 'rounded-tr-none' : 'rounded-tl-none'} relative overflow-hidden`}
@@ -872,6 +922,19 @@ const LogItemComponent = memo(
 						>
 							<Copy className="w-3.5 h-3.5" />
 						</button>
+						{/* Pin to sidebar button (AI mode only) */}
+						{isAIMode && onPinMessage && (
+							<button
+								onClick={() => onPinMessage(log.id)}
+								className={`p-1.5 rounded hover:bg-white/10 transition-colors ${!log.pinned ? 'opacity-0 group-hover:opacity-50 hover:!opacity-100' : ''}`}
+								style={{
+									color: log.pinned ? theme.colors.accent : theme.colors.textDim,
+								}}
+								title={log.pinned ? 'Pinned to sidebar' : 'Pin to sidebar'}
+							>
+								<Pin className="w-3.5 h-3.5" fill={log.pinned ? 'currentColor' : 'none'} />
+							</button>
+						)}
 						{/* Delete button for user messages (both AI and terminal modes) */}
 						{log.source === 'user' &&
 							onDeleteLog &&
@@ -1042,6 +1105,7 @@ interface TerminalOutputProps {
 	onFileClick?: (path: string) => void; // Callback when a file link is clicked
 	onShowErrorDetails?: () => void; // Callback to show the error modal (for error log entries)
 	onRateResponse?: (logId: string, rating: 'liked' | 'disliked' | null) => void; // Rate AI response
+	onPinMessage?: (logId: string) => void; // Pin/unpin message to sidebar
 }
 
 // PERFORMANCE: Wrap in React.memo to prevent re-renders when parent re-renders
@@ -1080,6 +1144,7 @@ export const TerminalOutput = memo(
 			onFileClick,
 			onShowErrorDetails,
 			onRateResponse,
+			onPinMessage,
 		} = props;
 
 		// Use the forwarded ref if provided, otherwise create a local one
@@ -1764,6 +1829,7 @@ export const TerminalOutput = memo(
 							onFileClick={onFileClick}
 							onShowErrorDetails={onShowErrorDetails}
 							onRateResponse={onRateResponse}
+							onPinMessage={onPinMessage}
 						/>
 					))}
 

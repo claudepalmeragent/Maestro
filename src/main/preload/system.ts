@@ -207,6 +207,9 @@ export function createAppApi() {
 		cancelQuit: () => {
 			ipcRenderer.send('app:quitCancelled');
 		},
+		forceQuit: () => {
+			ipcRenderer.send('app:forceQuit');
+		},
 		onSystemThemeChanged: (callback: (isDark: boolean) => void) => {
 			const handler = (_: any, isDark: boolean) => callback(isDark);
 			ipcRenderer.on('system-theme-changed', handler);

@@ -336,11 +336,23 @@ export function useBatchedSessionUpdates(
 										text: lastLog.text + logData.data,
 									};
 								} else {
+									// Check if there's already an active streaming entry (has streamStartTime but no elapsedMs)
+									const hasActiveStream = existingLogs.some(
+										(l) =>
+											(l.source === 'stdout' || l.source === 'ai') &&
+											l.streamStartTime &&
+											!l.elapsedMs
+									);
 									const newLog: LogEntry = {
 										id: generateId(),
 										timestamp: logData.timestamp,
 										source: logSource,
 										text: logData.data,
+										// Set streamStartTime on the first log entry of a new AI response
+										...(!logData.isStderr &&
+											!hasActiveStream && {
+												streamStartTime: Date.now(),
+											}),
 									};
 									updatedLogs = [...existingLogs, newLog];
 								}

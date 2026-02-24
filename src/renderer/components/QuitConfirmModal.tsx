@@ -219,6 +219,16 @@ export function QuitConfirmModal({
 						</kbd>{' '}
 						to cancel
 					</div>
+					<div className="mt-2 text-[10px] text-center" style={{ color: theme.colors.textDim }}>
+						Safety valve:{' '}
+						<kbd
+							className="px-1 py-0.5 rounded border"
+							style={{ borderColor: theme.colors.border }}
+						>
+							Ctrl+Shift+Alt+Q
+						</kbd>{' '}
+						to force quit immediately
+					</div>
 				</div>
 			</div>
 		</div>

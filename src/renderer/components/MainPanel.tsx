@@ -39,7 +39,7 @@ import { useGitBranch, useGitDetail, useGitFileStatus } from '../contexts/GitSta
 import { formatShortcutKeys } from '../utils/shortcutFormatter';
 import { calculateContextTokens } from '../utils/contextUsage';
 import { useAgentCapabilities, useHoverTooltip } from '../hooks';
-import type { Session, Theme, Shortcut, FocusArea, BatchRunState } from '../types';
+import type { Session, Theme, Shortcut, FocusArea, BatchRunState, PinnedItem } from '../types';
 
 interface SlashCommand {
 	command: string;
@@ -221,6 +221,8 @@ interface MainPanelProps {
 	onSaveToPromptLibrary?: (text: string, images?: string[], logId?: string) => void;
 	// Rate AI response (like/dislike)
 	onRateResponse?: (logId: string, rating: 'liked' | 'disliked' | null) => void;
+	// Pin/unpin message to sidebar
+	onPinMessage?: (logId: string) => void;
 	// File tree for linking file references in AI responses
 	fileTree?: import('../types/fileTree').FileNode[];
 	// Callback when a file link is clicked in AI response
@@ -240,6 +242,8 @@ interface MainPanelProps {
 	onShowAgentErrorModal?: () => void;
 	// Flash notification callback
 	showFlashNotification?: (message: string) => void;
+	// Pinned items for pin variable autocomplete
+	pinnedItems?: PinnedItem[];
 	// Fuzzy file search callback (for FilePreview in preview mode)
 	onOpenFuzzySearch?: () => void;
 
@@ -315,6 +319,12 @@ interface MainPanelProps {
 	onEffortLevelChange?: (level: 'high' | 'medium' | 'low') => void;
 	/** Called when the user changes the execution model from the InputArea dropdown */
 	onModelChange?: (model: string) => void;
+	/** All sessions for global Auto Run status */
+	allSessions?: Session[];
+	/** Get batch state for any session */
+	getBatchState?: (sessionId: string) => BatchRunState;
+	/** Switch to a different session */
+	onSwitchToSession?: (sessionId: string) => void;
 }
 
 // PERFORMANCE: Wrap with React.memo to prevent re-renders when parent (App.tsx) re-renders
@@ -411,6 +421,7 @@ export const MainPanel = React.memo(
 			onOpenQueueBrowser,
 			isMobileLandscape = false,
 			showFlashNotification,
+			pinnedItems,
 			onOpenWorktreeConfig,
 			onOpenCreatePR,
 			isWorktreeChild,
@@ -1636,6 +1647,7 @@ export const MainPanel = React.memo(
 											onFileClick={props.onFileClick}
 											onShowErrorDetails={props.onShowAgentErrorModal}
 											onRateResponse={props.onRateResponse}
+											onPinMessage={props.onPinMessage}
 										/>
 									)}
 								</div>
@@ -1741,6 +1753,11 @@ export const MainPanel = React.memo(
 											onToggleWizardShowThinking={props.onToggleWizardShowThinking}
 											onEffortLevelChange={props.onEffortLevelChange}
 											onModelChange={props.onModelChange}
+											pinnedItems={pinnedItems}
+											allSessions={props.allSessions}
+											getBatchState={props.getBatchState}
+											activeSessionId={activeSession?.id}
+											onSwitchToSession={props.onSwitchToSession}
 										/>
 									</div>
 								)}

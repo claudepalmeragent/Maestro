@@ -20,6 +20,7 @@ import type {
 	LogEntry,
 	UsageStats,
 	AITab,
+	PinnedItem,
 } from '../../types';
 import type { TabCompletionSuggestion, TabCompletionFilter } from '../input/useTabCompletion';
 import type {
@@ -225,6 +226,7 @@ export interface UseMainPanelPropsDeps {
 	handleReplayMessage: (text: string, images?: string[]) => void;
 	handleSaveToPromptLibrary: (text: string, images?: string[]) => void;
 	handleRateResponse: (logId: string, rating: 'liked' | 'disliked' | null) => void;
+	handlePinMessage: (logId: string) => void;
 	handleMainPanelFileClick: (relativePath: string) => void;
 	handleNavigateBack: () => void;
 	handleNavigateForward: () => void;
@@ -232,6 +234,7 @@ export interface UseMainPanelPropsDeps {
 	handleClearAgentErrorForMainPanel: () => void;
 	handleShowAgentErrorModal: () => void;
 	showSuccessFlash: (message: string) => void;
+	pinnedItems: PinnedItem[];
 	handleOpenFuzzySearch: () => void;
 	handleOpenWorktreeConfig: () => void;
 	handleOpenCreatePR: () => void;
@@ -280,6 +283,11 @@ export interface UseMainPanelPropsDeps {
 	// Per-prompt effort level (Claude Code only)
 	handleEffortLevelChange?: (level: 'high' | 'medium' | 'low') => void;
 	handleModelChange?: (model: string) => void;
+
+	// Global Auto Run status
+	allSessions?: Session[];
+	getBatchState?: (sessionId: string) => BatchRunState;
+	onSwitchToSession?: (sessionId: string) => void;
 
 	// Helper functions
 	getActiveTab: (session: Session) => AITab | undefined;
@@ -415,6 +423,7 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 			onReplayMessage: deps.handleReplayMessage,
 			onSaveToPromptLibrary: deps.handleSaveToPromptLibrary,
 			onRateResponse: deps.handleRateResponse,
+			onPinMessage: deps.handlePinMessage,
 			fileTree: deps.fileTree,
 			onFileClick: deps.handleMainPanelFileClick,
 			canGoBack: deps.canGoBack,
@@ -432,6 +441,7 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 				? deps.handleShowAgentErrorModal
 				: undefined,
 			showFlashNotification: deps.showSuccessFlash,
+			pinnedItems: deps.pinnedItems,
 			onOpenFuzzySearch: deps.handleOpenFuzzySearch,
 			onOpenWorktreeConfig: deps.handleOpenWorktreeConfig,
 			onOpenCreatePR: deps.handleOpenCreatePR,
@@ -500,6 +510,10 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 			onEffortLevelChange: deps.handleEffortLevelChange,
 			// Per-prompt model selection
 			onModelChange: deps.handleModelChange,
+			// Global Auto Run status
+			allSessions: deps.allSessions,
+			getBatchState: deps.getBatchState,
+			onSwitchToSession: deps.onSwitchToSession,
 		}),
 		[
 			// Primitive dependencies for minimal re-computation
@@ -644,6 +658,7 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 			deps.handleReplayMessage,
 			deps.handleSaveToPromptLibrary,
 			deps.handleRateResponse,
+			deps.handlePinMessage,
 			deps.handleMainPanelFileClick,
 			deps.handleNavigateBack,
 			deps.handleNavigateForward,
@@ -651,6 +666,7 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 			deps.handleClearAgentErrorForMainPanel,
 			deps.handleShowAgentErrorModal,
 			deps.showSuccessFlash,
+			deps.pinnedItems,
 			deps.handleOpenFuzzySearch,
 			deps.handleOpenWorktreeConfig,
 			deps.handleOpenCreatePR,
@@ -678,6 +694,9 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 			deps.onToggleWizardShowThinking,
 			deps.handleEffortLevelChange,
 			deps.handleModelChange,
+			deps.allSessions,
+			deps.getBatchState,
+			deps.onSwitchToSession,
 			// Refs (stable, but included for completeness)
 			deps.inputRef,
 			deps.logsEndRef,

@@ -17,6 +17,7 @@ import type {
 	FocusArea,
 	RightPanelTab,
 	BatchRunState,
+	PinnedItem,
 } from '../../types';
 import type { FileTreeChanges } from '../../utils/fileExplorer';
 import type { DocumentTaskCount } from '../../components/AutoRunDocumentSelector';
@@ -137,6 +138,11 @@ export interface UseRightPanelPropsDeps {
 	// Document Graph handlers
 	handleFocusFileInGraph: (relativePath: string) => void;
 	handleOpenLastDocumentGraph: () => void;
+
+	// Pinned messages
+	pinnedItems: PinnedItem[];
+	handleUnpinMessage: (logId: string) => void;
+	handleScrollToMessage: (timestamp: number) => void;
 }
 
 /**
@@ -231,6 +237,11 @@ export function useRightPanelProps(deps: UseRightPanelPropsDeps) {
 			onFocusFileInGraph: deps.handleFocusFileInGraph,
 			lastGraphFocusFile: deps.lastGraphFocusFilePath,
 			onOpenLastDocumentGraph: deps.handleOpenLastDocumentGraph,
+
+			// Pinned messages
+			pinnedItems: deps.pinnedItems,
+			onUnpinMessage: deps.handleUnpinMessage,
+			onScrollToMessage: deps.handleScrollToMessage,
 		}),
 		[
 			// Primitive dependencies for minimal re-computation
@@ -256,6 +267,7 @@ export function useRightPanelProps(deps: UseRightPanelPropsDeps) {
 			deps.activeBatchRunState,
 			deps.currentSessionBatchState,
 			deps.lastGraphFocusFilePath,
+			deps.pinnedItems,
 			// Stable callbacks (shouldn't cause re-renders, but included for completeness)
 			deps.setRightPanelOpen,
 			deps.setRightPanelWidth,

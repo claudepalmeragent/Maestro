@@ -6,11 +6,13 @@ import type {
 	QueuedItem,
 	CustomAICommand,
 	BatchRunState,
+	PinnedItem,
 } from '../../types';
 import type { CapacityCheckModalData } from '../../components/CapacityCheckModal';
 import { getActiveTab } from '../../utils/tabHelpers';
 import { generateId } from '../../utils/ids';
 import { substituteTemplateVariables } from '../../utils/templateVariables';
+import { resolvePinVariables, hasPinVariables } from '../../utils/pinVariableResolver';
 import { gitService } from '../../services/git';
 import { imageOnlyDefaultPrompt, maestroSystemPrompt } from '../../../prompts';
 
@@ -73,6 +75,10 @@ export interface UseInputProcessingDeps {
 	setInteractiveCapacityCheck?: (data: CapacityCheckModalData | null) => void;
 	/** Ref that App.tsx sets to resume the send after "Run Anyway" is clicked */
 	interactiveCapacityResumeRef?: React.MutableRefObject<(() => void) | null>;
+	/** Pinned items for the active tab (for {{PIN:...}} variable expansion) */
+	pinnedItems?: PinnedItem[];
+	/** Show a flash notification to the user */
+	showFlashNotification?: (message: string) => void;
 }
 
 /**
@@ -129,6 +135,8 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 		isWizardActive,
 		setInteractiveCapacityCheck,
 		interactiveCapacityResumeRef,
+		pinnedItems,
+		showFlashNotification,
 	} = deps;
 
 	// Ref for the processInput function so external code can access the latest version
@@ -143,9 +151,18 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 			// This ensures AI output appears before the user's new message
 			flushBatchedUpdates?.();
 
-			const effectiveInputValue = overrideInputValue ?? inputValue;
+			let effectiveInputValue = overrideInputValue ?? inputValue;
 			if (!activeSession || (!effectiveInputValue.trim() && stagedImages.length === 0)) {
 				return;
+			}
+
+			// Resolve pin variables if present
+			if (hasPinVariables(effectiveInputValue) && pinnedItems && pinnedItems.length > 0) {
+				const result = resolvePinVariables(effectiveInputValue, pinnedItems);
+				effectiveInputValue = result.resolvedText;
+				if (result.unresolvedVars.length > 0 && showFlashNotification) {
+					showFlashNotification(`Could not resolve: ${result.unresolvedVars.join(', ')}`);
+				}
 			}
 
 			// Handle slash commands

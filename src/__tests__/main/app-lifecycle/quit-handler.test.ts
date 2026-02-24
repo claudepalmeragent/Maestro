@@ -62,6 +62,7 @@ describe('app-lifecycle/quit-handler', () => {
 	let mockMainWindow: {
 		isDestroyed: ReturnType<typeof vi.fn>;
 		webContents: { send: ReturnType<typeof vi.fn> };
+		on: ReturnType<typeof vi.fn>;
 	};
 	let mockProcessManager: {
 		killAll: ReturnType<typeof vi.fn>;
@@ -96,6 +97,7 @@ describe('app-lifecycle/quit-handler', () => {
 		mockMainWindow = {
 			isDestroyed: vi.fn().mockReturnValue(false),
 			webContents: { send: vi.fn() },
+			on: vi.fn(),
 		};
 		mockProcessManager = {
 			killAll: vi.fn(),
@@ -362,6 +364,94 @@ describe('app-lifecycle/quit-handler', () => {
 
 			// Should not throw
 			expect(() => beforeQuitHandler!(mockEvent)).not.toThrow();
+		});
+	});
+
+	describe('forceQuit IPC handler', () => {
+		it('should register app:forceQuit IPC handler', async () => {
+			const { createQuitHandler } = await import('../../../main/app-lifecycle/quit-handler');
+
+			const quitHandler = createQuitHandler(deps as Parameters<typeof createQuitHandler>[0]);
+			quitHandler.setup();
+
+			expect(ipcHandlers.has('app:forceQuit')).toBe(true);
+		});
+
+		it('should set quitConfirmed to true and call app.quit on force quit', async () => {
+			const { createQuitHandler } = await import('../../../main/app-lifecycle/quit-handler');
+
+			const quitHandler = createQuitHandler(deps as Parameters<typeof createQuitHandler>[0]);
+			quitHandler.setup();
+
+			const handler = ipcHandlers.get('app:forceQuit')!;
+			handler();
+
+			expect(quitHandler.isQuitConfirmed()).toBe(true);
+			expect(mockQuit).toHaveBeenCalled();
+		});
+
+		it('should log force quit via safety valve', async () => {
+			const { createQuitHandler } = await import('../../../main/app-lifecycle/quit-handler');
+
+			const quitHandler = createQuitHandler(deps as Parameters<typeof createQuitHandler>[0]);
+			quitHandler.setup();
+
+			const handler = ipcHandlers.get('app:forceQuit')!;
+			handler();
+
+			expect(mockLogger.info).toHaveBeenCalledWith(
+				'Force quit via safety valve key combo',
+				'Window'
+			);
+		});
+	});
+
+	describe('duplicate confirmation prevention', () => {
+		it('should not send duplicate confirmation requests', async () => {
+			const { createQuitHandler } = await import('../../../main/app-lifecycle/quit-handler');
+
+			const quitHandler = createQuitHandler(deps as Parameters<typeof createQuitHandler>[0]);
+			quitHandler.setup();
+
+			const mockEvent = { preventDefault: vi.fn() };
+			beforeQuitHandler!(mockEvent);
+			beforeQuitHandler!(mockEvent); // Second attempt
+
+			// Only one confirmation request should be sent
+			expect(mockMainWindow.webContents.send).toHaveBeenCalledTimes(1);
+		});
+	});
+
+	describe('window close interception', () => {
+		it('should register close handler on main window during setup', async () => {
+			const { createQuitHandler } = await import('../../../main/app-lifecycle/quit-handler');
+
+			const quitHandler = createQuitHandler(deps as Parameters<typeof createQuitHandler>[0]);
+			quitHandler.setup();
+
+			expect(mockMainWindow.on).toHaveBeenCalledWith('close', expect.any(Function));
+		});
+
+		it('should not register close handler if main window is null', async () => {
+			deps.getMainWindow.mockReturnValue(null);
+
+			const { createQuitHandler } = await import('../../../main/app-lifecycle/quit-handler');
+
+			const quitHandler = createQuitHandler(deps as Parameters<typeof createQuitHandler>[0]);
+			quitHandler.setup();
+
+			expect(mockMainWindow.on).not.toHaveBeenCalled();
+		});
+
+		it('should not register close handler if main window is destroyed', async () => {
+			mockMainWindow.isDestroyed.mockReturnValue(true);
+
+			const { createQuitHandler } = await import('../../../main/app-lifecycle/quit-handler');
+
+			const quitHandler = createQuitHandler(deps as Parameters<typeof createQuitHandler>[0]);
+			quitHandler.setup();
+
+			expect(mockMainWindow.on).not.toHaveBeenCalledWith('close', expect.any(Function));
 		});
 	});
 

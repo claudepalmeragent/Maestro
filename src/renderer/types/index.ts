@@ -42,7 +42,7 @@ import type { AgentError } from '../../shared/types';
 
 export type SessionState = 'idle' | 'busy' | 'waiting_input' | 'connecting' | 'error';
 export type FileChangeType = 'modified' | 'added' | 'deleted';
-export type RightPanelTab = 'files' | 'history' | 'autorun';
+export type RightPanelTab = 'files' | 'history' | 'autorun' | 'pins';
 export type SettingsTab = 'general' | 'shortcuts' | 'theme' | 'notifications' | 'aicommands';
 // Note: ScratchPadMode was removed as part of the Scratchpad → Auto Run migration
 export type FocusArea = 'sidebar' | 'main' | 'right';
@@ -194,6 +194,14 @@ export interface LogEntry {
 	rating?: 'liked' | 'disliked' | null;
 	savedToLibrary?: boolean;
 	promptLibraryEntryId?: string;
+	/** Elapsed time in ms for AI responses (set when response completes) */
+	elapsedMs?: number;
+	/** Timestamp when this AI response started streaming (for live counter) */
+	streamStartTime?: number;
+	/** Whether this message is pinned to the sidebar */
+	pinned?: boolean;
+	/** Timestamp when the message was pinned (for ordering) */
+	pinnedAt?: number;
 }
 
 // Queued item for the session-level execution queue
@@ -215,6 +223,22 @@ export interface QueuedItem {
 	tabName?: string; // Tab name at time of queuing (for display)
 	// Read-only mode tracking (for parallel execution bypass)
 	readOnlyMode?: boolean; // True if queued from a read-only tab
+}
+
+/** A pinned message reference for the Pins sidebar tab */
+export interface PinnedItem {
+	/** ID of the original LogEntry */
+	logId: string;
+	/** Tab ID this pin belongs to */
+	tabId: string;
+	/** Snapshot of the message text at pin time */
+	text: string;
+	/** Source type of the original message */
+	source: LogEntry['source'];
+	/** Timestamp of the original message */
+	messageTimestamp: number;
+	/** When the pin was created */
+	pinnedAt: number;
 }
 
 export interface WorkLogItem {

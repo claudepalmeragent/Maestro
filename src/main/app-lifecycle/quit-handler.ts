@@ -118,6 +118,36 @@ export function createQuitHandler(deps: QuitHandlerDependencies): QuitHandler {
 				// Nothing to do - app stays running
 			});
 
+			// Handle force-quit from safety valve (Ctrl+Shift+Alt+Q)
+			ipcMain.on('app:forceQuit', () => {
+				logger.info('Force quit via safety valve key combo', 'Window');
+				state.isRequestingConfirmation = false;
+				state.quitConfirmed = true;
+				app.quit();
+			});
+
+			// Intercept window close on non-macOS platforms (closing the last window triggers quit)
+			// On macOS, closing the window does not quit the app, so only before-quit needs guarding.
+			// On Linux/Windows, window-all-closed triggers app.quit(), which fires before-quit.
+			// We also intercept the close event to prevent the window from being destroyed
+			// before the confirmation dialog can be shown.
+			const mainWindow = getMainWindow();
+			if (mainWindow && !mainWindow.isDestroyed()) {
+				mainWindow.on('close', (_event) => {
+					if (!state.quitConfirmed && process.platform !== 'darwin') {
+						// On non-macOS, closing the last window will quit the app.
+						// The before-quit handler will catch it, but we need to make sure
+						// the window stays alive for the confirmation dialog.
+						// The before-quit event handler already does event.preventDefault(),
+						// so we just log here for traceability.
+						logger.debug(
+							'Window close intercepted, before-quit handler will manage confirmation',
+							'Window'
+						);
+					}
+				});
+			}
+
 			// IMPORTANT: This handler must be synchronous for event.preventDefault() to work!
 			// Async handlers return a Promise immediately, which breaks preventDefault in Electron.
 			app.on('before-quit', (event) => {

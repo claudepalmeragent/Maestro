@@ -2434,25 +2434,41 @@ function MaestroConsoleInner() {
 							const updatedAiTabs =
 								s.aiTabs?.length > 0
 									? s.aiTabs.map((tab) => {
-											if (tabIdFromSession) {
-												// New format: only update the specific tab
-												return tab.id === tabIdFromSession
-													? {
-															...tab,
-															state: 'idle' as const,
-															thinkingStartTime: undefined,
-														}
-													: tab;
-											} else {
-												// Legacy format: update all busy tabs
-												return tab.state === 'busy'
-													? {
-															...tab,
-															state: 'idle' as const,
-															thinkingStartTime: undefined,
-														}
-													: tab;
-											}
+											const shouldUpdate = tabIdFromSession
+												? tab.id === tabIdFromSession
+												: tab.state === 'busy';
+											if (!shouldUpdate) return tab;
+
+											// Set elapsedMs on the last AI log entry that has streamStartTime
+											const updatedLogs = tab.logs.map((l, _i, arr) => {
+												if (
+													(l.source === 'stdout' || l.source === 'ai') &&
+													l.streamStartTime &&
+													!l.elapsedMs
+												) {
+													const isLastAi =
+														arr
+															.filter(
+																(x) =>
+																	(x.source === 'stdout' || x.source === 'ai') && x.streamStartTime
+															)
+															.pop()?.id === l.id;
+													if (isLastAi) {
+														return {
+															...l,
+															elapsedMs: Date.now() - l.streamStartTime,
+														};
+													}
+												}
+												return l;
+											});
+
+											return {
+												...tab,
+												state: 'idle' as const,
+												thinkingStartTime: undefined,
+												logs: updatedLogs,
+											};
 										})
 									: s.aiTabs;
 
@@ -4293,7 +4309,7 @@ function MaestroConsoleInner() {
 		setSessions,
 	});
 
-	// Quit confirmation handler - shows modal when trying to quit with busy agents
+	// Quit confirmation handler - shows modal when trying to quit with busy agents or active batches
 	useEffect(() => {
 		const unsubscribe = window.maestro.app.onQuitConfirmationRequest(() => {
 			// Get all busy AI sessions (agents that are actively thinking)
@@ -4301,17 +4317,50 @@ function MaestroConsoleInner() {
 				(s) => s.state === 'busy' && s.busySource === 'ai' && s.toolType !== 'terminal'
 			);
 
-			if (busyAgents.length === 0) {
-				// No busy agents, confirm quit immediately
+			// Also check for active Auto Run batches (may not show as 'busy' during inter-task gaps)
+			const activeBatchSessions = getBatchStateRef.current
+				? sessions.filter((s) => {
+						const batchState = getBatchStateRef.current!(s.id);
+						return batchState.isRunning;
+					})
+				: [];
+
+			// Merge both lists, deduplicating by session ID
+			const blockedSessionIds = new Set([
+				...busyAgents.map((s) => s.id),
+				...activeBatchSessions.map((s) => s.id),
+			]);
+
+			if (blockedSessionIds.size === 0) {
+				// No busy agents or active batches, confirm quit immediately
 				window.maestro.app.confirmQuit();
 			} else {
 				// Show quit confirmation modal
 				setQuitConfirmModalOpen(true);
+				// Show a brief toast so user knows why quit was blocked
+				addToast({
+					type: 'warning',
+					title: 'Quit Blocked',
+					message: 'Tasks in progress \u2014 use Ctrl+Shift+Alt+Q to force quit',
+				});
 			}
 		});
 
 		return unsubscribe;
-	}, [sessions]);
+	}, [sessions, addToast]);
+
+	// Safety valve: Ctrl+Shift+Alt+Q force-quits even with active tasks
+	useEffect(() => {
+		const handleSafetyValve = (e: KeyboardEvent) => {
+			if (e.ctrlKey && e.shiftKey && e.altKey && e.key.toLowerCase() === 'q') {
+				e.preventDefault();
+				e.stopPropagation();
+				window.maestro.app.forceQuit();
+			}
+		};
+		window.addEventListener('keydown', handleSafetyValve, true);
+		return () => window.removeEventListener('keydown', handleSafetyValve, true);
+	}, []);
 
 	// Theme styles hook - manages CSS variables and scrollbar fade animations
 	useThemeStyles({
@@ -6109,6 +6158,151 @@ You are taking over this conversation. Based on the context above, provide a bri
 		[setSessions, showSuccessFlash]
 	);
 
+	// Pin/unpin message handler
+	const handlePinMessage = useCallback(
+		(logId: string) => {
+			if (!activeSession) return;
+			const activeTab = activeSession.aiTabs.find((t) => t.id === activeSession.activeTabId);
+			if (!activeTab) return;
+
+			const targetLog = activeTab.logs.find((l) => l.id === logId);
+			if (!targetLog) return;
+
+			// Save scroll position before state update
+			const scrollContainer = document.querySelector('[data-terminal-scroll-container]');
+			const savedScrollTop = scrollContainer?.scrollTop ?? null;
+
+			// If already pinned, unpin it
+			if (targetLog.pinned) {
+				setSessions((prev) =>
+					prev.map((s) =>
+						s.id === activeSession.id
+							? {
+									...s,
+									aiTabs: s.aiTabs.map((tab) =>
+										tab.id === activeSession.activeTabId
+											? {
+													...tab,
+													logs: tab.logs.map((l) =>
+														l.id === logId ? { ...l, pinned: false, pinnedAt: undefined } : l
+													),
+												}
+											: tab
+									),
+								}
+							: s
+					)
+				);
+
+				// Restore scroll position after React renders
+				if (savedScrollTop !== null) {
+					requestAnimationFrame(() => {
+						if (scrollContainer) {
+							scrollContainer.scrollTop = savedScrollTop;
+						}
+					});
+				}
+				return;
+			}
+
+			// Check soft limit
+			const currentPinCount = activeTab.logs.filter((l) => l.pinned).length;
+			if (currentPinCount >= 20) {
+				// Show warning but allow — it's a soft limit
+				console.warn('Pin limit reached (20). Consider unpinning older items.');
+				showSuccessFlash('Pin limit reached (20). Consider unpinning older items.');
+			}
+
+			// Pin the message
+			setSessions((prev) =>
+				prev.map((s) =>
+					s.id === activeSession.id
+						? {
+								...s,
+								aiTabs: s.aiTabs.map((tab) =>
+									tab.id === activeSession.activeTabId
+										? {
+												...tab,
+												logs: tab.logs.map((l) =>
+													l.id === logId ? { ...l, pinned: true, pinnedAt: Date.now() } : l
+												),
+											}
+										: tab
+								),
+							}
+						: s
+				)
+			);
+
+			// Restore scroll position after React renders
+			if (savedScrollTop !== null) {
+				requestAnimationFrame(() => {
+					if (scrollContainer) {
+						scrollContainer.scrollTop = savedScrollTop;
+					}
+				});
+			}
+		},
+		[activeSession, setSessions, showSuccessFlash]
+	);
+
+	// Unpin message handler (called from PinnedPanel)
+	const handleUnpinMessage = useCallback(
+		(logId: string) => {
+			if (!activeSession) return;
+			setSessions((prev) =>
+				prev.map((s) =>
+					s.id === activeSession.id
+						? {
+								...s,
+								aiTabs: s.aiTabs.map((tab) =>
+									tab.id === activeSession.activeTabId
+										? {
+												...tab,
+												logs: tab.logs.map((l) =>
+													l.id === logId ? { ...l, pinned: false, pinnedAt: undefined } : l
+												),
+											}
+										: tab
+								),
+							}
+						: s
+				)
+			);
+		},
+		[activeSession, setSessions]
+	);
+
+	// Compute pinned items for the active tab
+	const pinnedItems = useMemo(() => {
+		if (!activeSession) return [];
+		const activeTab = activeSession.aiTabs.find((t) => t.id === activeSession.activeTabId);
+		if (!activeTab) return [];
+		return activeTab.logs
+			.filter((l) => l.pinned)
+			.map((l) => ({
+				logId: l.id,
+				tabId: activeSession.activeTabId,
+				text: l.text,
+				source: l.source,
+				messageTimestamp: l.timestamp,
+				pinnedAt: l.pinnedAt || l.timestamp,
+			}));
+	}, [activeSession]);
+
+	// Scroll to message handler (for PinnedPanel click-to-scroll)
+	const handleScrollToMessage = useCallback((_timestamp: number) => {
+		// Scroll the terminal output to show the message
+		// For now, we simply scroll to the top of the terminal output
+		// A more precise implementation would search for the log entry by timestamp
+		const scrollContainer = document.querySelector('[data-terminal-scroll-container]');
+		if (scrollContainer) {
+			// Find the closest message to this timestamp
+			// Since messages don't have data attributes, we scroll to approximate position
+			scrollContainer.scrollTop = 0;
+		}
+	}, []);
+
 	const handleSaveToKnowledgeGraph = useCallback(async () => {
 		if (!activeSession) {
 			addToast({ type: 'error', title: 'No active session', message: '' });
@@ -7548,6 +7742,9 @@ You are taking over this conversation. Based on the context above, provide a bri
 		// Interactive capacity check
 		setInteractiveCapacityCheck: setInteractiveCapacityData,
 		interactiveCapacityResumeRef,
+		// Pin variable expansion
+		pinnedItems,
+		showFlashNotification: (msg: string) => setFlashNotification(msg),
 	});
 
 	// Auto-send context when a tab with autoSendOnActivate becomes active
@@ -12899,6 +13096,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 		handleReplayMessage,
 		handleSaveToPromptLibrary,
 		handleRateResponse,
+		handlePinMessage,
 		handleMainPanelFileClick,
 		handleNavigateBack,
 		handleNavigateForward,
@@ -12906,6 +13104,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 		handleClearAgentErrorForMainPanel,
 		handleShowAgentErrorModal,
 		showSuccessFlash,
+		pinnedItems,
 		handleOpenFuzzySearch,
 		handleOpenWorktreeConfig,
 		handleOpenCreatePR,
@@ -12948,6 +13147,11 @@ You are taking over this conversation. Based on the context above, provide a bri
 		handleEffortLevelChange,
 		// Per-prompt model selection
 		handleModelChange,
+
+		// Global Auto Run status
+		allSessions: sessions,
+		getBatchState,
+		onSwitchToSession: setActiveSessionId,
 
 		// Helper functions
 		getActiveTab,
@@ -13155,6 +13359,11 @@ You are taking over this conversation. Based on the context above, provide a bri
 		// Document Graph handlers
 		handleFocusFileInGraph,
 		handleOpenLastDocumentGraph,
+
+		// Pinned messages
+		pinnedItems,
+		handleUnpinMessage,
+		handleScrollToMessage,
 	});
 
 	return (

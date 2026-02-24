@@ -1114,6 +1114,7 @@ interface MaestroAPI {
 		onQuitConfirmationRequest: (callback: () => void) => () => void;
 		confirmQuit: () => void;
 		cancelQuit: () => void;
+		forceQuit: () => void;
 		onSystemThemeChanged: (callback: (isDark: boolean) => void) => () => void;
 	};
 	logger: {

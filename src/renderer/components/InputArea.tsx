@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, startTransition } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, startTransition } from 'react';
 import {
 	Terminal,
 	Cpu,
@@ -17,8 +17,10 @@ import {
 	Wand2,
 	Library,
 } from 'lucide-react';
-import type { Session, Theme, BatchRunState, Shortcut } from '../types';
+import type { Session, Theme, BatchRunState, Shortcut, PinnedItem } from '../types';
 import { formatShortcutKeys } from '../utils/shortcutFormatter';
+import { PinAutocomplete } from './PinAutocomplete';
+import { getPartialPinVariable } from '../utils/pinVariableResolver';
 import type { TabCompletionSuggestion, TabCompletionFilter } from '../hooks';
 import type {
 	SummarizeProgress,
@@ -27,6 +29,7 @@ import type {
 	MergeResult,
 } from '../types/contextMerge';
 import { ThinkingStatusPill } from './ThinkingStatusPill';
+import { GlobalAutoRunStatus } from './GlobalAutoRunStatus';
 import { MergeProgressOverlay } from './MergeProgressOverlay';
 import { ExecutionQueueIndicator } from './ExecutionQueueIndicator';
 import { ContextWarningSash } from './ContextWarningSash';
@@ -164,6 +167,16 @@ interface InputAreaProps {
 	onEffortLevelChange?: (level: 'high' | 'medium' | 'low') => void;
 	/** Called when the execution model changes (Claude Code only) */
 	onModelChange?: (model: string) => void;
+	/** Pinned items for the active tab (for {{PIN:...}} autocomplete) */
+	pinnedItems?: PinnedItem[];
+	/** All sessions for global Auto Run status */
+	allSessions?: Session[];
+	/** Get batch state for any session */
+	getBatchState?: (sessionId: string) => BatchRunState;
+	/** Currently active session ID */
+	activeSessionId?: string;
+	/** Switch to a different session */
+	onSwitchToSession?: (sessionId: string) => void;
 }
 
 export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
@@ -260,6 +273,13 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 		onEffortLevelChange,
 		// Model change (Claude Code only)
 		onModelChange,
+		// Pinned items for pin variable autocomplete
+		pinnedItems,
+		// Global Auto Run status props
+		allSessions,
+		getBatchState,
+		activeSessionId,
+		onSwitchToSession,
 	} = props;
 
 	// Per-prompt effort level state (Claude Code only)
@@ -288,6 +308,53 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 	const activeTab = useMemo(
 		() => session.aiTabs?.find((tab) => tab.id === session.activeTabId),
 		[session.aiTabs, session.activeTabId]
+	);
+
+	// Pin variable autocomplete state
+	const [pinAutocompleteOpen, setPinAutocompleteOpen] = useState(false);
+	const [pinAutocompletePartial, setPinAutocompletePartial] = useState('');
+	const [pinAutocompleteStart, setPinAutocompleteStart] = useState(0);
+
+	// Detect {{ typing for pin autocomplete
+	useEffect(() => {
+		if (!pinnedItems || pinnedItems.length === 0) return;
+		const textarea = inputRef.current;
+		if (!textarea) return;
+
+		const cursorPos = textarea.selectionStart;
+		const result = getPartialPinVariable(inputValue, cursorPos);
+
+		if (result) {
+			setPinAutocompleteOpen(true);
+			setPinAutocompletePartial(result.partial);
+			setPinAutocompleteStart(result.start);
+		} else {
+			setPinAutocompleteOpen(false);
+		}
+	}, [inputValue, pinnedItems]);
+
+	// Handle pin autocomplete selection
+	const handlePinAutocompleteSelect = useCallback(
+		(variableSyntax: string) => {
+			// Replace from the {{ to the cursor with the full variable syntax
+			const before = inputValue.slice(0, pinAutocompleteStart);
+			const textarea = inputRef.current;
+			const cursorPos = textarea?.selectionStart || inputValue.length;
+			const after = inputValue.slice(cursorPos);
+			const newValue = `${before}{{${variableSyntax}${after}`;
+			setInputValue(newValue);
+			setPinAutocompleteOpen(false);
+
+			// Refocus and position cursor after the inserted variable
+			requestAnimationFrame(() => {
+				if (textarea) {
+					const newCursorPos = before.length + 2 + variableSyntax.length;
+					textarea.focus();
+					textarea.setSelectionRange(newCursorPos, newCursorPos);
+				}
+			});
+		},
+		[inputValue, pinAutocompleteStart, inputRef, setInputValue]
 	);
 
 	// Detect host model and effort level from Claude Code's ~/.claude/settings.json
@@ -550,6 +617,17 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 					activeSessionId={session.id}
 					onStopAutoRun={onStopAutoRun}
 					onInterrupt={handleInterrupt}
+				/>
+			)}
+
+			{/* Global Auto Run status - shows all agents running Auto Run */}
+			{allSessions && getBatchState && activeSessionId && onSwitchToSession && (
+				<GlobalAutoRunStatus
+					theme={theme}
+					sessions={allSessions}
+					getBatchState={getBatchState}
+					activeSessionId={activeSessionId}
+					onSwitchToSession={onSwitchToSession}
 				/>
 			)}
 
@@ -1001,6 +1079,18 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 						})}
 					</div>
 				</div>
+			)}
+
+			{/* Pin variable autocomplete dropdown */}
+			{pinAutocompleteOpen && pinnedItems && pinnedItems.length > 0 && (
+				<PinAutocomplete
+					theme={theme}
+					pins={pinnedItems}
+					partial={pinAutocompletePartial}
+					onSelect={handlePinAutocompleteSelect}
+					onClose={() => setPinAutocompleteOpen(false)}
+					position={{ bottom: 48, left: 16 }}
+				/>
 			)}
 
 			<div className="flex gap-3">

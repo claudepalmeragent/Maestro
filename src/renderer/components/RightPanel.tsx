@@ -8,13 +8,22 @@ import React, {
 	memo,
 } from 'react';
 import { PanelRightClose, PanelRightOpen, Loader2, GitBranch } from 'lucide-react';
-import type { Session, Theme, RightPanelTab, Shortcut, BatchRunState, FocusArea } from '../types';
+import type {
+	Session,
+	Theme,
+	RightPanelTab,
+	Shortcut,
+	BatchRunState,
+	FocusArea,
+	PinnedItem,
+} from '../types';
 import type { FileTreeChanges } from '../utils/fileExplorer';
 import { FileExplorerPanel } from './FileExplorerPanel';
 import { HistoryPanel, HistoryPanelHandle } from './HistoryPanel';
 import { AutoRun, AutoRunHandle } from './AutoRun';
 import type { DocumentTaskCount } from './AutoRunDocumentSelector';
 import { AutoRunExpandedModal } from './AutoRunExpandedModal';
+import { PinnedPanel } from './PinnedPanel';
 import { formatShortcutKeys } from '../utils/shortcutFormatter';
 import { BatchRunStats } from './BatchRunStats';
 
@@ -135,6 +144,9 @@ interface RightPanelProps {
 	lastGraphFocusFile?: string;
 	/** Callback to open the last document graph */
 	onOpenLastDocumentGraph?: () => void;
+	pinnedItems: PinnedItem[];
+	onUnpinMessage: (logId: string) => void;
+	onScrollToMessage: (timestamp: number) => void;
 }
 
 export const RightPanel = memo(
@@ -202,6 +214,9 @@ export const RightPanel = memo(
 			onFocusFileInGraph,
 			lastGraphFocusFile,
 			onOpenLastDocumentGraph,
+			pinnedItems,
+			onUnpinMessage,
+			onScrollToMessage,
 		} = props;
 
 		const historyPanelRef = useRef<HistoryPanelHandle>(null);
@@ -430,7 +445,7 @@ export const RightPanel = memo(
 
 				{/* Tab Header */}
 				<div className="flex border-b h-16" style={{ borderColor: theme.colors.border }}>
-					{['files', 'history', 'autorun'].map((tab) => (
+					{['files', 'history', 'autorun', 'pins'].map((tab) => (
 						<button
 							key={tab}
 							onClick={() => setActiveRightTab(tab as RightPanelTab)}
@@ -441,7 +456,11 @@ export const RightPanel = memo(
 							}}
 							data-tour={`${tab}-tab`}
 						>
-							{tab === 'autorun' ? 'Auto Run' : tab.charAt(0).toUpperCase() + tab.slice(1)}
+							{tab === 'autorun'
+								? 'Auto Run'
+								: tab === 'pins'
+									? 'Pins'
+									: tab.charAt(0).toUpperCase() + tab.slice(1)}
 						</button>
 					))}
 
@@ -536,6 +555,19 @@ export const RightPanel = memo(
 					{activeRightTab === 'autorun' && (
 						<div data-tour="autorun-panel" className="h-full">
 							<AutoRun ref={autoRunRef} {...autoRunSharedProps} onExpand={handleExpandAutoRun} />
+						</div>
+					)}
+
+					{activeRightTab === 'pins' && (
+						<div data-tour="pins-panel" className="h-full">
+							<PinnedPanel
+								theme={theme}
+								pinnedItems={pinnedItems}
+								onUnpinMessage={onUnpinMessage}
+								onScrollToMessage={onScrollToMessage}
+								pinCount={pinnedItems.length}
+								pinLimit={20}
+							/>
 						</div>
 					)}
 				</div>
