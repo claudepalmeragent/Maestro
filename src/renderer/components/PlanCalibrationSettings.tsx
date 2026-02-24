@@ -130,21 +130,15 @@ export function PlanCalibrationSettings({
 				lastCalibratedAt: new Date().toISOString(),
 			};
 
-			// Compute 5-hour window reset anchor from calibration points
+			// Compute 5-hour window reset anchor from the MOST RECENT calibration point.
+			// Claude's 5-hour window is sliding (starts on activity), so the freshest
+			// calibration snapshot best reflects the current window boundaries.
 			const fiveHrPoints = allPoints.filter((p) => p.window === '5hr' && p.timeRemainingInWindow);
 			if (fiveHrPoints.length > 0) {
-				let bestPoint = fiveHrPoints[0];
-				let bestRemainingMs = Infinity;
-				for (const p of fiveHrPoints) {
-					const match = p.timeRemainingInWindow!.match(/(\d+)h\s*(\d+)m/);
-					if (match) {
-						const remainingMs = (parseInt(match[1]) * 60 + parseInt(match[2])) * 60 * 1000;
-						if (remainingMs < bestRemainingMs) {
-							bestRemainingMs = remainingMs;
-							bestPoint = p;
-						}
-					}
-				}
+				const sorted = [...fiveHrPoints].sort(
+					(a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+				);
+				const bestPoint = sorted[0];
 				const match = bestPoint.timeRemainingInWindow!.match(/(\d+)h\s*(\d+)m/);
 				if (match) {
 					const remainingMs = (parseInt(match[1]) * 60 + parseInt(match[2])) * 60 * 1000;

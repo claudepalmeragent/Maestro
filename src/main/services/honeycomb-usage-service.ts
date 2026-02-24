@@ -232,7 +232,9 @@ export class HoneycombUsageService {
 			return;
 		}
 
-		// Compute 5-hour window anchor from calibration points on every startup
+		// Compute 5-hour window anchor from the MOST RECENT calibration point.
+		// Claude's 5-hour window is sliding (starts on activity), so the freshest
+		// calibration snapshot best reflects the current window boundaries.
 		const store = getSettingsStore();
 		const planCal = store.get('planCalibration', null) as any;
 		if (planCal && planCal.calibrationPoints?.length > 0) {
@@ -241,35 +243,32 @@ export class HoneycombUsageService {
 				(p: any) => p.window === '5hr' && (p.timeRemainingInWindow || p.timeIntoWindow)
 			);
 			if (fiveHrPoints.length > 0) {
-				let bestPoint = fiveHrPoints[0];
-				let bestRemainingMs = Infinity;
-				for (const p of fiveHrPoints) {
-					let remainingMs: number;
-					const remainingField = p.timeRemainingInWindow;
-					const intoField = p.timeIntoWindow;
+				// Sort by timestamp descending — most recent first
+				const sorted = [...fiveHrPoints].sort(
+					(a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+				);
+				const bestPoint = sorted[0];
 
-					if (remainingField) {
-						const match = remainingField.match(/(\d+)h\s*(\d+)m/);
-						if (!match) continue;
+				let remainingMs: number | null = null;
+				const remainingField = bestPoint.timeRemainingInWindow;
+				const intoField = bestPoint.timeIntoWindow;
+
+				if (remainingField) {
+					const match = remainingField.match(/(\d+)h\s*(\d+)m/);
+					if (match) {
 						remainingMs = (parseInt(match[1]) * 60 + parseInt(match[2])) * 60 * 1000;
-					} else if (intoField) {
-						const match = intoField.match(/(\d+)h\s*(\d+)m/);
-						if (!match) continue;
+					}
+				} else if (intoField) {
+					const match = intoField.match(/(\d+)h\s*(\d+)m/);
+					if (match) {
 						const intoMs = (parseInt(match[1]) * 60 + parseInt(match[2])) * 60 * 1000;
 						remainingMs = FIVE_HOURS_MS - intoMs;
-						if (remainingMs <= 0) continue; // Invalid — skip
-					} else {
-						continue;
-					}
-
-					if (remainingMs < bestRemainingMs) {
-						bestRemainingMs = remainingMs;
-						bestPoint = p;
+						if (remainingMs <= 0) remainingMs = null; // Invalid
 					}
 				}
-				// Use the bestRemainingMs we already computed
-				if (bestRemainingMs < Infinity) {
-					const windowEndMs = new Date(bestPoint.timestamp).getTime() + bestRemainingMs;
+
+				if (remainingMs !== null) {
+					const windowEndMs = new Date(bestPoint.timestamp).getTime() + remainingMs;
 					const anchorDate = new Date(windowEndMs);
 					store.set('planCalibration', {
 						...planCal,
