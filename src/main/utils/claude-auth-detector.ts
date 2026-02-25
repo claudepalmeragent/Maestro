@@ -15,6 +15,7 @@ import { homedir } from 'os';
 import { join } from 'path';
 import { logger } from './logger';
 import type { SshRemoteConfig } from '../../shared/types';
+import { COMMAND_SSH_OPTIONS } from './ssh-options';
 
 const LOG_CONTEXT = '[ClaudeAuthDetector]';
 
@@ -256,7 +257,15 @@ async function executeRemoteCommand(
 	command: string
 ): Promise<string | null> {
 	return new Promise((resolve) => {
-		const args: string[] = ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5'];
+		// Use shared SSH options with shorter timeout for auth detection
+		const sshOptions: Record<string, string> = {
+			...COMMAND_SSH_OPTIONS,
+			ConnectTimeout: '5', // Faster fail for best-effort auth detection
+		};
+		const args: string[] = [];
+		for (const [key, value] of Object.entries(sshOptions)) {
+			args.push('-o', `${key}=${value}`);
+		}
 
 		// Add port if non-standard
 		if (remote.port && remote.port !== 22) {

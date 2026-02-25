@@ -7,8 +7,9 @@ import { homedir } from 'os';
 import { join } from 'path';
 
 // Create mock functions using vi.hoisted (allows access in vi.mock factories)
-const { mockReadFile } = vi.hoisted(() => ({
+const { mockReadFile, mockSpawn } = vi.hoisted(() => ({
 	mockReadFile: vi.fn(),
+	mockSpawn: vi.fn(),
 }));
 
 // Mock fs module with promises
@@ -21,6 +22,12 @@ vi.mock('fs', () => ({
 	promises: {
 		readFile: mockReadFile,
 	},
+}));
+
+// Mock child_process for SSH spawn testing
+vi.mock('child_process', () => ({
+	default: { spawn: mockSpawn },
+	spawn: mockSpawn,
 }));
 
 // Mock logger to avoid console output in tests
@@ -38,9 +45,12 @@ import {
 	parseCredentialsFile,
 	detectAuthFromCredentials,
 	detectLocalAuth,
+	detectRemoteAuth,
 	invalidateRemoteAuthCache,
 	type ClaudeCredentials,
 } from '../../../main/utils/claude-auth-detector';
+import { COMMAND_SSH_OPTIONS } from '../../../main/utils/ssh-options';
+import { EventEmitter } from 'events';
 
 describe('claude-auth-detector', () => {
 	describe('getLocalClaudeCredentialsPath', () => {
@@ -304,6 +314,84 @@ describe('claude-auth-detector', () => {
 
 		it('should not throw when called with specific remote ID', () => {
 			expect(() => invalidateRemoteAuthCache('test-remote')).not.toThrow();
+		});
+	});
+
+	describe('detectRemoteAuth - SSH options', () => {
+		/** Helper to create a mock child process that emits events */
+		function createMockProcess(stdout: string, exitCode: number) {
+			const proc = new EventEmitter() as EventEmitter & {
+				stdout: EventEmitter;
+				stderr: EventEmitter;
+			};
+			proc.stdout = new EventEmitter();
+			proc.stderr = new EventEmitter();
+
+			// Emit data and close asynchronously
+			setTimeout(() => {
+				if (stdout) proc.stdout.emit('data', Buffer.from(stdout));
+				proc.emit('close', exitCode);
+			}, 0);
+
+			return proc;
+		}
+
+		beforeEach(() => {
+			mockSpawn.mockReset();
+			// Invalidate cache so each test triggers a fresh SSH call
+			invalidateRemoteAuthCache();
+		});
+
+		it('should pass COMMAND_SSH_OPTIONS with ConnectTimeout=5 override to SSH', async () => {
+			const mockCreds = JSON.stringify({ apiKey: 'sk-test' });
+			mockSpawn.mockReturnValue(createMockProcess(mockCreds, 0));
+
+			await detectRemoteAuth({
+				id: 'test',
+				host: 'example.com',
+				username: 'user',
+				port: 22,
+				useSshConfig: false,
+			});
+
+			expect(mockSpawn).toHaveBeenCalledWith('ssh', expect.any(Array));
+
+			const args: string[] = mockSpawn.mock.calls[0][1];
+
+			// Verify all COMMAND_SSH_OPTIONS are present
+			for (const [key, value] of Object.entries(COMMAND_SSH_OPTIONS)) {
+				if (key === 'ConnectTimeout') {
+					// ConnectTimeout should be overridden to 5
+					expect(args).toContain(`ConnectTimeout=5`);
+				} else {
+					expect(args).toContain(`${key}=${value}`);
+				}
+			}
+
+			// Verify the old inline args pattern is NOT used
+			// (i.e., there's no standalone 'BatchMode=yes' without the rest of the shared options)
+			expect(args).toContain('ControlMaster=no');
+			expect(args).toContain('ControlPath=/tmp/maestro-ssh-%C');
+		});
+
+		it('should NOT contain the old standalone BatchMode/ConnectTimeout pattern', async () => {
+			const mockCreds = JSON.stringify({ apiKey: 'sk-test' });
+			mockSpawn.mockReturnValue(createMockProcess(mockCreds, 0));
+
+			await detectRemoteAuth({
+				id: 'test',
+				host: 'example.com',
+				username: 'user',
+				port: 22,
+				useSshConfig: false,
+			});
+
+			const args: string[] = mockSpawn.mock.calls[0][1];
+
+			// The shared options should include ControlMaster, ServerAliveInterval, etc.
+			// If these are missing, it means the old inline pattern is still in use
+			expect(args).toContain('ServerAliveInterval=30');
+			expect(args).toContain('ServerAliveCountMax=3');
 		});
 	});
 });

@@ -118,6 +118,7 @@ import { createSafeSend } from './utils/safe-send';
 import { createWebServerFactory } from './web-server/web-server-factory';
 import { cleanupStaleSshSockets } from './utils/ssh-socket-cleanup';
 import { sshHealthMonitor } from './services/ssh-health-monitor';
+import type { SshRemoteConfig } from '../shared/types';
 // Phase 4 refactoring - app lifecycle
 import {
 	setupGlobalErrorHandlers,
@@ -299,7 +300,51 @@ app.whenReady().then(async () => {
 	// Clean up stale SSH sockets from previous sessions
 	cleanupStaleSshSockets();
 
-	// Start SSH health monitor (after socket cleanup)
+	// Establish dedicated SSH ControlMaster connections for all configured remotes
+	// This ensures master connections exist BEFORE any concurrent operations fire,
+	// eliminating the "ControlSocket already exists" race condition
+	try {
+		const sshRemotes: SshRemoteConfig[] = store.get('sshRemotes', []);
+		const enabledRemotes = sshRemotes.filter((r) => r.enabled !== false);
+
+		if (enabledRemotes.length > 0) {
+			logger.info(`Establishing SSH masters for ${enabledRemotes.length} remote(s)`, 'Startup');
+
+			for (const remote of enabledRemotes) {
+				// Register with health monitor (so it tracks and maintains the connection)
+				sshHealthMonitor.addRemote({
+					remoteId: remote.id,
+					host: remote.host,
+					port: remote.port,
+					username: remote.username,
+					privateKeyPath: remote.privateKeyPath,
+					useSshConfig: remote.useSshConfig,
+				});
+
+				// Establish dedicated master connection (async, non-blocking)
+				sshHealthMonitor
+					.establishMaster({
+						remoteId: remote.id,
+						host: remote.host,
+						port: remote.port,
+						username: remote.username,
+						privateKeyPath: remote.privateKeyPath,
+						useSshConfig: remote.useSshConfig,
+					})
+					.catch((err) => {
+						logger.debug(
+							`Startup master establishment failed for ${remote.host}: ${err}`,
+							'Startup'
+						);
+					});
+			}
+		}
+	} catch (err) {
+		// Non-critical — health monitor will establish masters on first health check
+		logger.warn(`Failed to establish SSH masters at startup: ${err}`, 'Startup');
+	}
+
+	// Start SSH health monitor (after socket cleanup and initial master establishment)
 	sshHealthMonitor.start();
 
 	// Initialize core services

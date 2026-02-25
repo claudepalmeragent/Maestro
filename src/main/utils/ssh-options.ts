@@ -5,8 +5,9 @@
  * Every module that builds SSH arguments MUST import from here to ensure consistent
  * ControlMaster connection pooling, keep-alives, and security settings.
  *
- * There are three option sets:
- * - BASE_SSH_OPTIONS: Core options shared by all operations
+ * There are four option sets:
+ * - MASTER_SSH_OPTIONS: For establishing the dedicated ControlMaster connection (one per host)
+ * - BASE_SSH_OPTIONS: Core options shared by all operational commands (uses existing master)
  * - COMMAND_SSH_OPTIONS: For non-interactive commands (file ops, git, terminal, stats)
  * - AGENT_SSH_OPTIONS: For agent spawning (requires TTY for --print mode)
  *
@@ -14,22 +15,54 @@
  */
 
 /**
- * Base SSH options shared by ALL operations.
- * Includes connection pooling (ControlMaster) and keep-alives (ServerAliveInterval).
+ * SSH options for the DEDICATED ControlMaster connection.
+ *
+ * Used exclusively by the health monitor and pre-flight validation to establish
+ * exactly ONE master connection per host. The master runs as a background process
+ * (ssh -fN) and all operational commands multiplex over it.
+ *
+ * ControlMaster=yes means "ALWAYS become master" — if a socket already exists,
+ * the command will fail rather than silently creating a duplicate connection.
+ * This is intentional: only one master should exist per host.
+ *
+ * ControlPersist=300 keeps the master alive for 5 minutes after the last
+ * multiplexed connection closes, avoiding unnecessary reconnections.
+ */
+export const MASTER_SSH_OPTIONS: Record<string, string> = {
+	BatchMode: 'yes',
+	StrictHostKeyChecking: 'accept-new',
+	ConnectTimeout: '10',
+	ClearAllForwardings: 'yes',
+	RequestTTY: 'no',
+	ControlMaster: 'yes',
+	ControlPath: '/tmp/maestro-ssh-%C',
+	ControlPersist: '300',
+	ServerAliveInterval: '30',
+	ServerAliveCountMax: '3',
+};
+
+/**
+ * Base SSH options for ALL operational commands (file ops, agent spawning, git, terminal).
+ *
+ * ControlMaster=no means "use an existing master socket if available, but NEVER
+ * try to become master yourself." This eliminates the race condition where multiple
+ * concurrent SSH processes with ControlMaster=auto compete to create the socket.
+ *
+ * The master connection is established separately by the health monitor or
+ * pre-flight validation using MASTER_SSH_OPTIONS above.
+ *
+ * ControlPath is still required so SSH knows WHERE to find the master socket.
+ * ControlPersist is NOT needed here — it only applies to the master process.
  */
 export const BASE_SSH_OPTIONS: Record<string, string> = {
-	BatchMode: 'yes', // Disable password prompts (key-only auth)
-	StrictHostKeyChecking: 'accept-new', // Auto-accept new host keys
-	ConnectTimeout: '10', // Connection timeout in seconds
-	ClearAllForwardings: 'yes', // Disable port forwarding from SSH config (avoids "Address already in use")
-	// Connection multiplexing - share a single TCP connection per host
-	// Uses %C (hash of connection params) to create unique socket per user@host:port
-	ControlMaster: 'auto', // Automatically create/reuse master connection
-	ControlPath: '/tmp/maestro-ssh-%C', // Socket path (%C = hash for uniqueness)
-	ControlPersist: '300', // Keep connection alive 5 minutes after last use
-	// Keep-alive settings to detect dead connections proactively
-	ServerAliveInterval: '30', // Send keep-alive every 30 seconds
-	ServerAliveCountMax: '3', // Disconnect after 3 missed responses (90s total)
+	BatchMode: 'yes',
+	StrictHostKeyChecking: 'accept-new',
+	ConnectTimeout: '10',
+	ClearAllForwardings: 'yes',
+	ControlMaster: 'no',
+	ControlPath: '/tmp/maestro-ssh-%C',
+	ServerAliveInterval: '30',
+	ServerAliveCountMax: '3',
 };
 
 /**

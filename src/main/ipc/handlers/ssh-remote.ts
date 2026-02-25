@@ -282,6 +282,23 @@ export function registerSshRemoteHandlers(deps: SshRemoteHandlerDependencies): v
 						privateKeyPath: config.privateKeyPath,
 						useSshConfig: config.useSshConfig,
 					});
+
+					// Establish dedicated master connection immediately
+					sshHealthMonitor
+						.establishMaster({
+							remoteId: config.id,
+							host: config.host,
+							port: config.port,
+							username: config.username,
+							privateKeyPath: config.privateKeyPath,
+							useSshConfig: config.useSshConfig,
+						})
+						.catch((err) => {
+							logger.debug(
+								`Master establishment after connection test failed: ${err}`,
+								LOG_CONTEXT
+							);
+						});
 				} else {
 					logger.warn(`SSH connection test failed: ${result.error}`, LOG_CONTEXT);
 				}

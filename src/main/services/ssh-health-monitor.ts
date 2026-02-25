@@ -18,7 +18,7 @@ import { spawn } from 'child_process';
 import { logger } from '../utils/logger';
 import { validateSshSocket } from '../utils/ssh-socket-cleanup';
 import { resolveSshPath } from '../utils/cliDetection';
-import { COMMAND_SSH_OPTIONS } from '../utils/ssh-options';
+import { MASTER_SSH_OPTIONS } from '../utils/ssh-options';
 
 const LOG_CONTEXT = '[ssh-health-monitor]';
 const SOCKET_PREFIX = 'maestro-ssh-';
@@ -153,6 +153,14 @@ export class SshHealthMonitor {
 	}
 
 	/**
+	 * Get all monitored remote configurations.
+	 * Used by pre-flight validation to find remote config for master re-establishment.
+	 */
+	getMonitoredRemotes(): MonitoredRemote[] {
+		return Array.from(this.monitoredRemotes.values());
+	}
+
+	/**
 	 * Run a health check cycle for all monitored remotes.
 	 */
 	private async runHealthCheck(): Promise<void> {
@@ -192,14 +200,14 @@ export class SshHealthMonitor {
 						// No socket exists — this is normal after ControlPersist timeout
 						// Pre-warm the connection
 						status.status = 'degraded';
-						await this.prewarmConnection(remote);
+						await this.establishMaster(remote);
 					}
 				} else {
 					// Socket was stale and got cleaned up
 					// Pre-warm a fresh connection
 					status.status = 'degraded';
 					status.consecutiveFailures++;
-					await this.prewarmConnection(remote);
+					await this.establishMaster(remote);
 				}
 
 				status.lastChecked = now;
@@ -225,13 +233,20 @@ export class SshHealthMonitor {
 	}
 
 	/**
-	 * Pre-warm a ControlMaster connection to a remote host.
-	 * Establishes the master connection so subsequent operations are instant.
+	 * Establish a dedicated ControlMaster connection to a remote host.
 	 *
-	 * Uses a simple "echo 1" command — the goal is just to establish the TCP connection
-	 * and ControlMaster socket, not to run anything meaningful.
+	 * Uses ControlMaster=yes with -fN to create a background master process.
+	 * - -f: Go to background after authentication
+	 * - -N: No remote command (just establish the TCP connection)
+	 * - ControlMaster=yes: ALWAYS become master (fail if socket already exists)
+	 *
+	 * This is the ONLY code path that should ever create a ControlMaster socket.
+	 * All operational SSH commands use ControlMaster=no to multiplex over it.
+	 *
+	 * If a master socket already exists (the ssh command exits with non-zero),
+	 * this is not an error — it means a master is already running.
 	 */
-	private async prewarmConnection(remote: MonitoredRemote): Promise<void> {
+	public async establishMaster(remote: MonitoredRemote): Promise<void> {
 		try {
 			const sshPath = await resolveSshPath();
 			const destination = remote.username ? `${remote.username}@${remote.host}` : remote.host;
@@ -245,8 +260,8 @@ export class SshHealthMonitor {
 				args.push('-i', remote.privateKeyPath);
 			}
 
-			// Add shared SSH options
-			for (const [key, value] of Object.entries(COMMAND_SSH_OPTIONS)) {
+			// Add master SSH options (ControlMaster=yes)
+			for (const [key, value] of Object.entries(MASTER_SSH_OPTIONS)) {
 				args.push('-o', `${key}=${value}`);
 			}
 
@@ -255,20 +270,25 @@ export class SshHealthMonitor {
 				args.push('-p', remote.port.toString());
 			}
 
-			// Destination
+			// -fN: background after auth, no remote command
+			args.push('-f', '-N');
+
+			// Destination (must be last)
 			args.push(destination);
 
-			// Simple command to establish connection
-			args.push('echo 1');
-
-			logger.debug(`Pre-warming SSH connection to ${remote.host}`, LOG_CONTEXT);
+			logger.debug(`Establishing SSH master connection to ${remote.host}`, LOG_CONTEXT);
 
 			const sshProcess = spawn(sshPath, args, {
 				stdio: 'pipe',
-				timeout: 15000, // 15 second timeout for pre-warm
+				timeout: 15000,
 			});
 
-			// Wait for completion (fire and forget, but log result)
+			// Collect stderr for diagnostics
+			let stderrOutput = '';
+			sshProcess.stderr.on('data', (data: Buffer) => {
+				stderrOutput += data.toString();
+			});
+
 			sshProcess.on('exit', (code) => {
 				const status = this.healthStatuses.get(remote.remoteId);
 				if (status) {
@@ -276,29 +296,39 @@ export class SshHealthMonitor {
 						status.status = 'healthy';
 						status.lastSuccessful = Date.now();
 						status.consecutiveFailures = 0;
-						logger.debug(`Pre-warm successful: ${remote.host}`, LOG_CONTEXT);
+						logger.info(`SSH master established for ${remote.host}`, LOG_CONTEXT);
 					} else {
-						status.consecutiveFailures++;
-						logger.debug(`Pre-warm failed (exit ${code}): ${remote.host}`, LOG_CONTEXT);
-						if (status.consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-							status.status = 'disconnected';
-							logger.warn(
-								`SSH remote unreachable after ${MAX_CONSECUTIVE_FAILURES} failures: ${remote.host}`,
+						// ControlMaster=yes fails if socket already exists — that's OK
+						if (stderrOutput.includes('ControlSocket') && stderrOutput.includes('already exists')) {
+							logger.debug(`Master already exists for ${remote.host}, reusing`, LOG_CONTEXT);
+							status.status = 'healthy';
+							status.consecutiveFailures = 0;
+						} else {
+							status.consecutiveFailures++;
+							logger.debug(
+								`Master establishment failed (exit ${code}) for ${remote.host}: ${stderrOutput.trim()}`,
 								LOG_CONTEXT
 							);
+							if (status.consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+								status.status = 'disconnected';
+								logger.warn(
+									`SSH remote unreachable after ${MAX_CONSECUTIVE_FAILURES} failures: ${remote.host}`,
+									LOG_CONTEXT
+								);
+							}
 						}
 					}
 				}
 			});
 
 			sshProcess.on('error', (err) => {
-				logger.debug(`Pre-warm error for ${remote.host}: ${err.message}`, LOG_CONTEXT);
+				logger.debug(`Master establishment error for ${remote.host}: ${err.message}`, LOG_CONTEXT);
 			});
 
 			// Don't block — let it run in the background
 			sshProcess.unref();
 		} catch (err) {
-			logger.debug(`Failed to start pre-warm for ${remote.host}: ${err}`, LOG_CONTEXT);
+			logger.debug(`Failed to start master establishment for ${remote.host}: ${err}`, LOG_CONTEXT);
 		}
 	}
 }

@@ -10,6 +10,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { logger } from './logger';
+import { sshHealthMonitor } from '../services/ssh-health-monitor';
 
 const LOG_CONTEXT = '[ssh-socket-cleanup]';
 const SOCKET_PREFIX = 'maestro-ssh-';
@@ -64,13 +65,15 @@ export function cleanupStaleSshSockets(): number {
  * This is a pre-flight check designed to be called before SSH operations.
  * It talks to the LOCAL ControlMaster process via unix socket (~1ms, no network).
  *
- * If the socket exists but is stale/dead, it is removed so that
- * ControlMaster=auto will create a fresh master connection on the next SSH call.
+ * If no master socket exists, or if it exists but is stale/dead, this function
+ * triggers master re-establishment via the health monitor. Since operational
+ * commands use ControlMaster=no, they NEED a master to be running — this
+ * function ensures one exists before operations proceed.
  *
  * @param host - The SSH host (used to compute the socket path hash)
  * @param port - The SSH port (used to compute the socket path hash)
  * @param username - The SSH username (used to compute the socket path hash)
- * @returns true if socket is healthy or doesn't exist yet, false if it was stale (now removed)
+ * @returns true if socket is healthy, false if it was stale (cleanup + re-establish triggered)
  */
 export async function validateSshSocket(
 	host: string,
@@ -85,8 +88,10 @@ export async function validateSshSocket(
 		const maestroSockets = files.filter((f) => f.startsWith(SOCKET_PREFIX));
 
 		if (maestroSockets.length === 0) {
-			// No sockets exist yet - ControlMaster=auto will create one
-			return true;
+			// No master socket exists — trigger establishment
+			logger.debug(`No SSH master socket found, triggering establishment for ${host}`, LOG_CONTEXT);
+			triggerMasterReestablishment(host, port, username);
+			return true; // Return true — let the operation proceed (may use fallback direct connection)
 		}
 
 		// Use ssh -O check to verify the master connection is alive
@@ -118,13 +123,17 @@ export async function validateSshSocket(
 			// This is expected when no master connection exists yet (not an error)
 			const errorMsg = checkError instanceof Error ? checkError.message : String(checkError);
 
-			// "No ControlMaster" or "No such file" means no socket exists - this is fine
+			// "No ControlMaster" or "No such file" means no master for THIS host — trigger establishment
 			if (errorMsg.includes('No ControlMaster') || errorMsg.includes('No such file')) {
+				triggerMasterReestablishment(host, port, username);
 				return true;
 			}
 
-			// Socket exists but is stale - clean it up
-			logger.info(`Stale SSH socket detected for ${destination}, cleaning up`, LOG_CONTEXT);
+			// Socket exists but is stale - clean it up and re-establish
+			logger.info(
+				`Stale SSH socket detected for ${destination}, cleaning up and re-establishing`,
+				LOG_CONTEXT
+			);
 			for (const socketFile of maestroSockets) {
 				const socketPath = path.join(SOCKET_DIR, socketFile);
 				try {
@@ -137,12 +146,49 @@ export async function validateSshSocket(
 					// Already removed or in use - ignore
 				}
 			}
+			// Trigger master re-establishment (async, non-blocking)
+			triggerMasterReestablishment(host, port, username);
 			return false;
 		}
 	} catch (err) {
 		// File system error reading /tmp - not critical, proceed with operation
 		logger.debug(`Socket validation skipped: ${err}`, LOG_CONTEXT);
 		return true;
+	}
+}
+
+/**
+ * Trigger master connection re-establishment via the health monitor.
+ *
+ * Looks up the remote by host/port/username in the health monitor's tracked remotes
+ * and calls establishMaster(). This is fire-and-forget — the operation that triggered
+ * the pre-flight check will either succeed (if the master comes up fast enough)
+ * or fail and be retried by the retry logic in remote-fs.ts / other callers.
+ */
+function triggerMasterReestablishment(host: string, port: number, username: string): void {
+	try {
+		const statuses = sshHealthMonitor.getHealthStatuses();
+		const matching = statuses.find(
+			(s) => s.host === host && s.port === port && (s.username === username || !username)
+		);
+
+		if (matching) {
+			const remotes = sshHealthMonitor.getMonitoredRemotes();
+			const remote = remotes.find((r) => r.remoteId === matching.remoteId);
+			if (remote) {
+				logger.debug(`Triggering master re-establishment for ${host}`, LOG_CONTEXT);
+				sshHealthMonitor.establishMaster(remote).catch((err) => {
+					logger.debug(`Master re-establishment failed for ${host}: ${err}`, LOG_CONTEXT);
+				});
+			}
+		} else {
+			logger.debug(
+				`No monitored remote found for ${host}:${port}, cannot re-establish master`,
+				LOG_CONTEXT
+			);
+		}
+	} catch (err) {
+		logger.debug(`Error triggering master re-establishment: ${err}`, LOG_CONTEXT);
 	}
 }
 
