@@ -403,24 +403,29 @@ function ModelLegendItem({
 
 	return (
 		<div
-			className="relative flex items-center gap-1.5 cursor-default"
+			className="relative cursor-default"
 			onMouseEnter={() => setShowTooltip(true)}
 			onMouseLeave={() => setShowTooltip(false)}
 		>
-			<div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
-			<span
-				className="text-xs font-mono truncate"
-				style={{ color: theme.colors.textDim, maxWidth: '120px' }}
-			>
-				{model.name}
-			</span>
-			<span className="text-xs font-mono" style={{ color: theme.colors.textDim }}>
-				{formatBytes(model.sizeBytes)}
-			</span>
-			{model.expiresAt && (
-				<span className="text-xs" style={{ color: theme.colors.textDim, opacity: 0.6 }}>
-					· unloads {formatExpiry(model.expiresAt)}
+			<div className="flex items-center gap-1.5">
+				<div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
+				<span
+					className="text-xs font-mono truncate"
+					style={{ color: theme.colors.textDim, maxWidth: '120px' }}
+				>
+					{model.name}
 				</span>
+				<span className="text-xs font-mono" style={{ color: theme.colors.textDim }}>
+					{formatBytes(model.sizeBytes)}
+				</span>
+			</div>
+			{model.expiresAt && (
+				<div
+					className="text-xs ml-3.5 mt-0.5"
+					style={{ color: theme.colors.textDim, opacity: 0.6 }}
+				>
+					unloads {formatExpiry(model.expiresAt)}
+				</div>
 			)}
 
 			{/* Hover tooltip */}

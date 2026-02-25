@@ -104,7 +104,10 @@ export async function detectGpuCapabilities(): Promise<GpuCapabilities> {
 		binaryExists('nvidia-smi'),
 	]);
 
-	const ollamaHost = process.env.OLLAMA_HOST || 'http://localhost:11434';
+	let ollamaHost = process.env.OLLAMA_HOST || 'http://localhost:11434';
+	if (ollamaHost && !/^https?:\/\//i.test(ollamaHost)) {
+		ollamaHost = `http://${ollamaHost}`;
+	}
 
 	logger.info('GPU capabilities detected', LOG_CONTEXT, {
 		platform,
