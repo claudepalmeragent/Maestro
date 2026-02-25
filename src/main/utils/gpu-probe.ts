@@ -6,6 +6,7 @@
  */
 
 import { execFile } from 'child_process';
+import * as os from 'os';
 import { logger } from './logger';
 
 const LOG_CONTEXT = '[gpu-probe]';
@@ -249,6 +250,14 @@ export async function queryMacmon(): Promise<MacmonMetrics> {
 						swapTotalBytes: memory.swap_total != null ? Number(memory.swap_total) : undefined,
 					};
 
+					// Fallback: if macmon didn't provide memory, use Node.js os module
+					if (metrics.memoryTotalBytes == null || metrics.memoryUsedBytes == null) {
+						logger.debug('macmon returned no memory data, falling back to os module', LOG_CONTEXT);
+						const osMem = queryOsMemory();
+						metrics.memoryTotalBytes = metrics.memoryTotalBytes ?? osMem.memoryTotalBytes;
+						metrics.memoryUsedBytes = metrics.memoryUsedBytes ?? osMem.memoryUsedBytes;
+					}
+
 					resolve(metrics);
 				} catch (parseErr) {
 					reject(new Error(`macmon parse error: ${parseErr}`));
@@ -337,6 +346,20 @@ function getAugmentedPath(): string {
 	];
 	const missing = extras.filter((p) => !existing.includes(p));
 	return missing.length > 0 ? `${existing}:${missing.join(':')}` : existing;
+}
+
+/**
+ * Query OS-level memory as a fallback when macmon is unavailable or incomplete.
+ * Uses Node.js os.totalmem() and os.freemem() — works on all platforms,
+ * no external binary needed.
+ */
+export function queryOsMemory(): Pick<MacmonMetrics, 'memoryUsedBytes' | 'memoryTotalBytes'> {
+	const total = os.totalmem();
+	const free = os.freemem();
+	return {
+		memoryTotalBytes: total,
+		memoryUsedBytes: total - free,
+	};
 }
 
 function binaryExists(name: string): Promise<boolean> {

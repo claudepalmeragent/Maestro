@@ -12,9 +12,11 @@ import {
 	detectGpuCapabilities,
 	queryOllamaModels,
 	queryMacmon,
+	queryOsMemory,
 	querySocInfo,
 	type GpuCapabilities,
 	type GpuMetrics,
+	type MacmonMetrics,
 	type SocInfo,
 } from '../../utils/gpu-probe';
 import { logger } from '../../utils/logger';
@@ -77,6 +79,17 @@ export function registerGpuMonitorHandlers(): void {
 				const macmonError = `macmon: ${err instanceof Error ? err.message : String(err)}`;
 				metrics.error = metrics.error ? `${metrics.error}; ${macmonError}` : macmonError;
 			}
+		}
+
+		// Fallback: on macOS, always provide at least OS-level memory data
+		// so the Memory gauge shows even without macmon installed
+		if (process.platform === 'darwin' && !metrics.macmon) {
+			const osMem = queryOsMemory();
+			metrics.macmon = {
+				memoryTotalBytes: osMem.memoryTotalBytes,
+				memoryUsedBytes: osMem.memoryUsedBytes,
+			} as MacmonMetrics;
+			logger.debug('Using OS memory fallback (macmon unavailable)', LOG_CONTEXT);
 		}
 
 		return metrics;

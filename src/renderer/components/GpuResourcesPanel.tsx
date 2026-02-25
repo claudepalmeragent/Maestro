@@ -54,8 +54,8 @@ export function GpuResourcesPanel({ theme, enabled }: GpuResourcesPanelProps) {
 	const [isExpanded, setIsExpanded] = useState(true);
 	const { metrics, capabilities, socInfo, isLoading, error } = useGpuMetrics({ enabled });
 
-	// Don't render if no GPU tools are available
-	if (capabilities && !capabilities.hasOllama && !capabilities.hasMacmon) {
+	// Don't render if no GPU tools and no fallback memory data available
+	if (capabilities && !capabilities.hasOllama && !capabilities.hasMacmon && !metrics?.macmon) {
 		return null;
 	}
 
