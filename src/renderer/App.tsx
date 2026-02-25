@@ -6184,7 +6184,14 @@ You are taking over this conversation. Based on the context above, provide a bri
 											? {
 													...tab,
 													logs: tab.logs.map((l) =>
-														l.id === logId ? { ...l, pinned: false, pinnedAt: undefined } : l
+														l.id === logId
+															? {
+																	...l,
+																	pinned: false,
+																	pinnedAt: undefined,
+																	pinSortOrder: undefined,
+																}
+															: l
 													),
 												}
 											: tab
@@ -6224,7 +6231,9 @@ You are taking over this conversation. Based on the context above, provide a bri
 										? {
 												...tab,
 												logs: tab.logs.map((l) =>
-													l.id === logId ? { ...l, pinned: true, pinnedAt: Date.now() } : l
+													l.id === logId
+														? { ...l, pinned: true, pinnedAt: Date.now(), pinSortOrder: Date.now() }
+														: l
 												),
 											}
 										: tab
@@ -6260,8 +6269,39 @@ You are taking over this conversation. Based on the context above, provide a bri
 										? {
 												...tab,
 												logs: tab.logs.map((l) =>
-													l.id === logId ? { ...l, pinned: false, pinnedAt: undefined } : l
+													l.id === logId
+														? { ...l, pinned: false, pinnedAt: undefined, pinSortOrder: undefined }
+														: l
 												),
+											}
+										: tab
+								),
+							}
+						: s
+				)
+			);
+		},
+		[activeSession, setSessions]
+	);
+
+	// Reorder pins handler (called from PinnedPanel drag-and-drop)
+	const handleReorderPins = useCallback(
+		(orderedLogIds: string[]) => {
+			if (!activeSession) return;
+			setSessions((prev) =>
+				prev.map((s) =>
+					s.id === activeSession.id
+						? {
+								...s,
+								aiTabs: s.aiTabs.map((tab) =>
+									tab.id === activeSession.activeTabId
+										? {
+												...tab,
+												logs: tab.logs.map((l) => {
+													const newIndex = orderedLogIds.indexOf(l.id);
+													if (newIndex === -1) return l;
+													return { ...l, pinSortOrder: newIndex };
+												}),
 											}
 										: tab
 								),
@@ -6287,6 +6327,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 				source: l.source,
 				messageTimestamp: l.timestamp,
 				pinnedAt: l.pinnedAt || l.timestamp,
+				pinSortOrder: l.pinSortOrder ?? l.pinnedAt ?? l.timestamp,
 			}));
 	}, [activeSession]);
 
@@ -13398,6 +13439,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 		// Pinned messages
 		pinnedItems,
 		handleUnpinMessage,
+		handleReorderPins,
 		handleScrollToMessage,
 	});
 

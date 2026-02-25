@@ -172,6 +172,10 @@ export function PinPreviewPopover({
 								{pin.source === 'user' ? 'Your Message' : 'AI Response'}
 							</span>
 							<span className="ml-auto">
+								{new Date(pin.messageTimestamp).toLocaleDateString([], {
+									month: 'short',
+									day: 'numeric',
+								})}{' '}
 								{new Date(pin.messageTimestamp).toLocaleTimeString([], {
 									hour: '2-digit',
 									minute: '2-digit',

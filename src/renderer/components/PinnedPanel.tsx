@@ -6,7 +6,7 @@
  */
 
 import { useState, useMemo, useCallback } from 'react';
-import { Pin, X, User, Bot, Search } from 'lucide-react';
+import { Pin, X, User, Bot, Search, Copy, Check, GripVertical } from 'lucide-react';
 import type { Theme, PinnedItem } from '../types';
 import { PinPreviewPopover } from './PinPreviewPopover';
 
@@ -15,6 +15,7 @@ interface PinnedPanelProps {
 	pinnedItems: PinnedItem[];
 	onUnpinMessage: (logId: string) => void;
 	onScrollToMessage: (timestamp: number) => void;
+	onReorderPins: (orderedLogIds: string[]) => void;
 	pinCount: number;
 	pinLimit: number;
 }
@@ -24,15 +25,19 @@ export function PinnedPanel({
 	pinnedItems,
 	onUnpinMessage,
 	onScrollToMessage,
+	onReorderPins,
 	pinCount,
 	pinLimit,
 }: PinnedPanelProps): JSX.Element {
 	const [unpinConfirmId, setUnpinConfirmId] = useState<string | null>(null);
 	const [searchQuery, setSearchQuery] = useState('');
+	const [copiedPinId, setCopiedPinId] = useState<string | null>(null);
+	const [draggingPinLogId, setDraggingPinLogId] = useState<string | null>(null);
+	const [dragOverPinLogId, setDragOverPinLogId] = useState<string | null>(null);
 
-	// Sort by pinnedAt ascending (oldest first) and optionally filter by search
+	// Sort by pinSortOrder ascending (user-defined order) and optionally filter by search
 	const sortedPins = useMemo(() => {
-		const sorted = [...pinnedItems].sort((a, b) => a.pinnedAt - b.pinnedAt);
+		const sorted = [...pinnedItems].sort((a, b) => a.pinSortOrder - b.pinSortOrder);
 		if (!searchQuery.trim()) return sorted;
 		const query = searchQuery.toLowerCase().trim();
 		return sorted.filter((pin) => pin.text.toLowerCase().includes(query));
@@ -40,7 +45,7 @@ export function PinnedPanel({
 
 	// Full sorted list (without search filter) for stable index numbers
 	const allSortedPins = useMemo(
-		() => [...pinnedItems].sort((a, b) => a.pinnedAt - b.pinnedAt),
+		() => [...pinnedItems].sort((a, b) => a.pinSortOrder - b.pinSortOrder),
 		[pinnedItems]
 	);
 
@@ -59,6 +64,60 @@ export function PinnedPanel({
 		},
 		[unpinConfirmId, onUnpinMessage]
 	);
+
+	const handleCopyPin = useCallback((logId: string, text: string) => {
+		navigator.clipboard.writeText(text);
+		setCopiedPinId(logId);
+		setTimeout(() => setCopiedPinId((prev) => (prev === logId ? null : prev)), 2000);
+	}, []);
+
+	// Drag-and-drop reorder handlers (follows ProjectFolderHeader pattern)
+	const handlePinDragStart = useCallback((e: React.DragEvent, logId: string) => {
+		e.dataTransfer.effectAllowed = 'move';
+		e.dataTransfer.setData('text/plain', logId);
+		setDraggingPinLogId(logId);
+	}, []);
+
+	const handlePinDragOver = useCallback((e: React.DragEvent, logId: string) => {
+		e.preventDefault();
+		e.dataTransfer.dropEffect = 'move';
+		setDragOverPinLogId(logId);
+	}, []);
+
+	const handlePinDragLeave = useCallback((_e: React.DragEvent) => {
+		setDragOverPinLogId(null);
+	}, []);
+
+	const handlePinDrop = useCallback(
+		(e: React.DragEvent, targetLogId: string) => {
+			e.preventDefault();
+			setDragOverPinLogId(null);
+
+			if (!draggingPinLogId || draggingPinLogId === targetLogId) {
+				setDraggingPinLogId(null);
+				return;
+			}
+
+			// Reorder using splice pattern (same as ProjectFolder reorder)
+			const orderedIds = allSortedPins.map((p) => p.logId);
+			const dragIndex = orderedIds.indexOf(draggingPinLogId);
+			const dropIndex = orderedIds.indexOf(targetLogId);
+
+			if (dragIndex !== -1 && dropIndex !== -1) {
+				orderedIds.splice(dragIndex, 1);
+				orderedIds.splice(dropIndex, 0, draggingPinLogId);
+				onReorderPins(orderedIds);
+			}
+
+			setDraggingPinLogId(null);
+		},
+		[draggingPinLogId, allSortedPins, onReorderPins]
+	);
+
+	const handlePinDragEnd = useCallback((_e: React.DragEvent) => {
+		setDraggingPinLogId(null);
+		setDragOverPinLogId(null);
+	}, []);
 
 	const handleScrollTo = useCallback(
 		(timestamp: number) => {
@@ -177,16 +236,35 @@ export function PinnedPanel({
 						>
 							<div
 								className="group relative p-3 rounded-lg border cursor-pointer hover:brightness-110 transition-all"
+								draggable
+								onDragStart={(e) => handlePinDragStart(e, pin.logId)}
+								onDragOver={(e) => handlePinDragOver(e, pin.logId)}
+								onDragLeave={handlePinDragLeave}
+								onDrop={(e) => handlePinDrop(e, pin.logId)}
+								onDragEnd={handlePinDragEnd}
 								style={{
 									backgroundColor: theme.colors.bgActivity,
 									borderColor:
-										unpinConfirmId === pin.logId ? theme.colors.warning : theme.colors.border,
+										dragOverPinLogId === pin.logId
+											? theme.colors.accent
+											: unpinConfirmId === pin.logId
+												? theme.colors.warning
+												: theme.colors.border,
+									opacity: draggingPinLogId === pin.logId ? 0.5 : 1,
 								}}
 								onClick={() => handleScrollTo(pin.messageTimestamp)}
 								title="Click to scroll to message"
 							>
-								{/* Source indicator with pin index */}
+								{/* Source indicator with pin index + drag handle */}
 								<div className="flex items-center gap-1.5 mb-1">
+									{/* Drag handle */}
+									<div
+										className="cursor-grab opacity-40 hover:opacity-100 transition-opacity shrink-0"
+										onClick={(e) => e.stopPropagation()}
+										title="Drag to reorder"
+									>
+										<GripVertical className="w-3 h-3" style={{ color: theme.colors.textDim }} />
+									</div>
 									<span
 										className="text-[10px] font-mono font-bold px-1 rounded"
 										style={{
@@ -209,6 +287,10 @@ export function PinnedPanel({
 										{pin.source === 'user' ? 'You' : 'AI'}
 									</span>
 									<span className="text-[10px] ml-auto" style={{ color: theme.colors.textDim }}>
+										{new Date(pin.messageTimestamp).toLocaleDateString([], {
+											month: 'short',
+											day: 'numeric',
+										})}{' '}
 										{new Date(pin.messageTimestamp).toLocaleTimeString([], {
 											hour: '2-digit',
 											minute: '2-digit',
@@ -224,27 +306,51 @@ export function PinnedPanel({
 									{truncateText(pin.text, 200)}
 								</p>
 
-								{/* Unpin button (X with double-click confirmation) */}
-								<button
-									onClick={(e) => {
-										e.stopPropagation();
-										handleUnpinClick(pin.logId);
-									}}
-									className={`absolute top-2 right-2 p-1 rounded transition-all ${
-										unpinConfirmId === pin.logId
-											? 'opacity-100'
-											: 'opacity-0 group-hover:opacity-50 hover:!opacity-100'
-									}`}
-									style={{
-										color:
-											unpinConfirmId === pin.logId ? theme.colors.warning : theme.colors.textDim,
-										backgroundColor:
-											unpinConfirmId === pin.logId ? theme.colors.warning + '20' : 'transparent',
-									}}
-									title={unpinConfirmId === pin.logId ? 'Click again to unpin' : 'Unpin message'}
-								>
-									<X className="w-3.5 h-3.5" />
-								</button>
+								{/* Copy + Unpin buttons — bottom-right corner */}
+								<div className="absolute bottom-1.5 right-2 flex items-center gap-0.5">
+									<button
+										onClick={(e) => {
+											e.stopPropagation();
+											handleCopyPin(pin.logId, pin.text);
+										}}
+										className={`p-1 rounded transition-all ${
+											copiedPinId === pin.logId
+												? 'opacity-100'
+												: 'opacity-0 group-hover:opacity-50 hover:!opacity-100'
+										}`}
+										style={{
+											color:
+												copiedPinId === pin.logId ? theme.colors.success : theme.colors.textDim,
+										}}
+										title={copiedPinId === pin.logId ? 'Copied!' : 'Copy pin content'}
+									>
+										{copiedPinId === pin.logId ? (
+											<Check className="w-3.5 h-3.5" />
+										) : (
+											<Copy className="w-3.5 h-3.5" />
+										)}
+									</button>
+									<button
+										onClick={(e) => {
+											e.stopPropagation();
+											handleUnpinClick(pin.logId);
+										}}
+										className={`p-1 rounded transition-all ${
+											unpinConfirmId === pin.logId
+												? 'opacity-100'
+												: 'opacity-0 group-hover:opacity-50 hover:!opacity-100'
+										}`}
+										style={{
+											color:
+												unpinConfirmId === pin.logId ? theme.colors.warning : theme.colors.textDim,
+											backgroundColor:
+												unpinConfirmId === pin.logId ? theme.colors.warning + '20' : 'transparent',
+										}}
+										title={unpinConfirmId === pin.logId ? 'Click again to unpin' : 'Unpin message'}
+									>
+										<X className="w-3.5 h-3.5" />
+									</button>
+								</div>
 							</div>
 						</PinPreviewPopover>
 					);

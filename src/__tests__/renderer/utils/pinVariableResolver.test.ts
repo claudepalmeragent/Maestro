@@ -14,6 +14,7 @@ const testPins: PinnedItem[] = [
 		source: 'user',
 		messageTimestamp: 100,
 		pinnedAt: 100,
+		pinSortOrder: 100,
 	},
 	{
 		logId: '2',
@@ -22,6 +23,7 @@ const testPins: PinnedItem[] = [
 		source: 'ai',
 		messageTimestamp: 200,
 		pinnedAt: 200,
+		pinSortOrder: 200,
 	},
 	{
 		logId: '3',
@@ -30,6 +32,7 @@ const testPins: PinnedItem[] = [
 		source: 'user',
 		messageTimestamp: 300,
 		pinnedAt: 300,
+		pinSortOrder: 300,
 	},
 ];
 

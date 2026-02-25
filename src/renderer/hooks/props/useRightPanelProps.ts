@@ -142,6 +142,7 @@ export interface UseRightPanelPropsDeps {
 	// Pinned messages
 	pinnedItems: PinnedItem[];
 	handleUnpinMessage: (logId: string) => void;
+	handleReorderPins: (orderedLogIds: string[]) => void;
 	handleScrollToMessage: (timestamp: number) => void;
 }
 
@@ -241,6 +242,7 @@ export function useRightPanelProps(deps: UseRightPanelPropsDeps) {
 			// Pinned messages
 			pinnedItems: deps.pinnedItems,
 			onUnpinMessage: deps.handleUnpinMessage,
+			onReorderPins: deps.handleReorderPins,
 			onScrollToMessage: deps.handleScrollToMessage,
 		}),
 		[

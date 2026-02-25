@@ -146,6 +146,7 @@ interface RightPanelProps {
 	onOpenLastDocumentGraph?: () => void;
 	pinnedItems: PinnedItem[];
 	onUnpinMessage: (logId: string) => void;
+	onReorderPins: (orderedLogIds: string[]) => void;
 	onScrollToMessage: (timestamp: number) => void;
 }
 
@@ -216,6 +217,7 @@ export const RightPanel = memo(
 			onOpenLastDocumentGraph,
 			pinnedItems,
 			onUnpinMessage,
+			onReorderPins,
 			onScrollToMessage,
 		} = props;
 
@@ -567,6 +569,7 @@ export const RightPanel = memo(
 								onScrollToMessage={onScrollToMessage}
 								pinCount={pinnedItems.length}
 								pinLimit={20}
+								onReorderPins={onReorderPins}
 							/>
 						</div>
 					)}

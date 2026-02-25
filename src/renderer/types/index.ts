@@ -202,6 +202,8 @@ export interface LogEntry {
 	pinned?: boolean;
 	/** Timestamp when the message was pinned (for ordering) */
 	pinnedAt?: number;
+	/** Custom sort order for pin reordering (lower = higher in list) */
+	pinSortOrder?: number;
 }
 
 // Queued item for the session-level execution queue
@@ -239,6 +241,8 @@ export interface PinnedItem {
 	messageTimestamp: number;
 	/** When the pin was created */
 	pinnedAt: number;
+	/** Custom sort order for pin reordering (lower = higher in list, defaults to pinnedAt) */
+	pinSortOrder: number;
 }
 
 export interface WorkLogItem {

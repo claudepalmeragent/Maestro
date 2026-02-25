@@ -32,8 +32,8 @@ export function resolvePinVariables(text: string, pins: PinnedItem[]): PinResolu
 	const unresolvedVars: string[] = [];
 	let hadVariables = false;
 
-	// Sort pins by pinnedAt ascending for stable indexing
-	const sortedPins = [...pins].sort((a, b) => a.pinnedAt - b.pinnedAt);
+	// Sort pins by pinSortOrder ascending for stable indexing
+	const sortedPins = [...pins].sort((a, b) => a.pinSortOrder - b.pinSortOrder);
 
 	const resolvedText = text.replace(PIN_VAR_REGEX, (match, indexStr, searchTerm) => {
 		hadVariables = true;

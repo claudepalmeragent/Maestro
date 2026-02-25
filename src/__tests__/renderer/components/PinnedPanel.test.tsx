@@ -31,6 +31,21 @@ vi.mock('lucide-react', () => ({
 			🔍
 		</span>
 	),
+	Copy: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<span data-testid="copy-icon" className={className} style={style}>
+			📋
+		</span>
+	),
+	Check: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<span data-testid="check-icon" className={className} style={style}>
+			✓
+		</span>
+	),
+	GripVertical: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<span data-testid="grip-icon" className={className} style={style}>
+			⠿
+		</span>
+	),
 }));
 
 const mockTheme: Theme = {
@@ -57,6 +72,7 @@ const makePins = (count: number): PinnedItem[] =>
 		source: i % 2 === 0 ? ('ai' as const) : ('user' as const),
 		messageTimestamp: Date.now() - (count - i) * 60000,
 		pinnedAt: Date.now() - (count - i) * 30000,
+		pinSortOrder: i,
 	}));
 
 describe('PinnedPanel', () => {
@@ -67,6 +83,7 @@ describe('PinnedPanel', () => {
 				pinnedItems={[]}
 				onUnpinMessage={vi.fn()}
 				onScrollToMessage={vi.fn()}
+				onReorderPins={vi.fn()}
 				pinCount={0}
 				pinLimit={20}
 			/>
@@ -82,6 +99,7 @@ describe('PinnedPanel', () => {
 				pinnedItems={pins}
 				onUnpinMessage={vi.fn()}
 				onScrollToMessage={vi.fn()}
+				onReorderPins={vi.fn()}
 				pinCount={3}
 				pinLimit={20}
 			/>
@@ -98,6 +116,7 @@ describe('PinnedPanel', () => {
 				pinnedItems={pins}
 				onUnpinMessage={vi.fn()}
 				onScrollToMessage={vi.fn()}
+				onReorderPins={vi.fn()}
 				pinCount={20}
 				pinLimit={20}
 			/>
@@ -114,6 +133,7 @@ describe('PinnedPanel', () => {
 				pinnedItems={pins}
 				onUnpinMessage={vi.fn()}
 				onScrollToMessage={onScroll}
+				onReorderPins={vi.fn()}
 				pinCount={1}
 				pinLimit={20}
 			/>
@@ -131,6 +151,7 @@ describe('PinnedPanel', () => {
 				pinnedItems={pins}
 				onUnpinMessage={onUnpin}
 				onScrollToMessage={vi.fn()}
+				onReorderPins={vi.fn()}
 				pinCount={1}
 				pinLimit={20}
 			/>
@@ -148,7 +169,7 @@ describe('PinnedPanel', () => {
 		expect(onUnpin).toHaveBeenCalledWith('log-0');
 	});
 
-	it('sorts pins by pinnedAt ascending', () => {
+	it('sorts pins by pinSortOrder ascending', () => {
 		const pins: PinnedItem[] = [
 			{
 				logId: 'b',
@@ -157,6 +178,7 @@ describe('PinnedPanel', () => {
 				source: 'ai',
 				messageTimestamp: 100,
 				pinnedAt: 200,
+				pinSortOrder: 1,
 			},
 			{
 				logId: 'a',
@@ -165,6 +187,7 @@ describe('PinnedPanel', () => {
 				source: 'user',
 				messageTimestamp: 50,
 				pinnedAt: 100,
+				pinSortOrder: 0,
 			},
 		];
 		render(
@@ -173,6 +196,7 @@ describe('PinnedPanel', () => {
 				pinnedItems={pins}
 				onUnpinMessage={vi.fn()}
 				onScrollToMessage={vi.fn()}
+				onReorderPins={vi.fn()}
 				pinCount={2}
 				pinLimit={20}
 			/>
@@ -195,6 +219,7 @@ describe('Pin button memo reactivity', () => {
 			source: 'ai' as const,
 			messageTimestamp: Date.now(),
 			pinnedAt: Date.now(),
+			pinSortOrder: 0,
 		};
 
 		const { rerender } = render(
@@ -203,6 +228,7 @@ describe('Pin button memo reactivity', () => {
 				pinnedItems={[pinnedItem]}
 				onUnpinMessage={vi.fn()}
 				onScrollToMessage={vi.fn()}
+				onReorderPins={vi.fn()}
 				pinCount={1}
 				pinLimit={20}
 			/>
@@ -218,6 +244,7 @@ describe('Pin button memo reactivity', () => {
 				pinnedItems={[]}
 				onUnpinMessage={vi.fn()}
 				onScrollToMessage={vi.fn()}
+				onReorderPins={vi.fn()}
 				pinCount={0}
 				pinLimit={20}
 			/>
@@ -225,5 +252,137 @@ describe('Pin button memo reactivity', () => {
 
 		// Should show empty state
 		expect(screen.getByText('No pinned messages')).toBeInTheDocument();
+	});
+});
+
+describe('Pin card date display', () => {
+	it('should show date and time on pin cards', () => {
+		const pin: PinnedItem = {
+			logId: 'log-1',
+			tabId: 'tab-1',
+			text: 'Test message',
+			source: 'ai' as const,
+			messageTimestamp: new Date('2025-03-15T14:30:00').getTime(),
+			pinnedAt: Date.now(),
+			pinSortOrder: 0,
+		};
+
+		render(
+			<PinnedPanel
+				theme={mockTheme}
+				pinnedItems={[pin]}
+				onUnpinMessage={vi.fn()}
+				onScrollToMessage={vi.fn()}
+				onReorderPins={vi.fn()}
+				pinCount={1}
+				pinLimit={20}
+			/>
+		);
+
+		// Should contain both date and time portions (month abbreviation indicates date is present)
+		const timeSpans = document.querySelectorAll('.text-\\[10px\\]');
+		const timestamps = Array.from(timeSpans).map((el) => el.textContent);
+		const hasDateAndTime = timestamps.some(
+			(t) => t && /\w{3}\s+\d/.test(t) && /\d{1,2}:\d{2}/.test(t)
+		);
+		expect(hasDateAndTime).toBe(true);
+	});
+});
+
+describe('Pin card copy button', () => {
+	it('should have a copy button on each pin card', () => {
+		const pin: PinnedItem = {
+			logId: 'log-1',
+			tabId: 'tab-1',
+			text: 'Copy me',
+			source: 'ai' as const,
+			messageTimestamp: Date.now(),
+			pinnedAt: Date.now(),
+			pinSortOrder: 0,
+		};
+
+		render(
+			<PinnedPanel
+				theme={mockTheme}
+				pinnedItems={[pin]}
+				onUnpinMessage={vi.fn()}
+				onScrollToMessage={vi.fn()}
+				onReorderPins={vi.fn()}
+				pinCount={1}
+				pinLimit={20}
+			/>
+		);
+
+		const copyButton = screen.getByTitle('Copy pin content');
+		expect(copyButton).toBeInTheDocument();
+	});
+});
+
+describe('Pin card drag reorder', () => {
+	it('should render drag handles on pin cards', () => {
+		const pins: PinnedItem[] = [
+			{
+				logId: 'log-1',
+				tabId: 'tab-1',
+				text: 'First pin',
+				source: 'ai' as const,
+				messageTimestamp: Date.now() - 2000,
+				pinnedAt: Date.now() - 2000,
+				pinSortOrder: 0,
+			},
+			{
+				logId: 'log-2',
+				tabId: 'tab-1',
+				text: 'Second pin',
+				source: 'user' as const,
+				messageTimestamp: Date.now() - 1000,
+				pinnedAt: Date.now() - 1000,
+				pinSortOrder: 1,
+			},
+		];
+
+		render(
+			<PinnedPanel
+				theme={mockTheme}
+				pinnedItems={pins}
+				onUnpinMessage={vi.fn()}
+				onScrollToMessage={vi.fn()}
+				onReorderPins={vi.fn()}
+				pinCount={2}
+				pinLimit={20}
+			/>
+		);
+
+		// Should have drag handles (title="Drag to reorder")
+		const dragHandles = screen.getAllByTitle('Drag to reorder');
+		expect(dragHandles).toHaveLength(2);
+	});
+
+	it('should have draggable attribute on pin cards', () => {
+		const pin: PinnedItem = {
+			logId: 'log-1',
+			tabId: 'tab-1',
+			text: 'Draggable pin',
+			source: 'ai' as const,
+			messageTimestamp: Date.now(),
+			pinnedAt: Date.now(),
+			pinSortOrder: 0,
+		};
+
+		render(
+			<PinnedPanel
+				theme={mockTheme}
+				pinnedItems={[pin]}
+				onUnpinMessage={vi.fn()}
+				onScrollToMessage={vi.fn()}
+				onReorderPins={vi.fn()}
+				pinCount={1}
+				pinLimit={20}
+			/>
+		);
+
+		// The pin card div should have draggable attribute
+		const pinCard = screen.getByTitle('Click to scroll to message');
+		expect(pinCard).toHaveAttribute('draggable');
 	});
 });

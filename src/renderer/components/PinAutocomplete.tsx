@@ -33,8 +33,11 @@ export function PinAutocomplete({
 	const [selectedIndex, setSelectedIndex] = useState(0);
 	const listRef = useRef<HTMLDivElement>(null);
 
-	// Sort pins by pinnedAt ascending (same as PinnedPanel) for stable indices
-	const sortedPins = useMemo(() => [...pins].sort((a, b) => a.pinnedAt - b.pinnedAt), [pins]);
+	// Sort pins by pinSortOrder ascending (same as PinnedPanel) for stable indices
+	const sortedPins = useMemo(
+		() => [...pins].sort((a, b) => a.pinSortOrder - b.pinSortOrder),
+		[pins]
+	);
 
 	// Filter pins based on partial input
 	const filteredPins = useMemo(() => {
