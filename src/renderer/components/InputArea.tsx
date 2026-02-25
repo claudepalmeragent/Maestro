@@ -315,24 +315,6 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 	const [pinAutocompletePartial, setPinAutocompletePartial] = useState('');
 	const [pinAutocompleteStart, setPinAutocompleteStart] = useState(0);
 
-	// Detect {{ typing for pin autocomplete
-	useEffect(() => {
-		if (!pinnedItems || pinnedItems.length === 0) return;
-		const textarea = inputRef.current;
-		if (!textarea) return;
-
-		const cursorPos = textarea.selectionStart;
-		const result = getPartialPinVariable(inputValue, cursorPos);
-
-		if (result) {
-			setPinAutocompleteOpen(true);
-			setPinAutocompletePartial(result.partial);
-			setPinAutocompleteStart(result.start);
-		} else {
-			setPinAutocompleteOpen(false);
-		}
-	}, [inputValue, pinnedItems]);
-
 	// Handle pin autocomplete selection
 	const handlePinAutocompleteSelect = useCallback(
 		(variableSyntax: string) => {
@@ -1173,6 +1155,18 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 												} else {
 													setAtMentionOpen(false);
 												}
+											}
+										}
+
+										// Pin variable autocomplete detection ({{ typing)
+										if (pinnedItems && pinnedItems.length > 0) {
+											const pinResult = getPartialPinVariable(value, cursorPosition);
+											if (pinResult) {
+												setPinAutocompleteOpen(true);
+												setPinAutocompletePartial(pinResult.partial);
+												setPinAutocompleteStart(pinResult.start);
+											} else {
+												setPinAutocompleteOpen(false);
 											}
 										}
 									});

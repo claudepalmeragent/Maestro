@@ -8,6 +8,7 @@
 import { useState, useMemo, useCallback } from 'react';
 import { Pin, X, User, Bot, Search } from 'lucide-react';
 import type { Theme, PinnedItem } from '../types';
+import { PinPreviewPopover } from './PinPreviewPopover';
 
 interface PinnedPanelProps {
 	theme: Theme;
@@ -168,77 +169,84 @@ export function PinnedPanel({
 					// Stable index from the full (unfiltered) sorted list
 					const pinIndex = allSortedPins.findIndex((p) => p.logId === pin.logId) + 1;
 					return (
-						<div
+						<PinPreviewPopover
 							key={pin.logId}
-							className="group relative p-3 rounded-lg border cursor-pointer hover:brightness-110 transition-all"
-							style={{
-								backgroundColor: theme.colors.bgActivity,
-								borderColor:
-									unpinConfirmId === pin.logId ? theme.colors.warning : theme.colors.border,
-							}}
-							onClick={() => handleScrollTo(pin.messageTimestamp)}
-							title="Click to scroll to message"
+							theme={theme}
+							pin={pin}
+							enabled={unpinConfirmId !== pin.logId}
 						>
-							{/* Source indicator with pin index */}
-							<div className="flex items-center gap-1.5 mb-1">
-								<span
-									className="text-[10px] font-mono font-bold px-1 rounded"
-									style={{
-										backgroundColor: theme.colors.accent + '20',
-										color: theme.colors.accent,
-									}}
-									title={`Pin #${pinIndex} — use {{PIN:${pinIndex}}} to reference`}
-								>
-									#{pinIndex}
-								</span>
-								{pin.source === 'user' ? (
-									<User className="w-3 h-3" style={{ color: theme.colors.accent }} />
-								) : (
-									<Bot className="w-3 h-3" style={{ color: theme.colors.textDim }} />
-								)}
-								<span
-									className="text-[10px] font-medium uppercase"
-									style={{ color: theme.colors.textDim }}
-								>
-									{pin.source === 'user' ? 'You' : 'AI'}
-								</span>
-								<span className="text-[10px] ml-auto" style={{ color: theme.colors.textDim }}>
-									{new Date(pin.messageTimestamp).toLocaleTimeString([], {
-										hour: '2-digit',
-										minute: '2-digit',
-									})}
-								</span>
-							</div>
-
-							{/* Message preview */}
-							<p
-								className="text-xs leading-relaxed line-clamp-3"
-								style={{ color: theme.colors.textMain }}
-							>
-								{truncateText(pin.text, 200)}
-							</p>
-
-							{/* Unpin button (X with double-click confirmation) */}
-							<button
-								onClick={(e) => {
-									e.stopPropagation();
-									handleUnpinClick(pin.logId);
-								}}
-								className={`absolute top-2 right-2 p-1 rounded transition-all ${
-									unpinConfirmId === pin.logId
-										? 'opacity-100'
-										: 'opacity-0 group-hover:opacity-50 hover:!opacity-100'
-								}`}
+							<div
+								className="group relative p-3 rounded-lg border cursor-pointer hover:brightness-110 transition-all"
 								style={{
-									color: unpinConfirmId === pin.logId ? theme.colors.warning : theme.colors.textDim,
-									backgroundColor:
-										unpinConfirmId === pin.logId ? theme.colors.warning + '20' : 'transparent',
+									backgroundColor: theme.colors.bgActivity,
+									borderColor:
+										unpinConfirmId === pin.logId ? theme.colors.warning : theme.colors.border,
 								}}
-								title={unpinConfirmId === pin.logId ? 'Click again to unpin' : 'Unpin message'}
+								onClick={() => handleScrollTo(pin.messageTimestamp)}
+								title="Click to scroll to message"
 							>
-								<X className="w-3.5 h-3.5" />
-							</button>
-						</div>
+								{/* Source indicator with pin index */}
+								<div className="flex items-center gap-1.5 mb-1">
+									<span
+										className="text-[10px] font-mono font-bold px-1 rounded"
+										style={{
+											backgroundColor: theme.colors.accent + '20',
+											color: theme.colors.accent,
+										}}
+										title={`Pin #${pinIndex} — use {{PIN:${pinIndex}}} to reference`}
+									>
+										#{pinIndex}
+									</span>
+									{pin.source === 'user' ? (
+										<User className="w-3 h-3" style={{ color: theme.colors.accent }} />
+									) : (
+										<Bot className="w-3 h-3" style={{ color: theme.colors.textDim }} />
+									)}
+									<span
+										className="text-[10px] font-medium uppercase"
+										style={{ color: theme.colors.textDim }}
+									>
+										{pin.source === 'user' ? 'You' : 'AI'}
+									</span>
+									<span className="text-[10px] ml-auto" style={{ color: theme.colors.textDim }}>
+										{new Date(pin.messageTimestamp).toLocaleTimeString([], {
+											hour: '2-digit',
+											minute: '2-digit',
+										})}
+									</span>
+								</div>
+
+								{/* Message preview */}
+								<p
+									className="text-xs leading-relaxed line-clamp-3"
+									style={{ color: theme.colors.textMain }}
+								>
+									{truncateText(pin.text, 200)}
+								</p>
+
+								{/* Unpin button (X with double-click confirmation) */}
+								<button
+									onClick={(e) => {
+										e.stopPropagation();
+										handleUnpinClick(pin.logId);
+									}}
+									className={`absolute top-2 right-2 p-1 rounded transition-all ${
+										unpinConfirmId === pin.logId
+											? 'opacity-100'
+											: 'opacity-0 group-hover:opacity-50 hover:!opacity-100'
+									}`}
+									style={{
+										color:
+											unpinConfirmId === pin.logId ? theme.colors.warning : theme.colors.textDim,
+										backgroundColor:
+											unpinConfirmId === pin.logId ? theme.colors.warning + '20' : 'transparent',
+									}}
+									title={unpinConfirmId === pin.logId ? 'Click again to unpin' : 'Unpin message'}
+								>
+									<X className="w-3.5 h-3.5" />
+								</button>
+							</div>
+						</PinPreviewPopover>
 					);
 				})}
 			</div>

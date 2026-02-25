@@ -6291,15 +6291,50 @@ You are taking over this conversation. Based on the context above, provide a bri
 	}, [activeSession]);
 
 	// Scroll to message handler (for PinnedPanel click-to-scroll)
-	const handleScrollToMessage = useCallback((_timestamp: number) => {
-		// Scroll the terminal output to show the message
-		// For now, we simply scroll to the top of the terminal output
-		// A more precise implementation would search for the log entry by timestamp
+	const handleScrollToMessage = useCallback((timestamp: number) => {
 		const scrollContainer = document.querySelector('[data-terminal-scroll-container]');
-		if (scrollContainer) {
-			// Find the closest message to this timestamp
-			// Since messages don't have data attributes, we scroll to approximate position
-			scrollContainer.scrollTop = 0;
+		if (!scrollContainer) return;
+
+		// Find the message element by exact timestamp match
+		let targetElement: Element | null = scrollContainer.querySelector(
+			`[data-message-timestamp="${timestamp}"]`
+		);
+
+		// If no exact match, find the closest message by timestamp
+		if (!targetElement) {
+			const allMessages = scrollContainer.querySelectorAll('[data-message-timestamp]');
+			let closestElement: Element | null = null;
+			let closestDiff = Infinity;
+
+			allMessages.forEach((el) => {
+				const msgTimestamp = el.getAttribute('data-message-timestamp');
+				if (msgTimestamp) {
+					const msgTime = Number(msgTimestamp);
+					const diff = Math.abs(msgTime - timestamp);
+					if (diff < closestDiff) {
+						closestDiff = diff;
+						closestElement = el;
+					}
+				}
+			});
+
+			// Only use closest if within 5 seconds
+			if (closestElement && closestDiff < 5000) {
+				targetElement = closestElement;
+			}
+		}
+
+		if (targetElement) {
+			targetElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+			// Flash highlight effect
+			const element = targetElement as HTMLElement;
+			element.style.transition = 'background-color 0.3s ease';
+			const originalBg = element.style.backgroundColor;
+			element.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
+			setTimeout(() => {
+				element.style.backgroundColor = originalBg;
+			}, 1500);
 		}
 	}, []);
 

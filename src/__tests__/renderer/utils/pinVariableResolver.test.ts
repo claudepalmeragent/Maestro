@@ -117,3 +117,30 @@ describe('getPartialPinVariable', () => {
 		expect(result).toEqual({ start: 4, partial: 'PIN:"auth' });
 	});
 });
+
+describe('getPartialPinVariable edge cases', () => {
+	it('should detect {{ at start of input', () => {
+		const result = getPartialPinVariable('{{', 2);
+		expect(result).not.toBeNull();
+		expect(result!.start).toBe(0);
+		expect(result!.partial).toBe('');
+	});
+
+	it('should detect {{PIN: mid-input', () => {
+		const result = getPartialPinVariable('Hello {{PIN:', 12);
+		expect(result).not.toBeNull();
+		expect(result!.start).toBe(6);
+		expect(result!.partial).toBe('PIN:');
+	});
+
+	it('should return null when cursor is after }}', () => {
+		const result = getPartialPinVariable('Hello {{PIN:1}} world', 16);
+		expect(result).toBeNull();
+	});
+
+	it('should detect partial with search term', () => {
+		const result = getPartialPinVariable('Use {{PIN:"auth', 15);
+		expect(result).not.toBeNull();
+		expect(result!.partial).toBe('PIN:"auth');
+	});
+});

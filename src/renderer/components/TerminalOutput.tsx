@@ -378,6 +378,7 @@ const LogItemComponent = memo(
 				ref={logItemRef}
 				className={`flex gap-4 group ${isUserMessage ? 'flex-row-reverse' : ''} px-6 py-2`}
 				data-log-index={index}
+				data-message-timestamp={log.timestamp}
 			>
 				<div
 					className={`w-20 shrink-0 text-[10px] pt-2 ${isUserMessage ? 'text-right' : 'text-left'}`}
@@ -1023,6 +1024,7 @@ const LogItemComponent = memo(
 			prevProps.theme === nextProps.theme &&
 			prevProps.maxOutputLines === nextProps.maxOutputLines &&
 			prevProps.markdownEditMode === nextProps.markdownEditMode &&
+			prevProps.log.pinned === nextProps.log.pinned &&
 			prevProps.fontFamily === nextProps.fontFamily
 		);
 	}
