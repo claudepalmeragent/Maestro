@@ -93,7 +93,7 @@ export async function execGitRemote(
  * @param args Git command arguments
  * @param localCwd Local working directory (used for local execution)
  * @param sshRemote Optional SSH remote configuration (triggers remote execution if provided)
- * @param remoteCwd Remote working directory (required for remote execution)
+ * @param remoteCwd Remote working directory (falls back to localCwd if not provided)
  * @returns Execution result
  */
 export async function execGit(
@@ -103,9 +103,14 @@ export async function execGit(
 	remoteCwd?: string
 ): Promise<ExecResult> {
 	if (sshRemote) {
+		// When remoteCwd is not explicitly provided, fall back to localCwd.
+		// All callers pass the target directory path as localCwd, which is the correct
+		// remote path for SSH sessions. Without this fallback, the git command would
+		// run in the SSH user's home directory instead of the project directory.
+		const effectiveRemoteCwd = remoteCwd || localCwd;
 		return execGitRemote(args, {
 			sshRemote,
-			remoteCwd,
+			remoteCwd: effectiveRemoteCwd,
 		});
 	}
 
