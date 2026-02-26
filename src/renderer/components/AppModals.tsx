@@ -389,6 +389,7 @@ export interface AppSessionModalsProps {
 		customContextWindow?: number
 	) => void;
 	editAgentSession: Session | null;
+	onRescanGit: (sessionId: string) => Promise<boolean>;
 
 	// RenameSessionModal
 	renameSessionModalOpen: boolean;
@@ -432,6 +433,7 @@ export function AppSessionModals({
 	onCloseEditAgentModal,
 	onSaveEditAgent,
 	editAgentSession,
+	onRescanGit,
 	// RenameSessionModal
 	renameSessionModalOpen,
 	renameSessionValue,
@@ -464,6 +466,7 @@ export function AppSessionModals({
 				isOpen={editAgentModalOpen}
 				onClose={onCloseEditAgentModal}
 				onSave={onSaveEditAgent}
+				onRescanGit={onRescanGit}
 				theme={theme}
 				session={editAgentSession}
 				existingSessions={existingSessions}
@@ -1791,6 +1794,7 @@ export interface AppModalsProps {
 		customContextWindow?: number
 	) => void;
 	editAgentSession: Session | null;
+	onRescanGit: (sessionId: string) => Promise<boolean>;
 	renameSessionModalOpen: boolean;
 	renameSessionValue: string;
 	setRenameSessionValue: (value: string) => void;
@@ -2130,6 +2134,7 @@ export function AppModals(props: AppModalsProps) {
 		onCloseEditAgentModal,
 		onSaveEditAgent,
 		editAgentSession,
+		onRescanGit,
 		renameSessionModalOpen,
 		renameSessionValue,
 		setRenameSessionValue,
@@ -2421,6 +2426,7 @@ export function AppModals(props: AppModalsProps) {
 				onCloseEditAgentModal={onCloseEditAgentModal}
 				onSaveEditAgent={onSaveEditAgent}
 				editAgentSession={editAgentSession}
+				onRescanGit={onRescanGit}
 				renameSessionModalOpen={renameSessionModalOpen}
 				renameSessionValue={renameSessionValue}
 				setRenameSessionValue={setRenameSessionValue}

@@ -8828,6 +8828,50 @@ You are taking over this conversation. Based on the context above, provide a bri
 		[]
 	);
 
+	const handleRescanGit = useCallback(async (sessionId: string): Promise<boolean> => {
+		const session = sessionsRef.current.find((s) => s.id === sessionId);
+		if (!session) return false;
+
+		const sshRemoteId =
+			session.sshRemoteId || session.sessionSshRemoteConfig?.remoteId || undefined;
+		const cwd = session.sessionSshRemoteConfig?.workingDirOverride || session.cwd;
+
+		console.info(
+			`[handleRescanGit] Scanning for git repo: session=${sessionId}, cwd=${cwd}, ssh=${sshRemoteId || 'local'}`
+		);
+
+		try {
+			const isGitRepo = await gitService.isRepo(cwd, sshRemoteId);
+
+			let gitBranches: string[] | undefined;
+			let gitTags: string[] | undefined;
+			let gitRefsCacheTime: number | undefined;
+
+			if (isGitRepo) {
+				[gitBranches, gitTags] = await Promise.all([
+					gitService.getBranches(cwd, sshRemoteId),
+					gitService.getTags(cwd, sshRemoteId),
+				]);
+				gitRefsCacheTime = Date.now();
+			}
+
+			console.info(
+				`[handleRescanGit] Result: session=${sessionId}, isGitRepo=${isGitRepo}${isGitRepo ? `, branches=${gitBranches?.length ?? 0}` : ''}`
+			);
+
+			setSessions((prev) =>
+				prev.map((s) =>
+					s.id === sessionId ? { ...s, isGitRepo, gitBranches, gitTags, gitRefsCacheTime } : s
+				)
+			);
+
+			return isGitRepo;
+		} catch (error) {
+			console.error(`[handleRescanGit] Failed for session ${sessionId}:`, error);
+			return false;
+		}
+	}, []);
+
 	const handleRenameTab = useCallback(
 		(newName: string) => {
 			if (!activeSession || !renameTabId) return;
@@ -13616,6 +13660,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 					editAgentModalOpen={editAgentModalOpen}
 					onCloseEditAgentModal={handleCloseEditAgentModal}
 					onSaveEditAgent={handleSaveEditAgent}
+					onRescanGit={handleRescanGit}
 					editAgentSession={editAgentSession}
 					renameSessionModalOpen={renameInstanceModalOpen}
 					renameSessionValue={renameInstanceValue}

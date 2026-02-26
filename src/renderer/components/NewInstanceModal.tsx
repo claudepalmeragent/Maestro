@@ -1,5 +1,14 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { Folder, RefreshCw, ChevronRight, AlertTriangle, Copy, Check, X } from 'lucide-react';
+import {
+	Folder,
+	RefreshCw,
+	ChevronRight,
+	AlertTriangle,
+	Copy,
+	Check,
+	X,
+	GitBranch,
+} from 'lucide-react';
 import type { AgentConfig, Session, ToolType } from '../types';
 import type { SshRemoteConfig, AgentSshRemoteConfig, DetectedAuth } from '../../shared/types';
 import type { AgentPricingConfig } from '../../main/stores/types';
@@ -70,6 +79,7 @@ interface EditAgentModalProps {
 			workingDirOverride?: string;
 		}
 	) => void;
+	onRescanGit: (sessionId: string) => Promise<boolean>;
 	theme: any;
 	session: Session | null;
 	existingSessions: Session[];
@@ -1177,6 +1187,7 @@ export function EditAgentModal({
 	isOpen,
 	onClose,
 	onSave,
+	onRescanGit,
 	theme,
 	session,
 	existingSessions,
@@ -1192,6 +1203,10 @@ export function EditAgentModal({
 	const [customEnvVars, setCustomEnvVars] = useState<Record<string, string>>({});
 	const [_customModel, setCustomModel] = useState('');
 	const [refreshingAgent, setRefreshingAgent] = useState(false);
+	// Git re-scan state
+	const [gitScanStatus, setGitScanStatus] = useState<'idle' | 'scanning' | 'found' | 'not-found'>(
+		'idle'
+	);
 	const [copiedId, setCopiedId] = useState(false);
 	// SSH Remote configuration
 	const [sshRemotes, setSshRemotes] = useState<SshRemoteConfig[]>([]);
@@ -1400,6 +1415,7 @@ export function EditAgentModal({
 		if (isOpen && session) {
 			setInstanceName(session.name);
 			setNudgeMessage(session.nudgeMessage || '');
+			setGitScanStatus(session?.isGitRepo ? 'found' : 'idle');
 		}
 	}, [isOpen, session]);
 
@@ -1794,6 +1810,69 @@ export function EditAgentModal({
 						<p className="mt-1 text-xs" style={{ color: theme.colors.textDim }}>
 							Directory cannot be changed. Create a new agent for a different directory.
 						</p>
+						{/* Git repository re-scan */}
+						<div className="mt-2 flex items-center gap-2">
+							{gitScanStatus === 'found' || session.isGitRepo ? (
+								<div className="flex items-center gap-1.5 text-xs">
+									<GitBranch className="w-3.5 h-3.5" style={{ color: theme.colors.accent }} />
+									<span style={{ color: theme.colors.accent }}>Git repository detected</span>
+								</div>
+							) : gitScanStatus === 'scanning' ? (
+								<div className="flex items-center gap-1.5 text-xs">
+									<div
+										className="w-3 h-3 border-2 border-t-transparent rounded-full animate-spin"
+										style={{ borderColor: theme.colors.textDim, borderTopColor: 'transparent' }}
+									/>
+									<span style={{ color: theme.colors.textDim }}>
+										Scanning for Git repository...
+									</span>
+								</div>
+							) : gitScanStatus === 'not-found' ? (
+								<div className="flex items-center gap-2 text-xs">
+									<div className="flex items-center gap-1.5">
+										<X className="w-3.5 h-3.5" style={{ color: theme.colors.textDim }} />
+										<span style={{ color: theme.colors.textDim }}>No Git repository found</span>
+									</div>
+									<button
+										type="button"
+										className="flex items-center gap-1 px-2 py-0.5 rounded text-xs hover:opacity-80 transition-opacity"
+										style={{
+											color: theme.colors.accent,
+											backgroundColor: theme.colors.bgActivity,
+											border: `1px solid ${theme.colors.border}`,
+										}}
+										onClick={async () => {
+											if (!session) return;
+											setGitScanStatus('scanning');
+											const found = await onRescanGit(session.id);
+											setGitScanStatus(found ? 'found' : 'not-found');
+										}}
+									>
+										<RefreshCw className="w-3 h-3" />
+										Retry
+									</button>
+								</div>
+							) : (
+								<button
+									type="button"
+									className="flex items-center gap-1.5 px-2.5 py-1 rounded text-xs hover:opacity-80 transition-opacity"
+									style={{
+										color: theme.colors.textMain,
+										backgroundColor: theme.colors.bgActivity,
+										border: `1px solid ${theme.colors.border}`,
+									}}
+									onClick={async () => {
+										if (!session) return;
+										setGitScanStatus('scanning');
+										const found = await onRescanGit(session.id);
+										setGitScanStatus(found ? 'found' : 'not-found');
+									}}
+								>
+									<GitBranch className="w-3.5 h-3.5" />
+									Re-scan for Git Repository
+								</button>
+							)}
+						</div>
 						{/* Remote path validation status (only shown when SSH is enabled) */}
 						{isSshEnabled && (
 							<div className="mt-2 text-xs flex items-center gap-1.5">
