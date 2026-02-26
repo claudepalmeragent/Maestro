@@ -996,6 +996,9 @@ function MaestroConsoleInner() {
 	const fetchGitInfoInBackground = useCallback(
 		async (sessionId: string, cwd: string, sshRemoteId: string | undefined) => {
 			try {
+				console.info(
+					`[fetchGitInfoInBackground] Checking git status for session ${sessionId}: cwd=${cwd}, sshRemoteId=${sshRemoteId || 'local'}`
+				);
 				// Check if the working directory is a Git repository (via SSH for remote sessions)
 				const isGitRepo = await gitService.isRepo(cwd, sshRemoteId);
 
@@ -1010,6 +1013,10 @@ function MaestroConsoleInner() {
 					]);
 					gitRefsCacheTime = Date.now();
 				}
+
+				console.info(
+					`[fetchGitInfoInBackground] Session ${sessionId}: isGitRepo=${isGitRepo}${isGitRepo ? `, branches=${gitBranches?.length ?? 0}, tags=${gitTags?.length ?? 0}` : ''}`
+				);
 
 				// Update the session with git info and mark SSH as connected
 				setSessions((prev) =>
@@ -1317,8 +1324,11 @@ function MaestroConsoleInner() {
 					for (const session of restoredSessions) {
 						const sshRemoteId = session.sshRemoteId || session.sessionSshRemoteConfig?.remoteId;
 						if (sshRemoteId) {
+							// Use workingDirOverride if configured (matches onSshRemote behavior at line 3537)
+							const effectiveCwd =
+								session.sessionSshRemoteConfig?.workingDirOverride || session.cwd;
 							// Fire and forget - don't await, let it update sessions when done
-							fetchGitInfoInBackground(session.id, session.cwd, sshRemoteId);
+							fetchGitInfoInBackground(session.id, effectiveCwd, sshRemoteId);
 						}
 					}
 				} else {
