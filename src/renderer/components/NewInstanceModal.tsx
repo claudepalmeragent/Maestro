@@ -1415,7 +1415,12 @@ export function EditAgentModal({
 		if (isOpen && session) {
 			setInstanceName(session.name);
 			setNudgeMessage(session.nudgeMessage || '');
-			setGitScanStatus(session?.isGitRepo ? 'found' : 'idle');
+			// Derive git scan status from session state
+			if (session.isGitRepo) {
+				setGitScanStatus('found');
+			} else {
+				setGitScanStatus('idle');
+			}
 		}
 	}, [isOpen, session]);
 
@@ -1815,7 +1820,17 @@ export function EditAgentModal({
 							{gitScanStatus === 'found' || session.isGitRepo ? (
 								<div className="flex items-center gap-1.5 text-xs">
 									<GitBranch className="w-3.5 h-3.5" style={{ color: theme.colors.accent }} />
-									<span style={{ color: theme.colors.accent }}>Git repository detected</span>
+									<span style={{ color: theme.colors.accent }}>
+										Git repository detected
+										{session.gitRoot &&
+											session.gitRoot !== session.cwd &&
+											session.gitRoot !== session.projectRoot && (
+												<span style={{ color: theme.colors.textDim }}>
+													{' '}
+													({session.gitRoot.split('/').pop()}/)
+												</span>
+											)}
+									</span>
 								</div>
 							) : gitScanStatus === 'scanning' ? (
 								<div className="flex items-center gap-1.5 text-xs">
@@ -1844,8 +1859,8 @@ export function EditAgentModal({
 										onClick={async () => {
 											if (!session) return;
 											setGitScanStatus('scanning');
-											const found = await onRescanGit(session.id);
-											setGitScanStatus(found ? 'found' : 'not-found');
+											const result = await onRescanGit(session.id);
+											setGitScanStatus(result ? 'found' : 'not-found');
 										}}
 									>
 										<RefreshCw className="w-3 h-3" />
@@ -1864,8 +1879,8 @@ export function EditAgentModal({
 									onClick={async () => {
 										if (!session) return;
 										setGitScanStatus('scanning');
-										const found = await onRescanGit(session.id);
-										setGitScanStatus(found ? 'found' : 'not-found');
+										const result = await onRescanGit(session.id);
+										setGitScanStatus(result ? 'found' : 'not-found');
 									}}
 								>
 									<GitBranch className="w-3.5 h-3.5" />

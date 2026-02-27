@@ -178,7 +178,8 @@ export function useFileTreeManagement(
 			// Git operations use the appropriate directory based on terminal mode
 			const treeRoot = session.projectRoot || session.cwd;
 			const gitRoot =
-				session.inputMode === 'terminal' ? session.shellCwd || session.cwd : session.cwd;
+				session.gitRoot ||
+				(session.inputMode === 'terminal' ? session.shellCwd || session.cwd : session.cwd);
 
 			// Extract SSH context for remote file/git operations
 			const sshContext = getSshContext(session);

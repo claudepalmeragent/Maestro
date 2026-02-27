@@ -104,7 +104,7 @@ import { ProjectFoldersProvider, useProjectFoldersContext } from './contexts/Pro
 import { ToastContainer } from './components/Toast';
 
 // Import services
-import { gitService } from './services/git';
+import { gitService, detectGitRepo } from './services/git';
 import { getSpeckitCommands } from './services/speckit';
 import { getOpenSpecCommands } from './services/openspec';
 
@@ -847,6 +847,19 @@ function MaestroConsoleInner() {
 		setEditAgentModalOpen(false);
 		setEditAgentSession(null);
 	}, []);
+
+	// Keep editAgentSession in sync with live sessions state.
+	// Without this, handleRescanGit updates sessions via setSessions() but
+	// editAgentSession remains a stale snapshot, causing git fields
+	// and other updated fields to not appear in the EditAgentModal.
+	useEffect(() => {
+		if (!editAgentSession) return;
+		const liveSession = sessions.find((s) => s.id === editAgentSession.id);
+		if (liveSession && liveSession !== editAgentSession) {
+			setEditAgentSession(liveSession);
+		}
+	}, [sessions, editAgentSession]);
+
 	const handleCloseRenameSessionModal = useCallback(() => {
 		setRenameInstanceModalOpen(false);
 		setRenameInstanceSessionId(null);
@@ -996,51 +1009,53 @@ function MaestroConsoleInner() {
 	const fetchGitInfoInBackground = useCallback(
 		async (sessionId: string, cwd: string, sshRemoteId: string | undefined) => {
 			try {
-				console.info(
-					`[fetchGitInfoInBackground] Checking git status for session ${sessionId}: cwd=${cwd}, sshRemoteId=${sshRemoteId || 'local'}`
-				);
-				// Check if the working directory is a Git repository (via SSH for remote sessions)
-				const isGitRepo = await gitService.isRepo(cwd, sshRemoteId);
+				// Subdir scan enabled — safe now that scanWorktreeDirectory is sequential/stop-on-first
+				// and detectGitRepo has in-flight dedup. If SSH isn't ready yet this will fail
+				// and onSshRemote first-connect will retry.
+				const result = await detectGitRepo(cwd, sshRemoteId, { enableSubdirScan: true });
 
-				// Fetch git branches and tags if it's a git repo
-				let gitBranches: string[] | undefined;
-				let gitTags: string[] | undefined;
-				let gitRefsCacheTime: number | undefined;
-				if (isGitRepo) {
-					[gitBranches, gitTags] = await Promise.all([
-						gitService.getBranches(cwd, sshRemoteId),
-						gitService.getTags(cwd, sshRemoteId),
-					]);
-					gitRefsCacheTime = Date.now();
-				}
-
-				console.info(
-					`[fetchGitInfoInBackground] Session ${sessionId}: isGitRepo=${isGitRepo}${isGitRepo ? `, branches=${gitBranches?.length ?? 0}, tags=${gitTags?.length ?? 0}` : ''}`
-				);
-
-				// Update the session with git info and mark SSH as connected
 				setSessions((prev) =>
-					prev.map((s) =>
-						s.id === sessionId
-							? {
-									...s,
-									isGitRepo,
-									gitBranches,
-									gitTags,
-									gitRefsCacheTime,
-									sshConnectionFailed: false,
-								}
-							: s
-					)
+					prev.map((s) => {
+						if (s.id !== sessionId) return s;
+						// Don't overwrite a successful detection from onSshRemote with a
+						// "not found" result (race: onSshRemote may find the repo via a
+						// path that fetchGitInfoInBackground missed due to timing).
+						if (s.isGitRepo && !result.isGitRepo) {
+							return s;
+						}
+						return {
+							...s,
+							isGitRepo: result.isGitRepo,
+							gitRoot: result.gitRoot,
+							gitBranches: result.gitBranches,
+							gitTags: result.gitTags,
+							gitRefsCacheTime: result.gitRefsCacheTime,
+							sshConnectionFailed: false,
+						};
+					})
 				);
 			} catch (error) {
-				console.warn(
-					`[fetchGitInfoInBackground] Failed to fetch git info for session ${sessionId}:`,
-					error
-				);
-				// Mark SSH connection as failed so UI can show error state
+				console.warn(`[fetchGitInfoInBackground] Failed for session ${sessionId}:`, error);
 				setSessions((prev) =>
-					prev.map((s) => (s.id === sessionId ? { ...s, sshConnectionFailed: true } : s))
+					prev.map((s) => {
+						if (s.id !== sessionId) return s;
+						// Don't overwrite successful detection from onSshRemote.
+						// Race: fetchGitInfoInBackground starts before SSH is ready → slow timeout,
+						// meanwhile onSshRemote fires and succeeds. If we blindly reset isGitRepo
+						// to false here, we'd wipe out the successful detection.
+						if (s.isGitRepo) {
+							return s;
+						}
+						return {
+							...s,
+							sshConnectionFailed: true,
+							isGitRepo: false,
+							gitRoot: undefined,
+							gitBranches: undefined,
+							gitTags: undefined,
+							gitRefsCacheTime: undefined,
+						};
+					})
 				);
 			}
 		},
@@ -1169,25 +1184,29 @@ function MaestroConsoleInner() {
 				// app startup on SSH connection timeouts (which can be 10+ seconds per session)
 				const isRemoteSession = !!sshRemoteId;
 
-				// For local sessions, check git status synchronously (fast, sub-100ms)
-				// For remote sessions, use persisted value or default to false, then update in background
-				let isGitRepo = correctedSession.isGitRepo ?? false;
-				let gitBranches = correctedSession.gitBranches;
-				let gitTags = correctedSession.gitTags;
-				let gitRefsCacheTime = correctedSession.gitRefsCacheTime;
+				// Git detection approach per session type:
+				// - Local sessions: detected synchronously here (fast, sub-100ms)
+				// - Remote sessions: always start with isGitRepo=false, detected later via
+				//   fetchGitInfoInBackground (on startup) and onSshRemote (when SSH connects)
+				let isGitRepo = false;
+				let gitBranches: string[] | undefined;
+				let gitTags: string[] | undefined;
+				let gitRefsCacheTime: number | undefined;
+				let gitRoot: string | undefined;
 
 				if (!isRemoteSession) {
-					// Local session - check git status synchronously (fast)
-					isGitRepo = await gitService.isRepo(correctedSession.cwd, undefined);
-					if (isGitRepo) {
-						[gitBranches, gitTags] = await Promise.all([
-							gitService.getBranches(correctedSession.cwd, undefined),
-							gitService.getTags(correctedSession.cwd, undefined),
-						]);
-						gitRefsCacheTime = Date.now();
-					}
+					// Local session - cheap isRepo check only (sub-ms for local).
+					// Subdirectory scanning is deferred to manual Re-scan if cwd isn't a repo.
+					const gitResult = await detectGitRepo(correctedSession.cwd, undefined);
+					isGitRepo = gitResult.isGitRepo;
+					gitBranches = gitResult.gitBranches;
+					gitTags = gitResult.gitTags;
+					gitRefsCacheTime = gitResult.gitRefsCacheTime;
+					gitRoot = gitResult.gitRoot;
 				}
-				// For remote sessions, we'll fetch git info in background after session restore
+				// For remote sessions, git info will be detected via:
+				// 1. fetchGitInfoInBackground (fires immediately after restore, may fail if SSH not ready)
+				// 2. onSshRemote (fires when SSH actually connects — the primary detection path)
 
 				// Reset all tab states to idle - processes don't survive app restart
 				const resetAiTabs = correctedSession.aiTabs.map((tab) => ({
@@ -1209,6 +1228,7 @@ function MaestroConsoleInner() {
 					currentCycleBytes: undefined,
 					statusMessage: undefined,
 					isGitRepo, // Update Git status (or use persisted value for remote)
+					gitRoot,
 					gitBranches,
 					gitTags,
 					gitRefsCacheTime,
@@ -3536,45 +3556,50 @@ function MaestroConsoleInner() {
 					})
 				);
 
-				// When SSH connection is established, check isGitRepo with the SSH context
-				// For SSH sessions, this is the FIRST git check (deferred from session creation)
-				// since we can't check until SSH is connected
+				// When SSH connection is established, detect git repo with the SSH context.
+				// This fires on EVERY process spawn (including AI messages), so we only
+				// run detection if the session doesn't already have git info.
+				// Re-detection can be triggered manually via the Re-scan button.
 				if (sshRemote?.id) {
 					const session = sessionsRef.current.find((s) => s.id === actualSessionId);
-					// Only check if session hasn't been detected as git repo yet
-					// (avoids redundant checks if SSH reconnects)
-					if (session && !session.isGitRepo) {
+					if (session) {
+						// Skip if git detection already completed for this session
+						if (session.isGitRepo) {
+							return;
+						}
 						const remoteCwd = session.sessionSshRemoteConfig?.workingDirOverride || session.cwd;
 						(async () => {
 							try {
-								const isGitRepo = await gitService.isRepo(remoteCwd, sshRemote.id);
-								if (isGitRepo) {
-									// Fetch git branches and tags now that we know it's a git repo
-									const [gitBranches, gitTags] = await Promise.all([
-										gitService.getBranches(remoteCwd, sshRemote.id),
-										gitService.getTags(remoteCwd, sshRemote.id),
-									]);
-									const gitRefsCacheTime = Date.now();
+								// Subdir scan enabled on first-connect. Safe: sequential/stop-on-first scan,
+								// in-flight dedup, and the guard above prevents re-running after success.
+								const result = await detectGitRepo(remoteCwd, sshRemote.id, {
+									enableSubdirScan: true,
+								});
 
-									setSessions((prev) =>
-										prev.map((s) => {
-											if (s.id !== actualSessionId) return s;
-											// Only update if still not detected as git repo
-											if (s.isGitRepo) return s;
-											return {
-												...s,
-												isGitRepo: true,
-												gitBranches,
-												gitTags,
-												gitRefsCacheTime,
-											};
-										})
-									);
-								}
+								setSessions((prev) =>
+									prev.map((s) => {
+										if (s.id !== actualSessionId) return s;
+										// Don't overwrite a successful detection with a failure result.
+										// fetchGitInfoInBackground may have already succeeded.
+										if (s.isGitRepo && !result.isGitRepo) {
+											return s;
+										}
+										return {
+											...s,
+											isGitRepo: result.isGitRepo,
+											gitRoot: result.gitRoot,
+											gitBranches: result.gitBranches,
+											gitTags: result.gitTags,
+											gitRefsCacheTime: result.gitRefsCacheTime,
+										};
+									})
+								);
 							} catch (err) {
 								console.error(`[SSH] Failed to check git repo status for ${actualSessionId}:`, err);
 							}
 						})();
+					} else {
+						console.warn(`[onSshRemote] NO SESSION found for ${actualSessionId}`);
 					}
 				}
 			}
@@ -8840,37 +8865,46 @@ You are taking over this conversation. Based on the context above, provide a bri
 			`[handleRescanGit] Scanning for git repo: session=${sessionId}, cwd=${cwd}, ssh=${sshRemoteId || 'local'}`
 		);
 
+		// Timeout wrapper to prevent indefinite hangs on SSH operations
+		// 120s: each SSH command takes ~5s, detectGitRepo can issue ~13 commands sequentially
+		const withTimeout = <T,>(promise: Promise<T>, ms = 120000): Promise<T> =>
+			Promise.race([
+				promise,
+				new Promise<never>((_, reject) =>
+					setTimeout(() => reject(new Error(`[handleRescanGit] timed out after ${ms}ms`)), ms)
+				),
+			]);
+
 		try {
-			const isGitRepo = await gitService.isRepo(cwd, sshRemoteId);
-
-			let gitBranches: string[] | undefined;
-			let gitTags: string[] | undefined;
-			let gitRefsCacheTime: number | undefined;
-
-			if (isGitRepo) {
-				[gitBranches, gitTags] = await Promise.all([
-					gitService.getBranches(cwd, sshRemoteId),
-					gitService.getTags(cwd, sshRemoteId),
-				]);
-				gitRefsCacheTime = Date.now();
-			}
+			const result = await withTimeout(detectGitRepo(cwd, sshRemoteId, { enableSubdirScan: true }));
 
 			console.info(
-				`[handleRescanGit] Result: session=${sessionId}, isGitRepo=${isGitRepo}${isGitRepo ? `, branches=${gitBranches?.length ?? 0}` : ''}`
+				`[handleRescanGit] Result: session=${sessionId}, isGitRepo=${result.isGitRepo}, gitRoot=${result.gitRoot || 'none'}`
 			);
 
 			setSessions((prev) =>
 				prev.map((s) =>
-					s.id === sessionId ? { ...s, isGitRepo, gitBranches, gitTags, gitRefsCacheTime } : s
+					s.id === sessionId
+						? {
+								...s,
+								isGitRepo: result.isGitRepo,
+								gitRoot: result.gitRoot,
+								gitBranches: result.gitBranches,
+								gitTags: result.gitTags,
+								gitRefsCacheTime: result.gitRefsCacheTime,
+							}
+						: s
 				)
 			);
 
-			return isGitRepo;
+			return result.isGitRepo;
 		} catch (error) {
 			console.error(`[handleRescanGit] Failed for session ${sessionId}:`, error);
 			return false;
 		}
 	}, []);
+
+	// handleSelectGitSubdir removed — detectGitRepo now always auto-selects the first repo found
 
 	const handleRenameTab = useCallback(
 		(newName: string) => {
@@ -9530,26 +9564,24 @@ You are taking over this conversation. Based on the context above, provide a bri
 			const aiPid = 0;
 
 			// For SSH sessions, defer git check until onSshRemote fires (SSH connection established)
-			// For local sessions, check git repo status immediately
+			// For local sessions, check git repo status immediately (cheap isRepo only).
+			// Subdirectory scanning is deferred to manual Re-scan.
 			const isRemoteSession = sessionSshRemoteConfig?.enabled && sessionSshRemoteConfig.remoteId;
 			let isGitRepo = false;
 			let gitBranches: string[] | undefined;
 			let gitTags: string[] | undefined;
 			let gitRefsCacheTime: number | undefined;
+			let gitRoot: string | undefined;
 
 			if (!isRemoteSession) {
-				// Local session - check git repo status now
-				isGitRepo = await gitService.isRepo(workingDir);
-				if (isGitRepo) {
-					[gitBranches, gitTags] = await Promise.all([
-						gitService.getBranches(workingDir),
-						gitService.getTags(workingDir),
-					]);
-					gitRefsCacheTime = Date.now();
-				}
+				const gitResult = await detectGitRepo(workingDir, undefined);
+				isGitRepo = gitResult.isGitRepo;
+				gitRoot = gitResult.gitRoot;
+				gitBranches = gitResult.gitBranches;
+				gitTags = gitResult.gitTags;
+				gitRefsCacheTime = gitResult.gitRefsCacheTime;
 			}
 			// For SSH sessions: isGitRepo stays false until onSshRemote callback fires
-			// and rechecks with the established SSH connection
 
 			// Create initial fresh tab for new sessions
 			const initialTabId = generateId();
@@ -9576,6 +9608,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 				fullPath: workingDir,
 				projectRoot: workingDir, // Store the initial directory (never changes)
 				isGitRepo,
+				gitRoot,
 				gitBranches,
 				gitTags,
 				gitRefsCacheTime,
@@ -9700,19 +9733,14 @@ You are taking over this conversation. Based on the context above, provide a bri
 			// aiPid stays at 0 until user sends their first message
 			const aiPid = 0;
 
-			// Check git repo status (with SSH support if configured)
+			// Check git repo status (cheap isRepo only — subdir scan deferred to Re-scan)
 			const wizardSshRemoteId = sessionSshRemoteConfig?.remoteId || undefined;
-			const isGitRepo = await gitService.isRepo(directoryPath, wizardSshRemoteId);
-			let gitBranches: string[] | undefined;
-			let gitTags: string[] | undefined;
-			let gitRefsCacheTime: number | undefined;
-			if (isGitRepo) {
-				[gitBranches, gitTags] = await Promise.all([
-					gitService.getBranches(directoryPath, wizardSshRemoteId),
-					gitService.getTags(directoryPath, wizardSshRemoteId),
-				]);
-				gitRefsCacheTime = Date.now();
-			}
+			const wizardGitResult = await detectGitRepo(directoryPath, wizardSshRemoteId);
+			const isGitRepo = wizardGitResult.isGitRepo;
+			const gitBranches = wizardGitResult.gitBranches;
+			const gitTags = wizardGitResult.gitTags;
+			const gitRefsCacheTime = wizardGitResult.gitRefsCacheTime;
+			const gitRoot = wizardGitResult.gitRoot;
 
 			// Create initial tab
 			const initialTabId = generateId();
@@ -9745,6 +9773,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 				fullPath: directoryPath,
 				projectRoot: directoryPath,
 				isGitRepo,
+				gitRoot,
 				gitBranches,
 				gitTags,
 				gitRefsCacheTime,

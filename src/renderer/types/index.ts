@@ -565,6 +565,7 @@ export interface Session {
 	liveUrl?: string;
 	changedFiles: FileArtifact[];
 	isGitRepo: boolean;
+	gitRoot?: string; // Git repository root path (may differ from cwd for subdirectory repos)
 	// Git branches and tags cache (for tab completion)
 	gitBranches?: string[];
 	gitTags?: string[];

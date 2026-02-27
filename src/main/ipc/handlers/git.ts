@@ -88,6 +88,7 @@ const handlerOpts = (operation: string, logSuccess = false): CreateHandlerOption
 export function registerGitHandlers(deps: GitHandlerDependencies): void {
 	// Store the settings reference for SSH remote lookups
 	gitSettingsStore = deps.settingsStore;
+
 	// Basic Git operations
 	// All handlers accept optional sshRemoteId and remoteCwd for remote execution
 	ipcMain.handle(
@@ -1036,79 +1037,51 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 							}));
 					}
 
-					// Process all subdirectories in parallel instead of sequentially
-					// This dramatically reduces the time for directories with many worktrees
-					const results = await Promise.all(
-						subdirs.map(async (subdir) => {
-							// Use POSIX path joining for remote paths
-							const subdirPath = sshRemote
-								? parentPath.endsWith('/')
-									? `${parentPath}${subdir.name}`
-									: `${parentPath}/${subdir.name}`
-								: path.join(parentPath, subdir.name);
+					// Sort alphabetically and iterate sequentially — stop at first git repo found.
+					// This avoids flooding the SSH ControlMaster with parallel commands.
+					// One SSH command per subdir to check isRepo; caller handles the rest.
+					subdirs.sort((a, b) => a.name.localeCompare(b.name));
 
-							// Check if it's inside a git work tree (SSH-aware via execGit)
-							const isInsideWorkTree = await execGit(
-								['rev-parse', '--is-inside-work-tree'],
-								subdirPath,
-								sshRemote
-							);
-							if (isInsideWorkTree.exitCode !== 0) {
-								return null; // Not a git repo
-							}
+					const gitSubdirs: Array<{
+						path: string;
+						name: string;
+						isWorktree: boolean;
+						branch: string | null;
+						repoRoot: string | null;
+					}> = [];
 
-							// Run remaining git commands in parallel for each subdirectory (SSH-aware via execGit)
-							const [gitDirResult, gitCommonDirResult, branchResult] = await Promise.all([
-								execGit(['rev-parse', '--git-dir'], subdirPath, sshRemote),
-								execGit(['rev-parse', '--git-common-dir'], subdirPath, sshRemote),
-								execGit(['rev-parse', '--abbrev-ref', 'HEAD'], subdirPath, sshRemote),
-							]);
+					for (const subdir of subdirs) {
+						// Use POSIX path joining for remote paths
+						const subdirPath = sshRemote
+							? parentPath.endsWith('/')
+								? `${parentPath}${subdir.name}`
+								: `${parentPath}/${subdir.name}`
+							: path.join(parentPath, subdir.name);
 
-							const gitDir = gitDirResult.exitCode === 0 ? gitDirResult.stdout.trim() : '';
-							const gitCommonDir =
-								gitCommonDirResult.exitCode === 0 ? gitCommonDirResult.stdout.trim() : gitDir;
-							const isWorktree = gitDir !== gitCommonDir;
-							const branch = branchResult.exitCode === 0 ? branchResult.stdout.trim() : null;
+						// Check if it's inside a git work tree (SSH-aware via execGit)
+						const isInsideWorkTree = await execGit(
+							['rev-parse', '--is-inside-work-tree'],
+							subdirPath,
+							sshRemote
+						);
+						if (isInsideWorkTree.exitCode !== 0) {
+							continue; // Not a git repo, try next
+						}
 
-							// Get repo root
-							let repoRoot: string | null = null;
-							if (isWorktree && gitCommonDir) {
-								// For SSH, use POSIX path operations
-								if (sshRemote) {
-									const commonDirAbs = gitCommonDir.startsWith('/')
-										? gitCommonDir
-										: `${subdirPath}/${gitCommonDir}`.replace(/\/+/g, '/');
-									// Get parent directory (remove last path component)
-									repoRoot = commonDirAbs.split('/').slice(0, -1).join('/') || '/';
-								} else {
-									const commonDirAbs = path.isAbsolute(gitCommonDir)
-										? gitCommonDir
-										: path.resolve(subdirPath, gitCommonDir);
-									repoRoot = path.dirname(commonDirAbs);
-								}
-							} else {
-								const repoRootResult = await execGit(
-									['rev-parse', '--show-toplevel'],
-									subdirPath,
-									sshRemote
-								);
-								if (repoRootResult.exitCode === 0) {
-									repoRoot = repoRootResult.stdout.trim();
-								}
-							}
+						// Found a git repo — return minimal info and stop.
+						// Metadata (root, branches, tags) is fetched by detectGitRepo
+						// in the renderer, so gathering it here would be redundant SSH calls.
+						gitSubdirs.push({
+							path: subdirPath,
+							name: subdir.name,
+							isWorktree: false,
+							branch: null,
+							repoRoot: null,
+						});
 
-							return {
-								path: subdirPath,
-								name: subdir.name,
-								isWorktree,
-								branch,
-								repoRoot,
-							};
-						})
-					);
-
-					// Filter out null results (non-git directories)
-					const gitSubdirs = results.filter((r): r is NonNullable<typeof r> => r !== null);
+						// Stop after first hit — caller gets exactly 0 or 1 result
+						break;
+					}
 
 					return { gitSubdirs };
 				} catch (err) {

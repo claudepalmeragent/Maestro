@@ -236,7 +236,8 @@ export function useGitStatusPolling(
 				gitSessions.map(async (session) => {
 					try {
 						const cwd =
-							session.inputMode === 'terminal' ? session.shellCwd || session.cwd : session.cwd;
+							session.gitRoot ||
+							(session.inputMode === 'terminal' ? session.shellCwd || session.cwd : session.cwd);
 
 						const isActiveSession = session.id === currentActiveSessionId;
 

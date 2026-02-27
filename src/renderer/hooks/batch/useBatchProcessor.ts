@@ -801,7 +801,8 @@ export function useBatchProcessor({
 			let gitBranch: string | undefined;
 			if (session.isGitRepo) {
 				try {
-					const status = await gitService.getStatus(effectiveCwd);
+					const gitCwd = session.gitRoot || effectiveCwd;
+					const status = await gitService.getStatus(gitCwd);
 					gitBranch = status.branch;
 				} catch {
 					// Ignore git errors - branch will be empty string

@@ -722,9 +722,10 @@ export const MainPanel = React.memo(
 			if (!activeSession || !activeSession.isGitRepo) return;
 
 			const cwd =
-				activeSession.inputMode === 'terminal'
+				activeSession.gitRoot ||
+				(activeSession.inputMode === 'terminal'
 					? activeSession.shellCwd || activeSession.cwd
-					: activeSession.cwd;
+					: activeSession.cwd);
 			const diff = await gitService.getDiff(cwd);
 
 			if (diff.diff) {

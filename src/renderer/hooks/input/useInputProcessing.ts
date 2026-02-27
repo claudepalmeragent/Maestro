@@ -640,8 +640,13 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 						activeSession.sessionSshRemoteConfig?.remoteId ||
 						undefined;
 					const isGitRepo = await gitService.isRepo(cwdToCheck, sshIdForGit);
+					// If we cd'd into a git repo, get the repo root for gitRoot tracking
+					let gitRoot: string | undefined;
+					if (isGitRepo) {
+						gitRoot = (await gitService.getRepoRoot(cwdToCheck, sshIdForGit)) || cwdToCheck;
+					}
 					setSessions((prev) =>
-						prev.map((s) => (s.id === activeSessionId ? { ...s, isGitRepo } : s))
+						prev.map((s) => (s.id === activeSessionId ? { ...s, isGitRepo, gitRoot } : s))
 					);
 				})();
 			}

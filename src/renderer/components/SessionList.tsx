@@ -903,8 +903,25 @@ const SessionTooltipContent = memo(function SessionTooltipContent({
 										backgroundColor: theme.colors.accent + '30',
 										color: theme.colors.accent,
 									}}
+									title={
+										session.gitRoot && session.gitRoot !== session.cwd
+											? `Git root: ${session.gitRoot}`
+											: 'Git repository'
+									}
 								>
 									GIT
+									{session.gitRoot && session.gitRoot !== session.cwd && (
+										<span
+											style={{
+												fontSize: '0.55rem',
+												opacity: 0.7,
+												marginLeft: '3px',
+												textTransform: 'none',
+											}}
+										>
+											{session.gitRoot.split('/').pop()}
+										</span>
+									)}
 								</span>
 							</>
 						) : /* Plain directory: Show REMOTE (with server icon if failed) or LOCAL */

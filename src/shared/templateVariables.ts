@@ -54,6 +54,7 @@ export interface TemplateSessionInfo {
 	autoRunFolderPath?: string;
 	agentSessionId?: string;
 	isGitRepo?: boolean;
+	gitRoot?: string;
 	contextUsage?: number;
 }
 
@@ -169,6 +170,7 @@ export function substituteTemplateVariables(template: string, context: TemplateC
 
 		// Git variables
 		GIT_BRANCH: gitBranch || '',
+		GIT_ROOT: session.gitRoot || session.cwd,
 		IS_GIT_REPO: String(session.isGitRepo ?? false),
 
 		// Context variables

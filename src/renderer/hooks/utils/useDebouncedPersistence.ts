@@ -35,7 +35,7 @@ const MAX_PERSISTED_LOGS_PER_TAB = 100;
  *
  * This is a local copy to avoid circular imports in session persistence logic.
  */
-const prepareSessionForPersistence = (session: Session): Session => {
+export const prepareSessionForPersistence = (session: Session): Session => {
 	// If no aiTabs, return as-is (shouldn't happen after migration)
 	if (!session.aiTabs || session.aiTabs.length === 0) {
 		return session;
@@ -113,6 +113,17 @@ const prepareSessionForPersistence = (session: Session): Session => {
 		sshRemote: undefined,
 		sshRemoteId: undefined,
 		remoteCwd: undefined,
+		// Clear git detection state - these are re-detected fresh on each app restart.
+		// For local sessions: detected synchronously during restoreSession.
+		// For remote sessions: detected via fetchGitInfoInBackground + onSshRemote.
+		// Persisting them causes stale isGitRepo=true to block re-detection on restart
+		// (race condition: fetchGitInfoInBackground fires before SSH connects, fails silently,
+		// then onSshRemote's !isGitRepo guard blocks detection).
+		isGitRepo: false,
+		gitRoot: undefined,
+		gitBranches: undefined,
+		gitTags: undefined,
+		gitRefsCacheTime: undefined,
 	} as Session;
 };
 
