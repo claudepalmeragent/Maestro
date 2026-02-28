@@ -83,8 +83,6 @@ describe('GitLogViewer', () => {
 		date: '2025-12-07T10:30:00Z',
 		refs: [],
 		subject: 'feat: add new feature',
-		additions: 50,
-		deletions: 10,
 		...overrides,
 	});
 
@@ -194,7 +192,7 @@ diff --git a/src/test.ts b/src/test.ts
 			render(<GitLogViewer {...defaultProps} />);
 
 			await waitFor(() => {
-				expect(screen.getByText('2 of 500 commits')).toBeInTheDocument();
+				expect(screen.getByText('2 of 500 commits loaded')).toBeInTheDocument();
 			});
 		});
 
@@ -296,43 +294,6 @@ diff --git a/src/test.ts b/src/test.ts
 
 			await waitFor(() => {
 				expect(screen.getAllByText('Test Author').length).toBeGreaterThan(0);
-			});
-		});
-
-		it('should display additions and deletions', async () => {
-			render(<GitLogViewer {...defaultProps} />);
-
-			await waitFor(() => {
-				expect(screen.getByText('+50')).toBeInTheDocument();
-				expect(screen.getByText('-10')).toBeInTheDocument();
-			});
-		});
-
-		it('should hide additions when zero', async () => {
-			gitLogMock().mockResolvedValue({
-				entries: [createGitLogEntry({ additions: 0, deletions: 5 })],
-				error: undefined,
-			});
-
-			render(<GitLogViewer {...defaultProps} />);
-
-			await waitFor(() => {
-				expect(screen.queryByText('+0')).not.toBeInTheDocument();
-				expect(screen.getByText('-5')).toBeInTheDocument();
-			});
-		});
-
-		it('should hide deletions when zero', async () => {
-			gitLogMock().mockResolvedValue({
-				entries: [createGitLogEntry({ additions: 5, deletions: 0 })],
-				error: undefined,
-			});
-
-			render(<GitLogViewer {...defaultProps} />);
-
-			await waitFor(() => {
-				expect(screen.getByText('+5')).toBeInTheDocument();
-				expect(screen.queryByText('-0')).not.toBeInTheDocument();
 			});
 		});
 	});
@@ -510,7 +471,7 @@ diff --git a/src/test.ts b/src/test.ts
 			fireEvent.click(screen.getByText('Second commit'));
 
 			// Check that second commit's hash is shown (this would trigger a new show call)
-			expect(gitShowMock()).toHaveBeenCalledWith('/test/project', 'abc2');
+			expect(gitShowMock()).toHaveBeenCalledWith('/test/project', 'abc2', undefined);
 		});
 
 		it('should display commit position in footer', async () => {
@@ -884,7 +845,8 @@ diff --git a/src/test.ts b/src/test.ts
 
 			expect(gitShowMock()).toHaveBeenCalledWith(
 				'/test/project',
-				'abc123def456789012345678901234567890abcd'
+				'abc123def456789012345678901234567890abcd',
+				undefined
 			);
 		});
 
@@ -1142,22 +1104,6 @@ diff --git a/src/foo.ts b/src/foo.ts`,
 			expect(screen.getAllByText('unique commit with no refs').length).toBeGreaterThan(0);
 		});
 
-		it('should handle commits with no additions/deletions', async () => {
-			gitLogMock().mockResolvedValue({
-				entries: [createGitLogEntry({ additions: 0, deletions: 0 })],
-				error: undefined,
-			});
-
-			render(<GitLogViewer {...defaultProps} />);
-
-			await waitFor(() => {
-				expect(screen.queryByText('Loading git log...')).not.toBeInTheDocument();
-			});
-
-			// Should not show +0 or -0
-			expect(screen.queryByText(/[+-]0/)).not.toBeInTheDocument();
-		});
-
 		it('should handle special characters in commit subject', async () => {
 			gitLogMock().mockResolvedValue({
 				entries: [createGitLogEntry({ subject: 'fix: handle <script> & "quotes"' })],
@@ -1255,7 +1201,7 @@ this is not valid diff`,
 			render(<GitLogViewer {...defaultProps} cwd="/custom/path" />);
 
 			await waitFor(() => {
-				expect(gitLogMock()).toHaveBeenCalledWith('/custom/path', { limit: 200 });
+				expect(gitLogMock()).toHaveBeenCalledWith('/custom/path', { limit: 30 }, undefined);
 			});
 		});
 
@@ -1275,13 +1221,13 @@ this is not valid diff`,
 			});
 
 			// Initially loads first commit diff
-			expect(gitShowMock()).toHaveBeenCalledWith('/test/project', 'first-hash');
+			expect(gitShowMock()).toHaveBeenCalledWith('/test/project', 'first-hash', undefined);
 
 			// Navigate to second commit
 			fireEvent.keyDown(window, { key: 'ArrowDown' });
 
 			await waitFor(() => {
-				expect(gitShowMock()).toHaveBeenCalledWith('/test/project', 'second-hash');
+				expect(gitShowMock()).toHaveBeenCalledWith('/test/project', 'second-hash', undefined);
 			});
 		});
 	});
@@ -1361,6 +1307,148 @@ this is not valid diff`,
 
 			const dialog = screen.getByRole('dialog');
 			expect(dialog).toHaveAttribute('tabIndex', '-1');
+		});
+	});
+
+	describe('Pagination', () => {
+		it('should show "Load more commits..." button when more commits are available', async () => {
+			gitLogMock().mockResolvedValue({
+				entries: Array.from({ length: 30 }, (_, i) =>
+					createGitLogEntry({ hash: `hash${i}`, shortHash: `hash${i}` })
+				),
+				error: null,
+			});
+			gitCommitCountMock().mockResolvedValue({ count: 100, error: null });
+
+			render(<GitLogViewer {...defaultProps} />);
+
+			await waitFor(() => {
+				expect(screen.getByText('Load more commits...')).toBeInTheDocument();
+			});
+		});
+
+		it('should NOT show "Load more commits..." when all commits are loaded', async () => {
+			gitLogMock().mockResolvedValue({
+				entries: [createGitLogEntry()],
+				error: null,
+			});
+			gitCommitCountMock().mockResolvedValue({ count: 1, error: null });
+
+			render(<GitLogViewer {...defaultProps} />);
+
+			await waitFor(() => {
+				expect(screen.queryByText('Loading git log...')).not.toBeInTheDocument();
+			});
+
+			expect(screen.queryByText('Load more commits...')).not.toBeInTheDocument();
+		});
+
+		it('should fetch more commits when "Load more" is clicked', async () => {
+			const firstPage = Array.from({ length: 30 }, (_, i) =>
+				createGitLogEntry({ hash: `first${i}`, shortHash: `first${i}`, subject: `Commit ${i}` })
+			);
+			const secondPage = Array.from({ length: 30 }, (_, i) =>
+				createGitLogEntry({
+					hash: `second${i}`,
+					shortHash: `second${i}`,
+					subject: `Commit ${30 + i}`,
+				})
+			);
+
+			gitLogMock()
+				.mockResolvedValueOnce({ entries: firstPage, error: null })
+				.mockResolvedValueOnce({ entries: secondPage, error: null });
+			gitCommitCountMock().mockResolvedValue({ count: 100, error: null });
+
+			render(<GitLogViewer {...defaultProps} />);
+
+			await waitFor(() => {
+				expect(screen.getByText('Load more commits...')).toBeInTheDocument();
+			});
+
+			// Click "Load more"
+			fireEvent.click(screen.getByText('Load more commits...'));
+
+			await waitFor(() => {
+				// Should have called git.log with skip=30
+				expect(gitLogMock()).toHaveBeenCalledWith(
+					'/test/project',
+					{ limit: 30, skip: 30 },
+					undefined
+				);
+			});
+		});
+
+		it('should show "X of TOTAL commits loaded" in header when more available', async () => {
+			gitLogMock().mockResolvedValue({
+				entries: Array.from({ length: 30 }, (_, i) =>
+					createGitLogEntry({ hash: `hash${i}`, shortHash: `hash${i}` })
+				),
+				error: null,
+			});
+			gitCommitCountMock().mockResolvedValue({ count: 150, error: null });
+
+			render(<GitLogViewer {...defaultProps} />);
+
+			await waitFor(() => {
+				expect(screen.getByText('30 of 150 commits loaded')).toBeInTheDocument();
+			});
+		});
+
+		it('should append new entries after loading more', async () => {
+			const firstPage = [
+				createGitLogEntry({ hash: 'first1', shortHash: 'first1', subject: 'First page commit' }),
+			];
+			const secondPage = [
+				createGitLogEntry({ hash: 'second1', shortHash: 'second1', subject: 'Second page commit' }),
+			];
+
+			gitLogMock()
+				.mockResolvedValueOnce({ entries: firstPage, error: null })
+				.mockResolvedValueOnce({ entries: secondPage, error: null });
+			gitCommitCountMock().mockResolvedValue({ count: 10, error: null });
+
+			render(<GitLogViewer {...defaultProps} />);
+
+			await waitFor(() => {
+				expect(screen.getAllByText('First page commit').length).toBeGreaterThan(0);
+			});
+
+			// Click "Load more"
+			fireEvent.click(screen.getByText('Load more commits...'));
+
+			await waitFor(() => {
+				expect(screen.getAllByText('Second page commit').length).toBeGreaterThan(0);
+				// First page should still be visible
+				expect(screen.getAllByText('First page commit').length).toBeGreaterThan(0);
+			});
+		});
+
+		it('should handle load more failure gracefully', async () => {
+			gitLogMock()
+				.mockResolvedValueOnce({
+					entries: [createGitLogEntry()],
+					error: null,
+				})
+				.mockRejectedValueOnce(new Error('Network error'));
+			gitCommitCountMock().mockResolvedValue({ count: 100, error: null });
+
+			render(<GitLogViewer {...defaultProps} />);
+
+			await waitFor(() => {
+				expect(screen.getByText('Load more commits...')).toBeInTheDocument();
+			});
+
+			// Click "Load more" — should fail silently
+			fireEvent.click(screen.getByText('Load more commits...'));
+
+			await waitFor(() => {
+				// Button should reappear after failed load
+				expect(screen.getByText('Load more commits...')).toBeInTheDocument();
+			});
+
+			// Original entries should still be visible
+			expect(screen.getAllByText('feat: add new feature').length).toBeGreaterThan(0);
 		});
 	});
 });

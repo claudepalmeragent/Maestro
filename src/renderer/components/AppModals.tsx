@@ -836,6 +836,7 @@ export interface AppUtilityModalsProps {
 
 	// GitLogViewer
 	gitLogOpen: boolean;
+	gitLogSshRemoteId?: string;
 	onCloseGitLog: () => void;
 
 	// AutoRunSetupModal
@@ -1031,6 +1032,7 @@ export function AppUtilityModals({
 	onCloseGitDiff,
 	// GitLogViewer
 	gitLogOpen,
+	gitLogSshRemoteId,
 	onCloseGitLog,
 	// AutoRunSetupModal
 	autoRunSetupModalOpen,
@@ -1203,7 +1205,12 @@ export function AppUtilityModals({
 
 			{/* --- GIT LOG VIEWER --- */}
 			{gitLogOpen && activeSession && (
-				<GitLogViewer cwd={gitViewerCwd} theme={theme} onClose={onCloseGitLog} />
+				<GitLogViewer
+					cwd={gitViewerCwd}
+					sshRemoteId={gitLogSshRemoteId}
+					theme={theme}
+					onClose={onCloseGitLog}
+				/>
 			)}
 
 			{/* --- AUTO RUN SETUP MODAL --- */}
@@ -1930,6 +1937,7 @@ export interface AppModalsProps {
 	gitViewerCwd: string;
 	onCloseGitDiff: () => void;
 	gitLogOpen: boolean;
+	gitLogSshRemoteId?: string;
 	onCloseGitLog: () => void;
 	autoRunSetupModalOpen: boolean;
 	onCloseAutoRunSetup: () => void;
@@ -2261,6 +2269,7 @@ export function AppModals(props: AppModalsProps) {
 		gitViewerCwd,
 		onCloseGitDiff,
 		gitLogOpen,
+		gitLogSshRemoteId,
 		onCloseGitLog,
 		autoRunSetupModalOpen,
 		onCloseAutoRunSetup,
@@ -2575,6 +2584,7 @@ export function AppModals(props: AppModalsProps) {
 				gitViewerCwd={gitViewerCwd}
 				onCloseGitDiff={onCloseGitDiff}
 				gitLogOpen={gitLogOpen}
+				gitLogSshRemoteId={gitLogSshRemoteId}
 				onCloseGitLog={onCloseGitLog}
 				autoRunSetupModalOpen={autoRunSetupModalOpen}
 				onCloseAutoRunSetup={onCloseAutoRunSetup}

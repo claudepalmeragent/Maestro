@@ -4152,15 +4152,26 @@ function MaestroConsoleInner() {
 	themeRef.current = theme;
 
 	// Memoized cwd for git viewers (prevents re-renders from inline computation)
+	// Prefer gitRoot (actual repo root) over cwd (working directory) for subdirectory git repos
 	const gitViewerCwd = useMemo(
 		() =>
 			activeSession
-				? activeSession.inputMode === 'terminal'
-					? activeSession.shellCwd || activeSession.cwd
-					: activeSession.cwd
+				? activeSession.gitRoot ||
+					(activeSession.inputMode === 'terminal'
+						? activeSession.shellCwd || activeSession.cwd
+						: activeSession.cwd)
 				: '',
 
-		[activeSession?.inputMode, activeSession?.shellCwd, activeSession?.cwd]
+		[activeSession?.gitRoot, activeSession?.inputMode, activeSession?.shellCwd, activeSession?.cwd]
+	);
+
+	// Memoized sshRemoteId for git log viewer (routes git commands through SSH for remote sessions)
+	const gitLogSshRemoteId = useMemo(
+		() =>
+			activeSession
+				? activeSession.sshRemoteId || activeSession.sessionSshRemoteConfig?.remoteId || undefined
+				: undefined,
+		[activeSession?.sshRemoteId, activeSession?.sessionSshRemoteConfig?.remoteId]
 	);
 
 	// PERF: Memoize sessions for NewInstanceModal validation (only recompute when modal is open)
@@ -13828,6 +13839,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 					gitViewerCwd={gitViewerCwd}
 					onCloseGitDiff={handleCloseGitDiff}
 					gitLogOpen={gitLogOpen}
+					gitLogSshRemoteId={gitLogSshRemoteId}
 					onCloseGitLog={handleCloseGitLog}
 					autoRunSetupModalOpen={autoRunSetupModalOpen}
 					onCloseAutoRunSetup={handleCloseAutoRunSetup}

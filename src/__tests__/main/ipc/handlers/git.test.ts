@@ -9,6 +9,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ipcMain } from 'electron';
 import { registerGitHandlers } from '../../../../main/ipc/handlers/git';
 import * as execFile from '../../../../main/utils/execFile';
+import * as remoteGit from '../../../../main/utils/remote-git';
 
 // Mock electron's ipcMain
 vi.mock('electron', () => ({
@@ -24,6 +25,17 @@ vi.mock('electron', () => ({
 // Mock the execFile module
 vi.mock('../../../../main/utils/execFile', () => ({
 	execFileNoThrow: vi.fn(),
+}));
+
+// Mock the remote-git module (execGit dispatches to local or SSH)
+vi.mock('../../../../main/utils/remote-git', () => ({
+	execGit: vi.fn(),
+	execGitRemote: vi.fn(),
+	worktreeInfoRemote: vi.fn(),
+	worktreeSetupRemote: vi.fn(),
+	worktreeCheckoutRemote: vi.fn(),
+	listWorktreesRemote: vi.fn(),
+	getRepoRootRemote: vi.fn(),
 }));
 
 // Mock the logger
@@ -84,6 +96,16 @@ vi.mock('child_process', () => {
 
 describe('Git IPC handlers', () => {
 	let handlers: Map<string, Function>;
+
+	const mockSshRemoteConfig = {
+		id: 'ssh-remote-1',
+		name: 'Test SSH Remote',
+		enabled: true,
+		host: 'test-server',
+		port: 22,
+		username: 'testuser',
+		workingDirectory: '/remote/project',
+	};
 
 	beforeEach(() => {
 		// Clear mocks
@@ -933,15 +955,11 @@ index 1234567..abcdefg 100644
 
 	describe('git:log', () => {
 		it('should return parsed log entries with correct structure', async () => {
-			// Mock output with COMMIT_START marker format
+			// Mock output with COMMIT_START marker format (no --shortstat)
 			const logOutput = `COMMIT_STARTabc123456789|John Doe|2024-01-15T10:30:00+00:00|HEAD -> main, origin/main|Initial commit
+COMMIT_STARTdef987654321|Jane Smith|2024-01-14T09:00:00+00:00||Add feature`;
 
- 2 files changed, 50 insertions(+), 10 deletions(-)
-COMMIT_STARTdef987654321|Jane Smith|2024-01-14T09:00:00+00:00||Add feature
-
- 1 file changed, 25 insertions(+)`;
-
-			vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+			vi.mocked(remoteGit.execGit).mockResolvedValue({
 				stdout: logOutput,
 				stderr: '',
 				exitCode: 0,
@@ -950,47 +968,40 @@ COMMIT_STARTdef987654321|Jane Smith|2024-01-14T09:00:00+00:00||Add feature
 			const handler = handlers.get('git:log');
 			const result = await handler!({} as any, '/test/repo');
 
-			expect(execFile.execFileNoThrow).toHaveBeenCalledWith(
-				'git',
+			expect(remoteGit.execGit).toHaveBeenCalledWith(
 				[
 					'log',
 					'--max-count=100',
 					'--pretty=format:COMMIT_START%H|%an|%ad|%D|%s',
 					'--date=iso-strict',
-					'--shortstat',
 				],
-				'/test/repo'
+				'/test/repo',
+				null,
+				undefined
 			);
 
-			expect(result).toEqual({
-				entries: [
-					{
-						hash: 'abc123456789',
-						shortHash: 'abc1234',
-						author: 'John Doe',
-						date: '2024-01-15T10:30:00+00:00',
-						refs: ['HEAD -> main', 'origin/main'],
-						subject: 'Initial commit',
-						additions: 50,
-						deletions: 10,
-					},
-					{
-						hash: 'def987654321',
-						shortHash: 'def9876',
-						author: 'Jane Smith',
-						date: '2024-01-14T09:00:00+00:00',
-						refs: [],
-						subject: 'Add feature',
-						additions: 25,
-						deletions: 0,
-					},
-				],
-				error: null,
+			expect(result.entries).toHaveLength(2);
+			expect(result.entries[0]).toEqual({
+				hash: 'abc123456789',
+				shortHash: 'abc1234',
+				author: 'John Doe',
+				date: '2024-01-15T10:30:00+00:00',
+				refs: ['HEAD -> main', 'origin/main'],
+				subject: 'Initial commit',
 			});
+			expect(result.entries[1]).toEqual({
+				hash: 'def987654321',
+				shortHash: 'def9876',
+				author: 'Jane Smith',
+				date: '2024-01-14T09:00:00+00:00',
+				refs: [],
+				subject: 'Add feature',
+			});
+			expect(result.error).toBeNull();
 		});
 
 		it('should use custom limit parameter', async () => {
-			vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+			vi.mocked(remoteGit.execGit).mockResolvedValue({
 				stdout: '',
 				stderr: '',
 				exitCode: 0,
@@ -999,21 +1010,21 @@ COMMIT_STARTdef987654321|Jane Smith|2024-01-14T09:00:00+00:00||Add feature
 			const handler = handlers.get('git:log');
 			await handler!({} as any, '/test/repo', { limit: 50 });
 
-			expect(execFile.execFileNoThrow).toHaveBeenCalledWith(
-				'git',
+			expect(remoteGit.execGit).toHaveBeenCalledWith(
 				[
 					'log',
 					'--max-count=50',
 					'--pretty=format:COMMIT_START%H|%an|%ad|%D|%s',
 					'--date=iso-strict',
-					'--shortstat',
 				],
-				'/test/repo'
+				'/test/repo',
+				null,
+				undefined
 			);
 		});
 
 		it('should include search filter when provided', async () => {
-			vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+			vi.mocked(remoteGit.execGit).mockResolvedValue({
 				stdout: '',
 				stderr: '',
 				exitCode: 0,
@@ -1022,24 +1033,24 @@ COMMIT_STARTdef987654321|Jane Smith|2024-01-14T09:00:00+00:00||Add feature
 			const handler = handlers.get('git:log');
 			await handler!({} as any, '/test/repo', { search: 'bugfix' });
 
-			expect(execFile.execFileNoThrow).toHaveBeenCalledWith(
-				'git',
+			expect(remoteGit.execGit).toHaveBeenCalledWith(
 				[
 					'log',
 					'--max-count=100',
 					'--pretty=format:COMMIT_START%H|%an|%ad|%D|%s',
 					'--date=iso-strict',
-					'--shortstat',
 					'--all',
 					'--grep=bugfix',
 					'-i',
 				],
-				'/test/repo'
+				'/test/repo',
+				null,
+				undefined
 			);
 		});
 
 		it('should return empty entries when no commits exist', async () => {
-			vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+			vi.mocked(remoteGit.execGit).mockResolvedValue({
 				stdout: '',
 				stderr: '',
 				exitCode: 0,
@@ -1055,7 +1066,7 @@ COMMIT_STARTdef987654321|Jane Smith|2024-01-14T09:00:00+00:00||Add feature
 		});
 
 		it('should return error when not a git repo', async () => {
-			vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+			vi.mocked(remoteGit.execGit).mockResolvedValue({
 				stdout: '',
 				stderr: 'fatal: not a git repository',
 				exitCode: 128,
@@ -1071,12 +1082,9 @@ COMMIT_STARTdef987654321|Jane Smith|2024-01-14T09:00:00+00:00||Add feature
 		});
 
 		it('should handle commit subject containing pipe characters', async () => {
-			// Pipe character in commit subject should be preserved
-			const logOutput = `COMMIT_STARTabc123|Author|2024-01-15T10:00:00+00:00||Fix: handle a | b condition
+			const logOutput = `COMMIT_STARTabc123|Author|2024-01-15T10:00:00+00:00||Fix: handle a | b condition`;
 
- 1 file changed, 5 insertions(+)`;
-
-			vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+			vi.mocked(remoteGit.execGit).mockResolvedValue({
 				stdout: logOutput,
 				stderr: '',
 				exitCode: 0,
@@ -1088,11 +1096,10 @@ COMMIT_STARTdef987654321|Jane Smith|2024-01-14T09:00:00+00:00||Add feature
 			expect(result.entries[0].subject).toBe('Fix: handle a | b condition');
 		});
 
-		it('should handle commits without shortstat (no file changes)', async () => {
-			// Merge commits or empty commits may not have shortstat
+		it('should handle merge commits (no file changes)', async () => {
 			const logOutput = `COMMIT_STARTabc1234567890abcdef1234567890abcdef12345678|Author|2024-01-15T10:00:00+00:00|HEAD -> main|Merge branch 'feature'`;
 
-			vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+			vi.mocked(remoteGit.execGit).mockResolvedValue({
 				stdout: logOutput,
 				stderr: '',
 				exitCode: 0,
@@ -1108,15 +1115,98 @@ COMMIT_STARTdef987654321|Jane Smith|2024-01-14T09:00:00+00:00||Add feature
 				date: '2024-01-15T10:00:00+00:00',
 				refs: ['HEAD -> main'],
 				subject: "Merge branch 'feature'",
-				additions: 0,
-				deletions: 0,
 			});
+		});
+
+		it('should add --skip when skip option is provided', async () => {
+			vi.mocked(remoteGit.execGit).mockResolvedValue({
+				stdout: '',
+				stderr: '',
+				exitCode: 0,
+			});
+
+			const handler = handlers.get('git:log');
+			await handler!({} as any, '/test/repo', { limit: 30, skip: 60 });
+
+			expect(remoteGit.execGit).toHaveBeenCalledWith(
+				[
+					'log',
+					'--max-count=30',
+					'--pretty=format:COMMIT_START%H|%an|%ad|%D|%s',
+					'--date=iso-strict',
+					'--skip=60',
+				],
+				'/test/repo',
+				null,
+				undefined
+			);
+		});
+
+		it('should not add --skip when skip is 0 or undefined', async () => {
+			vi.mocked(remoteGit.execGit).mockResolvedValue({
+				stdout: '',
+				stderr: '',
+				exitCode: 0,
+			});
+
+			const handler = handlers.get('git:log');
+			await handler!({} as any, '/test/repo', { limit: 30, skip: 0 });
+
+			expect(remoteGit.execGit).toHaveBeenCalledWith(
+				expect.not.arrayContaining([expect.stringContaining('--skip')]),
+				'/test/repo',
+				null,
+				undefined
+			);
+		});
+
+		it('should route through SSH when sshRemoteId is provided', async () => {
+			// Re-register handlers with SSH-aware settings store
+			handlers.clear();
+			vi.mocked(ipcMain.handle).mockImplementation((channel, handler) => {
+				handlers.set(channel, handler);
+			});
+			registerGitHandlers({
+				settingsStore: {
+					get: vi.fn().mockImplementation((key: string) => {
+						if (key === 'sshRemotes') return [mockSshRemoteConfig];
+						return [];
+					}),
+				},
+			});
+
+			vi.mocked(remoteGit.execGit).mockResolvedValue({
+				stdout: '',
+				stderr: '',
+				exitCode: 0,
+			});
+
+			const handler = handlers.get('git:log');
+			await handler!(
+				{} as any,
+				'/remote/project',
+				{ limit: 50 },
+				'ssh-remote-1',
+				'/remote/project'
+			);
+
+			expect(remoteGit.execGit).toHaveBeenCalledWith(
+				[
+					'log',
+					'--max-count=50',
+					'--pretty=format:COMMIT_START%H|%an|%ad|%D|%s',
+					'--date=iso-strict',
+				],
+				'/remote/project',
+				mockSshRemoteConfig,
+				'/remote/project'
+			);
 		});
 	});
 
 	describe('git:commitCount', () => {
 		it('should return commit count number', async () => {
-			vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+			vi.mocked(remoteGit.execGit).mockResolvedValue({
 				stdout: '142\n',
 				stderr: '',
 				exitCode: 0,
@@ -1125,10 +1215,11 @@ COMMIT_STARTdef987654321|Jane Smith|2024-01-14T09:00:00+00:00||Add feature
 			const handler = handlers.get('git:commitCount');
 			const result = await handler!({} as any, '/test/repo');
 
-			expect(execFile.execFileNoThrow).toHaveBeenCalledWith(
-				'git',
+			expect(remoteGit.execGit).toHaveBeenCalledWith(
 				['rev-list', '--count', 'HEAD'],
-				'/test/repo'
+				'/test/repo',
+				null,
+				undefined
 			);
 			expect(result).toEqual({
 				count: 142,
@@ -1137,8 +1228,7 @@ COMMIT_STARTdef987654321|Jane Smith|2024-01-14T09:00:00+00:00||Add feature
 		});
 
 		it('should return 0 when repository has no commits', async () => {
-			// Empty repo or unborn branch returns error
-			vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+			vi.mocked(remoteGit.execGit).mockResolvedValue({
 				stdout: '',
 				stderr: "fatal: bad revision 'HEAD'",
 				exitCode: 128,
@@ -1154,7 +1244,7 @@ COMMIT_STARTdef987654321|Jane Smith|2024-01-14T09:00:00+00:00||Add feature
 		});
 
 		it('should return error when not a git repo', async () => {
-			vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+			vi.mocked(remoteGit.execGit).mockResolvedValue({
 				stdout: '',
 				stderr: 'fatal: not a git repository',
 				exitCode: 128,
@@ -1170,7 +1260,7 @@ COMMIT_STARTdef987654321|Jane Smith|2024-01-14T09:00:00+00:00||Add feature
 		});
 
 		it('should handle large commit counts', async () => {
-			vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+			vi.mocked(remoteGit.execGit).mockResolvedValue({
 				stdout: '50000\n',
 				stderr: '',
 				exitCode: 0,
@@ -1186,8 +1276,7 @@ COMMIT_STARTdef987654321|Jane Smith|2024-01-14T09:00:00+00:00||Add feature
 		});
 
 		it('should return 0 for non-numeric output', async () => {
-			// Edge case: if somehow git returns non-numeric output
-			vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+			vi.mocked(remoteGit.execGit).mockResolvedValue({
 				stdout: 'not a number\n',
 				stderr: '',
 				exitCode: 0,
@@ -1196,11 +1285,47 @@ COMMIT_STARTdef987654321|Jane Smith|2024-01-14T09:00:00+00:00||Add feature
 			const handler = handlers.get('git:commitCount');
 			const result = await handler!({} as any, '/test/repo');
 
-			// parseInt returns NaN for "not a number", || 0 returns 0
 			expect(result).toEqual({
 				count: 0,
 				error: null,
 			});
+		});
+
+		it('should route through SSH when sshRemoteId is provided', async () => {
+			handlers.clear();
+			vi.mocked(ipcMain.handle).mockImplementation((channel, handler) => {
+				handlers.set(channel, handler);
+			});
+			registerGitHandlers({
+				settingsStore: {
+					get: vi.fn().mockImplementation((key: string) => {
+						if (key === 'sshRemotes') return [mockSshRemoteConfig];
+						return [];
+					}),
+				},
+			});
+
+			vi.mocked(remoteGit.execGit).mockResolvedValue({
+				stdout: '42\n',
+				stderr: '',
+				exitCode: 0,
+			});
+
+			const handler = handlers.get('git:commitCount');
+			const result = await handler!(
+				{} as any,
+				'/remote/project',
+				'ssh-remote-1',
+				'/remote/project'
+			);
+
+			expect(remoteGit.execGit).toHaveBeenCalledWith(
+				['rev-list', '--count', 'HEAD'],
+				'/remote/project',
+				mockSshRemoteConfig,
+				'/remote/project'
+			);
+			expect(result).toEqual({ count: 42, error: null });
 		});
 	});
 
@@ -1226,7 +1351,7 @@ index 0000000..abc1234
 +  return true;
 +}`;
 
-			vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+			vi.mocked(remoteGit.execGit).mockResolvedValue({
 				stdout: showOutput,
 				stderr: '',
 				exitCode: 0,
@@ -1235,10 +1360,11 @@ index 0000000..abc1234
 			const handler = handlers.get('git:show');
 			const result = await handler!({} as any, '/test/repo', 'abc123456789');
 
-			expect(execFile.execFileNoThrow).toHaveBeenCalledWith(
-				'git',
+			expect(remoteGit.execGit).toHaveBeenCalledWith(
 				['show', '--stat', '--patch', 'abc123456789'],
-				'/test/repo'
+				'/test/repo',
+				null,
+				undefined
 			);
 			expect(result).toEqual({
 				stdout: showOutput,
@@ -1247,7 +1373,7 @@ index 0000000..abc1234
 		});
 
 		it('should return stderr for invalid commit hash', async () => {
-			vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+			vi.mocked(remoteGit.execGit).mockResolvedValue({
 				stdout: '',
 				stderr: 'fatal: bad object invalidhash123',
 				exitCode: 128,
@@ -1256,10 +1382,11 @@ index 0000000..abc1234
 			const handler = handlers.get('git:show');
 			const result = await handler!({} as any, '/test/repo', 'invalidhash123');
 
-			expect(execFile.execFileNoThrow).toHaveBeenCalledWith(
-				'git',
+			expect(remoteGit.execGit).toHaveBeenCalledWith(
 				['show', '--stat', '--patch', 'invalidhash123'],
-				'/test/repo'
+				'/test/repo',
+				null,
+				undefined
 			);
 			expect(result).toEqual({
 				stdout: '',
@@ -1277,7 +1404,7 @@ Date:   Tue Jan 16 14:00:00 2024 +0000
  src/fix.ts | 2 +-
  1 file changed, 1 insertion(+), 1 deletion(-)`;
 
-			vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+			vi.mocked(remoteGit.execGit).mockResolvedValue({
 				stdout: showOutput,
 				stderr: '',
 				exitCode: 0,
@@ -1286,10 +1413,11 @@ Date:   Tue Jan 16 14:00:00 2024 +0000
 			const handler = handlers.get('git:show');
 			const result = await handler!({} as any, '/test/repo', 'abc1234');
 
-			expect(execFile.execFileNoThrow).toHaveBeenCalledWith(
-				'git',
+			expect(remoteGit.execGit).toHaveBeenCalledWith(
 				['show', '--stat', '--patch', 'abc1234'],
-				'/test/repo'
+				'/test/repo',
+				null,
+				undefined
 			);
 			expect(result).toEqual({
 				stdout: showOutput,
@@ -1298,7 +1426,7 @@ Date:   Tue Jan 16 14:00:00 2024 +0000
 		});
 
 		it('should return stderr when not a git repo', async () => {
-			vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+			vi.mocked(remoteGit.execGit).mockResolvedValue({
 				stdout: '',
 				stderr: 'fatal: not a git repository',
 				exitCode: 128,
@@ -1324,7 +1452,7 @@ Date:   Wed Jan 17 09:00:00 2024 +0000
  src/merged.ts | 10 ++++++++++
  1 file changed, 10 insertions(+)`;
 
-			vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+			vi.mocked(remoteGit.execGit).mockResolvedValue({
 				stdout: mergeShowOutput,
 				stderr: '',
 				exitCode: 0,
@@ -1335,6 +1463,47 @@ Date:   Wed Jan 17 09:00:00 2024 +0000
 
 			expect(result).toEqual({
 				stdout: mergeShowOutput,
+				stderr: '',
+			});
+		});
+
+		it('should route through SSH when sshRemoteId is provided', async () => {
+			handlers.clear();
+			vi.mocked(ipcMain.handle).mockImplementation((channel, handler) => {
+				handlers.set(channel, handler);
+			});
+			registerGitHandlers({
+				settingsStore: {
+					get: vi.fn().mockImplementation((key: string) => {
+						if (key === 'sshRemotes') return [mockSshRemoteConfig];
+						return [];
+					}),
+				},
+			});
+
+			vi.mocked(remoteGit.execGit).mockResolvedValue({
+				stdout: 'commit abc123\nsome diff content',
+				stderr: '',
+				exitCode: 0,
+			});
+
+			const handler = handlers.get('git:show');
+			const result = await handler!(
+				{} as any,
+				'/remote/project',
+				'abc123',
+				'ssh-remote-1',
+				'/remote/project'
+			);
+
+			expect(remoteGit.execGit).toHaveBeenCalledWith(
+				['show', '--stat', '--patch', 'abc123'],
+				'/remote/project',
+				mockSshRemoteConfig,
+				'/remote/project'
+			);
+			expect(result).toEqual({
+				stdout: 'commit abc123\nsome diff content',
 				stderr: '',
 			});
 		});

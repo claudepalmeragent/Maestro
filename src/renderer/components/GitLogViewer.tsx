@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef, useCallback, memo } from 'react';
-import { GitCommit, GitBranch, Tag } from 'lucide-react';
+import { GitCommit, GitBranch, Tag, Loader2 } from 'lucide-react';
 import type { Theme } from '../types';
 import { useLayerStack } from '../contexts/LayerStackContext';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
@@ -9,6 +9,9 @@ import { useListNavigation } from '../hooks';
 import { generateDiffViewStyles } from '../utils/markdownConfig';
 import 'react-diff-view/style/index.css';
 
+/** Number of commits to fetch per page */
+const PAGE_SIZE = 200;
+
 interface GitLogEntry {
 	hash: string;
 	shortHash: string;
@@ -16,20 +19,25 @@ interface GitLogEntry {
 	date: string;
 	refs: string[];
 	subject: string;
-	additions?: number;
-	deletions?: number;
 }
 
 interface GitLogViewerProps {
 	cwd: string;
+	sshRemoteId?: string;
 	theme: Theme;
 	onClose: () => void;
 }
 
-export const GitLogViewer = memo(function GitLogViewer({ cwd, theme, onClose }: GitLogViewerProps) {
+export const GitLogViewer = memo(function GitLogViewer({
+	cwd,
+	sshRemoteId,
+	theme,
+	onClose,
+}: GitLogViewerProps) {
 	const [entries, setEntries] = useState<GitLogEntry[]>([]);
 	const [totalCommits, setTotalCommits] = useState<number | null>(null);
 	const [loading, setLoading] = useState(true);
+	const [loadingMore, setLoadingMore] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [selectedCommitDiff, setSelectedCommitDiff] = useState<string | null>(null);
 	const [loadingDiff, setLoadingDiff] = useState(false);
@@ -52,16 +60,19 @@ export const GitLogViewer = memo(function GitLogViewer({ cwd, theme, onClose }: 
 	const onCloseRef = useRef(onClose);
 	onCloseRef.current = onClose;
 
+	// Derive hasMore from loaded entries vs total
+	const hasMore = totalCommits !== null && entries.length < totalCommits;
+
 	// Load git log on mount
 	useEffect(() => {
 		const loadLog = async () => {
 			setLoading(true);
 			setError(null);
 			try {
-				// Fetch log entries and total count in parallel
+				// Fetch first page and total count in parallel
 				const [logResult, countResult] = await Promise.all([
-					window.maestro.git.log(cwd, { limit: 200 }),
-					window.maestro.git.commitCount(cwd),
+					window.maestro.git.log(cwd, { limit: PAGE_SIZE }, sshRemoteId),
+					window.maestro.git.commitCount(cwd, sshRemoteId),
 				]);
 
 				if (logResult.error) {
@@ -80,14 +91,34 @@ export const GitLogViewer = memo(function GitLogViewer({ cwd, theme, onClose }: 
 			}
 		};
 		loadLog();
-	}, [cwd]);
+	}, [cwd, sshRemoteId]);
+
+	// Load more commits (pagination)
+	const loadMore = useCallback(async () => {
+		if (loadingMore || !hasMore) return;
+		setLoadingMore(true);
+		try {
+			const result = await window.maestro.git.log(
+				cwd,
+				{ limit: PAGE_SIZE, skip: entries.length },
+				sshRemoteId
+			);
+			if (!result.error && result.entries.length > 0) {
+				setEntries((prev) => [...prev, ...result.entries]);
+			}
+		} catch {
+			// Silently fail — user can retry via button
+		} finally {
+			setLoadingMore(false);
+		}
+	}, [cwd, sshRemoteId, entries.length, loadingMore, hasMore]);
 
 	// Load diff when selected entry changes
 	const loadCommitDiff = useCallback(
 		async (hash: string) => {
 			setLoadingDiff(true);
 			try {
-				const result = await window.maestro.git.show(cwd, hash);
+				const result = await window.maestro.git.show(cwd, hash, sshRemoteId);
 				setSelectedCommitDiff(result.stdout);
 			} catch {
 				setSelectedCommitDiff(null);
@@ -95,7 +126,7 @@ export const GitLogViewer = memo(function GitLogViewer({ cwd, theme, onClose }: 
 				setLoadingDiff(false);
 			}
 		},
-		[cwd]
+		[cwd, sshRemoteId]
 	);
 
 	// Auto-load diff for selected commit
@@ -314,7 +345,7 @@ export const GitLogViewer = memo(function GitLogViewer({ cwd, theme, onClose }: 
 						</span>
 						<span className="text-xs" style={{ color: theme.colors.textDim }}>
 							{totalCommits !== null && totalCommits > entries.length
-								? `${entries.length} of ${totalCommits} commits`
+								? `${entries.length} of ${totalCommits} commits loaded`
 								: `${entries.length} commits`}
 						</span>
 					</div>
@@ -336,7 +367,8 @@ export const GitLogViewer = memo(function GitLogViewer({ cwd, theme, onClose }: 
 						style={{ borderColor: theme.colors.border }}
 					>
 						{loading ? (
-							<div className="flex items-center justify-center h-full">
+							<div className="flex items-center justify-center h-full gap-2">
+								<Loader2 className="w-6 h-6 animate-spin" style={{ color: theme.colors.textDim }} />
 								<p className="text-sm" style={{ color: theme.colors.textDim }}>
 									Loading git log...
 								</p>
@@ -419,20 +451,29 @@ export const GitLogViewer = memo(function GitLogViewer({ cwd, theme, onClose }: 
 											<span className="font-mono">{entry.shortHash}</span>
 											<span>{entry.author}</span>
 											<span>{formatDate(entry.date)}</span>
-											{/* Addition/deletion stats */}
-											{((entry.additions ?? 0) > 0 || (entry.deletions ?? 0) > 0) && (
-												<span className="font-mono flex items-center gap-1">
-													{(entry.additions ?? 0) > 0 && (
-														<span style={{ color: 'rgb(34, 197, 94)' }}>+{entry.additions}</span>
-													)}
-													{(entry.deletions ?? 0) > 0 && (
-														<span style={{ color: 'rgb(239, 68, 68)' }}>-{entry.deletions}</span>
-													)}
-												</span>
-											)}
 										</div>
 									</div>
 								))}
+
+								{/* Load more / pagination indicator */}
+								{hasMore && (
+									<div className="text-center py-3">
+										{loadingMore ? (
+											<Loader2
+												className="w-5 h-5 animate-spin mx-auto"
+												style={{ color: theme.colors.textDim }}
+											/>
+										) : (
+											<button
+												onClick={loadMore}
+												className="text-sm hover:underline"
+												style={{ color: theme.colors.accent }}
+											>
+												Load more commits...
+											</button>
+										)}
+									</div>
+								)}
 							</div>
 						)}
 					</div>
@@ -498,7 +539,11 @@ export const GitLogViewer = memo(function GitLogViewer({ cwd, theme, onClose }: 
 
 								{/* Diff content */}
 								{loadingDiff ? (
-									<div className="flex items-center justify-center py-12">
+									<div className="flex items-center justify-center py-12 gap-2">
+										<Loader2
+											className="w-5 h-5 animate-spin"
+											style={{ color: theme.colors.textDim }}
+										/>
 										<p className="text-sm" style={{ color: theme.colors.textDim }}>
 											Loading diff...
 										</p>

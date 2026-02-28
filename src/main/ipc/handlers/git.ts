@@ -97,7 +97,12 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 			handlerOpts('status'),
 			async (cwd: string, sshRemoteId?: string, remoteCwd?: string) => {
 				const sshRemote = getSshRemoteById(sshRemoteId);
-				const result = await execGit(['status', '--porcelain'], cwd, sshRemote, remoteCwd);
+				const result = await execGit(
+					['--no-pager', 'status', '--porcelain'],
+					cwd,
+					sshRemote,
+					remoteCwd
+				);
 				return { stdout: result.stdout, stderr: result.stderr };
 			}
 		)
@@ -108,7 +113,7 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 		withIpcErrorLogging(
 			handlerOpts('diff'),
 			async (cwd: string, file?: string, sshRemoteId?: string, remoteCwd?: string) => {
-				const args = file ? ['diff', file] : ['diff'];
+				const args = file ? ['--no-pager', 'diff', file] : ['--no-pager', 'diff'];
 				const sshRemote = getSshRemoteById(sshRemoteId);
 				const result = await execGit(args, cwd, sshRemote, remoteCwd);
 				return { stdout: result.stdout, stderr: result.stderr };
@@ -123,7 +128,7 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 			async (cwd: string, sshRemoteId?: string, remoteCwd?: string) => {
 				const sshRemote = getSshRemoteById(sshRemoteId);
 				const result = await execGit(
-					['rev-parse', '--is-inside-work-tree'],
+					['--no-pager', 'rev-parse', '--is-inside-work-tree'],
 					cwd,
 					sshRemote,
 					remoteCwd
@@ -139,7 +144,12 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 			handlerOpts('numstat'),
 			async (cwd: string, sshRemoteId?: string, remoteCwd?: string) => {
 				const sshRemote = getSshRemoteById(sshRemoteId);
-				const result = await execGit(['diff', '--numstat'], cwd, sshRemote, remoteCwd);
+				const result = await execGit(
+					['--no-pager', 'diff', '--numstat'],
+					cwd,
+					sshRemote,
+					remoteCwd
+				);
 				return { stdout: result.stdout, stderr: result.stderr };
 			}
 		)
@@ -152,7 +162,7 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 			async (cwd: string, sshRemoteId?: string, remoteCwd?: string) => {
 				const sshRemote = getSshRemoteById(sshRemoteId);
 				const result = await execGit(
-					['rev-parse', '--abbrev-ref', 'HEAD'],
+					['--no-pager', 'rev-parse', '--abbrev-ref', 'HEAD'],
 					cwd,
 					sshRemote,
 					remoteCwd
@@ -168,7 +178,12 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 			handlerOpts('remote'),
 			async (cwd: string, sshRemoteId?: string, remoteCwd?: string) => {
 				const sshRemote = getSshRemoteById(sshRemoteId);
-				const result = await execGit(['remote', 'get-url', 'origin'], cwd, sshRemote, remoteCwd);
+				const result = await execGit(
+					['--no-pager', 'remote', 'get-url', 'origin'],
+					cwd,
+					sshRemote,
+					remoteCwd
+				);
 				return { stdout: result.stdout.trim(), stderr: result.stderr };
 			}
 		)
@@ -184,7 +199,7 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 				// -a for all branches, --format to get clean names
 				const sshRemote = getSshRemoteById(sshRemoteId);
 				const result = await execGit(
-					['branch', '-a', '--format=%(refname:short)'],
+					['--no-pager', 'branch', '-a', '--format=%(refname:short)'],
 					cwd,
 					sshRemote,
 					remoteCwd
@@ -206,7 +221,7 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 			handlerOpts('tags'),
 			async (cwd: string, sshRemoteId?: string, remoteCwd?: string) => {
 				const sshRemote = getSshRemoteById(sshRemoteId);
-				const result = await execGit(['tag', '--list'], cwd, sshRemote, remoteCwd);
+				const result = await execGit(['--no-pager', 'tag', '--list'], cwd, sshRemote, remoteCwd);
 				if (result.exitCode !== 0) {
 					return { tags: [], stderr: result.stderr };
 				}
@@ -225,11 +240,11 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 				const sshRemote = getSshRemoteById(sshRemoteId);
 				// Get comprehensive git info in a single call
 				const [branchResult, remoteResult, statusResult, behindAheadResult] = await Promise.all([
-					execGit(['rev-parse', '--abbrev-ref', 'HEAD'], cwd, sshRemote, remoteCwd),
-					execGit(['remote', 'get-url', 'origin'], cwd, sshRemote, remoteCwd),
-					execGit(['status', '--porcelain'], cwd, sshRemote, remoteCwd),
+					execGit(['--no-pager', 'rev-parse', '--abbrev-ref', 'HEAD'], cwd, sshRemote, remoteCwd),
+					execGit(['--no-pager', 'remote', 'get-url', 'origin'], cwd, sshRemote, remoteCwd),
+					execGit(['--no-pager', 'status', '--porcelain'], cwd, sshRemote, remoteCwd),
 					execGit(
-						['rev-list', '--left-right', '--count', '@{upstream}...HEAD'],
+						['--no-pager', 'rev-list', '--left-right', '--count', '@{upstream}...HEAD'],
 						cwd,
 						sshRemote,
 						remoteCwd
@@ -274,6 +289,7 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 				const isRemote = !!sshRemote;
 				const sep = isRemote ? '%x1E' : '|';
 				const args = [
+					'--no-pager',
 					'log',
 					`--max-count=${limit}`,
 					`--pretty=format:COMMIT_START%H${sep}%an${sep}%ad${sep}%D${sep}%s`,
@@ -327,7 +343,12 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 			async (cwd: string, sshRemoteId?: string, remoteCwd?: string) => {
 				// Get total commit count using rev-list
 				const sshRemote = getSshRemoteById(sshRemoteId);
-				const result = await execGit(['rev-list', '--count', 'HEAD'], cwd, sshRemote, remoteCwd);
+				const result = await execGit(
+					['--no-pager', 'rev-list', '--count', 'HEAD'],
+					cwd,
+					sshRemote,
+					remoteCwd
+				);
 				if (result.exitCode !== 0) {
 					return { count: 0, error: result.stderr };
 				}
@@ -344,7 +365,7 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 				// Get the full diff for a specific commit
 				const sshRemote = getSshRemoteById(sshRemoteId);
 				const result = await execGit(
-					['show', '--stat', '--patch', hash],
+					['--no-pager', 'show', '--stat', '--patch', hash],
 					cwd,
 					sshRemote,
 					remoteCwd
@@ -1076,7 +1097,7 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 
 						// Check if it's inside a git work tree (SSH-aware via execGit)
 						const isInsideWorkTree = await execGit(
-							['rev-parse', '--is-inside-work-tree'],
+							['--no-pager', 'rev-parse', '--is-inside-work-tree'],
 							subdirPath,
 							sshRemote
 						);

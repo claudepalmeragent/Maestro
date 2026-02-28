@@ -56,12 +56,12 @@ export async function execGitRemote(
 	}
 
 	// Build the remote command options
+	// TERM=dumb suppresses ANSI escape codes that the PTY (-tt) would otherwise inject
 	const remoteOptions: RemoteCommandOptions = {
 		command: 'git',
 		args,
 		cwd: remoteCwd,
-		// Pass any remote environment variables from the SSH config
-		env: sshRemote.remoteEnv,
+		env: { ...sshRemote.remoteEnv, TERM: 'dumb' },
 	};
 
 	// Build the SSH command
@@ -74,6 +74,10 @@ export async function execGitRemote(
 
 	// Execute the SSH command
 	const result = await execFileNoThrow(sshCommand.command, sshCommand.args);
+
+	// Normalize PTY line endings: -tt forces a pseudo-terminal which converts \n to \r\n
+	result.stdout = result.stdout.replace(/\r\n/g, '\n');
+	result.stderr = result.stderr.replace(/\r\n/g, '\n');
 
 	if (result.exitCode !== 0) {
 		logger.debug(`Remote git command failed: ${result.stderr}`, LOG_CONTEXT, {

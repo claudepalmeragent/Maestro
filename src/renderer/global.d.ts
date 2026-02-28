@@ -460,7 +460,9 @@ interface MaestroAPI {
 		}>;
 		log: (
 			cwd: string,
-			options?: { limit?: number; search?: string }
+			options?: { limit?: number; skip?: number; search?: string },
+			sshRemoteId?: string,
+			remoteCwd?: string
 		) => Promise<{
 			entries: Array<{
 				hash: string;
@@ -472,7 +474,12 @@ interface MaestroAPI {
 			}>;
 			error: string | null;
 		}>;
-		show: (cwd: string, hash: string) => Promise<{ stdout: string; stderr: string }>;
+		show: (
+			cwd: string,
+			hash: string,
+			sshRemoteId?: string,
+			remoteCwd?: string
+		) => Promise<{ stdout: string; stderr: string }>;
 		showFile: (
 			cwd: string,
 			ref: string,
@@ -484,7 +491,11 @@ interface MaestroAPI {
 			remoteCwd?: string
 		) => Promise<{ branches: string[] }>;
 		tags: (cwd: string, sshRemoteId?: string, remoteCwd?: string) => Promise<{ tags: string[] }>;
-		commitCount: (cwd: string) => Promise<{ count: number; error: string | null }>;
+		commitCount: (
+			cwd: string,
+			sshRemoteId?: string,
+			remoteCwd?: string
+		) => Promise<{ count: number; error: string | null }>;
 		checkGhCli: (ghPath?: string) => Promise<{ installed: boolean; authenticated: boolean }>;
 		createGist: (
 			filename: string,

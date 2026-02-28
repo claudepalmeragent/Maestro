@@ -166,11 +166,135 @@ describe('Git Preload API', () => {
 
 			const result = await api.log('/home/user/project', { limit: 10, search: 'fix' });
 
-			expect(mockInvoke).toHaveBeenCalledWith('git:log', '/home/user/project', {
-				limit: 10,
-				search: 'fix',
-			});
+			expect(mockInvoke).toHaveBeenCalledWith(
+				'git:log',
+				'/home/user/project',
+				{
+					limit: 10,
+					search: 'fix',
+				},
+				undefined,
+				undefined
+			);
 			expect(result.entries).toEqual(mockEntries);
+		});
+	});
+
+	describe('log with SSH', () => {
+		it('should forward sshRemoteId and remoteCwd to git:log', async () => {
+			mockInvoke.mockResolvedValue({ entries: [], error: null });
+
+			await api.log('/home/user/project', { limit: 50 }, 'ssh-remote-1', '/remote/cwd');
+
+			expect(mockInvoke).toHaveBeenCalledWith(
+				'git:log',
+				'/home/user/project',
+				{ limit: 50 },
+				'ssh-remote-1',
+				'/remote/cwd'
+			);
+		});
+
+		it('should pass undefined for SSH params when not provided', async () => {
+			mockInvoke.mockResolvedValue({ entries: [], error: null });
+
+			await api.log('/home/user/project', { limit: 10 });
+
+			expect(mockInvoke).toHaveBeenCalledWith(
+				'git:log',
+				'/home/user/project',
+				{ limit: 10 },
+				undefined,
+				undefined
+			);
+		});
+	});
+
+	describe('log with skip', () => {
+		it('should forward skip option to git:log', async () => {
+			mockInvoke.mockResolvedValue({ entries: [], error: null });
+
+			await api.log('/home/user/project', { limit: 30, skip: 60 });
+
+			expect(mockInvoke).toHaveBeenCalledWith(
+				'git:log',
+				'/home/user/project',
+				{ limit: 30, skip: 60 },
+				undefined,
+				undefined
+			);
+		});
+
+		it('should forward skip with SSH params', async () => {
+			mockInvoke.mockResolvedValue({ entries: [], error: null });
+
+			await api.log('/home/user/project', { limit: 30, skip: 90 }, 'ssh-remote-1', '/remote/cwd');
+
+			expect(mockInvoke).toHaveBeenCalledWith(
+				'git:log',
+				'/home/user/project',
+				{ limit: 30, skip: 90 },
+				'ssh-remote-1',
+				'/remote/cwd'
+			);
+		});
+	});
+
+	describe('commitCount with SSH', () => {
+		it('should forward sshRemoteId and remoteCwd to git:commitCount', async () => {
+			mockInvoke.mockResolvedValue({ count: 100, error: null });
+
+			await api.commitCount('/home/user/project', 'ssh-remote-1', '/remote/cwd');
+
+			expect(mockInvoke).toHaveBeenCalledWith(
+				'git:commitCount',
+				'/home/user/project',
+				'ssh-remote-1',
+				'/remote/cwd'
+			);
+		});
+
+		it('should pass undefined for SSH params when not provided', async () => {
+			mockInvoke.mockResolvedValue({ count: 50, error: null });
+
+			await api.commitCount('/home/user/project');
+
+			expect(mockInvoke).toHaveBeenCalledWith(
+				'git:commitCount',
+				'/home/user/project',
+				undefined,
+				undefined
+			);
+		});
+	});
+
+	describe('show with SSH', () => {
+		it('should forward sshRemoteId and remoteCwd to git:show', async () => {
+			mockInvoke.mockResolvedValue({ stdout: 'diff content', stderr: '' });
+
+			await api.show('/home/user/project', 'abc123', 'ssh-remote-1', '/remote/cwd');
+
+			expect(mockInvoke).toHaveBeenCalledWith(
+				'git:show',
+				'/home/user/project',
+				'abc123',
+				'ssh-remote-1',
+				'/remote/cwd'
+			);
+		});
+
+		it('should pass undefined for SSH params when not provided', async () => {
+			mockInvoke.mockResolvedValue({ stdout: 'diff content', stderr: '' });
+
+			await api.show('/home/user/project', 'abc123');
+
+			expect(mockInvoke).toHaveBeenCalledWith(
+				'git:show',
+				'/home/user/project',
+				'abc123',
+				undefined,
+				undefined
+			);
 		});
 	});
 
