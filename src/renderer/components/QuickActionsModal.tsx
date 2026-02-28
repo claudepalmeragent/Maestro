@@ -742,7 +742,11 @@ export function QuickActionsModal(props: QuickActionsModalProps) {
 								activeSession.inputMode === 'terminal'
 									? activeSession.shellCwd || activeSession.cwd
 									: activeSession.cwd;
-							const diff = await gitService.getDiff(cwd);
+							const sshRemoteId =
+								activeSession?.sshRemoteId ||
+								activeSession?.sessionSshRemoteConfig?.remoteId ||
+								undefined;
+							const diff = await gitService.getDiff(cwd, undefined, sshRemoteId);
 							if (diff.diff) {
 								setGitDiffPreview(diff.diff);
 							}
