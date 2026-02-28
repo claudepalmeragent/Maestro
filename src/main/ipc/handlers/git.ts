@@ -258,25 +258,39 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 		'git:log',
 		withIpcErrorLogging(
 			handlerOpts('log'),
-			async (cwd: string, options?: { limit?: number; search?: string }) => {
+			async (
+				cwd: string,
+				options?: { limit?: number; skip?: number; search?: string },
+				sshRemoteId?: string,
+				remoteCwd?: string
+			) => {
 				// Get git log with formatted output for parsing
-				// Format: hash|author|date|refs|subject followed by shortstat
-				// Using a unique separator to split commits
+				// Format: hash<sep>author<sep>date<sep>refs<sep>subject
+				// Use ASCII Record Separator (%x1E) for SSH to avoid pipe characters being
+				// interpreted as shell operators in the $SHELL -ilc "..." double-quote context.
+				// Locally, | is safe because execFile() with shell:false has no shell interpretation.
 				const limit = options?.limit || 100;
+				const sshRemote = getSshRemoteById(sshRemoteId);
+				const isRemote = !!sshRemote;
+				const sep = isRemote ? '%x1E' : '|';
 				const args = [
 					'log',
 					`--max-count=${limit}`,
-					'--pretty=format:COMMIT_START%H|%an|%ad|%D|%s',
+					`--pretty=format:COMMIT_START%H${sep}%an${sep}%ad${sep}%D${sep}%s`,
 					'--date=iso-strict',
-					'--shortstat',
 				];
+
+				// Add skip for pagination
+				if (options?.skip) {
+					args.push(`--skip=${options.skip}`);
+				}
 
 				// Add search filter if provided
 				if (options?.search) {
 					args.push('--all', `--grep=${options.search}`, '-i');
 				}
 
-				const result = await execFileNoThrow('git', args, cwd);
+				const result = await execGit(args, cwd, sshRemote, remoteCwd);
 
 				if (result.exitCode !== 0) {
 					return { entries: [], error: result.stderr };
@@ -287,18 +301,9 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 				const entries = commits.map((commitBlock) => {
 					const lines = commitBlock.split('\n').filter((l) => l.trim());
 					const mainLine = lines[0];
-					const [hash, author, date, refs, ...subjectParts] = mainLine.split('|');
-
-					// Parse shortstat line (e.g., " 3 files changed, 10 insertions(+), 5 deletions(-)")
-					let additions = 0;
-					let deletions = 0;
-					const statLine = lines.find((l) => l.includes('changed'));
-					if (statLine) {
-						const addMatch = statLine.match(/(\d+) insertion/);
-						const delMatch = statLine.match(/(\d+) deletion/);
-						if (addMatch) additions = parseInt(addMatch[1], 10);
-						if (delMatch) deletions = parseInt(delMatch[1], 10);
-					}
+					// Split on Record Separator (0x1E) for SSH, pipe for local
+					const fieldSep = isRemote ? '\x1E' : '|';
+					const [hash, author, date, refs, ...subjectParts] = mainLine.split(fieldSep);
 
 					return {
 						hash,
@@ -306,9 +311,7 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 						author,
 						date,
 						refs: refs ? refs.split(', ').filter((r) => r.trim()) : [],
-						subject: subjectParts.join('|'), // In case subject contains |
-						additions,
-						deletions,
+						subject: subjectParts.join(fieldSep), // In case subject contains the separator
 					};
 				});
 
@@ -319,23 +322,36 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 
 	ipcMain.handle(
 		'git:commitCount',
-		withIpcErrorLogging(handlerOpts('commitCount'), async (cwd: string) => {
-			// Get total commit count using rev-list
-			const result = await execFileNoThrow('git', ['rev-list', '--count', 'HEAD'], cwd);
-			if (result.exitCode !== 0) {
-				return { count: 0, error: result.stderr };
+		withIpcErrorLogging(
+			handlerOpts('commitCount'),
+			async (cwd: string, sshRemoteId?: string, remoteCwd?: string) => {
+				// Get total commit count using rev-list
+				const sshRemote = getSshRemoteById(sshRemoteId);
+				const result = await execGit(['rev-list', '--count', 'HEAD'], cwd, sshRemote, remoteCwd);
+				if (result.exitCode !== 0) {
+					return { count: 0, error: result.stderr };
+				}
+				return { count: parseInt(result.stdout.trim(), 10) || 0, error: null };
 			}
-			return { count: parseInt(result.stdout.trim(), 10) || 0, error: null };
-		})
+		)
 	);
 
 	ipcMain.handle(
 		'git:show',
-		withIpcErrorLogging(handlerOpts('show'), async (cwd: string, hash: string) => {
-			// Get the full diff for a specific commit
-			const result = await execFileNoThrow('git', ['show', '--stat', '--patch', hash], cwd);
-			return { stdout: result.stdout, stderr: result.stderr };
-		})
+		withIpcErrorLogging(
+			handlerOpts('show'),
+			async (cwd: string, hash: string, sshRemoteId?: string, remoteCwd?: string) => {
+				// Get the full diff for a specific commit
+				const sshRemote = getSshRemoteById(sshRemoteId);
+				const result = await execGit(
+					['show', '--stat', '--patch', hash],
+					cwd,
+					sshRemote,
+					remoteCwd
+				);
+				return { stdout: result.stdout, stderr: result.stderr };
+			}
+		)
 	);
 
 	// Read file content at a specific git ref (e.g., HEAD:path/to/file.png)
