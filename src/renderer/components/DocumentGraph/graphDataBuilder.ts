@@ -347,11 +347,11 @@ async function scanMarkdownFiles(
 			}
 
 			for (const entry of entries) {
-				// Skip hidden files and directories
-				if (entry.name.startsWith('.')) continue;
-
-				// Skip common non-content directories
-				if (entry.isDirectory && ['node_modules', 'dist', 'build', '.git'].includes(entry.name)) {
+				// Skip common non-content directories (including git internals for safety)
+				if (
+					entry.isDirectory &&
+					['node_modules', 'dist', 'build', '.git', '.git-repo'].includes(entry.name)
+				) {
 					continue;
 				}
 

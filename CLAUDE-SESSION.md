@@ -65,8 +65,12 @@ Cumulative and per-tab usage statistics including token counts, cost, and timing
 
 | Field | Type | Description |
 |---|---|---|
-| `branch` | `string \| null` | Current git branch |
-| `hasChanges` | `boolean` | Whether working tree has uncommitted changes |
+| `isGitRepo` | `boolean` | Whether a git repository was detected for this session |
+| `gitRoot` | `string \| undefined` | Git repository root path (may differ from `cwd` for subdirectory repos, e.g., `/app/.git-repo`) |
+| `isBareRepo` | `boolean \| undefined` | True when `gitRoot` points to a bare repo — suppresses branch/diff display |
+| `gitBranches` | `string[] \| undefined` | Cached branch names (for tab completion) |
+| `gitTags` | `string[] \| undefined` | Cached tag names (for tab completion) |
+| `gitRefsCacheTime` | `number \| undefined` | Timestamp when branches/tags were last fetched |
 
 ### File Explorer
 
@@ -125,8 +129,10 @@ Association with a project folder organizational container.
 
 | Field | Type | Description |
 |---|---|---|
-| `worktreeConfig` | `object \| null` | Git worktree configuration |
+| `worktreeConfig` | `object \| null` | Git worktree configuration (basePath, watchEnabled) |
 | `worktreeBranch` | `string \| null` | Branch used in worktree |
+| `parentSessionId` | `string \| undefined` | Parent session ID (for worktree child sessions) |
+| `worktreesExpanded` | `boolean \| undefined` | Whether the worktree children drawer is expanded in sidebar |
 
 ---
 

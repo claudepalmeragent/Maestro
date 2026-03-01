@@ -1085,6 +1085,7 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 						isWorktree: boolean;
 						branch: string | null;
 						repoRoot: string | null;
+						isBare: boolean;
 					}> = [];
 
 					for (const subdir of subdirs) {
@@ -1102,10 +1103,15 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 							sshRemote
 						);
 						if (isInsideWorkTree.exitCode !== 0) {
-							continue; // Not a git repo, try next
+							continue; // Not a git repo at all, try next
 						}
 
-						// Found a git repo — return minimal info and stop.
+						// Check if this is a bare repo (exit code 0 but stdout "false")
+						// Bare repos are valid git resources (enable badges, worktree creation)
+						// but are NOT work trees themselves
+						const isBareRepo = isInsideWorkTree.stdout.trim() !== 'true';
+
+						// Found a git resource — return info and stop.
 						// Metadata (root, branches, tags) is fetched by detectGitRepo
 						// in the renderer, so gathering it here would be redundant SSH calls.
 						gitSubdirs.push({
@@ -1114,6 +1120,7 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 							isWorktree: false,
 							branch: null,
 							repoRoot: null,
+							isBare: isBareRepo,
 						});
 
 						// Stop after first hit — caller gets exactly 0 or 1 result

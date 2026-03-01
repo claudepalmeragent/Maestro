@@ -109,7 +109,7 @@ describe('Git IPC handlers', () => {
 
 	beforeEach(() => {
 		// Clear mocks
-		vi.clearAllMocks();
+		vi.resetAllMocks();
 
 		// Capture all registered handlers
 		handlers = new Map();
@@ -168,8 +168,8 @@ describe('Git IPC handlers', () => {
 	});
 
 	describe('git:status', () => {
-		it('should return stdout from execFileNoThrow on success', async () => {
-			vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+		it('should return stdout from execGit on success', async () => {
+			vi.mocked(remoteGit.execGit).mockResolvedValue({
 				stdout: 'M  file.txt\nA  new.txt\n',
 				stderr: '',
 				exitCode: 0,
@@ -178,10 +178,11 @@ describe('Git IPC handlers', () => {
 			const handler = handlers.get('git:status');
 			const result = await handler!({} as any, '/test/repo');
 
-			expect(execFile.execFileNoThrow).toHaveBeenCalledWith(
-				'git',
-				['status', '--porcelain'],
-				'/test/repo'
+			expect(remoteGit.execGit).toHaveBeenCalledWith(
+				['--no-pager', 'status', '--porcelain'],
+				'/test/repo',
+				null,
+				undefined
 			);
 			expect(result).toEqual({
 				stdout: 'M  file.txt\nA  new.txt\n',
@@ -190,7 +191,7 @@ describe('Git IPC handlers', () => {
 		});
 
 		it('should return stderr when not a git repo', async () => {
-			vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+			vi.mocked(remoteGit.execGit).mockResolvedValue({
 				stdout: '',
 				stderr: 'fatal: not a git repository',
 				exitCode: 128,
@@ -206,7 +207,7 @@ describe('Git IPC handlers', () => {
 		});
 
 		it('should pass cwd parameter correctly', async () => {
-			vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+			vi.mocked(remoteGit.execGit).mockResolvedValue({
 				stdout: '',
 				stderr: '',
 				exitCode: 0,
@@ -215,15 +216,16 @@ describe('Git IPC handlers', () => {
 			const handler = handlers.get('git:status');
 			await handler!({} as any, '/custom/path');
 
-			expect(execFile.execFileNoThrow).toHaveBeenCalledWith(
-				'git',
-				['status', '--porcelain'],
-				'/custom/path'
+			expect(remoteGit.execGit).toHaveBeenCalledWith(
+				['--no-pager', 'status', '--porcelain'],
+				'/custom/path',
+				null,
+				undefined
 			);
 		});
 
 		it('should return empty stdout for clean repository', async () => {
-			vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+			vi.mocked(remoteGit.execGit).mockResolvedValue({
 				stdout: '',
 				stderr: '',
 				exitCode: 0,
@@ -251,7 +253,7 @@ index abc1234..def5678 100644
  line 2
  line 3`;
 
-			vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+			vi.mocked(remoteGit.execGit).mockResolvedValue({
 				stdout: diffOutput,
 				stderr: '',
 				exitCode: 0,
@@ -260,7 +262,12 @@ index abc1234..def5678 100644
 			const handler = handlers.get('git:diff');
 			const result = await handler!({} as any, '/test/repo');
 
-			expect(execFile.execFileNoThrow).toHaveBeenCalledWith('git', ['diff'], '/test/repo');
+			expect(remoteGit.execGit).toHaveBeenCalledWith(
+				['--no-pager', 'diff'],
+				'/test/repo',
+				null,
+				undefined
+			);
 			expect(result).toEqual({
 				stdout: diffOutput,
 				stderr: '',
@@ -276,7 +283,7 @@ index 1234567..abcdefg 100644
 -old content
 +new content`;
 
-			vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+			vi.mocked(remoteGit.execGit).mockResolvedValue({
 				stdout: fileDiff,
 				stderr: '',
 				exitCode: 0,
@@ -285,10 +292,11 @@ index 1234567..abcdefg 100644
 			const handler = handlers.get('git:diff');
 			const result = await handler!({} as any, '/test/repo', 'specific.txt');
 
-			expect(execFile.execFileNoThrow).toHaveBeenCalledWith(
-				'git',
-				['diff', 'specific.txt'],
-				'/test/repo'
+			expect(remoteGit.execGit).toHaveBeenCalledWith(
+				['--no-pager', 'diff', 'specific.txt'],
+				'/test/repo',
+				null,
+				undefined
 			);
 			expect(result).toEqual({
 				stdout: fileDiff,
@@ -297,7 +305,7 @@ index 1234567..abcdefg 100644
 		});
 
 		it('should return empty diff when no changes exist', async () => {
-			vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+			vi.mocked(remoteGit.execGit).mockResolvedValue({
 				stdout: '',
 				stderr: '',
 				exitCode: 0,
@@ -313,7 +321,7 @@ index 1234567..abcdefg 100644
 		});
 
 		it('should return stderr when not a git repo', async () => {
-			vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+			vi.mocked(remoteGit.execGit).mockResolvedValue({
 				stdout: '',
 				stderr: 'fatal: not a git repository',
 				exitCode: 128,
@@ -331,7 +339,7 @@ index 1234567..abcdefg 100644
 
 	describe('git:isRepo', () => {
 		it('should return true when directory is inside a git work tree', async () => {
-			vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+			vi.mocked(remoteGit.execGit).mockResolvedValue({
 				stdout: 'true\n',
 				stderr: '',
 				exitCode: 0,
@@ -340,16 +348,17 @@ index 1234567..abcdefg 100644
 			const handler = handlers.get('git:isRepo');
 			const result = await handler!({} as any, '/valid/git/repo');
 
-			expect(execFile.execFileNoThrow).toHaveBeenCalledWith(
-				'git',
-				['rev-parse', '--is-inside-work-tree'],
-				'/valid/git/repo'
+			expect(remoteGit.execGit).toHaveBeenCalledWith(
+				['--no-pager', 'rev-parse', '--is-inside-work-tree'],
+				'/valid/git/repo',
+				null,
+				undefined
 			);
 			expect(result).toBe(true);
 		});
 
 		it('should return false when not a git repository', async () => {
-			vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+			vi.mocked(remoteGit.execGit).mockResolvedValue({
 				stdout: '',
 				stderr: 'fatal: not a git repository (or any of the parent directories): .git',
 				exitCode: 128,
@@ -358,17 +367,18 @@ index 1234567..abcdefg 100644
 			const handler = handlers.get('git:isRepo');
 			const result = await handler!({} as any, '/not/a/repo');
 
-			expect(execFile.execFileNoThrow).toHaveBeenCalledWith(
-				'git',
-				['rev-parse', '--is-inside-work-tree'],
-				'/not/a/repo'
+			expect(remoteGit.execGit).toHaveBeenCalledWith(
+				['--no-pager', 'rev-parse', '--is-inside-work-tree'],
+				'/not/a/repo',
+				null,
+				undefined
 			);
 			expect(result).toBe(false);
 		});
 
 		it('should return false for non-zero exit codes', async () => {
 			// Test with different non-zero exit code
-			vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+			vi.mocked(remoteGit.execGit).mockResolvedValue({
 				stdout: '',
 				stderr: 'error',
 				exitCode: 1,
@@ -387,7 +397,7 @@ index 1234567..abcdefg 100644
 3\t0\tfile2.ts
 0\t20\tfile3.ts`;
 
-			vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+			vi.mocked(remoteGit.execGit).mockResolvedValue({
 				stdout: numstatOutput,
 				stderr: '',
 				exitCode: 0,
@@ -396,10 +406,11 @@ index 1234567..abcdefg 100644
 			const handler = handlers.get('git:numstat');
 			const result = await handler!({} as any, '/test/repo');
 
-			expect(execFile.execFileNoThrow).toHaveBeenCalledWith(
-				'git',
-				['diff', '--numstat'],
-				'/test/repo'
+			expect(remoteGit.execGit).toHaveBeenCalledWith(
+				['--no-pager', 'diff', '--numstat'],
+				'/test/repo',
+				null,
+				undefined
 			);
 			expect(result).toEqual({
 				stdout: numstatOutput,
@@ -408,7 +419,7 @@ index 1234567..abcdefg 100644
 		});
 
 		it('should return empty stdout when no changes exist', async () => {
-			vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+			vi.mocked(remoteGit.execGit).mockResolvedValue({
 				stdout: '',
 				stderr: '',
 				exitCode: 0,
@@ -424,7 +435,7 @@ index 1234567..abcdefg 100644
 		});
 
 		it('should return stderr when not a git repo', async () => {
-			vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+			vi.mocked(remoteGit.execGit).mockResolvedValue({
 				stdout: '',
 				stderr: 'fatal: not a git repository',
 				exitCode: 128,
@@ -444,7 +455,7 @@ index 1234567..abcdefg 100644
 			const numstatOutput = `10\t5\tfile1.ts
 -\t-\timage.png`;
 
-			vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+			vi.mocked(remoteGit.execGit).mockResolvedValue({
 				stdout: numstatOutput,
 				stderr: '',
 				exitCode: 0,
@@ -462,7 +473,7 @@ index 1234567..abcdefg 100644
 
 	describe('git:branch', () => {
 		it('should return current branch name trimmed', async () => {
-			vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+			vi.mocked(remoteGit.execGit).mockResolvedValue({
 				stdout: 'main\n',
 				stderr: '',
 				exitCode: 0,
@@ -471,10 +482,11 @@ index 1234567..abcdefg 100644
 			const handler = handlers.get('git:branch');
 			const result = await handler!({} as any, '/test/repo');
 
-			expect(execFile.execFileNoThrow).toHaveBeenCalledWith(
-				'git',
-				['rev-parse', '--abbrev-ref', 'HEAD'],
-				'/test/repo'
+			expect(remoteGit.execGit).toHaveBeenCalledWith(
+				['--no-pager', 'rev-parse', '--abbrev-ref', 'HEAD'],
+				'/test/repo',
+				null,
+				undefined
 			);
 			expect(result).toEqual({
 				stdout: 'main',
@@ -484,7 +496,7 @@ index 1234567..abcdefg 100644
 
 		it('should return HEAD for detached HEAD state', async () => {
 			// When in detached HEAD state, git rev-parse --abbrev-ref HEAD returns 'HEAD'
-			vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+			vi.mocked(remoteGit.execGit).mockResolvedValue({
 				stdout: 'HEAD\n',
 				stderr: '',
 				exitCode: 0,
@@ -500,7 +512,7 @@ index 1234567..abcdefg 100644
 		});
 
 		it('should return stderr when not a git repo', async () => {
-			vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+			vi.mocked(remoteGit.execGit).mockResolvedValue({
 				stdout: '',
 				stderr: 'fatal: not a git repository',
 				exitCode: 128,
@@ -516,7 +528,7 @@ index 1234567..abcdefg 100644
 		});
 
 		it('should handle feature branch names', async () => {
-			vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+			vi.mocked(remoteGit.execGit).mockResolvedValue({
 				stdout: 'feature/my-new-feature\n',
 				stderr: '',
 				exitCode: 0,
@@ -534,7 +546,7 @@ index 1234567..abcdefg 100644
 
 	describe('git:remote', () => {
 		it('should return remote URL for origin', async () => {
-			vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+			vi.mocked(remoteGit.execGit).mockResolvedValue({
 				stdout: 'git@github.com:user/repo.git\n',
 				stderr: '',
 				exitCode: 0,
@@ -543,10 +555,11 @@ index 1234567..abcdefg 100644
 			const handler = handlers.get('git:remote');
 			const result = await handler!({} as any, '/test/repo');
 
-			expect(execFile.execFileNoThrow).toHaveBeenCalledWith(
-				'git',
-				['remote', 'get-url', 'origin'],
-				'/test/repo'
+			expect(remoteGit.execGit).toHaveBeenCalledWith(
+				['--no-pager', 'remote', 'get-url', 'origin'],
+				'/test/repo',
+				null,
+				undefined
 			);
 			expect(result).toEqual({
 				stdout: 'git@github.com:user/repo.git',
@@ -555,7 +568,7 @@ index 1234567..abcdefg 100644
 		});
 
 		it('should return HTTPS remote URL', async () => {
-			vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+			vi.mocked(remoteGit.execGit).mockResolvedValue({
 				stdout: 'https://github.com/user/repo.git\n',
 				stderr: '',
 				exitCode: 0,
@@ -571,7 +584,7 @@ index 1234567..abcdefg 100644
 		});
 
 		it('should return stderr when no remote configured', async () => {
-			vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+			vi.mocked(remoteGit.execGit).mockResolvedValue({
 				stdout: '',
 				stderr: "fatal: No such remote 'origin'",
 				exitCode: 2,
@@ -587,7 +600,7 @@ index 1234567..abcdefg 100644
 		});
 
 		it('should return stderr when not a git repo', async () => {
-			vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+			vi.mocked(remoteGit.execGit).mockResolvedValue({
 				stdout: '',
 				stderr: 'fatal: not a git repository',
 				exitCode: 128,
@@ -605,7 +618,7 @@ index 1234567..abcdefg 100644
 
 	describe('git:branches', () => {
 		it('should return array of branch names', async () => {
-			vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+			vi.mocked(remoteGit.execGit).mockResolvedValue({
 				stdout: 'main\nfeature/awesome\nfix/bug-123\n',
 				stderr: '',
 				exitCode: 0,
@@ -614,10 +627,11 @@ index 1234567..abcdefg 100644
 			const handler = handlers.get('git:branches');
 			const result = await handler!({} as any, '/test/repo');
 
-			expect(execFile.execFileNoThrow).toHaveBeenCalledWith(
-				'git',
-				['branch', '-a', '--format=%(refname:short)'],
-				'/test/repo'
+			expect(remoteGit.execGit).toHaveBeenCalledWith(
+				['--no-pager', 'branch', '-a', '--format=%(refname:short)'],
+				'/test/repo',
+				null,
+				undefined
 			);
 			expect(result).toEqual({
 				branches: ['main', 'feature/awesome', 'fix/bug-123'],
@@ -626,7 +640,7 @@ index 1234567..abcdefg 100644
 
 		it('should deduplicate local and remote branches', async () => {
 			// When a branch exists both locally and on origin
-			vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+			vi.mocked(remoteGit.execGit).mockResolvedValue({
 				stdout: 'main\norigin/main\nfeature/foo\norigin/feature/foo\ndevelop\n',
 				stderr: '',
 				exitCode: 0,
@@ -642,7 +656,7 @@ index 1234567..abcdefg 100644
 		});
 
 		it('should filter out HEAD from branch list', async () => {
-			vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+			vi.mocked(remoteGit.execGit).mockResolvedValue({
 				stdout: 'main\nHEAD\norigin/HEAD\nfeature/test\n',
 				stderr: '',
 				exitCode: 0,
@@ -658,7 +672,7 @@ index 1234567..abcdefg 100644
 		});
 
 		it('should return empty array when no branches exist', async () => {
-			vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+			vi.mocked(remoteGit.execGit).mockResolvedValue({
 				stdout: '',
 				stderr: '',
 				exitCode: 0,
@@ -673,7 +687,7 @@ index 1234567..abcdefg 100644
 		});
 
 		it('should return empty array with stderr when not a git repo', async () => {
-			vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+			vi.mocked(remoteGit.execGit).mockResolvedValue({
 				stdout: '',
 				stderr: 'fatal: not a git repository',
 				exitCode: 128,
@@ -691,7 +705,7 @@ index 1234567..abcdefg 100644
 
 	describe('git:tags', () => {
 		it('should return array of tag names', async () => {
-			vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+			vi.mocked(remoteGit.execGit).mockResolvedValue({
 				stdout: 'v1.0.0\nv1.1.0\nv2.0.0-beta\n',
 				stderr: '',
 				exitCode: 0,
@@ -700,14 +714,19 @@ index 1234567..abcdefg 100644
 			const handler = handlers.get('git:tags');
 			const result = await handler!({} as any, '/test/repo');
 
-			expect(execFile.execFileNoThrow).toHaveBeenCalledWith('git', ['tag', '--list'], '/test/repo');
+			expect(remoteGit.execGit).toHaveBeenCalledWith(
+				['--no-pager', 'tag', '--list'],
+				'/test/repo',
+				null,
+				undefined
+			);
 			expect(result).toEqual({
 				tags: ['v1.0.0', 'v1.1.0', 'v2.0.0-beta'],
 			});
 		});
 
 		it('should handle tags with special characters', async () => {
-			vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+			vi.mocked(remoteGit.execGit).mockResolvedValue({
 				stdout: 'release/1.0\nhotfix-2023.01.15\nmy_tag_v1\n',
 				stderr: '',
 				exitCode: 0,
@@ -722,7 +741,7 @@ index 1234567..abcdefg 100644
 		});
 
 		it('should return empty array when no tags exist', async () => {
-			vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+			vi.mocked(remoteGit.execGit).mockResolvedValue({
 				stdout: '',
 				stderr: '',
 				exitCode: 0,
@@ -737,7 +756,7 @@ index 1234567..abcdefg 100644
 		});
 
 		it('should return empty array with stderr when not a git repo', async () => {
-			vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+			vi.mocked(remoteGit.execGit).mockResolvedValue({
 				stdout: '',
 				stderr: 'fatal: not a git repository',
 				exitCode: 128,
@@ -756,7 +775,7 @@ index 1234567..abcdefg 100644
 	describe('git:info', () => {
 		it('should return combined git info object with all fields', async () => {
 			// The handler runs 4 parallel git commands
-			vi.mocked(execFile.execFileNoThrow)
+			vi.mocked(remoteGit.execGit)
 				.mockResolvedValueOnce({
 					// git rev-parse --abbrev-ref HEAD (branch)
 					stdout: 'main\n',
@@ -795,7 +814,7 @@ index 1234567..abcdefg 100644
 		});
 
 		it('should return partial info when remote command fails', async () => {
-			vi.mocked(execFile.execFileNoThrow)
+			vi.mocked(remoteGit.execGit)
 				.mockResolvedValueOnce({
 					// git rev-parse --abbrev-ref HEAD (branch)
 					stdout: 'feature/my-branch\n',
@@ -835,7 +854,7 @@ index 1234567..abcdefg 100644
 		});
 
 		it('should return zero behind/ahead when upstream is not set', async () => {
-			vi.mocked(execFile.execFileNoThrow)
+			vi.mocked(remoteGit.execGit)
 				.mockResolvedValueOnce({
 					// git rev-parse --abbrev-ref HEAD (branch)
 					stdout: 'new-branch\n',
@@ -875,7 +894,7 @@ index 1234567..abcdefg 100644
 		});
 
 		it('should handle clean repo with no changes and in sync with upstream', async () => {
-			vi.mocked(execFile.execFileNoThrow)
+			vi.mocked(remoteGit.execGit)
 				.mockResolvedValueOnce({
 					// git rev-parse --abbrev-ref HEAD (branch)
 					stdout: 'main\n',
@@ -914,7 +933,7 @@ index 1234567..abcdefg 100644
 		});
 
 		it('should handle detached HEAD state', async () => {
-			vi.mocked(execFile.execFileNoThrow)
+			vi.mocked(remoteGit.execGit)
 				.mockResolvedValueOnce({
 					// git rev-parse --abbrev-ref HEAD (branch) - detached HEAD returns 'HEAD'
 					stdout: 'HEAD\n',
@@ -970,6 +989,7 @@ COMMIT_STARTdef987654321|Jane Smith|2024-01-14T09:00:00+00:00||Add feature`;
 
 			expect(remoteGit.execGit).toHaveBeenCalledWith(
 				[
+					'--no-pager',
 					'log',
 					'--max-count=100',
 					'--pretty=format:COMMIT_START%H|%an|%ad|%D|%s',
@@ -1012,6 +1032,7 @@ COMMIT_STARTdef987654321|Jane Smith|2024-01-14T09:00:00+00:00||Add feature`;
 
 			expect(remoteGit.execGit).toHaveBeenCalledWith(
 				[
+					'--no-pager',
 					'log',
 					'--max-count=50',
 					'--pretty=format:COMMIT_START%H|%an|%ad|%D|%s',
@@ -1035,6 +1056,7 @@ COMMIT_STARTdef987654321|Jane Smith|2024-01-14T09:00:00+00:00||Add feature`;
 
 			expect(remoteGit.execGit).toHaveBeenCalledWith(
 				[
+					'--no-pager',
 					'log',
 					'--max-count=100',
 					'--pretty=format:COMMIT_START%H|%an|%ad|%D|%s',
@@ -1130,6 +1152,7 @@ COMMIT_STARTdef987654321|Jane Smith|2024-01-14T09:00:00+00:00||Add feature`;
 
 			expect(remoteGit.execGit).toHaveBeenCalledWith(
 				[
+					'--no-pager',
 					'log',
 					'--max-count=30',
 					'--pretty=format:COMMIT_START%H|%an|%ad|%D|%s',
@@ -1192,9 +1215,10 @@ COMMIT_STARTdef987654321|Jane Smith|2024-01-14T09:00:00+00:00||Add feature`;
 
 			expect(remoteGit.execGit).toHaveBeenCalledWith(
 				[
+					'--no-pager',
 					'log',
 					'--max-count=50',
-					'--pretty=format:COMMIT_START%H|%an|%ad|%D|%s',
+					'--pretty=format:COMMIT_START%H%x1E%an%x1E%ad%x1E%D%x1E%s',
 					'--date=iso-strict',
 				],
 				'/remote/project',
@@ -1216,7 +1240,7 @@ COMMIT_STARTdef987654321|Jane Smith|2024-01-14T09:00:00+00:00||Add feature`;
 			const result = await handler!({} as any, '/test/repo');
 
 			expect(remoteGit.execGit).toHaveBeenCalledWith(
-				['rev-list', '--count', 'HEAD'],
+				['--no-pager', 'rev-list', '--count', 'HEAD'],
 				'/test/repo',
 				null,
 				undefined
@@ -1320,7 +1344,7 @@ COMMIT_STARTdef987654321|Jane Smith|2024-01-14T09:00:00+00:00||Add feature`;
 			);
 
 			expect(remoteGit.execGit).toHaveBeenCalledWith(
-				['rev-list', '--count', 'HEAD'],
+				['--no-pager', 'rev-list', '--count', 'HEAD'],
 				'/remote/project',
 				mockSshRemoteConfig,
 				'/remote/project'
@@ -1361,7 +1385,7 @@ index 0000000..abc1234
 			const result = await handler!({} as any, '/test/repo', 'abc123456789');
 
 			expect(remoteGit.execGit).toHaveBeenCalledWith(
-				['show', '--stat', '--patch', 'abc123456789'],
+				['--no-pager', 'show', '--stat', '--patch', 'abc123456789'],
 				'/test/repo',
 				null,
 				undefined
@@ -1383,7 +1407,7 @@ index 0000000..abc1234
 			const result = await handler!({} as any, '/test/repo', 'invalidhash123');
 
 			expect(remoteGit.execGit).toHaveBeenCalledWith(
-				['show', '--stat', '--patch', 'invalidhash123'],
+				['--no-pager', 'show', '--stat', '--patch', 'invalidhash123'],
 				'/test/repo',
 				null,
 				undefined
@@ -1414,7 +1438,7 @@ Date:   Tue Jan 16 14:00:00 2024 +0000
 			const result = await handler!({} as any, '/test/repo', 'abc1234');
 
 			expect(remoteGit.execGit).toHaveBeenCalledWith(
-				['show', '--stat', '--patch', 'abc1234'],
+				['--no-pager', 'show', '--stat', '--patch', 'abc1234'],
 				'/test/repo',
 				null,
 				undefined
@@ -1497,7 +1521,7 @@ Date:   Wed Jan 17 09:00:00 2024 +0000
 			);
 
 			expect(remoteGit.execGit).toHaveBeenCalledWith(
-				['show', '--stat', '--patch', 'abc123'],
+				['--no-pager', 'show', '--stat', '--patch', 'abc123'],
 				'/remote/project',
 				mockSshRemoteConfig,
 				'/remote/project'
@@ -2658,6 +2682,12 @@ export function Component() {
 	});
 
 	describe('git:createPR', () => {
+		beforeEach(async () => {
+			// Reset resolveGhPath to return 'gh' by default (resetAllMocks clears module-level mock)
+			const cliDetection = await import('../../../../main/utils/cliDetection');
+			vi.mocked(cliDetection.resolveGhPath).mockResolvedValue('gh');
+		});
+
 		it('should create PR successfully via gh CLI', async () => {
 			vi.mocked(execFile.execFileNoThrow)
 				.mockResolvedValueOnce({
@@ -3498,46 +3528,22 @@ branch refs/heads/bugfix-123
 				{ name: 'regular-folder', isDirectory: () => true },
 			] as any);
 
-			// Mock git commands for each subdirectory
-			vi.mocked(execFile.execFileNoThrow).mockImplementation(async (cmd, args, cwd) => {
-				const cwdStr = String(cwd);
+			// The handler uses execGit (from remote-git) which only checks --is-inside-work-tree
+			// and returns minimal info (branch: null, repoRoot: null), stopping at first hit.
+			vi.mocked(remoteGit.execGit).mockImplementation(async (args, localCwd) => {
+				const cwdStr = String(localCwd);
 
-				// main-repo: regular git repo
+				// main-repo: regular git repo (alphabetically first, so it's the first hit)
 				if (cwdStr.endsWith('main-repo')) {
 					if (args?.includes('--is-inside-work-tree')) {
 						return { stdout: 'true\n', stderr: '', exitCode: 0 };
 					}
-					if (args?.includes('--git-dir')) {
-						return { stdout: '.git', stderr: '', exitCode: 0 };
-					}
-					if (args?.includes('--git-common-dir')) {
-						return { stdout: '.git', stderr: '', exitCode: 0 };
-					}
-					if (args?.includes('--abbrev-ref')) {
-						return { stdout: 'main\n', stderr: '', exitCode: 0 };
-					}
-					if (args?.includes('--show-toplevel')) {
-						return { stdout: '/parent/main-repo', stderr: '', exitCode: 0 };
-					}
 				}
 
-				// worktree-feature: a git worktree
+				// worktree-feature: also a git repo but won't be reached (handler stops at first hit)
 				if (cwdStr.endsWith('worktree-feature')) {
 					if (args?.includes('--is-inside-work-tree')) {
 						return { stdout: 'true\n', stderr: '', exitCode: 0 };
-					}
-					if (args?.includes('--git-dir')) {
-						return {
-							stdout: '/parent/main-repo/.git/worktrees/worktree-feature',
-							stderr: '',
-							exitCode: 0,
-						};
-					}
-					if (args?.includes('--git-common-dir')) {
-						return { stdout: '/parent/main-repo/.git', stderr: '', exitCode: 0 };
-					}
-					if (args?.includes('--abbrev-ref')) {
-						return { stdout: 'feature-branch\n', stderr: '', exitCode: 0 };
 					}
 				}
 
@@ -3555,6 +3561,7 @@ branch refs/heads/bugfix-123
 			const result = await handler!({} as any, '/parent');
 
 			expect(mockFs.readdir).toHaveBeenCalledWith('/parent', { withFileTypes: true });
+			// Handler stops at first git repo found (main-repo) and returns minimal info
 			expect(result).toEqual({
 				success: true,
 				gitSubdirs: [
@@ -3562,45 +3569,33 @@ branch refs/heads/bugfix-123
 						path: '/parent/main-repo',
 						name: 'main-repo',
 						isWorktree: false,
-						branch: 'main',
-						repoRoot: '/parent/main-repo',
-					},
-					{
-						path: '/parent/worktree-feature',
-						name: 'worktree-feature',
-						isWorktree: true,
-						branch: 'feature-branch',
-						repoRoot: '/parent/main-repo',
+						branch: null,
+						repoRoot: null,
+						isBare: false,
 					},
 				],
 			});
 		});
 
-		it('should exclude hidden directories', async () => {
+		it('should detect bare repos with isBare flag', async () => {
 			vi.mocked(mockFs.readdir).mockResolvedValue([
-				{ name: '.git', isDirectory: () => true },
-				{ name: '.hidden', isDirectory: () => true },
-				{ name: 'visible-repo', isDirectory: () => true },
+				{ name: '.git-repo', isDirectory: () => true },
+				{ name: 'my-worktree', isDirectory: () => true },
 			] as any);
 
-			vi.mocked(execFile.execFileNoThrow).mockImplementation(async (cmd, args, cwd) => {
+			vi.mocked(remoteGit.execGit).mockImplementation(async (args: string[], cwd: string) => {
 				const cwdStr = String(cwd);
 
-				if (cwdStr.endsWith('visible-repo')) {
+				if (cwdStr.endsWith('.git-repo')) {
+					if (args?.includes('--is-inside-work-tree')) {
+						// Bare repo: exit code 0 but stdout "false"
+						return { stdout: 'false\n', stderr: '', exitCode: 0 };
+					}
+				}
+
+				if (cwdStr.endsWith('my-worktree')) {
 					if (args?.includes('--is-inside-work-tree')) {
 						return { stdout: 'true\n', stderr: '', exitCode: 0 };
-					}
-					if (args?.includes('--git-dir')) {
-						return { stdout: '.git', stderr: '', exitCode: 0 };
-					}
-					if (args?.includes('--git-common-dir')) {
-						return { stdout: '.git', stderr: '', exitCode: 0 };
-					}
-					if (args?.includes('--abbrev-ref')) {
-						return { stdout: 'main\n', stderr: '', exitCode: 0 };
-					}
-					if (args?.includes('--show-toplevel')) {
-						return { stdout: '/parent/visible-repo', stderr: '', exitCode: 0 };
 					}
 				}
 
@@ -3610,19 +3605,64 @@ branch refs/heads/bugfix-123
 			const handler = handlers.get('git:scanWorktreeDirectory');
 			const result = await handler!({} as any, '/parent');
 
-			// Should only include visible-repo, not .git or .hidden
-			expect(result).toEqual({
-				success: true,
-				gitSubdirs: [
-					{
-						path: '/parent/visible-repo',
-						name: 'visible-repo',
-						isWorktree: false,
-						branch: 'main',
-						repoRoot: '/parent/visible-repo',
-					},
-				],
+			// Scanner stops at first hit (.git-repo comes first alphabetically)
+			// It should be marked as isBare: true
+			expect(result.gitSubdirs).toHaveLength(1);
+			expect(result.gitSubdirs[0].name).toBe('.git-repo');
+			expect(result.gitSubdirs[0].isBare).toBe(true);
+		});
+
+		it('should mark regular work trees with isBare: false', async () => {
+			vi.mocked(mockFs.readdir).mockResolvedValue([
+				{ name: 'my-project', isDirectory: () => true },
+			] as any);
+
+			vi.mocked(remoteGit.execGit).mockImplementation(async (args: string[], cwd: string) => {
+				const cwdStr = String(cwd);
+
+				if (cwdStr.endsWith('my-project')) {
+					if (args?.includes('--is-inside-work-tree')) {
+						return { stdout: 'true\n', stderr: '', exitCode: 0 };
+					}
+				}
+
+				return { stdout: '', stderr: 'fatal: not a git repository', exitCode: 128 };
 			});
+
+			const handler = handlers.get('git:scanWorktreeDirectory');
+			const result = await handler!({} as any, '/parent');
+
+			expect(result.gitSubdirs).toHaveLength(1);
+			expect(result.gitSubdirs[0].name).toBe('my-project');
+			expect(result.gitSubdirs[0].isBare).toBe(false);
+		});
+
+		it('should allow dot-prefixed directories through scanner (except .git)', async () => {
+			vi.mocked(mockFs.readdir).mockResolvedValue([
+				{ name: '.git', isDirectory: () => true },
+				{ name: '.hidden-worktree', isDirectory: () => true },
+				{ name: 'visible-repo', isDirectory: () => true },
+			] as any);
+
+			vi.mocked(remoteGit.execGit).mockImplementation(async (args: string[], cwd: string) => {
+				const cwdStr = String(cwd);
+
+				if (cwdStr.endsWith('.hidden-worktree')) {
+					if (args?.includes('--is-inside-work-tree')) {
+						return { stdout: 'true\n', stderr: '', exitCode: 0 };
+					}
+				}
+
+				return { stdout: '', stderr: 'fatal: not a git repository', exitCode: 128 };
+			});
+
+			const handler = handlers.get('git:scanWorktreeDirectory');
+			const result = await handler!({} as any, '/parent');
+
+			// .git is excluded by filter, .hidden-worktree is first alphabetical hit that passes
+			expect(result.gitSubdirs).toHaveLength(1);
+			expect(result.gitSubdirs[0].name).toBe('.hidden-worktree');
+			expect(result.gitSubdirs[0].isBare).toBe(false);
 		});
 
 		it('should skip files (non-directories)', async () => {
@@ -3632,24 +3672,13 @@ branch refs/heads/bugfix-123
 				{ name: 'README.md', isDirectory: () => false },
 			] as any);
 
-			vi.mocked(execFile.execFileNoThrow).mockImplementation(async (cmd, args, cwd) => {
-				const cwdStr = String(cwd);
+			// The handler uses execGit (from remote-git) for git operations
+			vi.mocked(remoteGit.execGit).mockImplementation(async (args, localCwd) => {
+				const cwdStr = String(localCwd);
 
 				if (cwdStr.endsWith('repo-dir')) {
 					if (args?.includes('--is-inside-work-tree')) {
 						return { stdout: 'true\n', stderr: '', exitCode: 0 };
-					}
-					if (args?.includes('--git-dir')) {
-						return { stdout: '.git', stderr: '', exitCode: 0 };
-					}
-					if (args?.includes('--git-common-dir')) {
-						return { stdout: '.git', stderr: '', exitCode: 0 };
-					}
-					if (args?.includes('--abbrev-ref')) {
-						return { stdout: 'develop\n', stderr: '', exitCode: 0 };
-					}
-					if (args?.includes('--show-toplevel')) {
-						return { stdout: '/parent/repo-dir', stderr: '', exitCode: 0 };
 					}
 				}
 
@@ -3659,7 +3688,8 @@ branch refs/heads/bugfix-123
 			const handler = handlers.get('git:scanWorktreeDirectory');
 			const result = await handler!({} as any, '/parent');
 
-			// Should only include repo-dir directory
+			// Should only include repo-dir directory (files are filtered out)
+			// Handler returns minimal info (branch: null, repoRoot: null)
 			expect(result).toEqual({
 				success: true,
 				gitSubdirs: [
@@ -3667,8 +3697,9 @@ branch refs/heads/bugfix-123
 						path: '/parent/repo-dir',
 						name: 'repo-dir',
 						isWorktree: false,
-						branch: 'develop',
-						repoRoot: '/parent/repo-dir',
+						branch: null,
+						repoRoot: null,
+						isBare: false,
 					},
 				],
 			});
@@ -3680,7 +3711,8 @@ branch refs/heads/bugfix-123
 				{ name: 'folder2', isDirectory: () => true },
 			] as any);
 
-			vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+			// The handler uses execGit (from remote-git) for git operations
+			vi.mocked(remoteGit.execGit).mockResolvedValue({
 				stdout: '',
 				stderr: 'fatal: not a git repository',
 				exitCode: 128,
@@ -3725,22 +3757,10 @@ branch refs/heads/bugfix-123
 				{ name: 'detached-repo', isDirectory: () => true },
 			] as any);
 
-			vi.mocked(execFile.execFileNoThrow).mockImplementation(async (cmd, args, cwd) => {
+			// The handler uses execGit (from remote-git) and only checks --is-inside-work-tree
+			vi.mocked(remoteGit.execGit).mockImplementation(async (args) => {
 				if (args?.includes('--is-inside-work-tree')) {
 					return { stdout: 'true\n', stderr: '', exitCode: 0 };
-				}
-				if (args?.includes('--git-dir')) {
-					return { stdout: '.git', stderr: '', exitCode: 0 };
-				}
-				if (args?.includes('--git-common-dir')) {
-					return { stdout: '.git', stderr: '', exitCode: 0 };
-				}
-				if (args?.includes('--abbrev-ref')) {
-					// Branch command fails (e.g., empty repo)
-					return { stdout: '', stderr: 'fatal: ambiguous argument', exitCode: 128 };
-				}
-				if (args?.includes('--show-toplevel')) {
-					return { stdout: '/parent/detached-repo', stderr: '', exitCode: 0 };
 				}
 
 				return { stdout: '', stderr: '', exitCode: 0 };
@@ -3749,6 +3769,8 @@ branch refs/heads/bugfix-123
 			const handler = handlers.get('git:scanWorktreeDirectory');
 			const result = await handler!({} as any, '/parent');
 
+			// Handler returns minimal info — branch and repoRoot are always null
+			// (metadata is fetched by detectGitRepo in the renderer)
 			expect(result).toEqual({
 				success: true,
 				gitSubdirs: [
@@ -3757,31 +3779,23 @@ branch refs/heads/bugfix-123
 						name: 'detached-repo',
 						isWorktree: false,
 						branch: null,
-						repoRoot: '/parent/detached-repo',
+						repoRoot: null,
+						isBare: false,
 					},
 				],
 			});
 		});
 
-		it('should correctly calculate repo root for worktrees with relative git-common-dir', async () => {
+		it('should correctly identify worktree directory as git repo', async () => {
 			vi.mocked(mockFs.readdir).mockResolvedValue([
 				{ name: 'my-worktree', isDirectory: () => true },
 			] as any);
 
-			vi.mocked(execFile.execFileNoThrow).mockImplementation(async (cmd, args, cwd) => {
+			// The handler uses execGit (from remote-git) and only checks --is-inside-work-tree
+			// Metadata like repoRoot and branch are fetched by detectGitRepo in the renderer
+			vi.mocked(remoteGit.execGit).mockImplementation(async (args) => {
 				if (args?.includes('--is-inside-work-tree')) {
 					return { stdout: 'true\n', stderr: '', exitCode: 0 };
-				}
-				if (args?.includes('--git-dir')) {
-					// Worktree has a different git-dir
-					return { stdout: '../main-repo/.git/worktrees/my-worktree', stderr: '', exitCode: 0 };
-				}
-				if (args?.includes('--git-common-dir')) {
-					// Relative path to main repo's .git
-					return { stdout: '../main-repo/.git', stderr: '', exitCode: 0 };
-				}
-				if (args?.includes('--abbrev-ref')) {
-					return { stdout: 'feature-xyz\n', stderr: '', exitCode: 0 };
 				}
 
 				return { stdout: '', stderr: '', exitCode: 0 };
@@ -3790,10 +3804,12 @@ branch refs/heads/bugfix-123
 			const handler = handlers.get('git:scanWorktreeDirectory');
 			const result = await handler!({} as any, '/parent');
 
-			// The repoRoot should be resolved from the relative git-common-dir
-			expect(result.gitSubdirs[0].isWorktree).toBe(true);
-			expect(result.gitSubdirs[0].branch).toBe('feature-xyz');
-			expect(result.gitSubdirs[0].repoRoot).toMatch(/main-repo$/);
+			// Handler returns minimal info — worktree detection deferred to renderer
+			expect(result.gitSubdirs).toHaveLength(1);
+			expect(result.gitSubdirs[0].name).toBe('my-worktree');
+			expect(result.gitSubdirs[0].isWorktree).toBe(false);
+			expect(result.gitSubdirs[0].branch).toBeNull();
+			expect(result.gitSubdirs[0].repoRoot).toBeNull();
 		});
 	});
 

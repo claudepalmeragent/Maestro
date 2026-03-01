@@ -42,6 +42,7 @@ export interface GitSubdirEntry {
 	isWorktree: boolean;
 	branch: string | null;
 	repoRoot: string | null;
+	isBare: boolean;
 }
 
 /**

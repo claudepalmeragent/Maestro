@@ -786,7 +786,11 @@ export function useBatchProcessor({
 			const sshRemoteId =
 				session.sshRemoteId || session.sessionSshRemoteConfig?.remoteId || undefined;
 			const worktreeWithSsh = worktree ? { ...worktree, sshRemoteId } : undefined;
-			const worktreeResult = await worktreeManager.setupWorktree(session.cwd, worktreeWithSsh);
+			const worktreeResult = await worktreeManager.setupWorktree(
+				session.cwd,
+				worktreeWithSsh,
+				session.gitRoot
+			);
 			if (!worktreeResult.success) {
 				window.maestro.logger.log('error', 'Worktree setup failed', 'BatchProcessor', {
 					sessionId,

@@ -221,10 +221,11 @@ describe('fileExplorer utils', () => {
 			expect(result[2]).toEqual({ name: 'README.md', type: 'file' });
 		});
 
-		it('includes hidden files and directories (starting with .)', async () => {
+		it('includes hidden files and directories (starting with .) except .git and .git-repo', async () => {
 			vi.mocked(window.maestro.fs.readDir)
 				.mockResolvedValueOnce([
 					{ name: '.git', isFile: false, isDirectory: true },
+					{ name: '.git-repo', isFile: false, isDirectory: true },
 					{ name: '.gitignore', isFile: true, isDirectory: false },
 					{ name: '.env', isFile: true, isDirectory: false },
 					{ name: 'src', isFile: false, isDirectory: true },
@@ -234,12 +235,32 @@ describe('fileExplorer utils', () => {
 
 			const result = await loadFileTree('/project');
 
-			expect(result).toHaveLength(5);
-			expect(result.find((n) => n.name === '.git')).toBeDefined();
+			// .git and .git-repo are safety-excluded — never loaded into the tree
+			expect(result).toHaveLength(4);
+			expect(result.find((n) => n.name === '.git')).toBeUndefined();
+			expect(result.find((n) => n.name === '.git-repo')).toBeUndefined();
+			// Other dot-prefixed files/dirs are still included
 			expect(result.find((n) => n.name === '.gitignore')).toBeDefined();
 			expect(result.find((n) => n.name === '.env')).toBeDefined();
 			expect(result.find((n) => n.name === 'src')).toBeDefined();
 			expect(result.find((n) => n.name === 'README.md')).toBeDefined();
+		});
+
+		it('safety-excludes .git and .git-repo directories from file tree', async () => {
+			vi.mocked(window.maestro.fs.readDir)
+				.mockResolvedValueOnce([
+					{ name: '.git', isFile: false, isDirectory: true },
+					{ name: '.git-repo', isFile: false, isDirectory: true },
+					{ name: '.config', isFile: false, isDirectory: true },
+					{ name: 'src', isFile: false, isDirectory: true },
+				])
+				.mockResolvedValue([]); // Empty for recursive folder calls
+
+			const result = await loadFileTree('/project');
+
+			// .git and .git-repo are never included regardless of showHiddenFiles
+			expect(result).toHaveLength(2);
+			expect(result.map((n) => n.name)).toEqual(['.config', 'src']);
 		});
 
 		it('skips node_modules directory', async () => {

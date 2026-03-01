@@ -61,6 +61,27 @@ describe('graphDataBuilder', () => {
 				size: 200,
 			},
 		},
+		'.github': {
+			_isDirectory: true,
+			'CONTRIBUTING.md': {
+				content: '# Contributing\n\nSee [[readme]] for project overview.',
+				size: 120,
+			},
+		},
+		'.git': {
+			_isDirectory: true,
+			HEAD: {
+				content: 'ref: refs/heads/main',
+				size: 20,
+			},
+		},
+		'.git-repo': {
+			_isDirectory: true,
+			config: {
+				content: '[core]\nbare = true',
+				size: 30,
+			},
+		},
 		node_modules: {
 			_isDirectory: true,
 			'package.json': {
@@ -879,6 +900,43 @@ describe('graphDataBuilder', () => {
 			// SSH files should not be cached
 			const stats = getGraphCacheStats();
 			expect(stats.parsedFileCount).toBe(0);
+		});
+	});
+
+	describe('dot-prefixed directory scanning', () => {
+		it('should discover markdown files in dot-prefixed directories like .github', async () => {
+			// Build graph from the CONTRIBUTING.md file in .github
+			const result = await buildGraphData({
+				rootPath: '/test',
+				focusFile: '.github/CONTRIBUTING.md',
+				maxDepth: 2,
+			});
+
+			// The .github/CONTRIBUTING.md file should be a valid node
+			expect(result.nodes.length).toBeGreaterThanOrEqual(1);
+			const contributingNode = result.nodes.find(
+				(n) =>
+					isDocumentNode(n.data) &&
+					(n.data as DocumentNodeData).filePath === '.github/CONTRIBUTING.md'
+			);
+			expect(contributingNode).toBeDefined();
+		});
+
+		it('should NOT include files from .git or .git-repo directories', async () => {
+			// Build graph starting from readme — full scan should NOT enter .git or .git-repo
+			const result = await buildGraphData({
+				rootPath: '/test',
+				focusFile: 'readme.md',
+				maxDepth: 3,
+			});
+
+			const allPaths = result.nodes
+				.filter((n) => isDocumentNode(n.data))
+				.map((n) => (n.data as DocumentNodeData).filePath);
+
+			// No files from .git or .git-repo should appear
+			expect(allPaths.filter((p) => p.startsWith('.git/'))).toHaveLength(0);
+			expect(allPaths.filter((p) => p.startsWith('.git-repo/'))).toHaveLength(0);
 		});
 	});
 });

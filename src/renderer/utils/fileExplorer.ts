@@ -199,7 +199,14 @@ async function loadFileTreeRecursive(
 
 		for (const entry of entries) {
 			// Skip common ignore patterns (but allow hidden files/directories starting with .)
-			if (entry.name === 'node_modules' || entry.name === '__pycache__') {
+			// .git and .git-repo are excluded for SAFETY — accidental deletion would corrupt the repo.
+			// This is separate from the showHiddenFiles toggle which controls display of other dot-files.
+			if (
+				entry.name === 'node_modules' ||
+				entry.name === '__pycache__' ||
+				entry.name === '.git' ||
+				entry.name === '.git-repo'
+			) {
 				continue;
 			}
 

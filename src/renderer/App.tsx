@@ -1026,6 +1026,7 @@ function MaestroConsoleInner() {
 						return {
 							...s,
 							isGitRepo: result.isGitRepo,
+							isBareRepo: result.isBareRepo,
 							gitRoot: result.gitRoot,
 							gitBranches: result.gitBranches,
 							gitTags: result.gitTags,
@@ -1050,6 +1051,7 @@ function MaestroConsoleInner() {
 							...s,
 							sshConnectionFailed: true,
 							isGitRepo: false,
+							isBareRepo: undefined,
 							gitRoot: undefined,
 							gitBranches: undefined,
 							gitTags: undefined,
@@ -1627,6 +1629,10 @@ function MaestroConsoleInner() {
 					const { gitSubdirs } = scanResult;
 
 					for (const subdir of gitSubdirs) {
+						// Skip bare repositories — they are git resources but not worktrees
+						if (subdir.isBare) {
+							continue;
+						}
 						// Skip main/master/HEAD branches
 						if (
 							subdir.branch === 'main' ||
@@ -1699,6 +1705,8 @@ function MaestroConsoleInner() {
 							fullPath: subdir.path,
 							projectRoot: subdir.path,
 							isGitRepo: true,
+							isBareRepo: false,
+							gitRoot: subdir.path,
 							gitBranches,
 							gitTags,
 							gitRefsCacheTime,
@@ -3587,6 +3595,7 @@ function MaestroConsoleInner() {
 										return {
 											...s,
 											isGitRepo: result.isGitRepo,
+											isBareRepo: result.isBareRepo,
 											gitRoot: result.gitRoot,
 											gitBranches: result.gitBranches,
 											gitTags: result.gitTags,
@@ -8083,6 +8092,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 				fullPath: worktree.path,
 				projectRoot: worktree.path,
 				isGitRepo: true,
+				gitRoot: worktree.path,
 				gitBranches,
 				gitTags,
 				gitRefsCacheTime,
@@ -8197,6 +8207,10 @@ You are taking over this conversation. Based on the context above, provide a bri
 						const { gitSubdirs } = result;
 
 						for (const subdir of gitSubdirs) {
+							// Skip bare repositories — they are git resources but not worktrees
+							if (subdir.isBare) {
+								continue;
+							}
 							// Skip if this path was manually removed by the user (use ref for current value)
 							const currentRemovedPaths = removedWorktreePathsRef.current;
 							if (currentRemovedPaths.has(subdir.path)) {
@@ -8263,6 +8277,8 @@ You are taking over this conversation. Based on the context above, provide a bri
 								fullPath: subdir.path,
 								projectRoot: subdir.path,
 								isGitRepo: true,
+								isBareRepo: false,
+								gitRoot: subdir.path,
 								gitBranches,
 								gitTags,
 								gitRefsCacheTime,
@@ -8899,6 +8915,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 						? {
 								...s,
 								isGitRepo: result.isGitRepo,
+								isBareRepo: result.isBareRepo,
 								gitRoot: result.gitRoot,
 								gitBranches: result.gitBranches,
 								gitTags: result.gitTags,
@@ -9939,7 +9956,8 @@ You are taking over this conversation. Based on the context above, provide a bri
 			const isGitRepo = await gitService.isRepo(session.projectRoot, sshRemoteId);
 			if (isGitRepo) {
 				try {
-					const [gitBranches, gitTags] = await Promise.all([
+					const [gitRepoRoot, gitBranches, gitTags] = await Promise.all([
+						gitService.getRepoRoot(session.projectRoot, sshRemoteId),
 						gitService.getBranches(session.projectRoot, sshRemoteId),
 						gitService.getTags(session.projectRoot, sshRemoteId),
 					]);
@@ -9950,6 +9968,8 @@ You are taking over this conversation. Based on the context above, provide a bri
 							return {
 								...s,
 								isGitRepo: true,
+								isBareRepo: false,
+								gitRoot: gitRepoRoot || session.projectRoot,
 								gitBranches,
 								gitTags,
 								gitRefsCacheTime: Date.now(),
@@ -11825,6 +11845,8 @@ You are taking over this conversation. Based on the context above, provide a bri
 							fullPath: subdir.path,
 							projectRoot: subdir.path,
 							isGitRepo: true,
+							isBareRepo: false,
+							gitRoot: subdir.path,
 							gitBranches,
 							gitTags,
 							gitRefsCacheTime,
@@ -11949,8 +11971,12 @@ You are taking over this conversation. Based on the context above, provide a bri
 
 			try {
 				// Create the worktree via git (pass SSH remote ID for remote sessions)
+				// Use gitRoot (the actual git repo path) rather than cwd, because for
+				// subdirectory repos (e.g., bare repo at /app/.git-repo with cwd /app/)
+				// git worktree add must run from the repo, and the nested-path check
+				// must compare against the repo path, not the parent directory.
 				const result = await window.maestro.git.worktreeSetup(
-					activeSession.cwd,
+					activeSession.gitRoot || activeSession.cwd,
 					worktreePath,
 					branchName,
 					sshRemoteId
@@ -12002,6 +12028,8 @@ You are taking over this conversation. Based on the context above, provide a bri
 					fullPath: worktreePath,
 					projectRoot: worktreePath,
 					isGitRepo: true,
+					isBareRepo: false,
+					gitRoot: worktreePath,
 					gitBranches,
 					gitTags,
 					gitRefsCacheTime,
@@ -12081,10 +12109,13 @@ You are taking over this conversation. Based on the context above, provide a bri
 		async (branchName: string) => {
 			if (!createWorktreeSession) return;
 
-			// Determine base path: use configured path or default to parent directory
+			// Determine base path: use configured path or default to parent of the git repo.
+			// For subdirectory repos (e.g., gitRoot=/app/.git-repo, cwd=/app/), this puts
+			// worktrees as siblings of the repo: /app/worktrees/<branch>
+			const repoPath = createWorktreeSession.gitRoot || createWorktreeSession.cwd;
 			const basePath =
 				createWorktreeSession.worktreeConfig?.basePath ||
-				createWorktreeSession.cwd.replace(/\/[^/]+$/, '') + '/worktrees';
+				repoPath.replace(/\/[^/]+$/, '') + '/worktrees';
 
 			const worktreePath = `${basePath}/${branchName}`;
 			console.log('[CreateWorktree] Create worktree:', branchName, 'at', worktreePath);
@@ -12098,8 +12129,9 @@ You are taking over this conversation. Based on the context above, provide a bri
 				undefined;
 
 			// Create the worktree via git (pass SSH remote ID for remote sessions)
+			// Use gitRoot (the actual git repo path) — see Task 1 comment for rationale
 			const result = await window.maestro.git.worktreeSetup(
-				createWorktreeSession.cwd,
+				createWorktreeSession.gitRoot || createWorktreeSession.cwd,
 				worktreePath,
 				branchName,
 				sshRemoteId
@@ -12151,6 +12183,8 @@ You are taking over this conversation. Based on the context above, provide a bri
 				fullPath: worktreePath,
 				projectRoot: worktreePath,
 				isGitRepo: true,
+				isBareRepo: false,
+				gitRoot: worktreePath,
 				gitBranches,
 				gitTags,
 				gitRefsCacheTime,

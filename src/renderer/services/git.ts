@@ -224,6 +224,7 @@ export const gitService = {
  */
 export interface GitDetectionResult {
 	isGitRepo: boolean;
+	isBareRepo?: boolean;
 	gitRoot?: string;
 	gitBranches?: string[];
 	gitTags?: string[];
@@ -299,6 +300,7 @@ async function detectGitRepoImpl(
 		);
 		return {
 			isGitRepo: true,
+			isBareRepo: false,
 			gitRoot,
 			gitBranches,
 			gitTags,
@@ -335,6 +337,7 @@ async function detectGitRepoImpl(
 
 	return {
 		isGitRepo: true,
+		isBareRepo: subdir.isBare,
 		gitRoot,
 		gitBranches,
 		gitTags,

@@ -663,7 +663,7 @@ export const MainPanel = React.memo(
 		// Derive gitInfo format from focused context data for backward compatibility
 		const branchInfo = activeSession ? getBranchInfo(activeSession.id) : undefined;
 		const gitInfo =
-			branchInfo && activeSession?.isGitRepo
+			branchInfo && activeSession?.isGitRepo && !activeSession?.isBareRepo
 				? {
 						branch: branchInfo.branch || '',
 						remote: branchInfo.remote || '',
@@ -857,7 +857,7 @@ export const MainPanel = React.memo(
 													}`}
 													onClick={(e) => {
 														e.stopPropagation();
-														if (activeSession.isGitRepo) {
+														if (activeSession.isGitRepo && !activeSession.isBareRepo) {
 															refreshGitStatus(); // Refresh git info immediately on click
 															setGitLogOpen?.(true);
 														}
@@ -1067,7 +1067,7 @@ export const MainPanel = React.memo(
 									{/* Git Status Widget */}
 									<GitStatusWidget
 										sessionId={activeSession.id}
-										isGitRepo={activeSession.isGitRepo}
+										isGitRepo={activeSession.isGitRepo && !activeSession.isBareRepo}
 										theme={theme}
 										onViewDiff={handleViewGitDiff}
 										compact={useCompactGitWidget}

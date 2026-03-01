@@ -566,6 +566,7 @@ export interface Session {
 	changedFiles: FileArtifact[];
 	isGitRepo: boolean;
 	gitRoot?: string; // Git repository root path (may differ from cwd for subdirectory repos)
+	isBareRepo?: boolean; // True when gitRoot points to a bare repo (e.g., .git-repo) — suppresses branch/diff display
 	// Git branches and tags cache (for tab completion)
 	gitBranches?: string[];
 	gitTags?: string[];

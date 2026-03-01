@@ -105,7 +105,9 @@ describe('detectGitRepo', () => {
 		expect(result.gitSubdirScanResults).toBeUndefined();
 	});
 
-	it('should return scan results when 2+ subdirs found', async () => {
+	it('should auto-select first subdir even when scan returns multiple results', async () => {
+		// scanWorktreeDirectory now stops at first hit (returns 0 or 1), but
+		// even if somehow multiple are returned, the function auto-selects the first.
 		mockGit.isRepo.mockResolvedValue(false);
 		const subdirs = [
 			{
@@ -124,17 +126,18 @@ describe('detectGitRepo', () => {
 			},
 		];
 		mockGit.scanWorktreeDirectory.mockResolvedValue({ gitSubdirs: subdirs });
+		mockGit.getRepoRoot.mockResolvedValue({ root: '/home/user/projects/app-a' });
+		mockGit.branches.mockResolvedValue({ branches: ['main'] });
+		mockGit.tags.mockResolvedValue({ tags: [] });
 
 		const result = await detectGitRepo('/home/user/projects', undefined, {
 			enableSubdirScan: true,
 		});
 
-		expect(result.isGitRepo).toBe(false);
-		expect(result.gitSubdirScanResults).toEqual(subdirs);
-		expect(result.gitRoot).toBeUndefined();
-		// Should NOT call getRepoRoot/branches/tags for multi-subdir case
-		expect(mockGit.getRepoRoot).not.toHaveBeenCalled();
-		expect(mockGit.branches).not.toHaveBeenCalled();
+		// Auto-selects first subdir and returns isGitRepo: true
+		expect(result.isGitRepo).toBe(true);
+		expect(result.gitRoot).toBe('/home/user/projects/app-a');
+		expect(result.gitSubdirScanResults).toBeUndefined();
 	});
 
 	it('should pass sshRemoteId through to all gitService calls', async () => {

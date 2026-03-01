@@ -994,15 +994,18 @@ const SessionTooltipContent = memo(function SessionTooltipContent({
 				</div>
 
 				{/* Git Status */}
-				{session.isGitRepo && gitFileCount !== undefined && gitFileCount > 0 && (
-					<div className="flex items-center justify-between text-[10px] pt-1">
-						<span className="flex items-center gap-1" style={{ color: theme.colors.textDim }}>
-							<GitBranch className="w-3 h-3" />
-							Git Changes
-						</span>
-						<span style={{ color: theme.colors.warning }}>{gitFileCount} files</span>
-					</div>
-				)}
+				{session.isGitRepo &&
+					!session.isBareRepo &&
+					gitFileCount !== undefined &&
+					gitFileCount > 0 && (
+						<div className="flex items-center justify-between text-[10px] pt-1">
+							<span className="flex items-center gap-1" style={{ color: theme.colors.textDim }}>
+								<GitBranch className="w-3 h-3" />
+								Git Changes
+							</span>
+							<span style={{ color: theme.colors.warning }}>{gitFileCount} files</span>
+						</div>
+					)}
 
 				{/* Session Cost */}
 				{session.usageStats && getDisplayCost(session.usageStats) > 0 && (
@@ -1475,6 +1478,9 @@ function SessionListInner(props: SessionListProps) {
 		const map = new Map<string, Session[]>();
 		sessions.forEach((session) => {
 			if (!session.parentSessionId) return;
+			// Filter out bare repository sessions (e.g., .git-repo) from worktree display.
+			// These are valid git resources but should not appear as worktree children in the sidebar.
+			if (session.cwd.endsWith('/.git-repo') || session.name === '.git-repo') return;
 			const siblings = map.get(session.parentSessionId);
 			if (siblings) {
 				siblings.push(session);

@@ -83,7 +83,8 @@ export interface UseWorktreeManagerReturn {
 	/** Set up a git worktree for batch processing */
 	setupWorktree: (
 		sessionCwd: string,
-		worktree: WorktreeConfig | undefined
+		worktree: WorktreeConfig | undefined,
+		sessionGitRoot?: string
 	) => Promise<WorktreeSetupResult>;
 	/** Create a pull request after batch completion */
 	createPR: (options: CreatePROptions) => Promise<PRCreationResult>;
@@ -124,7 +125,8 @@ ${docList}
 	const setupWorktree = useCallback(
 		async (
 			sessionCwd: string,
-			worktree: WorktreeConfig | undefined
+			worktree: WorktreeConfig | undefined,
+			sessionGitRoot?: string
 		): Promise<WorktreeSetupResult> => {
 			// Default result when worktree is not enabled
 			const defaultResult: WorktreeSetupResult = {
@@ -166,8 +168,9 @@ ${docList}
 
 			try {
 				// Set up or reuse the worktree
+				// Use gitRoot (the actual git repo path) when available — see ARD 24a context
 				const setupResult = await window.maestro.git.worktreeSetup(
-					sessionCwd,
+					sessionGitRoot || sessionCwd,
 					worktree.path,
 					worktree.branchName,
 					worktree.sshRemoteId

@@ -594,6 +594,7 @@ interface MaestroAPI {
 				isWorktree: boolean;
 				branch: string | null;
 				repoRoot: string | null;
+				isBare: boolean;
 			}>;
 		}>;
 		// File watching is not available for SSH remote sessions.
