@@ -170,14 +170,6 @@ export async function validateSshSocket(
 }
 
 /**
- * Trigger master connection re-establishment via the health monitor.
- *
- * Looks up the remote by host/port/username in the health monitor's tracked remotes
- * and calls establishMaster(). This is fire-and-forget — the operation that triggered
- * the pre-flight check will either succeed (if the master comes up fast enough)
- * or fail and be retried by the retry logic in remote-fs.ts / other callers.
- */
-/**
  * Trigger master connection re-establishment and optionally wait for completion.
  *
  * @param host - SSH remote hostname
