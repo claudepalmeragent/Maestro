@@ -9,20 +9,6 @@ import React from 'react';
 import { PlaybookDeleteConfirmModal } from '../../../renderer/components/PlaybookDeleteConfirmModal';
 import { LayerStackProvider } from '../../../renderer/contexts/LayerStackContext';
 import type { Theme } from '../../../renderer/types';
-
-// Mock lucide-react
-vi.mock('lucide-react', () => ({
-	X: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="x-icon" className={className} style={style} />
-	),
-	AlertTriangle: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="alert-triangle-icon" className={className} style={style} />
-	),
-	Trash2: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="trash2-icon" className={className} style={style} />
-	),
-}));
-
 // Create a mock theme for testing
 const createMockTheme = (): Theme => ({
 	id: 'test-theme',

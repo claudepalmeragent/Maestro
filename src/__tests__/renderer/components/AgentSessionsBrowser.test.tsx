@@ -14,47 +14,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import { AgentSessionsBrowser } from '../../../renderer/components/AgentSessionsBrowser';
-import { LayerStackProvider } from '../../../renderer/contexts/LayerStackContext';
+import { LayerStackProvider, useLayerStack } from '../../../renderer/contexts/LayerStackContext';
 import type { Theme, Session, LogEntry, SubagentInfo } from '../../../renderer/types';
-
-// Mock lucide-react icons
-vi.mock('lucide-react', () => ({
-	Search: () => <span data-testid="icon-search" />,
-	Clock: () => <span data-testid="icon-clock" />,
-	MessageSquare: () => <span data-testid="icon-message-square" />,
-	HardDrive: () => <span data-testid="icon-hard-drive" />,
-	Play: () => <span data-testid="icon-play" />,
-	ChevronLeft: () => <span data-testid="icon-chevron-left" />,
-	ChevronRight: () => <span data-testid="icon-chevron-right" />,
-	Loader2: ({ className }: { className?: string }) => (
-		<span data-testid="icon-loader" className={className} />
-	),
-	Plus: () => <span data-testid="icon-plus" />,
-	X: () => <span data-testid="icon-x" />,
-	List: () => <span data-testid="icon-list" />,
-	Database: () => <span data-testid="icon-database" />,
-	BarChart3: () => <span data-testid="icon-bar-chart" />,
-	ChevronDown: () => <span data-testid="icon-chevron-down" />,
-	User: () => <span data-testid="icon-user" />,
-	Bot: () => <span data-testid="icon-bot" />,
-	DollarSign: () => <span data-testid="icon-dollar-sign" />,
-	Star: ({ style }: { style?: React.CSSProperties }) => (
-		<span data-testid="icon-star" style={style} />
-	),
-	Zap: () => <span data-testid="icon-zap" />,
-	Timer: () => <span data-testid="icon-timer" />,
-	Hash: () => <span data-testid="icon-hash" />,
-	ArrowDownToLine: () => <span data-testid="icon-arrow-down" />,
-	ArrowUpFromLine: () => <span data-testid="icon-arrow-up" />,
-	Edit3: () => <span data-testid="icon-edit" />,
-	CheckCircle2: () => <span data-testid="icon-check-circle" />,
-	AlertCircle: () => <span data-testid="icon-alert-circle" />,
-	// Icons for SubagentListItem
-	ClipboardList: () => <span data-testid="icon-clipboard-list" />,
-	Terminal: () => <span data-testid="icon-terminal" />,
-	Sparkles: () => <span data-testid="icon-sparkles" />,
-}));
-
 // Default theme
 const defaultTheme: Theme = {
 	id: 'dracula',
@@ -510,7 +471,7 @@ describe('AgentSessionsBrowser', () => {
 				renderWithProvider(<AgentSessionsBrowser {...createDefaultProps()} />);
 			});
 
-			expect(screen.getByTestId('icon-loader')).toBeInTheDocument();
+			expect(screen.getByTestId('loader2-icon')).toBeInTheDocument();
 		});
 
 		it('shows active session name in header', async () => {
@@ -593,7 +554,7 @@ describe('AgentSessionsBrowser', () => {
 			});
 
 			// Star icon should be filled (warning color)
-			const starIcon = screen.getAllByTestId('icon-star')[0];
+			const starIcon = screen.getAllByTestId('star-icon')[0];
 			expect(starIcon).toHaveStyle({ fill: defaultTheme.colors.warning });
 		});
 
@@ -1024,7 +985,7 @@ describe('AgentSessionsBrowser', () => {
 
 			// Find the clear search button - it's the X icon in the search bar, not the modal close button
 			// Get all X icons and find the one in the search area
-			const xIcons = screen.getAllByTestId('icon-x');
+			const xIcons = screen.getAllByTestId('x-icon');
 			// The clear button is the one that appears after the search input
 			const clearButton = xIcons
 				.find((icon) => {
@@ -1278,7 +1239,7 @@ describe('AgentSessionsBrowser', () => {
 			});
 
 			// Find and click star button
-			const starButton = screen.getByTestId('icon-star').closest('button');
+			const starButton = screen.getByTestId('star-icon').closest('button');
 			await act(async () => {
 				fireEvent.click(starButton!);
 				await vi.runAllTimersAsync();
@@ -1313,7 +1274,7 @@ describe('AgentSessionsBrowser', () => {
 			});
 
 			// Click star to unstar
-			const starButton = screen.getByTestId('icon-star').closest('button');
+			const starButton = screen.getByTestId('star-icon').closest('button');
 			await act(async () => {
 				fireEvent.click(starButton!);
 				await vi.runAllTimersAsync();
@@ -1355,7 +1316,7 @@ describe('AgentSessionsBrowser', () => {
 			});
 
 			// Click star button
-			const starButton = screen.getByTestId('icon-star').closest('button');
+			const starButton = screen.getByTestId('star-icon').closest('button');
 			await act(async () => {
 				fireEvent.click(starButton!);
 				await vi.runAllTimersAsync();
@@ -1432,7 +1393,7 @@ describe('AgentSessionsBrowser', () => {
 			});
 
 			// Find and click edit button
-			const editButtons = screen.getAllByTestId('icon-edit');
+			const editButtons = screen.getAllByTestId('edit3-icon');
 			const editButton = editButtons[0].closest('button');
 			await act(async () => {
 				fireEvent.click(editButton!);
@@ -1460,7 +1421,7 @@ describe('AgentSessionsBrowser', () => {
 			});
 
 			// Start rename
-			const editButtons = screen.getAllByTestId('icon-edit');
+			const editButtons = screen.getAllByTestId('edit3-icon');
 			const editButton = editButtons[0].closest('button');
 			await act(async () => {
 				fireEvent.click(editButton!);
@@ -1498,7 +1459,7 @@ describe('AgentSessionsBrowser', () => {
 			});
 
 			// Start rename
-			const editButtons = screen.getAllByTestId('icon-edit');
+			const editButtons = screen.getAllByTestId('edit3-icon');
 			const editButton = editButtons[0].closest('button');
 			await act(async () => {
 				fireEvent.click(editButton!);
@@ -1544,7 +1505,7 @@ describe('AgentSessionsBrowser', () => {
 			});
 
 			// Start rename
-			const editButtons = screen.getAllByTestId('icon-edit');
+			const editButtons = screen.getAllByTestId('edit3-icon');
 			const editButton = editButtons[0].closest('button');
 			await act(async () => {
 				fireEvent.click(editButton!);
@@ -1586,7 +1547,7 @@ describe('AgentSessionsBrowser', () => {
 			});
 
 			// Start rename
-			const editButtons = screen.getAllByTestId('icon-edit');
+			const editButtons = screen.getAllByTestId('edit3-icon');
 			const editButton = editButtons[0].closest('button');
 			await act(async () => {
 				fireEvent.click(editButton!);
@@ -1636,7 +1597,7 @@ describe('AgentSessionsBrowser', () => {
 			});
 
 			// Click edit button to start rename
-			const editButton = screen.getByTestId('icon-edit').closest('button');
+			const editButton = screen.getByTestId('edit3-icon').closest('button');
 			fireEvent.click(editButton!);
 
 			// Type new name - use placeholder to find the rename input specifically
@@ -1762,6 +1723,17 @@ describe('AgentSessionsBrowser', () => {
 			const onClose = vi.fn();
 			const props = createDefaultProps({ onClose });
 
+			// Capture the onEscape callback passed to registerLayer
+			let capturedOnEscape: (() => void) | undefined;
+			const mockLayerStack = vi.mocked(useLayerStack)();
+			vi.mocked(useLayerStack).mockReturnValue({
+				...mockLayerStack,
+				registerLayer: vi.fn().mockImplementation((opts: { onEscape?: () => void }) => {
+					capturedOnEscape = opts.onEscape;
+					return 'layer-mock-id';
+				}),
+			});
+
 			await act(async () => {
 				renderWithProvider(<AgentSessionsBrowser {...props} />);
 				await vi.runAllTimersAsync();
@@ -1772,14 +1744,10 @@ describe('AgentSessionsBrowser', () => {
 				await vi.runAllTimersAsync();
 			});
 
-			// Escape should close modal directly (search panel no longer intercepts Escape)
+			// Invoke the onEscape handler that the component registered with the layer stack
+			expect(capturedOnEscape).toBeDefined();
 			await act(async () => {
-				const escapeEvent = new KeyboardEvent('keydown', {
-					key: 'Escape',
-					bubbles: true,
-					cancelable: true,
-				});
-				window.dispatchEvent(escapeEvent);
+				capturedOnEscape!();
 				await vi.runAllTimersAsync();
 			});
 
@@ -1803,6 +1771,21 @@ describe('AgentSessionsBrowser', () => {
 			const onClose = vi.fn();
 			const props = createDefaultProps({ onClose });
 
+			// Capture the onEscape callback and track updates via updateLayerHandler
+			let capturedOnEscape: (() => void) | undefined;
+			let updatedHandler: (() => void) | undefined;
+			const mockLayerStack = vi.mocked(useLayerStack)();
+			vi.mocked(useLayerStack).mockReturnValue({
+				...mockLayerStack,
+				registerLayer: vi.fn().mockImplementation((opts: { onEscape?: () => void }) => {
+					capturedOnEscape = opts.onEscape;
+					return 'layer-mock-id';
+				}),
+				updateLayerHandler: vi.fn().mockImplementation((_id: string, handler: () => void) => {
+					updatedHandler = handler;
+				}),
+			});
+
 			await act(async () => {
 				renderWithProvider(<AgentSessionsBrowser {...props} />);
 				await vi.runAllTimersAsync();
@@ -1817,9 +1800,11 @@ describe('AgentSessionsBrowser', () => {
 				await vi.runAllTimersAsync();
 			});
 
-			// Escape should go back to list
+			// Use the updated handler (set when viewingSession changes), or fall back to the initial one
+			const escapeHandler = updatedHandler || capturedOnEscape;
+			expect(escapeHandler).toBeDefined();
 			await act(async () => {
-				fireEvent.keyDown(window, { key: 'Escape' });
+				escapeHandler!();
 				await vi.runAllTimersAsync();
 			});
 
@@ -1996,7 +1981,7 @@ describe('AgentSessionsBrowser', () => {
 				await vi.runAllTimersAsync();
 			});
 
-			expect(screen.getByTestId('icon-chevron-left')).toBeInTheDocument();
+			expect(screen.getByTestId('chevron-left-icon')).toBeInTheDocument();
 		});
 
 		it('navigates back to list on back button click', async () => {
@@ -2021,7 +2006,7 @@ describe('AgentSessionsBrowser', () => {
 				await vi.runAllTimersAsync();
 			});
 
-			const backButton = screen.getByTestId('icon-chevron-left').closest('button');
+			const backButton = screen.getByTestId('chevron-left-icon').closest('button');
 			await act(async () => {
 				fireEvent.click(backButton!);
 				await vi.runAllTimersAsync();
@@ -2399,7 +2384,7 @@ describe('AgentSessionsBrowser', () => {
 			});
 
 			// Find and click quick resume (play) button - it's visible on hover
-			const playButtons = screen.getAllByTestId('icon-play');
+			const playButtons = screen.getAllByTestId('play-icon');
 			const quickResumeButton = playButtons[0].closest('button');
 			await act(async () => {
 				fireEvent.click(quickResumeButton!);
@@ -2460,8 +2445,8 @@ describe('AgentSessionsBrowser', () => {
 				await vi.runAllTimersAsync();
 			});
 
-			// Find X button (icon-x inside a button)
-			const closeButtons = screen.getAllByTestId('icon-x');
+			// Find X button (x-icon inside a button)
+			const closeButtons = screen.getAllByTestId('x-icon');
 			const closeButton = closeButtons[closeButtons.length - 1].closest('button');
 			await act(async () => {
 				fireEvent.click(closeButton!);
@@ -2655,7 +2640,7 @@ describe('AgentSessionsBrowser', () => {
 			});
 
 			// Should show loader while loading
-			expect(screen.getAllByTestId('icon-loader').length).toBeGreaterThan(0);
+			expect(screen.getAllByTestId('loader2-icon').length).toBeGreaterThan(0);
 
 			// Resolve
 			await act(async () => {
@@ -2696,7 +2681,7 @@ describe('AgentSessionsBrowser', () => {
 
 			// When activeAgentSessionId is provided, the component auto-jumps to detail view
 			// Go back to list view first
-			const backButton = screen.getByTestId('icon-chevron-left').closest('button');
+			const backButton = screen.getByTestId('chevron-left-icon').closest('button');
 			await act(async () => {
 				fireEvent.click(backButton!);
 				await vi.runAllTimersAsync();
@@ -2769,7 +2754,7 @@ describe('AgentSessionsBrowser', () => {
 			});
 
 			// Click edit button in header
-			const editButtons = screen.getAllByTestId('icon-edit');
+			const editButtons = screen.getAllByTestId('edit3-icon');
 			const headerEditButton = editButtons[0].closest('button');
 			await act(async () => {
 				fireEvent.click(headerEditButton!);
@@ -2853,7 +2838,7 @@ describe('AgentSessionsBrowser', () => {
 			});
 
 			// Find star button in header (detail view)
-			const starButtons = screen.getAllByTestId('icon-star');
+			const starButtons = screen.getAllByTestId('star-icon');
 			const headerStarButton = starButtons[0].closest('button');
 			await act(async () => {
 				fireEvent.click(headerStarButton!);

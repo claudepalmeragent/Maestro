@@ -13,6 +13,10 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+
+// Undo the global mock from setup.ts so LayerStack Escape handling works in these tests
+vi.unmock('../../../renderer/contexts/LayerStackContext');
+
 import {
 	AutoRunSearchBar,
 	type AutoRunSearchBarProps,
@@ -24,22 +28,6 @@ import type { Theme } from '../../../renderer/types';
 const renderWithProvider = (ui: React.ReactElement) => {
 	return render(<LayerStackProvider>{ui}</LayerStackProvider>);
 };
-
-// Mock Lucide icons
-vi.mock('lucide-react', () => ({
-	Search: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="search-icon" className={className} style={style} />
-	),
-	ChevronUp: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="chevron-up-icon" className={className} style={style} />
-	),
-	ChevronDown: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="chevron-down-icon" className={className} style={style} />
-	),
-	X: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="x-icon" className={className} style={style} />
-	),
-}));
 
 // Create a mock theme for testing
 const createMockTheme = (): Theme => ({

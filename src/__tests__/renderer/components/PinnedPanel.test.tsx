@@ -3,51 +3,6 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { PinnedPanel } from '../../../renderer/components/PinnedPanel';
 import type { PinnedItem, Theme } from '../../../renderer/types';
-
-// Mock lucide-react icons
-vi.mock('lucide-react', () => ({
-	Pin: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<span data-testid="pin-icon" className={className} style={style}>
-			📌
-		</span>
-	),
-	X: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<span data-testid="x-icon" className={className} style={style}>
-			×
-		</span>
-	),
-	User: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<span data-testid="user-icon" className={className} style={style}>
-			👤
-		</span>
-	),
-	Bot: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<span data-testid="bot-icon" className={className} style={style}>
-			🤖
-		</span>
-	),
-	Search: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<span data-testid="search-icon" className={className} style={style}>
-			🔍
-		</span>
-	),
-	Copy: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<span data-testid="copy-icon" className={className} style={style}>
-			📋
-		</span>
-	),
-	Check: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<span data-testid="check-icon" className={className} style={style}>
-			✓
-		</span>
-	),
-	GripVertical: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<span data-testid="grip-icon" className={className} style={style}>
-			⠿
-		</span>
-	),
-}));
-
 const mockTheme: Theme = {
 	colors: {
 		accent: '#7c3aed',

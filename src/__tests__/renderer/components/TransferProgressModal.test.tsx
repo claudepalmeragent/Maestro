@@ -19,17 +19,6 @@ import { TransferProgressModal } from '../../../renderer/components/TransferProg
 import { LayerStackProvider } from '../../../renderer/contexts/LayerStackContext';
 import type { Theme, ToolType } from '../../../renderer/types';
 import type { GroomingProgress } from '../../../renderer/types/contextMerge';
-
-// Mock lucide-react
-vi.mock('lucide-react', () => ({
-	X: () => <svg data-testid="x-icon" />,
-	Check: () => <svg data-testid="check-icon" />,
-	Loader2: () => <svg data-testid="loader-icon" />,
-	AlertTriangle: () => <svg data-testid="alert-icon" />,
-	ArrowRight: () => <svg data-testid="arrow-right-icon" />,
-	Wand2: () => <svg data-testid="wand-icon" />,
-}));
-
 // Mock contextGroomer for getAgentDisplayName
 vi.mock('../../../renderer/services/contextGroomer', () => ({
 	getAgentDisplayName: (toolType: ToolType) => {

@@ -297,6 +297,11 @@ export class SshHealthMonitor {
 						status.lastSuccessful = Date.now();
 						status.consecutiveFailures = 0;
 						logger.info(`SSH master established for ${remote.host}`, LOG_CONTEXT);
+
+						// Diagnostic: query remote sshd keepalive settings (fire-and-forget)
+						this.logRemoteSshdSettings(remote).catch(() => {
+							// Ignore errors — this is purely diagnostic
+						});
 					} else {
 						// ControlMaster=yes fails if socket already exists — that's OK
 						if (stderrOutput.includes('ControlSocket') && stderrOutput.includes('already exists')) {
@@ -329,6 +334,52 @@ export class SshHealthMonitor {
 			sshProcess.unref();
 		} catch (err) {
 			logger.debug(`Failed to start master establishment for ${remote.host}: ${err}`, LOG_CONTEXT);
+		}
+	}
+
+	/**
+	 * Query and log the remote sshd's keepalive settings.
+	 * This runs after a successful ControlMaster establishment to detect mismatches
+	 * between client-side and server-side keepalive configurations.
+	 */
+	private async logRemoteSshdSettings(remote: MonitoredRemote): Promise<void> {
+		try {
+			const sshPath = await resolveSshPath();
+			const destination = remote.username ? `${remote.username}@${remote.host}` : remote.host;
+
+			const args: string[] = [];
+			if (!remote.useSshConfig && remote.privateKeyPath) {
+				args.push('-i', remote.privateKeyPath);
+			} else if (remote.useSshConfig && remote.privateKeyPath?.trim()) {
+				args.push('-i', remote.privateKeyPath);
+			}
+
+			// Use the existing ControlMaster socket for this query
+			args.push('-o', `ControlPath=/tmp/maestro-ssh-%C`);
+			args.push('-o', 'ControlMaster=no');
+
+			if (!remote.useSshConfig || remote.port !== 22) {
+				args.push('-p', remote.port.toString());
+			}
+
+			args.push(destination);
+			args.push(
+				'sshd -T 2>/dev/null | grep -iE "clientaliveinterval|clientalivecountmax|maxsessions" || echo "sshd -T not available"'
+			);
+
+			const { execFile } = await import('child_process');
+			const { promisify } = await import('util');
+			const execFileAsync = promisify(execFile);
+
+			const { stdout } = await execFileAsync(sshPath, args, { timeout: 10000 });
+			if (stdout.trim()) {
+				logger.info(
+					`Remote sshd settings for ${remote.host}: ${stdout.trim().replace(/\n/g, ', ')}`,
+					LOG_CONTEXT
+				);
+			}
+		} catch {
+			// Non-critical — don't log errors for this diagnostic
 		}
 	}
 }

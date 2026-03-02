@@ -28,6 +28,34 @@ vi.mock('../../../main/utils/logger', () => ({
 	},
 }));
 
+// Mock the model registry store (required by claude-pricing.ts → getPricingForModel)
+vi.mock('../../../main/stores/getters', () => ({
+	getModelRegistryStore: () => ({
+		store: {
+			schemaVersion: 1,
+			models: {
+				'claude-opus-4-5-20251101': {
+					displayName: 'Claude Opus 4.5',
+					family: 'opus',
+					pricing: {
+						INPUT_PER_MILLION: 5,
+						OUTPUT_PER_MILLION: 25,
+						CACHE_READ_PER_MILLION: 0.5,
+						CACHE_CREATION_PER_MILLION: 6.25,
+					},
+					source: 'builtin',
+				},
+			},
+			aliases: {
+				opus: 'claude-opus-4-5-20251101',
+				'opus-4.5': 'claude-opus-4-5-20251101',
+			},
+			defaultModelId: 'claude-opus-4-5-20251101',
+			suppressedDisplayNames: [],
+		},
+	}),
+}));
+
 import { reconstructHistoricalData } from '../../../main/services/historical-reconstruction-service';
 
 describe('historical-reconstruction-service', () => {
@@ -220,8 +248,7 @@ describe('historical-reconstruction-service', () => {
 			expect(mockRun).toHaveBeenCalled();
 		});
 
-		it('should skip entries with no matching query_event (reconstruction never inserts)', async () => {
-			// COST-GRAPH-FIX-12: Reconstruction only updates existing records, never inserts
+		it('should insert new records when no existing query_event found', async () => {
 			const jsonlPath = path.join(projectsDir, 'session-123.jsonl');
 			const entries = [
 				{
@@ -254,15 +281,14 @@ describe('historical-reconstruction-service', () => {
 			const result = await reconstructHistoricalData({ dryRun: false, basePath: tempDir });
 
 			expect(result.queriesFound).toBe(1);
-			// Reconstruction never inserts - entries without matching query_events are skipped
-			expect(result.queriesInserted).toBe(0);
-			expect(result.queriesSkipped).toBe(1);
-			// No database writes should occur for skipped entries
-			expect(mockRun).not.toHaveBeenCalled();
+			// processUsageEntry inserts a new record when no existing query_event is found
+			expect(result.queriesInserted).toBe(1);
+			expect(result.queriesSkipped).toBe(0);
+			// INSERT should have been executed
+			expect(mockRun).toHaveBeenCalled();
 		});
 
-		it('should skip entries with no matching query_event in dry-run mode', async () => {
-			// COST-GRAPH-FIX-12: Reconstruction only updates existing records, never inserts
+		it('should count inserts without writing in dry-run mode when no existing record', async () => {
 			const jsonlPath = path.join(projectsDir, 'session-123.jsonl');
 			const entries = [
 				{
@@ -289,9 +315,10 @@ describe('historical-reconstruction-service', () => {
 			const result = await reconstructHistoricalData({ dryRun: true, basePath: tempDir });
 
 			expect(result.queriesFound).toBe(1);
-			// Reconstruction never inserts - entries without matching query_events are skipped
-			expect(result.queriesInserted).toBe(0);
-			expect(result.queriesSkipped).toBe(1);
+			// processUsageEntry returns 'inserted' even in dry-run (it just doesn't write)
+			expect(result.queriesInserted).toBe(1);
+			expect(result.queriesSkipped).toBe(0);
+			// No database writes should occur in dry-run mode
 			expect(mockRun).not.toHaveBeenCalled();
 		});
 
@@ -505,12 +532,11 @@ describe('historical-reconstruction-service', () => {
 			expect(result.queriesInserted).toBe(0);
 
 			// Check that costs were calculated
-			// UPDATE column order: input_tokens(0), output_tokens(1), cache_read_input_tokens(2),
-			// cache_creation_input_tokens(3), tokens_per_second(4), anthropic_cost_usd(5),
-			// anthropic_model(6), maestro_cost_usd(7), maestro_pricing_model(8), maestro_calculated_at(9),
-			// claude_session_id(10), id(11)
-			const anthropicCost = updateValues[5] as number;
-			const maestroCost = updateValues[7] as number;
+			// processUsageEntry UPDATE column order:
+			// anthropic_cost_usd(0), anthropic_model(1), maestro_cost_usd(2),
+			// maestro_pricing_model(3), maestro_calculated_at(4), id(5)
+			const anthropicCost = updateValues[0] as number;
+			const maestroCost = updateValues[2] as number;
 
 			// Opus 4.5 pricing: $5/M input, $25/M output
 			expect(anthropicCost).toBeCloseTo(30, 1); // $5 input + $25 output

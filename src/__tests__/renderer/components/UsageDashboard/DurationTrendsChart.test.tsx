@@ -310,8 +310,8 @@ describe('DurationTrendsChart', () => {
 			if (circles.length > 0) {
 				fireEvent.mouseEnter(circles[0]);
 
-				// Tooltip should appear with date
-				const tooltip = container.querySelector('.fixed.z-50');
+				// Tooltip is rendered via createPortal to document.body with z-[10000]
+				const tooltip = document.querySelector('.fixed.z-\\[10000\\]');
 				expect(tooltip).toBeInTheDocument();
 			}
 		});
@@ -327,7 +327,7 @@ describe('DurationTrendsChart', () => {
 				fireEvent.mouseEnter(circles[0]);
 				fireEvent.mouseLeave(circles[0]);
 
-				const tooltip = container.querySelector('.fixed.z-50');
+				const tooltip = document.querySelector('.fixed.z-\\[10000\\]');
 				expect(tooltip).not.toBeInTheDocument();
 			}
 		});

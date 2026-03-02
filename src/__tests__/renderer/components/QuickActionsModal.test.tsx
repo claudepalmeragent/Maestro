@@ -61,9 +61,6 @@ vi.mock('../../../renderer/utils/shortcutFormatter', () => ({
 }));
 
 // Mock lucide-react
-vi.mock('lucide-react', () => ({
-	Search: () => <svg data-testid="search-icon" />,
-}));
 
 // Create mock theme
 const mockTheme: Theme = {
@@ -510,7 +507,7 @@ describe('QuickActionsModal', () => {
 			fireEvent.click(screen.getByText('View Git Diff'));
 
 			await waitFor(() => {
-				expect(gitService.getDiff).toHaveBeenCalledWith('/home/user/project');
+				expect(gitService.getDiff).toHaveBeenCalledWith('/home/user/project', undefined, undefined);
 				expect(props.setGitDiffPreview).toHaveBeenCalledWith('mock diff content');
 				expect(props.setQuickActionOpen).toHaveBeenCalledWith(false);
 			});
@@ -526,7 +523,7 @@ describe('QuickActionsModal', () => {
 			fireEvent.click(screen.getByText('View Git Diff'));
 
 			await waitFor(() => {
-				expect(gitService.getDiff).toHaveBeenCalledWith('/different/path');
+				expect(gitService.getDiff).toHaveBeenCalledWith('/different/path', undefined, undefined);
 			});
 		});
 

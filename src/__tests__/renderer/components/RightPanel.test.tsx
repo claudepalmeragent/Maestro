@@ -24,15 +24,6 @@ vi.mock('../../../renderer/utils/shortcutFormatter', () => ({
 }));
 
 // Mock lucide-react
-vi.mock('lucide-react', () => ({
-	PanelRightClose: () => <span data-testid="panel-right-close">Close</span>,
-	PanelRightOpen: () => <span data-testid="panel-right-open">Open</span>,
-	Loader2: ({ className }: { className?: string }) => (
-		<span data-testid="loader" className={className}>
-			Loading
-		</span>
-	),
-}));
 
 describe('RightPanel', () => {
 	const mockTheme: Theme = {
@@ -191,13 +182,13 @@ describe('RightPanel', () => {
 		it('should show PanelRightClose icon when open', () => {
 			const props = createDefaultProps({ rightPanelOpen: true });
 			render(<RightPanel {...props} />);
-			expect(screen.getByTestId('panel-right-close')).toBeInTheDocument();
+			expect(screen.getByTestId('panel-right-close-icon')).toBeInTheDocument();
 		});
 
 		it('should show PanelRightOpen icon when closed', () => {
 			const props = createDefaultProps({ rightPanelOpen: false });
 			render(<RightPanel {...props} />);
-			expect(screen.getByTestId('panel-right-open')).toBeInTheDocument();
+			expect(screen.getByTestId('panel-right-open-icon')).toBeInTheDocument();
 		});
 
 		it('should call setRightPanelOpen when toggle button clicked', () => {
@@ -674,7 +665,7 @@ describe('RightPanel', () => {
 			const props = createDefaultProps({ currentSessionBatchState });
 			render(<RightPanel {...props} />);
 
-			expect(screen.getByTestId('loader')).toBeInTheDocument();
+			expect(screen.getByTestId('loader2-icon')).toBeInTheDocument();
 		});
 	});
 
@@ -1000,7 +991,7 @@ describe('RightPanel', () => {
 			const props = createDefaultProps();
 			render(<RightPanel {...props} />);
 
-			expect(screen.getAllByRole('button')).toHaveLength(4); // toggle + 3 tabs
+			expect(screen.getAllByRole('button')).toHaveLength(5); // toggle + 4 tabs (files, history, autorun, pins)
 		});
 	});
 

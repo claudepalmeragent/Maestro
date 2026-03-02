@@ -20,46 +20,6 @@ import type { Session, Group, Theme, Shortcut, AutoRunStats } from '../../../ren
 vi.mock('qrcode.react', () => ({
 	QRCodeSVG: ({ value }: { value: string }) => <div data-testid="qr-code">{value}</div>,
 }));
-
-// Mock lucide-react icons
-vi.mock('lucide-react', () => ({
-	Wand2: () => <span data-testid="icon-wand" />,
-	Plus: () => <span data-testid="icon-plus" />,
-	Settings: () => <span data-testid="icon-settings" />,
-	ChevronRight: () => <span data-testid="icon-chevron-right" />,
-	ChevronDown: () => <span data-testid="icon-chevron-down" />,
-	ChevronUp: () => <span data-testid="icon-chevron-up" />,
-	Activity: () => <span data-testid="icon-activity" />,
-	X: () => <span data-testid="icon-x" />,
-	Keyboard: () => <span data-testid="icon-keyboard" />,
-	Radio: () => <span data-testid="icon-radio" />,
-	Copy: () => <span data-testid="icon-copy" />,
-	ExternalLink: () => <span data-testid="icon-external-link" />,
-	PanelLeftClose: () => <span data-testid="icon-panel-left-close" />,
-	PanelLeftOpen: () => <span data-testid="icon-panel-left-open" />,
-	Folder: () => <span data-testid="icon-folder" />,
-	Info: () => <span data-testid="icon-info" />,
-	FileText: () => <span data-testid="icon-file-text" />,
-	GitBranch: () => <span data-testid="icon-git-branch" />,
-	GitPullRequest: () => <span data-testid="icon-git-pull-request" />,
-	Bot: () => <span data-testid="icon-bot" />,
-	Clock: () => <span data-testid="icon-clock" />,
-	ScrollText: () => <span data-testid="icon-scroll-text" />,
-	Cpu: () => <span data-testid="icon-cpu" />,
-	Menu: () => <span data-testid="icon-menu" />,
-	Bookmark: ({ fill }: { fill?: string }) => <span data-testid="icon-bookmark" data-fill={fill} />,
-	Trophy: () => <span data-testid="icon-trophy" />,
-	Trash2: () => <span data-testid="icon-trash" />,
-	Edit3: () => <span data-testid="icon-edit" />,
-	FolderInput: () => <span data-testid="icon-folder-input" />,
-	FolderPlus: () => <span data-testid="icon-folder-plus" />,
-	Download: () => <span data-testid="icon-download" />,
-	Compass: () => <span data-testid="icon-compass" />,
-	Globe: () => <span data-testid="icon-globe" />,
-	BookOpen: () => <span data-testid="icon-book-open" />,
-	BarChart3: () => <span data-testid="icon-bar-chart" />,
-}));
-
 // Mock gitService
 vi.mock('../../../renderer/services/git', () => ({
 	gitService: {
@@ -471,7 +431,7 @@ describe('SessionList', () => {
 			// Text should be hidden when below threshold with active badge
 			expect(screen.queryByText('OFFLINE')).not.toBeInTheDocument();
 			// But the Radio icon should still be present
-			expect(screen.getByTestId('icon-radio')).toBeInTheDocument();
+			expect(screen.getByTestId('radio-icon')).toBeInTheDocument();
 		});
 
 		it('shows OFFLINE text when sidebar width equals minimum threshold (256px) without autoRunStats', () => {
@@ -520,7 +480,7 @@ describe('SessionList', () => {
 			// Text should be hidden when below threshold with active badge
 			expect(screen.queryByText('LIVE')).not.toBeInTheDocument();
 			// But the Radio icon should still be present
-			expect(screen.getByTestId('icon-radio')).toBeInTheDocument();
+			expect(screen.getByTestId('radio-icon')).toBeInTheDocument();
 		});
 
 		it('shows LIVE text when sidebar width equals minimum threshold (256px) without autoRunStats', () => {
@@ -741,7 +701,7 @@ describe('SessionList', () => {
 			render(<SessionList {...props} />);
 
 			// Empty group should have delete button (visible on hover)
-			expect(screen.getByTitle('Delete empty group')).toBeInTheDocument();
+			expect(screen.getByTitle('Delete group')).toBeInTheDocument();
 		});
 
 		it('creates new group when button clicked', () => {

@@ -37,8 +37,8 @@ export const MASTER_SSH_OPTIONS: Record<string, string> = {
 	ControlMaster: 'yes',
 	ControlPath: '/tmp/maestro-ssh-%C',
 	ControlPersist: '300',
-	ServerAliveInterval: '30',
-	ServerAliveCountMax: '3',
+	ServerAliveInterval: '15',
+	ServerAliveCountMax: '6',
 };
 
 /**
@@ -61,8 +61,8 @@ export const BASE_SSH_OPTIONS: Record<string, string> = {
 	ClearAllForwardings: 'yes',
 	ControlMaster: 'no',
 	ControlPath: '/tmp/maestro-ssh-%C',
-	ServerAliveInterval: '30',
-	ServerAliveCountMax: '3',
+	ServerAliveInterval: '15',
+	ServerAliveCountMax: '6',
 };
 
 /**

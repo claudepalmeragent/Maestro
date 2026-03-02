@@ -9,7 +9,7 @@
  * Unix commands (ls, cat, stat, du) via SSH, parsing their output.
  */
 
-import pLimit, { type LimitFunction } from 'p-limit';
+import pLimit from 'p-limit';
 import { SshRemoteConfig } from '../../shared/types';
 import { execFileNoThrow, ExecResult } from './execFile';
 import { shellEscape } from './shell-escape';
@@ -124,14 +124,14 @@ const RESERVED_SSH_CHANNELS = 2;
  * Caps simultaneous SSH exec calls to prevent exceeding the remote server's MaxSessions limit.
  * When the limit is reached, additional calls are queued (FIFO) — never dropped or errored.
  */
-const hostLimiters = new Map<string, LimitFunction>();
+const hostLimiters = new Map<string, pLimit.Limit>();
 
 /**
  * Get or create a concurrency limiter for the given SSH remote.
  * The limit is derived from the remote's maxSessions setting (default: 10),
  * minus a reserved channel budget for the agent process and overhead.
  */
-function getHostLimiter(config: SshRemoteConfig): LimitFunction {
+function getHostLimiter(config: SshRemoteConfig): pLimit.Limit {
 	const key = `${config.username || ''}@${config.host}:${config.port || 22}`;
 	let limiter = hostLimiters.get(key);
 	if (!limiter) {

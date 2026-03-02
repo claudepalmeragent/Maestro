@@ -7,31 +7,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { ChartErrorBoundary } from '../../../../renderer/components/UsageDashboard/ChartErrorBoundary';
 import type { Theme } from '../../../../renderer/types';
-
-// Mock lucide-react icons
-vi.mock('lucide-react', () => ({
-	AlertTriangle: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<span data-testid="alert-triangle-icon" className={className} style={style}>
-			⚠️
-		</span>
-	),
-	RefreshCw: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<span data-testid="refresh-icon" className={className} style={style}>
-			🔄
-		</span>
-	),
-	ChevronDown: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<span data-testid="chevron-down-icon" className={className} style={style}>
-			▼
-		</span>
-	),
-	ChevronUp: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<span data-testid="chevron-up-icon" className={className} style={style}>
-			▲
-		</span>
-	),
-}));
-
 // Mock logger
 vi.mock('../../../../renderer/utils/logger', () => ({
 	logger: {
@@ -401,7 +376,7 @@ describe('ChartErrorBoundary', () => {
 
 			// The icons should be present (mocked)
 			expect(screen.getByTestId('alert-triangle-icon')).toBeInTheDocument();
-			expect(screen.getByTestId('refresh-icon')).toBeInTheDocument();
+			expect(screen.getByTestId('refresh-cw-icon')).toBeInTheDocument();
 		});
 
 		it('retry button is keyboard focusable', () => {

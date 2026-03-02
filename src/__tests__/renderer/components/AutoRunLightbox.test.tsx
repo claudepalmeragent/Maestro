@@ -14,6 +14,10 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+
+// Undo the global mock from setup.ts so LayerStack Escape handling works in these tests
+vi.unmock('../../../renderer/contexts/LayerStackContext');
+
 import { AutoRunLightbox } from '../../../renderer/components/AutoRunLightbox';
 import { LayerStackProvider } from '../../../renderer/contexts/LayerStackContext';
 import type { Theme } from '../../../renderer/types';
@@ -22,34 +26,6 @@ import type { Theme } from '../../../renderer/types';
 const renderWithProviders = (component: React.ReactElement) => {
 	return render(<LayerStackProvider>{component}</LayerStackProvider>);
 };
-
-// Mock Lucide icons
-vi.mock('lucide-react', () => ({
-	X: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="x-icon" className={className} style={style} />
-	),
-	ChevronLeft: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="chevron-left-icon" className={className} style={style} />
-	),
-	ChevronRight: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="chevron-right-icon" className={className} style={style} />
-	),
-	Copy: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="copy-icon" className={className} style={style} />
-	),
-	Check: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="check-icon" className={className} style={style} />
-	),
-	Trash2: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="trash2-icon" className={className} style={style} />
-	),
-	FileText: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="file-text-icon" className={className} style={style} />
-	),
-	AlertTriangle: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="alert-triangle-icon" className={className} style={style} />
-	),
-}));
 
 // Mock navigator.clipboard at module level
 const mockClipboardWrite = vi.fn();

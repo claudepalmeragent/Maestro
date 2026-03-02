@@ -6,6 +6,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import React from 'react';
+
+// Undo the global mock from setup.ts so LayerStack Escape handling works in these tests
+vi.unmock('../../../renderer/contexts/LayerStackContext');
+
 import { AutoRun, AutoRunHandle } from '../../../renderer/components/AutoRun';
 import { LayerStackProvider } from '../../../renderer/contexts/LayerStackContext';
 import type { Theme, BatchRunState, SessionState } from '../../../renderer/types';

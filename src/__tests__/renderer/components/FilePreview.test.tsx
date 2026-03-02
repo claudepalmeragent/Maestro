@@ -2,28 +2,6 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { FilePreview } from '../../../renderer/components/FilePreview';
-
-// Mock lucide-react icons
-vi.mock('lucide-react', () => ({
-	FileCode: () => <span data-testid="file-code-icon">FileCode</span>,
-	X: () => <span data-testid="x-icon">X</span>,
-	Eye: () => <span data-testid="eye-icon">Eye</span>,
-	ChevronUp: () => <span data-testid="chevron-up">ChevronUp</span>,
-	ChevronDown: () => <span data-testid="chevron-down">ChevronDown</span>,
-	ChevronLeft: () => <span data-testid="chevron-left">ChevronLeft</span>,
-	ChevronRight: () => <span data-testid="chevron-right">ChevronRight</span>,
-	Clipboard: () => <span data-testid="clipboard-icon">Clipboard</span>,
-	Loader2: () => <span data-testid="loader-icon">Loader2</span>,
-	Image: () => <span data-testid="image-icon">Image</span>,
-	Globe: () => <span data-testid="globe-icon">Globe</span>,
-	Save: () => <span data-testid="save-icon">Save</span>,
-	Edit: () => <span data-testid="edit-icon">Edit</span>,
-	FolderOpen: () => <span data-testid="folder-open-icon">FolderOpen</span>,
-	AlertTriangle: () => <span data-testid="alert-icon">AlertTriangle</span>,
-	Share2: () => <span data-testid="share-icon">Share2</span>,
-	GitGraph: () => <span data-testid="gitgraph-icon">GitGraph</span>,
-}));
-
 // Mock react-markdown
 vi.mock('react-markdown', () => ({
 	default: ({ children }: { children: string }) => (
@@ -138,7 +116,7 @@ describe('FilePreview', () => {
 
 			const graphButton = screen.getByTitle('View in Document Graph (⌘⇧G)');
 			expect(graphButton).toBeInTheDocument();
-			expect(screen.getByTestId('gitgraph-icon')).toBeInTheDocument();
+			expect(screen.getByTestId('git-graph-icon')).toBeInTheDocument();
 		});
 
 		it('calls onOpenInGraph when Document Graph button is clicked', () => {

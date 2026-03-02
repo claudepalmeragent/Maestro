@@ -14,6 +14,10 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+
+// Undo the global mock from setup.ts so LayerStack Escape handling works in these tests
+vi.unmock('../../../renderer/contexts/LayerStackContext');
+
 import { AutoRunExpandedModal } from '../../../renderer/components/AutoRunExpandedModal';
 import { LayerStackProvider } from '../../../renderer/contexts/LayerStackContext';
 import type { Theme, BatchRunState, SessionState, Shortcut } from '../../../renderer/types';
@@ -26,43 +30,6 @@ vi.mock('react-dom', async () => {
 		createPortal: (node: React.ReactNode) => node,
 	};
 });
-
-// Mock Lucide icons
-vi.mock('lucide-react', () => ({
-	X: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="x-icon" className={className} style={style} />
-	),
-	Minimize2: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="minimize2-icon" className={className} style={style} />
-	),
-	Eye: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="eye-icon" className={className} style={style} />
-	),
-	Edit: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="edit-icon" className={className} style={style} />
-	),
-	Play: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="play-icon" className={className} style={style} />
-	),
-	Square: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="square-icon" className={className} style={style} />
-	),
-	Loader2: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="loader2-icon" className={className} style={style} />
-	),
-	Image: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="image-icon" className={className} style={style} />
-	),
-	Save: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="save-icon" className={className} style={style} />
-	),
-	RotateCcw: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="rotate-ccw-icon" className={className} style={style} />
-	),
-	LayoutGrid: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="layout-grid-icon" className={className} style={style} />
-	),
-}));
 
 // Track AutoRun ref methods
 let autoRunRefMethods: {

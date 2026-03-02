@@ -714,7 +714,7 @@ describe('File path normalization in database (forward slashes consistently)', (
 			});
 
 			// Verify that the statement was called with normalized path
-			// insertQueryEvent now has 26 parameters: id, sessionId, agentId, agentType, source, startTime, duration, projectPath, tabId, isRemote, inputTokens, outputTokens, tokensPerSecond, cacheReadInputTokens, cacheCreationInputTokens, totalCostUsd, plus v7 dual-source cost tracking fields
+			// insertQueryEvent now has 27 parameters: id, sessionId, agentId, agentType, source, startTime, duration, projectPath, tabId, isRemote, inputTokens, outputTokens, tokensPerSecond, cacheReadInputTokens, cacheCreationInputTokens, totalCostUsd, plus v7 dual-source cost tracking fields, plus claude_session_id
 			expect(mockStatement.run).toHaveBeenCalledWith(
 				expect.any(String), // id
 				'session-1',
@@ -741,7 +741,8 @@ describe('File path normalization in database (forward slashes consistently)', (
 				null, // uuid (undefined → null)
 				null, // anthropicMessageId (undefined → null)
 				0, // isReconstructed (defaults to 0)
-				null // reconstructedAt (undefined → null)
+				null, // reconstructedAt (undefined → null)
+				null // claudeSessionId (undefined → null)
 			);
 		});
 
@@ -760,7 +761,7 @@ describe('File path normalization in database (forward slashes consistently)', (
 				tabId: 'tab-1',
 			});
 
-			// insertQueryEvent now has 26 parameters including token and cost fields
+			// insertQueryEvent now has 27 parameters including token, cost, and claude_session_id fields
 			expect(mockStatement.run).toHaveBeenCalledWith(
 				expect.any(String),
 				'session-1',
@@ -787,7 +788,8 @@ describe('File path normalization in database (forward slashes consistently)', (
 				null, // uuid (undefined → null)
 				null, // anthropicMessageId (undefined → null)
 				0, // isReconstructed (defaults to 0)
-				null // reconstructedAt (undefined → null)
+				null, // reconstructedAt (undefined → null)
+				null // claudeSessionId (undefined → null)
 			);
 		});
 
@@ -805,7 +807,7 @@ describe('File path normalization in database (forward slashes consistently)', (
 				// projectPath is undefined
 			});
 
-			// insertQueryEvent now has 26 parameters including token, cost, and dual-source tracking fields
+			// insertQueryEvent now has 27 parameters including token, cost, dual-source tracking, and claude_session_id fields
 			expect(mockStatement.run).toHaveBeenCalledWith(
 				expect.any(String),
 				'session-1',
@@ -832,7 +834,8 @@ describe('File path normalization in database (forward slashes consistently)', (
 				null, // uuid (undefined → null)
 				null, // anthropicMessageId (undefined → null)
 				0, // isReconstructed (defaults to 0)
-				null // reconstructedAt (undefined → null)
+				null, // reconstructedAt (undefined → null)
+				null // claudeSessionId (undefined → null)
 			);
 		});
 	});
@@ -857,6 +860,21 @@ describe('File path normalization in database (forward slashes consistently)', (
 			const db = new StatsDB();
 			db.initialize();
 
+			// Clear mocks after initialize to only track test calls
+			mockStatement.all.mockClear();
+			mockStatement.all.mockReturnValue([
+				{
+					id: 'event-1',
+					session_id: 'session-1',
+					agent_type: 'claude-code',
+					source: 'user',
+					start_time: Date.now(),
+					duration: 5000,
+					project_path: 'C:/Users/TestUser/Projects/MyApp',
+					tab_id: 'tab-1',
+				},
+			]);
+
 			// Query with Windows-style path (backslashes)
 			const events = db.getQueryEvents('day', {
 				projectPath: 'C:\\Users\\TestUser\\Projects\\MyApp', // Windows style
@@ -876,6 +894,10 @@ describe('File path normalization in database (forward slashes consistently)', (
 			const { StatsDB } = await import('../../../main/stats');
 			const db = new StatsDB();
 			db.initialize();
+
+			// Clear mocks after initialize to only track test calls
+			mockStatement.all.mockClear();
+			mockStatement.all.mockReturnValue([]);
 
 			db.getQueryEvents('week', {
 				projectPath: '/Users/testuser/Projects/MyApp',

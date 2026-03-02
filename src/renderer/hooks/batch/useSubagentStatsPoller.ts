@@ -44,6 +44,11 @@ export function useSubagentStatsPoller({
 	sshRemoteId,
 	onStats,
 }: SubagentStatsPollerOptions): void {
+	// For SSH remote sessions, use a longer poll interval to reduce channel overhead.
+	// The concurrency limiter in remote-fs.ts prevents MaxSessions overflow,
+	// but less frequent polling further reduces SSH traffic on remote connections.
+	const effectivePollInterval = sshRemoteId ? Math.max(pollIntervalMs, 15000) : pollIntervalMs;
+
 	const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 	const lastStatsRef = useRef<SubagentStats | null>(null);
 
@@ -117,7 +122,7 @@ export function useSubagentStatsPoller({
 
 		// Start polling
 		pollSubagentStats(); // Initial poll
-		intervalRef.current = setInterval(pollSubagentStats, pollIntervalMs);
+		intervalRef.current = setInterval(pollSubagentStats, effectivePollInterval);
 
 		return () => {
 			if (intervalRef.current) {
@@ -125,7 +130,7 @@ export function useSubagentStatsPoller({
 				intervalRef.current = null;
 			}
 		};
-	}, [isRunning, pollIntervalMs, pollSubagentStats]);
+	}, [isRunning, effectivePollInterval, pollSubagentStats]);
 }
 
 // Export types for use in other modules

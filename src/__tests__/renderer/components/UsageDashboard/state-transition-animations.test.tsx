@@ -19,48 +19,6 @@ import { UsageDashboardModal } from '../../../../renderer/components/UsageDashbo
 import { SummaryCards } from '../../../../renderer/components/UsageDashboard/SummaryCards';
 
 // Mock lucide-react icons
-vi.mock('lucide-react', () => {
-	const createIcon = (name: string, emoji: string) => {
-		return ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-			<span data-testid={`${name}-icon`} className={className} style={style}>
-				{emoji}
-			</span>
-		);
-	};
-
-	return {
-		X: createIcon('x', '×'),
-		BarChart3: createIcon('barchart', '📊'),
-		Calendar: createIcon('calendar', '📅'),
-		Download: createIcon('download', '⬇️'),
-		RefreshCw: createIcon('refresh', '🔄'),
-		Database: createIcon('database', '💾'),
-		MessageSquare: createIcon('message-square', '💬'),
-		Clock: createIcon('clock', '🕐'),
-		Timer: createIcon('timer', '⏱️'),
-		Bot: createIcon('bot', '🤖'),
-		Users: createIcon('users', '👥'),
-		Layers: createIcon('layers', '📚'),
-		Zap: createIcon('zap', '⚡'),
-		FileText: createIcon('file-text', '📄'),
-		DollarSign: createIcon('dollar-sign', '💲'),
-		Play: createIcon('play', '▶️'),
-		CheckSquare: createIcon('check-square', '✅'),
-		ListChecks: createIcon('list-checks', '📝'),
-		Target: createIcon('target', '🎯'),
-		AlertTriangle: createIcon('alert-triangle', '⚠️'),
-		ChevronDown: createIcon('chevron-down', '▼'),
-		ChevronUp: createIcon('chevron-up', '▲'),
-	};
-});
-
-// Mock layer stack context
-vi.mock('../../../../renderer/contexts/LayerStackContext', () => ({
-	useLayerStack: () => ({
-		registerLayer: vi.fn(() => 'layer-123'),
-		unregisterLayer: vi.fn(),
-	}),
-}));
 
 // Store ResizeObserver callback for triggering resize events
 let resizeObserverCallback: ResizeObserverCallback | null = null;
@@ -132,10 +90,12 @@ const mockFs = {
 };
 
 beforeEach(() => {
+	const savedMaestro = (window as any).maestro;
 	(window as any).maestro = {
-		stats: mockStats,
-		dialog: mockDialog,
-		fs: mockFs,
+		...savedMaestro,
+		stats: { ...savedMaestro?.stats, ...mockStats },
+		dialog: { ...savedMaestro?.dialog, ...mockDialog },
+		fs: { ...savedMaestro?.fs, ...mockFs },
 	};
 
 	// Reset mocks with default data
@@ -372,10 +332,10 @@ describe('Usage Dashboard State Transition Animations', () => {
 				expect(sessionStatsSection).toHaveClass('dashboard-section-enter');
 				expect(sessionStatsSection).toHaveStyle({ animationDelay: '0ms' });
 
-				// Agent comparison is now second with 100ms delay
+				// Agent comparison is now second with 50ms delay
 				const agentSection = screen.getByTestId('section-agent-comparison');
 				expect(agentSection).toHaveClass('dashboard-section-enter');
-				expect(agentSection).toHaveStyle({ animationDelay: '100ms' });
+				expect(agentSection).toHaveStyle({ animationDelay: '50ms' });
 			});
 		});
 

@@ -385,6 +385,14 @@ describe('group-chat-router', () => {
 		it('spawns mentioned agents', async () => {
 			const chat = await createTestChatWithModerator('Forward Test');
 			await addParticipant(chat.id, 'Client', 'claude-code', mockProcessManager);
+			// Add a second participant so maxRounds >= 1 (maxRounds = participantCount - 1)
+			await addParticipant(chat.id, 'Server', 'claude-code', mockProcessManager);
+
+			// routeUserMessage sets round state (maxRounds based on participant count)
+			await routeUserMessage(chat.id, 'Please help', mockProcessManager, mockAgentDetector);
+
+			// Clear spawn mock so we only see the routeModeratorResponse spawns
+			mockProcessManager.spawn.mockClear();
 
 			await routeModeratorResponse(
 				chat.id,
@@ -646,6 +654,11 @@ describe('group-chat-router', () => {
 		it('participants spawn with readOnlyMode matching the readOnly flag', async () => {
 			const chat = await createTestChatWithModerator('Participant ReadOnly Test');
 			await addParticipant(chat.id, 'Client', 'claude-code', mockProcessManager);
+			// Add a second participant so maxRounds >= 1 (maxRounds = participantCount - 1)
+			await addParticipant(chat.id, 'Server', 'claude-code', mockProcessManager);
+
+			// routeUserMessage sets round state (maxRounds based on participant count)
+			await routeUserMessage(chat.id, 'Please help', mockProcessManager, mockAgentDetector, true);
 
 			// Clear spawn mock to only capture the participant batch spawn
 			mockProcessManager.spawn.mockClear();
@@ -670,6 +683,11 @@ describe('group-chat-router', () => {
 		it('participants spawn with readOnlyMode: false when readOnly is not set', async () => {
 			const chat = await createTestChatWithModerator('Participant No ReadOnly Test');
 			await addParticipant(chat.id, 'Client', 'claude-code', mockProcessManager);
+			// Add a second participant so maxRounds >= 1 (maxRounds = participantCount - 1)
+			await addParticipant(chat.id, 'Server', 'claude-code', mockProcessManager);
+
+			// routeUserMessage sets round state (maxRounds based on participant count)
+			await routeUserMessage(chat.id, 'Please help', mockProcessManager, mockAgentDetector);
 
 			// Clear spawn mock to only capture the participant batch spawn
 			mockProcessManager.spawn.mockClear();

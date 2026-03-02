@@ -596,8 +596,13 @@ describe('Query events recorded for interactive sessions', () => {
 		it('should include interactive sessions in aggregated stats', async () => {
 			mockStatement.get.mockReturnValue({ count: 10, total_duration: 50000 });
 
+			const { StatsDB } = await import('../../../main/stats');
+			const db = new StatsDB();
+			db.initialize();
+
+			// Set up mock implementation after initialize to avoid counting init calls
 			// The aggregation calls mockStatement.all multiple times for different queries
-			// We return based on the call sequence: byAgent, bySource, byDay
+			// We return based on the call sequence: byAgent, bySource, remaining
 			let callCount = 0;
 			mockStatement.all.mockImplementation(() => {
 				callCount++;
@@ -609,13 +614,9 @@ describe('Query events recorded for interactive sessions', () => {
 					// bySource breakdown
 					return [{ source: 'user', count: 10 }];
 				}
-				// byDay breakdown
-				return [{ date: '2024-12-28', count: 10, duration: 50000 }];
+				// remaining calls return empty
+				return [];
 			});
-
-			const { StatsDB } = await import('../../../main/stats');
-			const db = new StatsDB();
-			db.initialize();
 
 			const stats = db.getAggregatedStats('week');
 
@@ -629,6 +630,11 @@ describe('Query events recorded for interactive sessions', () => {
 		it('should correctly separate user vs auto queries in bySource', async () => {
 			mockStatement.get.mockReturnValue({ count: 15, total_duration: 75000 });
 
+			const { StatsDB } = await import('../../../main/stats');
+			const db = new StatsDB();
+			db.initialize();
+
+			// Set up mock implementation after initialize to avoid counting init calls
 			// Return by-source breakdown with both user and auto on second call
 			let callCount = 0;
 			mockStatement.all.mockImplementation(() => {
@@ -642,10 +648,6 @@ describe('Query events recorded for interactive sessions', () => {
 				}
 				return [];
 			});
-
-			const { StatsDB } = await import('../../../main/stats');
-			const db = new StatsDB();
-			db.initialize();
 
 			const stats = db.getAggregatedStats('month');
 

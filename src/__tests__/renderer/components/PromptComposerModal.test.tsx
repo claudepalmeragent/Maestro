@@ -2,33 +2,26 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { PromptComposerModal } from '../../../renderer/components/PromptComposerModal';
-import { LayerStackProvider } from '../../../renderer/contexts/LayerStackContext';
+import { LayerStackProvider, useLayerStack } from '../../../renderer/contexts/LayerStackContext';
 import type { Theme } from '../../../renderer/types';
 
+// Stable mock for registerLayer that captures onEscape callbacks
+const mockRegisterLayer = vi.fn().mockReturnValue('layer-prompt-composer');
+const mockUnregisterLayer = vi.fn();
+const mockUpdateLayerHandler = vi.fn();
+
+vi.mocked(useLayerStack as ReturnType<typeof vi.fn>).mockReturnValue({
+	registerLayer: mockRegisterLayer,
+	unregisterLayer: mockUnregisterLayer,
+	updateLayerHandler: mockUpdateLayerHandler,
+	getTopLayer: vi.fn().mockReturnValue(undefined),
+	closeTopLayer: vi.fn().mockResolvedValue(false),
+	hasOpenLayers: vi.fn().mockReturnValue(false),
+	hasOpenModal: vi.fn().mockReturnValue(false),
+	layerCount: 0,
+});
+
 // Mock Lucide icons
-vi.mock('lucide-react', () => ({
-	X: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="x-icon" className={className} style={style} />
-	),
-	PenLine: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="penline-icon" className={className} style={style} />
-	),
-	Send: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="send-icon" className={className} style={style} />
-	),
-	Keyboard: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="keyboard-icon" className={className} style={style} />
-	),
-	ImageIcon: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="image-icon" className={className} style={style} />
-	),
-	History: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="history-icon" className={className} style={style} />
-	),
-	Eye: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="eye-icon" className={className} style={style} />
-	),
-}));
 
 // Mock theme
 const mockTheme: Theme = {
@@ -87,6 +80,9 @@ describe('PromptComposerModal', () => {
 		onClose = vi.fn();
 		onSubmit = vi.fn();
 		onSend = vi.fn();
+		mockRegisterLayer.mockClear().mockReturnValue('layer-prompt-composer');
+		mockUnregisterLayer.mockClear();
+		mockUpdateLayerHandler.mockClear();
 	});
 
 	afterEach(() => {
@@ -136,7 +132,7 @@ describe('PromptComposerModal', () => {
 				/>
 			);
 
-			expect(screen.getByTestId('penline-icon')).toBeInTheDocument();
+			expect(screen.getByTestId('pen-line-icon')).toBeInTheDocument();
 		});
 
 		it('should render with default session name "Claude"', () => {
@@ -300,7 +296,7 @@ describe('PromptComposerModal', () => {
 				/>
 			);
 
-			const icon = screen.getByTestId('penline-icon');
+			const icon = screen.getByTestId('pen-line-icon');
 			expect(icon).toHaveStyle({ color: mockTheme.colors.accent });
 		});
 
@@ -817,8 +813,13 @@ describe('PromptComposerModal', () => {
 				/>
 			);
 
-			// Simulate Escape key (handled by layer stack)
-			fireEvent.keyDown(document, { key: 'Escape' });
+			// The component registers with the layer stack on mount.
+			// Extract the onEscape callback from the registerLayer call and invoke it.
+			const registerCall = mockRegisterLayer.mock.calls.find(
+				(call: unknown[]) => call[0]?.onEscape
+			);
+			expect(registerCall).toBeTruthy();
+			registerCall[0].onEscape();
 
 			await waitFor(() => {
 				expect(onSubmit).toHaveBeenCalledWith('My draft');
@@ -841,7 +842,12 @@ describe('PromptComposerModal', () => {
 			const textarea = screen.getByPlaceholderText('Write your prompt here...');
 			fireEvent.change(textarea, { target: { value: 'Modified' } });
 
-			fireEvent.keyDown(document, { key: 'Escape' });
+			// Extract and invoke the onEscape callback from the layer stack registration
+			const registerCall = mockRegisterLayer.mock.calls.find(
+				(call: unknown[]) => call[0]?.onEscape
+			);
+			expect(registerCall).toBeTruthy();
+			registerCall[0].onEscape();
 
 			await waitFor(() => {
 				expect(onSubmit).toHaveBeenCalledWith('Modified');

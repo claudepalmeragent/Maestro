@@ -5,44 +5,12 @@
  * Regression test for: MAESTRO_SESSION_RESUMED env var display in group chat moderator customization
  */
 
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, act } from '@testing-library/react';
 import { AgentConfigPanel } from '../../../../renderer/components/shared/AgentConfigPanel';
 import type { Theme, AgentConfig } from '../../../../renderer/types';
 
 // Mock lucide-react icons
-vi.mock('lucide-react', () => ({
-	RefreshCw: ({ className }: { className?: string }) => (
-		<span data-testid="refresh-icon" className={className}>
-			🔄
-		</span>
-	),
-	Plus: ({ className }: { className?: string }) => (
-		<span data-testid="plus-icon" className={className}>
-			+
-		</span>
-	),
-	Trash2: ({ className }: { className?: string }) => (
-		<span data-testid="trash-icon" className={className}>
-			🗑
-		</span>
-	),
-	HelpCircle: ({ className }: { className?: string }) => (
-		<span data-testid="help-circle-icon" className={className}>
-			?
-		</span>
-	),
-	ChevronDown: ({ className }: { className?: string }) => (
-		<span data-testid="chevron-down-icon" className={className}>
-			▼
-		</span>
-	),
-	AlertTriangle: ({ className }: { className?: string }) => (
-		<span data-testid="alert-triangle-icon" className={className}>
-			⚠
-		</span>
-	),
-}));
 
 // =============================================================================
 // TEST HELPERS
@@ -113,6 +81,15 @@ function createDefaultProps(overrides: Partial<Parameters<typeof AgentConfigPane
 // =============================================================================
 
 describe('AgentConfigPanel', () => {
+	beforeEach(() => {
+		// Mock getModelOptions to return proper model data for PricingModelDropdown
+		vi.mocked(window.maestro.updates.getModelOptions).mockResolvedValue([
+			{ value: 'claude-opus-4-5-20251101', label: 'Opus 4.5', family: 'opus' },
+			{ value: 'claude-sonnet-4-20250514', label: 'Sonnet 4', family: 'sonnet' },
+			{ value: 'claude-haiku-3-5-20241022', label: 'Haiku 3.5', family: 'haiku' },
+		]);
+	});
+
 	describe('Built-in environment variables (MAESTRO_SESSION_RESUMED)', () => {
 		it('should NOT display MAESTRO_SESSION_RESUMED when showBuiltInEnvVars is false (default)', () => {
 			render(<AgentConfigPanel {...createDefaultProps()} />);
@@ -145,8 +122,9 @@ describe('AgentConfigPanel', () => {
 		it('should display a help icon for MAESTRO_SESSION_RESUMED tooltip', () => {
 			render(<AgentConfigPanel {...createDefaultProps({ showBuiltInEnvVars: true })} />);
 
-			// Help icon should be present
-			expect(screen.getByTestId('help-circle-icon')).toBeInTheDocument();
+			// Help icons should be present (one per built-in env var)
+			const helpIcons = screen.getAllByTestId('help-circle-icon');
+			expect(helpIcons.length).toBeGreaterThanOrEqual(1);
 		});
 	});
 
@@ -419,15 +397,17 @@ describe('AgentConfigPanel', () => {
 	});
 
 	describe('Pricing model section (Claude agents only)', () => {
-		it('should show pricing model section for Claude Code agent with onPricingModelChange', () => {
-			render(
-				<AgentConfigPanel
-					{...createDefaultProps({
-						agent: createMockAgent({ id: 'claude-code' }),
-						onPricingModelChange: vi.fn(),
-					})}
-				/>
-			);
+		it('should show pricing model section for Claude Code agent with onPricingModelChange', async () => {
+			await act(async () => {
+				render(
+					<AgentConfigPanel
+						{...createDefaultProps({
+							agent: createMockAgent({ id: 'claude-code' }),
+							onPricingModelChange: vi.fn(),
+						})}
+					/>
+				);
+			});
 
 			expect(screen.getByText('Pricing Model')).toBeInTheDocument();
 			expect(screen.getByText('Auto-detect')).toBeInTheDocument();
@@ -459,20 +439,22 @@ describe('AgentConfigPanel', () => {
 			expect(screen.queryByText('Pricing Model')).not.toBeInTheDocument();
 		});
 
-		it('should show detected model indicator when in Auto mode', () => {
-			render(
-				<AgentConfigPanel
-					{...createDefaultProps({
-						agent: createMockAgent({ id: 'claude-code' }),
-						onPricingModelChange: vi.fn(),
-						pricingConfig: {
-							billingMode: 'auto',
-							pricingModel: 'auto',
-							detectedModel: 'claude-opus-4-5-20251101',
-						},
-					})}
-				/>
-			);
+		it('should show detected model indicator when in Auto mode', async () => {
+			await act(async () => {
+				render(
+					<AgentConfigPanel
+						{...createDefaultProps({
+							agent: createMockAgent({ id: 'claude-code' }),
+							onPricingModelChange: vi.fn(),
+							pricingConfig: {
+								billingMode: 'auto',
+								pricingModel: 'auto',
+								detectedModel: 'claude-opus-4-5-20251101',
+							},
+						})}
+					/>
+				);
+			});
 
 			expect(screen.getByText('Detected: Opus 4.5')).toBeInTheDocument();
 		});

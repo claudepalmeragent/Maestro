@@ -9,45 +9,6 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { ProcessMonitor } from '../../../renderer/components/ProcessMonitor';
 import type { Session, Group, Theme } from '../../../renderer/types';
 
-// Mock lucide-react icons
-vi.mock('lucide-react', () => ({
-	ChevronRight: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<span data-testid="chevron-right" className={className} style={style}>
-			▶
-		</span>
-	),
-	ChevronDown: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<span data-testid="chevron-down" className={className} style={style}>
-			▼
-		</span>
-	),
-	ChevronUp: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<span data-testid="chevron-up" className={className} style={style}>
-			▲
-		</span>
-	),
-	X: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<span data-testid="x-icon" className={className} style={style}>
-			×
-		</span>
-	),
-	Activity: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<span data-testid="activity-icon" className={className} style={style}>
-			📊
-		</span>
-	),
-	RefreshCw: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<span data-testid="refresh-icon" className={className} style={style}>
-			🔄
-		</span>
-	),
-	XCircle: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<span data-testid="x-circle-icon" className={className} style={style}>
-			⊗
-		</span>
-	),
-}));
-
 // Mock layer stack context
 const mockRegisterLayer = vi.fn(() => 'layer-123');
 const mockUnregisterLayer = vi.fn();

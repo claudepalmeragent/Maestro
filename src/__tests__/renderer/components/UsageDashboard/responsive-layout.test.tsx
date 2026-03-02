@@ -19,48 +19,6 @@ import { UsageDashboardModal } from '../../../../renderer/components/UsageDashbo
 import type { Theme } from '../../../../renderer/types';
 
 // Mock lucide-react icons
-vi.mock('lucide-react', () => {
-	const createIcon = (name: string, emoji: string) => {
-		return ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-			<span data-testid={`${name}-icon`} className={className} style={style}>
-				{emoji}
-			</span>
-		);
-	};
-
-	return {
-		X: createIcon('x', '×'),
-		BarChart3: createIcon('barchart', '📊'),
-		Calendar: createIcon('calendar', '📅'),
-		Download: createIcon('download', '⬇️'),
-		RefreshCw: createIcon('refresh', '🔄'),
-		Database: createIcon('database', '💾'),
-		MessageSquare: createIcon('message-square', '💬'),
-		Clock: createIcon('clock', '🕐'),
-		Timer: createIcon('timer', '⏱️'),
-		Bot: createIcon('bot', '🤖'),
-		Users: createIcon('users', '👥'),
-		Layers: createIcon('layers', '📚'),
-		Play: createIcon('play', '▶️'),
-		CheckSquare: createIcon('check-square', '✅'),
-		ListChecks: createIcon('list-checks', '📝'),
-		Target: createIcon('target', '🎯'),
-		AlertTriangle: createIcon('alert-triangle', '⚠️'),
-		ChevronDown: createIcon('chevron-down', '▼'),
-		ChevronUp: createIcon('chevron-up', '▲'),
-		Zap: createIcon('zap', '⚡'),
-		FileText: createIcon('file-text', '📄'),
-		DollarSign: createIcon('dollar-sign', '💲'),
-	};
-});
-
-// Mock layer stack context
-vi.mock('../../../../renderer/contexts/LayerStackContext', () => ({
-	useLayerStack: () => ({
-		registerLayer: vi.fn(() => 'layer-123'),
-		unregisterLayer: vi.fn(),
-	}),
-}));
 
 // Store ResizeObserver callback for triggering resize events
 let resizeObserverCallback: ResizeObserverCallback | null = null;
@@ -148,9 +106,13 @@ const mockGetCostsByAgent = vi.fn(() => Promise.resolve([]));
 const mockSaveFile = vi.fn();
 const mockWriteFile = vi.fn();
 
+// Override only the specific APIs needed, preserving global mock
+const savedMaestro = (window as any).maestro;
 Object.defineProperty(window, 'maestro', {
 	value: {
+		...savedMaestro,
 		stats: {
+			...savedMaestro?.stats,
 			getAggregation: mockGetAggregation,
 			exportCsv: mockExportCsv,
 			onStatsUpdate: mockOnStatsUpdate,
@@ -161,8 +123,8 @@ Object.defineProperty(window, 'maestro', {
 			getCostsByModel: mockGetCostsByModel,
 			getCostsByAgent: mockGetCostsByAgent,
 		},
-		dialog: { saveFile: mockSaveFile },
-		fs: { writeFile: mockWriteFile },
+		dialog: { ...savedMaestro?.dialog, saveFile: mockSaveFile },
+		fs: { ...savedMaestro?.fs, writeFile: mockWriteFile },
 	},
 	writable: true,
 });

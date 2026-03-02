@@ -25,16 +25,6 @@ vi.mock('../../../web/components/ThemeProvider', () => ({
 	useThemeColors: () => mockColors,
 	useTheme: () => ({ isDark: true }),
 }));
-
-// Mock lucide-react
-vi.mock('lucide-react', () => ({
-	ArrowDown: ({ style }: { style?: React.CSSProperties }) => (
-		<span data-testid="arrow-down-icon" style={style}>
-			↓
-		</span>
-	),
-}));
-
 // Helper to create log entries
 function createLogEntry(overrides: Partial<LogEntry> = {}): LogEntry {
 	return {

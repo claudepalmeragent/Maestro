@@ -8,40 +8,6 @@ import {
 } from '../../../renderer/components/AutoRunDocumentSelector';
 import type { Theme } from '../../../renderer/types';
 
-// Mock lucide-react icons
-vi.mock('lucide-react', () => ({
-	ChevronDown: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<span data-testid="chevron-down" className={className} style={style}>
-			▼
-		</span>
-	),
-	ChevronRight: ({ className }: { className?: string }) => (
-		<span data-testid="chevron-right" className={className}>
-			▶
-		</span>
-	),
-	RefreshCw: ({ className }: { className?: string }) => (
-		<span data-testid="refresh-icon" className={className}>
-			↻
-		</span>
-	),
-	FolderOpen: ({ className }: { className?: string }) => (
-		<span data-testid="folder-open" className={className}>
-			📂
-		</span>
-	),
-	Plus: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<span data-testid="plus-icon" className={className} style={style}>
-			+
-		</span>
-	),
-	Folder: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<span data-testid="folder-icon" className={className} style={style}>
-			📁
-		</span>
-	),
-}));
-
 // Test theme
 const mockTheme: Theme = {
 	id: 'test-theme',
@@ -176,15 +142,15 @@ describe('AutoRunDocumentSelector', () => {
 			render(<AutoRunDocumentSelector {...defaultProps} />);
 
 			const button = screen.getByRole('button', { name: /select a document/i });
-			const chevron = within(button).getByTestId('chevron-down');
+			const chevron = within(button).getByTestId('chevron-down-icon');
 
 			// Initially not rotated
-			expect(chevron.className).not.toContain('rotate-180');
+			expect(chevron.getAttribute('class') || '').not.toContain('rotate-180');
 
 			fireEvent.click(button);
 
 			// Should have rotate-180 class when open
-			expect(chevron.className).toContain('rotate-180');
+			expect(chevron.getAttribute('class')).toContain('rotate-180');
 		});
 	});
 
@@ -446,15 +412,15 @@ describe('AutoRunDocumentSelector', () => {
 		it('shows spinning icon when loading', () => {
 			render(<AutoRunDocumentSelector {...defaultProps} isLoading={true} />);
 
-			const refreshIcon = screen.getByTestId('refresh-icon');
-			expect(refreshIcon.className).toContain('animate-spin');
+			const refreshIcon = screen.getByTestId('refresh-cw-icon');
+			expect(refreshIcon.getAttribute('class')).toContain('animate-spin');
 		});
 
 		it('does not show spinning icon when not loading', () => {
 			render(<AutoRunDocumentSelector {...defaultProps} isLoading={false} />);
 
-			const refreshIcon = screen.getByTestId('refresh-icon');
-			expect(refreshIcon.className).not.toContain('animate-spin');
+			const refreshIcon = screen.getByTestId('refresh-cw-icon');
+			expect(refreshIcon.getAttribute('class') || '').not.toContain('animate-spin');
 		});
 	});
 

@@ -14,12 +14,6 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { RenameGroupModal } from '../../../renderer/components/RenameGroupModal';
 import { LayerStackProvider } from '../../../renderer/contexts/LayerStackContext';
 import type { Theme, Group } from '../../../renderer/types';
-
-// Mock lucide-react
-vi.mock('lucide-react', () => ({
-	X: () => <svg data-testid="x-icon" />,
-}));
-
 // Mock emoji-mart
 vi.mock('@emoji-mart/data', () => ({
 	default: { categories: [], emojis: {} },

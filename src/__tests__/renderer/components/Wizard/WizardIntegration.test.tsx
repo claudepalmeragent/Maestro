@@ -23,91 +23,8 @@ import {
 } from '../../../../renderer/components/Wizard/WizardContext';
 import { MaestroWizard } from '../../../../renderer/components/Wizard/MaestroWizard';
 import { WizardResumeModal } from '../../../../renderer/components/Wizard/WizardResumeModal';
-import { LayerStackProvider } from '../../../../renderer/contexts/LayerStackContext';
+import { LayerStackProvider, useLayerStack } from '../../../../renderer/contexts/LayerStackContext';
 import type { Theme, AgentConfig } from '../../../../renderer/types';
-
-// Mock lucide-react icons
-vi.mock('lucide-react', () => ({
-	X: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="x-icon" className={className} style={style} />
-	),
-	Check: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="check-icon" className={className} style={style} />
-	),
-	AlertCircle: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="alert-icon" className={className} style={style} />
-	),
-	AlertTriangle: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="alert-triangle-icon" className={className} style={style} />
-	),
-	Eye: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="eye-icon" className={className} style={style} />
-	),
-	Edit: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="edit-icon" className={className} style={style} />
-	),
-	Image: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="image-icon" className={className} style={style} />
-	),
-	Loader2: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="loader-icon" className={className} style={style} />
-	),
-	Rocket: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="rocket-icon" className={className} style={style} />
-	),
-	Compass: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="compass-icon" className={className} style={style} />
-	),
-	ChevronDown: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="chevron-down-icon" className={className} style={style} />
-	),
-	ChevronRight: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="chevron-right-icon" className={className} style={style} />
-	),
-	FileText: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="file-text-icon" className={className} style={style} />
-	),
-	FolderOpen: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="folder-open-icon" className={className} style={style} />
-	),
-	GitBranch: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="git-branch-icon" className={className} style={style} />
-	),
-	Bot: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="bot-icon" className={className} style={style} />
-	),
-	RefreshCw: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="refresh-icon" className={className} style={style} />
-	),
-	RotateCcw: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="rotate-ccw-icon" className={className} style={style} />
-	),
-	CheckCircle: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="check-circle-icon" className={className} style={style} />
-	),
-	Send: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="send-icon" className={className} style={style} />
-	),
-	MessageCircle: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="message-circle-icon" className={className} style={style} />
-	),
-	Settings: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="settings-icon" className={className} style={style} />
-	),
-	ArrowLeft: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="arrow-left-icon" className={className} style={style} />
-	),
-	Plus: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="plus-icon" className={className} style={style} />
-	),
-	Trash2: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="trash-icon" className={className} style={style} />
-	),
-	Brain: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="brain-icon" className={className} style={style} />
-	),
-}));
-
 // Mock react-markdown
 vi.mock('react-markdown', () => ({
 	default: ({ children }: { children: string }) => <div data-testid="markdown">{children}</div>,
@@ -1043,6 +960,17 @@ describe('Wizard Integration Tests', () => {
 
 	describe('Backward Navigation', () => {
 		it('should navigate backward with Escape key', async () => {
+			// Capture the onEscape callback registered by MaestroWizard with the layer stack
+			let capturedOnEscape: (() => void) | undefined;
+			const mockLayerStack = vi.mocked(useLayerStack)();
+			vi.mocked(useLayerStack).mockReturnValue({
+				...mockLayerStack,
+				registerLayer: vi.fn().mockImplementation((opts: { onEscape?: () => void }) => {
+					capturedOnEscape = opts.onEscape;
+					return 'layer-mock-id';
+				}),
+			});
+
 			function TestWrapper() {
 				const { openWizard, state, goToStep, setSelectedAgent, setDirectoryPath } = useWizard();
 
@@ -1069,8 +997,11 @@ describe('Wizard Integration Tests', () => {
 				expect(screen.getByText('Project Discovery')).toBeInTheDocument();
 			});
 
-			// Press Escape - should show exit confirm since we're past step 1
-			fireEvent.keyDown(document.body, { key: 'Escape' });
+			// Invoke the onEscape handler that MaestroWizard registered with the layer stack
+			expect(capturedOnEscape).toBeDefined();
+			act(() => {
+				capturedOnEscape!();
+			});
 
 			await waitFor(() => {
 				// Exit confirmation should appear

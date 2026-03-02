@@ -123,7 +123,12 @@ describe('Exit Listener', () => {
 
 			handler?.('regular-session-123', 0);
 
-			expect(mockDeps.safeSend).toHaveBeenCalledWith('process:exit', 'regular-session-123', 0);
+			expect(mockDeps.safeSend).toHaveBeenCalledWith(
+				'process:exit',
+				'regular-session-123',
+				0,
+				false
+			);
 		});
 
 		it('should remove power block for non-group-chat sessions', () => {

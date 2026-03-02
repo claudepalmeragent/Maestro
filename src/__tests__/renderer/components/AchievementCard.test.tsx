@@ -22,43 +22,6 @@ vi.mock('../../../renderer/components/MaestroSilhouette', () => ({
 	),
 }));
 
-// Mock lucide-react icons
-vi.mock('lucide-react', () => ({
-	Trophy: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="trophy-icon" className={className} style={style} />
-	),
-	Clock: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="clock-icon" className={className} style={style} />
-	),
-	Zap: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="zap-icon" className={className} style={style} />
-	),
-	Star: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="star-icon" className={className} style={style} />
-	),
-	ExternalLink: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="external-link-icon" className={className} style={style} />
-	),
-	ChevronDown: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="chevron-down-icon" className={className} style={style} />
-	),
-	History: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="history-icon" className={className} style={style} />
-	),
-	Share2: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="share-icon" className={className} style={style} />
-	),
-	Copy: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="copy-icon" className={className} style={style} />
-	),
-	Download: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="download-icon" className={className} style={style} />
-	),
-	Check: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="check-icon" className={className} style={style} />
-	),
-}));
-
 // Test theme
 const mockTheme: Theme = {
 	id: 'test-theme',
@@ -203,7 +166,7 @@ describe('AchievementCard', () => {
 		it('renders share button', () => {
 			render(<AchievementCard theme={mockTheme} autoRunStats={baseAutoRunStats} />);
 
-			expect(screen.getByTestId('share-icon')).toBeInTheDocument();
+			expect(screen.getByTestId('share2-icon')).toBeInTheDocument();
 		});
 
 		it('renders Maestro silhouette', () => {

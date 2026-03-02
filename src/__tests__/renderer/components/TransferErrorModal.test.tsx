@@ -21,21 +21,6 @@ import {
 } from '../../../renderer/components/TransferErrorModal';
 import { LayerStackProvider } from '../../../renderer/contexts/LayerStackContext';
 import type { Theme } from '../../../renderer/types';
-
-// Mock lucide-react
-vi.mock('lucide-react', () => ({
-	AlertCircle: () => <svg data-testid="alert-circle-icon" />,
-	RefreshCw: () => <svg data-testid="refresh-icon" />,
-	Zap: () => <svg data-testid="zap-icon" />,
-	XCircle: () => <svg data-testid="x-circle-icon" />,
-	Clock: () => <svg data-testid="clock-icon" />,
-	Download: () => <svg data-testid="download-icon" />,
-	Loader2: () => <svg data-testid="loader-icon" />,
-	HardDrive: () => <svg data-testid="hard-drive-icon" />,
-	ArrowRight: () => <svg data-testid="arrow-right-icon" />,
-	X: () => <svg data-testid="x-icon" />,
-}));
-
 // Mock contextGroomer for getAgentDisplayName
 vi.mock('../../../renderer/services/contextGroomer', () => ({
 	getAgentDisplayName: (toolType: string) => {
@@ -304,7 +289,7 @@ describe('TransferErrorModal', () => {
 				/>
 			);
 
-			expect(screen.getByTestId('loader-icon')).toBeInTheDocument();
+			expect(screen.getByTestId('loader2-icon')).toBeInTheDocument();
 		});
 	});
 

@@ -124,6 +124,7 @@ export const prepareSessionForPersistence = (session: Session): Session => {
 		gitBranches: undefined,
 		gitTags: undefined,
 		gitRefsCacheTime: undefined,
+		gitSubdirScanResults: undefined,
 	} as Session;
 };
 

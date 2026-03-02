@@ -17,16 +17,6 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { GistPublishModal } from '../../../renderer/components/GistPublishModal';
 import { LayerStackProvider } from '../../../renderer/contexts/LayerStackContext';
 import type { Theme } from '../../../renderer/types';
-
-// Mock lucide-react
-vi.mock('lucide-react', () => ({
-	Share2: () => <svg data-testid="share-icon" />,
-	X: () => <svg data-testid="x-icon" />,
-	Copy: () => <svg data-testid="copy-icon" />,
-	Check: () => <svg data-testid="check-icon" />,
-	ExternalLink: () => <svg data-testid="external-link-icon" />,
-}));
-
 // Mock window.maestro.git.createGist
 const mockCreateGist = vi.fn();
 const mockOpenExternal = vi.fn();
@@ -133,7 +123,7 @@ describe('GistPublishModal', () => {
 				/>
 			);
 
-			expect(screen.getByTestId('share-icon')).toBeInTheDocument();
+			expect(screen.getByTestId('share2-icon')).toBeInTheDocument();
 		});
 	});
 

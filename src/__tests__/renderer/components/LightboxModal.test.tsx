@@ -14,16 +14,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { LightboxModal } from '../../../renderer/components/LightboxModal';
 import { LayerStackProvider } from '../../../renderer/contexts/LayerStackContext';
-
-// Mock lucide-react
-vi.mock('lucide-react', () => ({
-	Copy: () => <svg data-testid="copy-icon" />,
-	Check: () => <svg data-testid="check-icon" />,
-	Trash2: () => <svg data-testid="trash-icon" />,
-	AlertTriangle: () => <svg data-testid="alert-triangle-icon" />,
-	X: () => <svg data-testid="x-icon" />,
-}));
-
 // Mock navigator.clipboard
 const mockClipboardWrite = vi.fn();
 Object.defineProperty(navigator, 'clipboard', {
@@ -922,7 +912,7 @@ describe('LightboxModal', () => {
 				/>
 			);
 
-			expect(screen.getByTestId('trash-icon')).toBeInTheDocument();
+			expect(screen.getByTestId('trash2-icon')).toBeInTheDocument();
 			expect(screen.getByText(/Delete to remove/)).toBeInTheDocument();
 		});
 
@@ -939,7 +929,7 @@ describe('LightboxModal', () => {
 				/>
 			);
 
-			expect(screen.queryByTestId('trash-icon')).not.toBeInTheDocument();
+			expect(screen.queryByTestId('trash2-icon')).not.toBeInTheDocument();
 			expect(screen.queryByText(/Delete to remove/)).not.toBeInTheDocument();
 		});
 

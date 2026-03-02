@@ -390,8 +390,8 @@ describe('claude-auth-detector', () => {
 
 			// The shared options should include ControlMaster, ServerAliveInterval, etc.
 			// If these are missing, it means the old inline pattern is still in use
-			expect(args).toContain('ServerAliveInterval=30');
-			expect(args).toContain('ServerAliveCountMax=3');
+			expect(args).toContain(`ServerAliveInterval=${COMMAND_SSH_OPTIONS.ServerAliveInterval}`);
+			expect(args).toContain(`ServerAliveCountMax=${COMMAND_SSH_OPTIONS.ServerAliveCountMax}`);
 		});
 	});
 });

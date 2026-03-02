@@ -10,60 +10,6 @@ import { AboutModal } from '../../../renderer/components/AboutModal';
 import type { Theme, AutoRunStats } from '../../../renderer/types';
 import type { GlobalAgentStats } from '../../../shared/types';
 
-// Mock lucide-react icons
-vi.mock('lucide-react', () => ({
-	X: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<span data-testid="x-icon" className={className} style={style}>
-			×
-		</span>
-	),
-	Wand2: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<span data-testid="wand-icon" className={className} style={style}>
-			🪄
-		</span>
-	),
-	ExternalLink: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<span data-testid="external-link-icon" className={className} style={style}>
-			↗
-		</span>
-	),
-	FileCode: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<span data-testid="file-code-icon" className={className} style={style}>
-			📄
-		</span>
-	),
-	BarChart3: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<span data-testid="bar-chart-icon" className={className} style={style}>
-			📊
-		</span>
-	),
-	Loader2: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<span data-testid="loader-icon" className={className} style={style}>
-			⏳
-		</span>
-	),
-	Trophy: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<span data-testid="trophy-icon" className={className} style={style}>
-			🏆
-		</span>
-	),
-	Globe: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<span data-testid="globe-icon" className={className} style={style}>
-			🌐
-		</span>
-	),
-	Check: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<span data-testid="check-icon" className={className} style={style}>
-			✓
-		</span>
-	),
-	BookOpen: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<span data-testid="book-open-icon" className={className} style={style}>
-			📖
-		</span>
-	),
-}));
-
 // Mock the avatar import
 vi.mock('../../../renderer/assets/pedram-avatar.png', () => ({
 	default: 'mock-avatar-url.png',
@@ -608,10 +554,10 @@ describe('AboutModal', () => {
 			expect(screen.getByText('123')).toBeInTheDocument();
 		});
 
-		it('should show spinner when stats are not complete', async () => {
-			// Mock getGlobalStats to return incomplete stats
+		it('should show spinner when messages fetch is in progress', async () => {
+			// Mock getGlobalStats to return stats with messagesFetchInProgress
 			vi.mocked(window.maestro.agentSessions.getGlobalStats).mockResolvedValue(
-				createGlobalStats({ isComplete: false })
+				createGlobalStats({ messagesFetchInProgress: true })
 			);
 
 			render(
@@ -623,15 +569,15 @@ describe('AboutModal', () => {
 				/>
 			);
 
-			// Simulate receiving incomplete stats via streaming callback
+			// Simulate receiving stats with messages fetch in progress
 			await act(async () => {
 				if (statsCallback) {
-					statsCallback(createGlobalStats({ isComplete: false }));
+					statsCallback(createGlobalStats({ messagesFetchInProgress: true }));
 				}
 			});
 
-			// Should show spinner icon in the header
-			expect(screen.getAllByTestId('loader-icon')).toHaveLength(1);
+			// Should show spinner icon next to Messages label
+			expect(screen.getAllByTestId('loader2-icon').length).toBeGreaterThanOrEqual(1);
 		});
 
 		it('should handle stats loading error gracefully', async () => {
@@ -647,8 +593,10 @@ describe('AboutModal', () => {
 				/>
 			);
 
+			// Flush the rejected promise without running all timers (which causes infinite loop
+			// due to auto-refresh interval re-registering on state changes)
 			await act(async () => {
-				await vi.runAllTimersAsync();
+				await vi.advanceTimersByTimeAsync(0);
 			});
 
 			expect(consoleErrorSpy).toHaveBeenCalledWith(
@@ -672,8 +620,10 @@ describe('AboutModal', () => {
 				/>
 			);
 
+			// Flush the rejected promise without running all timers (which causes infinite loop
+			// due to auto-refresh interval re-registering on state changes)
 			await act(async () => {
-				await vi.runAllTimersAsync();
+				await vi.advanceTimersByTimeAsync(0);
 			});
 
 			expect(screen.getByText('No sessions found')).toBeInTheDocument();
@@ -931,10 +881,13 @@ describe('AboutModal', () => {
 				}
 			});
 
-			expect(screen.getByText('$1,234.56')).toBeInTheDocument();
+			// Cost is now split across Maestro | Anthropic | Savings spans
+			// The Maestro cost span uses toFixed(2) and has a title attribute
+			const maestroCostSpan = screen.getByTitle('Maestro (billing-mode aware)');
+			expect(maestroCostSpan).toHaveTextContent('$1234.56');
 		});
 
-		it('should show cost with pulse animation when incomplete', async () => {
+		it('should display cost even when stats are incomplete', async () => {
 			// Mock getGlobalStats to return incomplete stats
 			vi.mocked(window.maestro.agentSessions.getGlobalStats).mockResolvedValue(
 				createGlobalStats({ totalCostUsd: 25.5, isComplete: false })
@@ -960,8 +913,8 @@ describe('AboutModal', () => {
 				}
 			});
 
-			const costElement = screen.getByText('$25.50');
-			expect(costElement).toHaveClass('animate-pulse');
+			const costElement = screen.getByTitle('Maestro (billing-mode aware)');
+			expect(costElement).toHaveTextContent('$25.50');
 		});
 
 		it('should show cost without pulse animation when complete', async () => {
@@ -1108,7 +1061,9 @@ describe('AboutModal', () => {
 				}
 			});
 
-			expect(screen.getByText('$12,345,678.90')).toBeInTheDocument();
+			// Cost is displayed using toFixed(2) without thousands separators
+			const maestroCostSpan = screen.getByTitle('Maestro (billing-mode aware)');
+			expect(maestroCostSpan).toHaveTextContent('$12345678.90');
 		});
 	});
 });

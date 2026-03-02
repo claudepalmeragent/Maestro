@@ -947,15 +947,18 @@ describe('ThinkingStatusPill', () => {
 	describe('cumulative session stats display (Yellow Pill)', () => {
 		/**
 		 * Tests for Task 2: Yellow Agent Session Pill
-		 * Verifies the cumulative session stats format: Session: X/Y ($Z.ZZ)
+		 * Verifies the cumulative session stats format: Session Tokens: X/Y ($Z.ZZ)
 		 * - X = total input + output tokens (compact format like "1.2K")
 		 * - Y = total cache tokens (compact format)
 		 * - Z.ZZ = total cost in USD
+		 * Note: The component reads cumulativeUsageStats from the write-mode (busy) tab,
+		 * NOT usageStats from the session.
 		 */
 
 		it('displays session stats with input/output tokens and cost', () => {
-			const session = createThinkingSession({
-				usageStats: {
+			const tab = createMockAITab({
+				state: 'busy',
+				cumulativeUsageStats: {
 					inputTokens: 1000,
 					outputTokens: 200,
 					cacheReadInputTokens: 0,
@@ -964,10 +967,13 @@ describe('ThinkingStatusPill', () => {
 					contextWindow: 200000,
 				},
 			});
+			const session = createThinkingSession({
+				aiTabs: [tab],
+			});
 			render(<ThinkingStatusPill thinkingSessions={[session]} theme={mockTheme} />);
 
-			// Should show "Session:" label
-			expect(screen.getByText('Session:')).toBeInTheDocument();
+			// Should show "Session Tokens:" label
+			expect(screen.getByText('Session Tokens:')).toBeInTheDocument();
 			// Should show input+output tokens (1000+200=1200) in compact format
 			expect(screen.getByText('1.2K')).toBeInTheDocument();
 			// Should show cost in $X.XX format
@@ -975,8 +981,9 @@ describe('ThinkingStatusPill', () => {
 		});
 
 		it('displays cache tokens when present', () => {
-			const session = createThinkingSession({
-				usageStats: {
+			const tab = createMockAITab({
+				state: 'busy',
+				cumulativeUsageStats: {
 					inputTokens: 45000,
 					outputTokens: 600,
 					cacheReadInputTokens: 10000,
@@ -985,10 +992,13 @@ describe('ThinkingStatusPill', () => {
 					contextWindow: 200000,
 				},
 			});
+			const session = createThinkingSession({
+				aiTabs: [tab],
+			});
 			render(<ThinkingStatusPill thinkingSessions={[session]} theme={mockTheme} />);
 
-			// Should show "Session:" label
-			expect(screen.getByText('Session:')).toBeInTheDocument();
+			// Should show "Session Tokens:" label
+			expect(screen.getByText('Session Tokens:')).toBeInTheDocument();
 			// Should show input+output tokens (45000+600=45600) in compact format
 			expect(screen.getByText('45.6K')).toBeInTheDocument();
 			// Should show cache tokens (10000+2300=12300) in compact format after slash
@@ -1003,13 +1013,14 @@ describe('ThinkingStatusPill', () => {
 			});
 			render(<ThinkingStatusPill thinkingSessions={[session]} theme={mockTheme} />);
 
-			// Should not show Session: label when no usage data
-			expect(screen.queryByText('Session:')).not.toBeInTheDocument();
+			// Should not show Session Tokens: label when no usage data
+			expect(screen.queryByText('Session Tokens:')).not.toBeInTheDocument();
 		});
 
 		it('does not display session stats when input/output tokens are 0', () => {
-			const session = createThinkingSession({
-				usageStats: {
+			const tab = createMockAITab({
+				state: 'busy',
+				cumulativeUsageStats: {
 					inputTokens: 0,
 					outputTokens: 0,
 					cacheReadInputTokens: 0,
@@ -1018,15 +1029,19 @@ describe('ThinkingStatusPill', () => {
 					contextWindow: 200000,
 				},
 			});
+			const session = createThinkingSession({
+				aiTabs: [tab],
+			});
 			render(<ThinkingStatusPill thinkingSessions={[session]} theme={mockTheme} />);
 
-			// Should not show Session: label when no tokens consumed
-			expect(screen.queryByText('Session:')).not.toBeInTheDocument();
+			// Should not show Session Tokens: label when no tokens consumed
+			expect(screen.queryByText('Session Tokens:')).not.toBeInTheDocument();
 		});
 
 		it('omits cache tokens when they are 0', () => {
-			const session = createThinkingSession({
-				usageStats: {
+			const tab = createMockAITab({
+				state: 'busy',
+				cumulativeUsageStats: {
 					inputTokens: 5000,
 					outputTokens: 500,
 					cacheReadInputTokens: 0,
@@ -1035,10 +1050,13 @@ describe('ThinkingStatusPill', () => {
 					contextWindow: 200000,
 				},
 			});
+			const session = createThinkingSession({
+				aiTabs: [tab],
+			});
 			render(<ThinkingStatusPill thinkingSessions={[session]} theme={mockTheme} />);
 
-			// Should show "Session:" label
-			expect(screen.getByText('Session:')).toBeInTheDocument();
+			// Should show "Session Tokens:" label
+			expect(screen.getByText('Session Tokens:')).toBeInTheDocument();
 			// Should show input+output tokens
 			expect(screen.getByText('5.5K')).toBeInTheDocument();
 			// Should NOT show cache tokens (slash format) when cache is 0
@@ -1048,8 +1066,9 @@ describe('ThinkingStatusPill', () => {
 		});
 
 		it('omits cost when it is 0', () => {
-			const session = createThinkingSession({
-				usageStats: {
+			const tab = createMockAITab({
+				state: 'busy',
+				cumulativeUsageStats: {
 					inputTokens: 1000,
 					outputTokens: 500,
 					cacheReadInputTokens: 500,
@@ -1058,10 +1077,13 @@ describe('ThinkingStatusPill', () => {
 					contextWindow: 200000,
 				},
 			});
+			const session = createThinkingSession({
+				aiTabs: [tab],
+			});
 			render(<ThinkingStatusPill thinkingSessions={[session]} theme={mockTheme} />);
 
-			// Should show "Session:" label
-			expect(screen.getByText('Session:')).toBeInTheDocument();
+			// Should show "Session Tokens:" label
+			expect(screen.getByText('Session Tokens:')).toBeInTheDocument();
 			// Should show tokens
 			expect(screen.getByText('1.5K')).toBeInTheDocument();
 			// Should NOT show cost parentheses when cost is 0
@@ -1069,8 +1091,9 @@ describe('ThinkingStatusPill', () => {
 		});
 
 		it('updates cumulative stats when session stats change', () => {
-			const session = createThinkingSession({
-				usageStats: {
+			const tab = createMockAITab({
+				state: 'busy',
+				cumulativeUsageStats: {
 					inputTokens: 1000,
 					outputTokens: 200,
 					cacheReadInputTokens: 0,
@@ -1078,6 +1101,9 @@ describe('ThinkingStatusPill', () => {
 					totalCostUsd: 0.1,
 					contextWindow: 200000,
 				},
+			});
+			const session = createThinkingSession({
+				aiTabs: [tab],
 			});
 			const { rerender } = render(
 				<ThinkingStatusPill thinkingSessions={[session]} theme={mockTheme} />
@@ -1088,9 +1114,10 @@ describe('ThinkingStatusPill', () => {
 			expect(screen.getByText('($0.10)')).toBeInTheDocument();
 
 			// After another message, stats should update
-			const updatedSession = {
-				...session,
-				usageStats: {
+			const updatedTab = createMockAITab({
+				id: 'tab-2',
+				state: 'busy',
+				cumulativeUsageStats: {
 					inputTokens: 5000,
 					outputTokens: 1000,
 					cacheReadInputTokens: 2000,
@@ -1098,6 +1125,10 @@ describe('ThinkingStatusPill', () => {
 					totalCostUsd: 0.55,
 					contextWindow: 200000,
 				},
+			});
+			const updatedSession = {
+				...session,
+				aiTabs: [updatedTab],
 			};
 			rerender(<ThinkingStatusPill thinkingSessions={[updatedSession]} theme={mockTheme} />);
 
@@ -1108,8 +1139,9 @@ describe('ThinkingStatusPill', () => {
 		});
 
 		it('shows tooltip with detailed breakdown', () => {
-			const session = createThinkingSession({
-				usageStats: {
+			const tab = createMockAITab({
+				state: 'busy',
+				cumulativeUsageStats: {
 					inputTokens: 10000,
 					outputTokens: 2000,
 					cacheReadInputTokens: 5000,
@@ -1118,10 +1150,13 @@ describe('ThinkingStatusPill', () => {
 					contextWindow: 200000,
 				},
 			});
+			const session = createThinkingSession({
+				aiTabs: [tab],
+			});
 			render(<ThinkingStatusPill thinkingSessions={[session]} theme={mockTheme} />);
 
 			// Find the session stats container and verify tooltip content
-			const sessionStatsDiv = screen.getByText('Session:').closest('div');
+			const sessionStatsDiv = screen.getByText('Session Tokens:').closest('div');
 			expect(sessionStatsDiv).toHaveAttribute('title', expect.stringContaining('Session totals:'));
 			expect(sessionStatsDiv).toHaveAttribute(
 				'title',
@@ -1135,8 +1170,9 @@ describe('ThinkingStatusPill', () => {
 		});
 
 		it('handles large token counts in millions', () => {
-			const session = createThinkingSession({
-				usageStats: {
+			const tab = createMockAITab({
+				state: 'busy',
+				cumulativeUsageStats: {
 					inputTokens: 1500000,
 					outputTokens: 300000,
 					cacheReadInputTokens: 500000,
@@ -1144,6 +1180,9 @@ describe('ThinkingStatusPill', () => {
 					totalCostUsd: 25.5,
 					contextWindow: 200000,
 				},
+			});
+			const session = createThinkingSession({
+				aiTabs: [tab],
 			});
 			render(<ThinkingStatusPill thinkingSessions={[session]} theme={mockTheme} />);
 
@@ -1153,12 +1192,12 @@ describe('ThinkingStatusPill', () => {
 			expect(screen.getByText('($25.50)')).toBeInTheDocument();
 		});
 
-		it('uses tab usageStats when available over session usageStats', () => {
+		it('uses tab cumulativeUsageStats when available over session usageStats', () => {
 			const tab = createMockAITab({
 				id: 'tab-with-stats',
 				state: 'busy',
 				name: 'Tab With Stats',
-				usageStats: {
+				cumulativeUsageStats: {
 					inputTokens: 3000,
 					outputTokens: 500,
 					cacheReadInputTokens: 1000,
@@ -1170,7 +1209,7 @@ describe('ThinkingStatusPill', () => {
 			const session = createThinkingSession({
 				aiTabs: [tab],
 				usageStats: {
-					// This should be ignored in favor of tab's usageStats
+					// This should be ignored in favor of tab's cumulativeUsageStats
 					inputTokens: 100,
 					outputTokens: 50,
 					cacheReadInputTokens: 0,

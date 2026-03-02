@@ -17,15 +17,6 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { WizardModePrompt } from '../../../../renderer/components/InlineWizard/WizardModePrompt';
 import { LayerStackProvider } from '../../../../renderer/contexts/LayerStackContext';
 import type { Theme } from '../../../../renderer/types';
-
-// Mock lucide-react
-vi.mock('lucide-react', () => ({
-	Wand2: () => <svg data-testid="wand-icon" />,
-	FileText: () => <svg data-testid="file-text-icon" />,
-	RefreshCw: () => <svg data-testid="refresh-icon" />,
-	X: () => <svg data-testid="x-icon" />,
-}));
-
 // Create a test theme
 const testTheme: Theme = {
 	id: 'test-theme',
@@ -87,7 +78,7 @@ describe('WizardModePrompt', () => {
 			renderWithLayerStack(<WizardModePrompt {...defaultProps} />);
 
 			expect(screen.getByText('Wizard Mode')).toBeInTheDocument();
-			expect(screen.getByTestId('wand-icon')).toBeInTheDocument();
+			expect(screen.getByTestId('wand2-icon')).toBeInTheDocument();
 		});
 
 		it('renders "Create New Plan" option button', () => {
@@ -101,7 +92,7 @@ describe('WizardModePrompt', () => {
 			renderWithLayerStack(<WizardModePrompt {...defaultProps} />);
 
 			expect(screen.getByText('Iterate on Existing')).toBeInTheDocument();
-			expect(screen.getByTestId('refresh-icon')).toBeInTheDocument();
+			expect(screen.getByTestId('refresh-cw-icon')).toBeInTheDocument();
 		});
 
 		it('renders Cancel button', () => {
@@ -440,7 +431,7 @@ describe('WizardModePrompt', () => {
 			renderWithLayerStack(<WizardModePrompt {...defaultProps} />);
 
 			expect(screen.getByTestId('file-text-icon')).toBeInTheDocument();
-			expect(screen.getByTestId('refresh-icon')).toBeInTheDocument();
+			expect(screen.getByTestId('refresh-cw-icon')).toBeInTheDocument();
 		});
 	});
 });

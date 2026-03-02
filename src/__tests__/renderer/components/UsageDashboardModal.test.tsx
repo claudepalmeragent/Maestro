@@ -7,58 +7,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { UsageDashboardModal } from '../../../renderer/components/UsageDashboard/UsageDashboardModal';
+import { useLayerStack } from '../../../renderer/contexts/LayerStackContext';
 import type { Theme } from '../../../renderer/types';
 
 // Mock lucide-react icons - include all icons used by modal and its child components
-vi.mock('lucide-react', () => {
-	const createIcon = (name: string, emoji: string) => {
-		return ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-			<span data-testid={`${name}-icon`} className={className} style={style}>
-				{emoji}
-			</span>
-		);
-	};
-
-	return {
-		// UsageDashboardModal icons
-		X: createIcon('x', '×'),
-		BarChart3: createIcon('barchart', '📊'),
-		Calendar: createIcon('calendar', '📅'),
-		Download: createIcon('download', '⬇️'),
-		RefreshCw: createIcon('refresh', '🔄'),
-		Database: createIcon('database', '💾'),
-		// SummaryCards icons
-		MessageSquare: createIcon('message-square', '💬'),
-		Clock: createIcon('clock', '🕐'),
-		Timer: createIcon('timer', '⏱️'),
-		Bot: createIcon('bot', '🤖'),
-		Users: createIcon('users', '👥'),
-		Layers: createIcon('layers', '📚'),
-		Zap: createIcon('zap', '⚡'),
-		FileText: createIcon('file-text', '📄'),
-		DollarSign: createIcon('dollar-sign', '💲'),
-		// AutoRunStats icons
-		Play: createIcon('play', '▶️'),
-		CheckSquare: createIcon('check-square', '✅'),
-		ListChecks: createIcon('list-checks', '📝'),
-		Target: createIcon('target', '🎯'),
-		// ChartErrorBoundary icons
-		AlertTriangle: createIcon('alert-triangle', '⚠️'),
-		ChevronDown: createIcon('chevron-down', '▼'),
-		ChevronUp: createIcon('chevron-up', '▲'),
-	};
-});
-
-// Mock layer stack context
-const mockRegisterLayer = vi.fn(() => 'layer-123');
-const mockUnregisterLayer = vi.fn();
-
-vi.mock('../../../renderer/contexts/LayerStackContext', () => ({
-	useLayerStack: () => ({
-		registerLayer: mockRegisterLayer,
-		unregisterLayer: mockUnregisterLayer,
-	}),
-}));
 
 // Mock maestro stats API
 const mockGetAggregation = vi.fn();
@@ -75,29 +27,36 @@ const mockGetCostsByAgent = vi.fn(() => Promise.resolve([]));
 const mockSaveFile = vi.fn();
 const mockWriteFile = vi.fn();
 
-const mockMaestro = {
-	stats: {
-		getAggregation: mockGetAggregation,
-		exportCsv: mockExportCsv,
-		onStatsUpdate: mockOnStatsUpdate,
-		getAutoRunSessions: mockGetAutoRunSessions,
-		getAutoRunTasks: mockGetAutoRunTasks,
-		getDatabaseSize: mockGetDatabaseSize,
-		getDailyCosts: mockGetDailyCosts,
-		getCostsByModel: mockGetCostsByModel,
-		getCostsByAgent: mockGetCostsByAgent,
-	},
-	dialog: {
-		saveFile: mockSaveFile,
-	},
-	fs: {
-		writeFile: mockWriteFile,
-	},
-};
+// Layer stack mocks for assertions
+const mockRegisterLayer = vi.fn().mockReturnValue('layer-123');
+const mockUnregisterLayer = vi.fn();
 
-// Set up window.maestro mock
+// Override only the specific APIs needed for this test, preserving global mock
+const savedMaestro = (window as any).maestro;
 Object.defineProperty(window, 'maestro', {
-	value: mockMaestro,
+	value: {
+		...savedMaestro,
+		stats: {
+			...savedMaestro?.stats,
+			getAggregation: mockGetAggregation,
+			exportCsv: mockExportCsv,
+			onStatsUpdate: mockOnStatsUpdate,
+			getAutoRunSessions: mockGetAutoRunSessions,
+			getAutoRunTasks: mockGetAutoRunTasks,
+			getDatabaseSize: mockGetDatabaseSize,
+			getDailyCosts: mockGetDailyCosts,
+			getCostsByModel: mockGetCostsByModel,
+			getCostsByAgent: mockGetCostsByAgent,
+		},
+		dialog: {
+			...savedMaestro?.dialog,
+			saveFile: mockSaveFile,
+		},
+		fs: {
+			...savedMaestro?.fs,
+			writeFile: mockWriteFile,
+		},
+	},
 	writable: true,
 });
 
@@ -169,6 +128,17 @@ describe('UsageDashboardModal', () => {
 		mockSaveFile.mockResolvedValue(null); // User cancels by default
 		mockWriteFile.mockResolvedValue({ success: true });
 		mockGetDatabaseSize.mockResolvedValue(1024 * 1024 * 5); // 5 MB default
+		// Wire layer stack mock for assertion tests
+		(useLayerStack as ReturnType<typeof vi.fn>).mockReturnValue({
+			registerLayer: mockRegisterLayer,
+			unregisterLayer: mockUnregisterLayer,
+			updateLayerHandler: vi.fn(),
+			getTopLayer: vi.fn().mockReturnValue(undefined),
+			closeTopLayer: vi.fn().mockResolvedValue(false),
+			hasOpenLayers: vi.fn().mockReturnValue(false),
+			hasOpenModal: vi.fn().mockReturnValue(false),
+			layerCount: 0,
+		});
 	});
 
 	afterEach(() => {
@@ -936,10 +906,11 @@ describe('UsageDashboardModal', () => {
 			});
 
 			// Wait for indicator and check theme styling
+			// The indicator uses textMain for text color and accent-based background
 			await waitFor(
 				() => {
 					const indicator = screen.getByTestId('new-data-indicator');
-					expect(indicator).toHaveStyle({ color: theme.colors.accent });
+					expect(indicator).toHaveStyle({ color: theme.colors.textMain });
 					expect(indicator).toHaveStyle({ backgroundColor: `${theme.colors.accent}20` });
 				},
 				{ timeout: 2000 }
@@ -1050,8 +1021,9 @@ describe('UsageDashboardModal', () => {
 			});
 
 			// Dashboard should have fetched new aggregation data
+			// Note: getAggregation is called for initial fetchStats + weeklyLocalData effect + this update = 3
 			await waitFor(() => {
-				expect(mockGetAggregation).toHaveBeenCalledTimes(2);
+				expect(mockGetAggregation).toHaveBeenCalledTimes(3);
 			});
 
 			// New data should be displayed (151 queries instead of 150)
@@ -1114,17 +1086,17 @@ describe('UsageDashboardModal', () => {
 			});
 
 			// At this point, debounce timer keeps resetting
-			// So no fetch has happened yet (still only initial fetch)
-			expect(mockGetAggregation).toHaveBeenCalledTimes(1);
+			// So no fetch has happened yet (still only initial fetchStats + weeklyLocalData effect)
+			expect(mockGetAggregation).toHaveBeenCalledTimes(2);
 
 			// Advance past 1-second debounce after last update
 			await act(async () => {
 				vi.advanceTimersByTime(1100);
 			});
 
-			// Should have made exactly 2 fetches total: initial + one debounced fetch
+			// Should have made exactly 3 fetches total: initial fetchStats + weeklyLocalData + one debounced fetch
 			await waitFor(() => {
-				expect(mockGetAggregation).toHaveBeenCalledTimes(2);
+				expect(mockGetAggregation).toHaveBeenCalledTimes(3);
 			});
 		});
 
@@ -1166,8 +1138,9 @@ describe('UsageDashboardModal', () => {
 			});
 
 			// Dashboard should update with new Auto Run data
+			// (fetchStats initial + weeklyLocalData + debounced update = 3)
 			await waitFor(() => {
-				expect(mockGetAggregation).toHaveBeenCalledTimes(2);
+				expect(mockGetAggregation).toHaveBeenCalledTimes(3);
 			});
 
 			// Interactive percentage should update (100/160 = 62.5%, rounded to 63%)
@@ -1234,11 +1207,14 @@ describe('UsageDashboardModal', () => {
 				return vi.fn();
 			});
 
+			// Note: getAggregation is called by both fetchStats() and weeklyLocalData effect on mount
+			// So we need 5 mockResolvedValueOnce: fetchStats + weeklyLocal + 3 update cycles
 			mockGetAggregation
-				.mockResolvedValueOnce(data1)
-				.mockResolvedValueOnce(data2)
-				.mockResolvedValueOnce(data3)
-				.mockResolvedValueOnce(data4);
+				.mockResolvedValueOnce(data1) // fetchStats initial
+				.mockResolvedValueOnce(data1) // weeklyLocalData effect
+				.mockResolvedValueOnce(data2) // first update
+				.mockResolvedValueOnce(data3) // second update
+				.mockResolvedValueOnce(data4); // third update
 
 			render(<UsageDashboardModal isOpen={true} onClose={onClose} theme={theme} />);
 
@@ -1282,8 +1258,8 @@ describe('UsageDashboardModal', () => {
 				expect(screen.getAllByText('153').length).toBeGreaterThan(0);
 			});
 
-			// Dashboard should have fetched 4 times total
-			expect(mockGetAggregation).toHaveBeenCalledTimes(4);
+			// Dashboard should have fetched 5 times total (fetchStats + weeklyLocal + 3 updates)
+			expect(mockGetAggregation).toHaveBeenCalledTimes(5);
 		});
 
 		it('closing modal during active session properly unsubscribes', async () => {
@@ -1318,8 +1294,8 @@ describe('UsageDashboardModal', () => {
 				vi.advanceTimersByTime(2000);
 			});
 
-			// No additional fetches after initial one
-			expect(mockGetAggregation).toHaveBeenCalledTimes(1);
+			// No additional fetches after initial fetchStats + weeklyLocalData
+			expect(mockGetAggregation).toHaveBeenCalledTimes(2);
 		});
 
 		it('reopening modal after close re-establishes subscription', async () => {
@@ -1335,10 +1311,16 @@ describe('UsageDashboardModal', () => {
 				return vi.fn();
 			});
 
+			// Note: getAggregation is called by both fetchStats() and weeklyLocalData effect on each open
+			// First open: fetchStats + weeklyLocal = 2 calls
+			// Reopen: fetchStats + weeklyLocal = 2 more calls
+			// Update after reopen: 1 more call
 			mockGetAggregation
-				.mockResolvedValueOnce(initialData)
-				.mockResolvedValueOnce(initialData)
-				.mockResolvedValueOnce(afterReopenData);
+				.mockResolvedValueOnce(initialData) // first open: fetchStats
+				.mockResolvedValueOnce(initialData) // first open: weeklyLocalData
+				.mockResolvedValueOnce(afterReopenData) // reopen: fetchStats
+				.mockResolvedValueOnce(afterReopenData) // reopen: weeklyLocalData
+				.mockResolvedValueOnce(afterReopenData); // debounced update
 
 			const { rerender } = render(
 				<UsageDashboardModal isOpen={true} onClose={onClose} theme={theme} />
@@ -2192,7 +2174,11 @@ describe('UsageDashboardModal', () => {
 			const weekData = createDataForTimeRange('week');
 			const dayData = createDataForTimeRange('day');
 
-			mockGetAggregation.mockResolvedValueOnce(weekData).mockResolvedValueOnce(dayData);
+			// fetchStats('week') + weeklyLocalData('week') on mount, then fetchStats('day') on change
+			mockGetAggregation
+				.mockResolvedValueOnce(weekData) // fetchStats initial
+				.mockResolvedValueOnce(weekData) // weeklyLocalData effect
+				.mockResolvedValueOnce(dayData); // fetchStats after time range change
 
 			render(<UsageDashboardModal isOpen={true} onClose={onClose} theme={theme} />);
 
@@ -2215,7 +2201,10 @@ describe('UsageDashboardModal', () => {
 			const weekData = createDataForTimeRange('week');
 			const monthData = createDataForTimeRange('month');
 
-			mockGetAggregation.mockResolvedValueOnce(weekData).mockResolvedValueOnce(monthData);
+			mockGetAggregation
+				.mockResolvedValueOnce(weekData) // fetchStats initial
+				.mockResolvedValueOnce(weekData) // weeklyLocalData effect
+				.mockResolvedValueOnce(monthData); // fetchStats after time range change
 
 			render(<UsageDashboardModal isOpen={true} onClose={onClose} theme={theme} />);
 
@@ -2238,7 +2227,10 @@ describe('UsageDashboardModal', () => {
 			const weekData = createDataForTimeRange('week');
 			const allData = createDataForTimeRange('all');
 
-			mockGetAggregation.mockResolvedValueOnce(weekData).mockResolvedValueOnce(allData);
+			mockGetAggregation
+				.mockResolvedValueOnce(weekData) // fetchStats initial
+				.mockResolvedValueOnce(weekData) // weeklyLocalData effect
+				.mockResolvedValueOnce(allData); // fetchStats after time range change
 
 			render(<UsageDashboardModal isOpen={true} onClose={onClose} theme={theme} />);
 
@@ -2261,7 +2253,10 @@ describe('UsageDashboardModal', () => {
 			const weekData = createDataForTimeRange('week');
 			const monthData = createDataForTimeRange('month');
 
-			mockGetAggregation.mockResolvedValueOnce(weekData).mockResolvedValueOnce(monthData);
+			mockGetAggregation
+				.mockResolvedValueOnce(weekData) // fetchStats initial
+				.mockResolvedValueOnce(weekData) // weeklyLocalData effect
+				.mockResolvedValueOnce(monthData); // fetchStats after time range change
 
 			render(<UsageDashboardModal isOpen={true} onClose={onClose} theme={theme} />);
 
@@ -2284,7 +2279,10 @@ describe('UsageDashboardModal', () => {
 			const weekData = createDataForTimeRange('week');
 			const allData = createDataForTimeRange('all');
 
-			mockGetAggregation.mockResolvedValueOnce(weekData).mockResolvedValueOnce(allData);
+			mockGetAggregation
+				.mockResolvedValueOnce(weekData) // fetchStats initial
+				.mockResolvedValueOnce(weekData) // weeklyLocalData effect
+				.mockResolvedValueOnce(allData); // fetchStats after time range change
 
 			render(<UsageDashboardModal isOpen={true} onClose={onClose} theme={theme} />);
 
@@ -2307,7 +2305,11 @@ describe('UsageDashboardModal', () => {
 			const dayData = createDataForTimeRange('day'); // 20/25 = 80%
 			const allData = createDataForTimeRange('all'); // 9000/12000 = 75%
 
-			mockGetAggregation.mockResolvedValueOnce(dayData).mockResolvedValueOnce(allData);
+			// fetchStats('day') + weeklyLocalData('week') on mount, then fetchStats('all') on change
+			mockGetAggregation
+				.mockResolvedValueOnce(dayData) // fetchStats initial (day)
+				.mockResolvedValueOnce(dayData) // weeklyLocalData effect (week)
+				.mockResolvedValueOnce(allData); // fetchStats after time range change
 
 			render(
 				<UsageDashboardModal isOpen={true} onClose={onClose} theme={theme} defaultTimeRange="day" />
@@ -2332,7 +2334,10 @@ describe('UsageDashboardModal', () => {
 			const weekData = createDataForTimeRange('week'); // 25 sessions
 			const yearData = createDataForTimeRange('year'); // 800 sessions
 
-			mockGetAggregation.mockResolvedValueOnce(weekData).mockResolvedValueOnce(yearData);
+			mockGetAggregation
+				.mockResolvedValueOnce(weekData) // fetchStats initial
+				.mockResolvedValueOnce(weekData) // weeklyLocalData effect
+				.mockResolvedValueOnce(yearData); // fetchStats after time range change
 
 			render(<UsageDashboardModal isOpen={true} onClose={onClose} theme={theme} />);
 
@@ -2383,8 +2388,10 @@ describe('UsageDashboardModal', () => {
 			const monthData = createDataForTimeRange('month');
 			const allData = createDataForTimeRange('all');
 
+			// fetchStats('week') + weeklyLocalData('week') on mount, then 3 time range switches
 			mockGetAggregation
-				.mockResolvedValueOnce(weekData) // Initial load
+				.mockResolvedValueOnce(weekData) // fetchStats initial
+				.mockResolvedValueOnce(weekData) // weeklyLocalData effect
 				.mockResolvedValueOnce(dayData) // Switch to day
 				.mockResolvedValueOnce(monthData) // Switch to month
 				.mockResolvedValueOnce(allData); // Switch to all
@@ -2416,19 +2423,24 @@ describe('UsageDashboardModal', () => {
 				expect(screen.getByText('$112.50')).toBeInTheDocument();
 			});
 
-			// Verify all four time ranges were fetched
-			expect(mockGetAggregation).toHaveBeenCalledTimes(4);
+			// Verify all five calls were made (fetchStats initial + weeklyLocal + 3 switches)
+			expect(mockGetAggregation).toHaveBeenCalledTimes(5);
 			expect(mockGetAggregation).toHaveBeenNthCalledWith(1, 'week');
-			expect(mockGetAggregation).toHaveBeenNthCalledWith(2, 'day');
-			expect(mockGetAggregation).toHaveBeenNthCalledWith(3, 'month');
-			expect(mockGetAggregation).toHaveBeenNthCalledWith(4, 'all');
+			expect(mockGetAggregation).toHaveBeenNthCalledWith(2, 'week'); // weeklyLocalData
+			expect(mockGetAggregation).toHaveBeenNthCalledWith(3, 'day');
+			expect(mockGetAggregation).toHaveBeenNthCalledWith(4, 'month');
+			expect(mockGetAggregation).toHaveBeenNthCalledWith(5, 'all');
 		});
 
 		it('updates Total Time when time range changes', async () => {
 			const dayData = createDataForTimeRange('day'); // 10 minutes
 			const allData = createDataForTimeRange('all'); // 120 hours
 
-			mockGetAggregation.mockResolvedValueOnce(dayData).mockResolvedValueOnce(allData);
+			// fetchStats('day') + weeklyLocalData('week') on mount, then fetchStats('all') on change
+			mockGetAggregation
+				.mockResolvedValueOnce(dayData) // fetchStats initial (day)
+				.mockResolvedValueOnce(dayData) // weeklyLocalData effect (week)
+				.mockResolvedValueOnce(allData); // fetchStats after time range change
 
 			render(
 				<UsageDashboardModal isOpen={true} onClose={onClose} theme={theme} defaultTimeRange="day" />
@@ -2453,7 +2465,11 @@ describe('UsageDashboardModal', () => {
 			const dayData = createDataForTimeRange('day'); // 20 tok/s
 			const monthData = createDataForTimeRange('month'); // 30 tok/s
 
-			mockGetAggregation.mockResolvedValueOnce(dayData).mockResolvedValueOnce(monthData);
+			// fetchStats('day') + weeklyLocalData('week') on mount, then fetchStats('month') on change
+			mockGetAggregation
+				.mockResolvedValueOnce(dayData) // fetchStats initial (day)
+				.mockResolvedValueOnce(dayData) // weeklyLocalData effect (week)
+				.mockResolvedValueOnce(monthData); // fetchStats after time range change
 
 			render(
 				<UsageDashboardModal isOpen={true} onClose={onClose} theme={theme} defaultTimeRange="day" />
@@ -2494,7 +2510,11 @@ describe('UsageDashboardModal', () => {
 				byLocation: { local: 0, remote: 0 },
 			};
 
-			mockGetAggregation.mockResolvedValueOnce(weekData).mockResolvedValueOnce(emptyDayData);
+			// fetchStats('week') + weeklyLocalData('week') on mount, then fetchStats('day') on change
+			mockGetAggregation
+				.mockResolvedValueOnce(weekData) // fetchStats initial
+				.mockResolvedValueOnce(weekData) // weeklyLocalData effect
+				.mockResolvedValueOnce(emptyDayData); // fetchStats after time range change
 
 			render(<UsageDashboardModal isOpen={true} onClose={onClose} theme={theme} />);
 

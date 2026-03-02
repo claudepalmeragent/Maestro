@@ -8,6 +8,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import React from 'react';
+
+// Undo the global mock from setup.ts so we test with the real context
+vi.unmock('../../../renderer/contexts/LayerStackContext');
+
 import { useModalLayer } from '../../../renderer/hooks';
 import { LayerStackProvider } from '../../../renderer/contexts/LayerStackContext';
 import { useLayerStack } from '../../../renderer/contexts/LayerStackContext';

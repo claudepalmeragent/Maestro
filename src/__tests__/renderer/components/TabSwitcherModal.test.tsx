@@ -17,13 +17,6 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { TabSwitcherModal } from '../../../renderer/components/TabSwitcherModal';
 import { LayerStackProvider } from '../../../renderer/contexts/LayerStackContext';
 import type { Theme, AITab } from '../../../renderer/types';
-
-// Mock lucide-react
-vi.mock('lucide-react', () => ({
-	Search: () => <svg data-testid="search-icon" />,
-	Star: () => <svg data-testid="star-icon" />,
-}));
-
 // Create a test theme
 const createTestTheme = (overrides: Partial<Theme['colors']> = {}): Theme => ({
 	id: 'test-theme',

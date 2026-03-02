@@ -18,15 +18,6 @@ import { AgentPromptComposerModal } from '../../../renderer/components/AgentProm
 import { LayerStackProvider } from '../../../renderer/contexts/LayerStackContext';
 import type { Theme } from '../../../renderer/types';
 
-// Mock lucide-react
-vi.mock('lucide-react', () => ({
-	X: () => <svg data-testid="x-icon" />,
-	FileText: () => <svg data-testid="file-text-icon" />,
-	Variable: () => <svg data-testid="variable-icon" />,
-	ChevronDown: () => <svg data-testid="chevron-down-icon" />,
-	ChevronRight: () => <svg data-testid="chevron-right-icon" />,
-}));
-
 // Mock the useTemplateAutocomplete hook
 const mockAutocompleteState = {
 	isOpen: false,

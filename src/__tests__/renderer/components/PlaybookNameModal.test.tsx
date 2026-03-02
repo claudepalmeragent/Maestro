@@ -17,13 +17,6 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { PlaybookNameModal } from '../../../renderer/components/PlaybookNameModal';
 import { LayerStackProvider } from '../../../renderer/contexts/LayerStackContext';
 import type { Theme } from '../../../renderer/types';
-
-// Mock lucide-react
-vi.mock('lucide-react', () => ({
-	X: () => <svg data-testid="x-icon" />,
-	Save: () => <svg data-testid="save-icon" />,
-}));
-
 // Create a test theme
 const createTestTheme = (overrides: Partial<Theme['colors']> = {}): Theme => ({
 	id: 'test-theme',

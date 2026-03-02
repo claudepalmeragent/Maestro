@@ -1201,7 +1201,7 @@ this is not valid diff`,
 			render(<GitLogViewer {...defaultProps} cwd="/custom/path" />);
 
 			await waitFor(() => {
-				expect(gitLogMock()).toHaveBeenCalledWith('/custom/path', { limit: 30 }, undefined);
+				expect(gitLogMock()).toHaveBeenCalledWith('/custom/path', { limit: 200 }, undefined);
 			});
 		});
 
@@ -1370,10 +1370,10 @@ this is not valid diff`,
 			fireEvent.click(screen.getByText('Load more commits...'));
 
 			await waitFor(() => {
-				// Should have called git.log with skip=30
+				// Should have called git.log with skip=30 (PAGE_SIZE is 200)
 				expect(gitLogMock()).toHaveBeenCalledWith(
 					'/test/project',
-					{ limit: 30, skip: 30 },
+					{ limit: 200, skip: 30 },
 					undefined
 				);
 			});

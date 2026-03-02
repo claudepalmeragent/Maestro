@@ -16,15 +16,6 @@ import { DeleteAgentConfirmModal } from '../../../renderer/components/DeleteAgen
 import { LayerStackProvider } from '../../../renderer/contexts/LayerStackContext';
 import type { Theme } from '../../../renderer/types';
 
-// Mock lucide-react
-vi.mock('lucide-react', () => ({
-	X: () => <svg data-testid="x-icon" />,
-	AlertTriangle: () => <svg data-testid="alert-triangle-icon" />,
-	Trash2: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="trash2-icon" className={className} style={style} />
-	),
-}));
-
 // Create a test theme
 const testTheme: Theme = {
 	id: 'test-theme',

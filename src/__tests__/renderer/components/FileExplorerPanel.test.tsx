@@ -4,120 +4,6 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { FileExplorerPanel } from '../../../renderer/components/FileExplorerPanel';
 import type { Session, Theme } from '../../../renderer/types';
 
-// Mock lucide-react
-vi.mock('lucide-react', () => ({
-	ChevronRight: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<span data-testid="chevron-right" className={className} style={style}>
-			▶
-		</span>
-	),
-	ChevronDown: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<span data-testid="chevron-down" className={className} style={style}>
-			▼
-		</span>
-	),
-	ChevronUp: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<span data-testid="chevron-up" className={className} style={style}>
-			▲
-		</span>
-	),
-	Folder: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<span data-testid="folder-icon" className={className} style={style}>
-			📁
-		</span>
-	),
-	RefreshCw: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<span data-testid="refresh-icon" className={className} style={style}>
-			🔄
-		</span>
-	),
-	Check: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<span data-testid="check-icon" className={className} style={style}>
-			✓
-		</span>
-	),
-	Eye: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<span data-testid="eye-icon" className={className} style={style}>
-			👁
-		</span>
-	),
-	EyeOff: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<span data-testid="eye-off-icon" className={className} style={style}>
-			👁‍🗨
-		</span>
-	),
-	GitGraph: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<span data-testid="gitgraph-icon" className={className} style={style}>
-			📊
-		</span>
-	),
-	Target: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<span data-testid="target-icon" className={className} style={style}>
-			🎯
-		</span>
-	),
-	Copy: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<span data-testid="copy-icon" className={className} style={style}>
-			📋
-		</span>
-	),
-	ExternalLink: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<span data-testid="external-link-icon" className={className} style={style}>
-			🔗
-		</span>
-	),
-	FileText: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<span data-testid="filetext-icon" className={className} style={style}>
-			📄
-		</span>
-	),
-	Server: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<span data-testid="server-icon" className={className} style={style}>
-			🖥️
-		</span>
-	),
-	GitBranch: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<span data-testid="gitbranch-icon" className={className} style={style}>
-			🌿
-		</span>
-	),
-	Clock: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<span data-testid="clock-icon" className={className} style={style}>
-			🕐
-		</span>
-	),
-	RotateCw: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<span data-testid="rotatecw-icon" className={className} style={style}>
-			🔃
-		</span>
-	),
-	Edit2: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<span data-testid="edit2-icon" className={className} style={style}>
-			✏️
-		</span>
-	),
-	Trash2: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<span data-testid="trash2-icon" className={className} style={style}>
-			🗑️
-		</span>
-	),
-	AlertTriangle: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<span data-testid="alert-triangle-icon" className={className} style={style}>
-			⚠️
-		</span>
-	),
-	X: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<span data-testid="x-icon" className={className} style={style}>
-			✕
-		</span>
-	),
-	Loader2: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<span data-testid="loader2-icon" className={className} style={style}>
-			⏳
-		</span>
-	),
-}));
-
 // Mock @tanstack/react-virtual for virtualization
 vi.mock('@tanstack/react-virtual', () => ({
 	useVirtualizer: ({ count }: { count: number }) => ({
@@ -403,7 +289,7 @@ describe('FileExplorerPanel', () => {
 	describe('Header Controls', () => {
 		it('renders refresh button', () => {
 			render(<FileExplorerPanel {...defaultProps} />);
-			expect(screen.getByTestId('refresh-icon')).toBeInTheDocument();
+			expect(screen.getByTestId('refresh-cw-icon')).toBeInTheDocument();
 		});
 
 		it('renders expand all button with correct title', () => {
@@ -523,8 +409,8 @@ describe('FileExplorerPanel', () => {
 			});
 
 			// During refresh, icon should spin
-			const refreshIcon = screen.getByTestId('refresh-icon');
-			expect(refreshIcon.className).toContain('animate-spin');
+			const refreshIcon = screen.getByTestId('refresh-cw-icon');
+			expect(refreshIcon.getAttribute('class')).toContain('animate-spin');
 
 			// Resolve and wait for animation timeout
 			await act(async () => {
@@ -798,7 +684,7 @@ describe('FileExplorerPanel', () => {
 
 		it('renders collapsed folders with ChevronRight', () => {
 			render(<FileExplorerPanel {...defaultProps} />);
-			expect(screen.getAllByTestId('chevron-right').length).toBeGreaterThan(0);
+			expect(screen.getAllByTestId('chevron-right-icon').length).toBeGreaterThan(0);
 		});
 
 		it('renders expanded folders with ChevronDown', () => {
@@ -806,7 +692,7 @@ describe('FileExplorerPanel', () => {
 				fileExplorerExpanded: ['src', 'src/utils'],
 			});
 			render(<FileExplorerPanel {...defaultProps} session={session} />);
-			expect(screen.getAllByTestId('chevron-down').length).toBeGreaterThan(0);
+			expect(screen.getAllByTestId('chevron-down-icon').length).toBeGreaterThan(0);
 		});
 
 		it('renders children when folder is expanded', () => {

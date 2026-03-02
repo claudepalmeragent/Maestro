@@ -152,7 +152,6 @@ describe('EditAgentModal — Git Re-scan Feature', () => {
 					onClose={mockOnClose}
 					onSave={mockOnSave}
 					onRescanGit={mockOnRescanGit}
-					onSelectGitSubdir={vi.fn()}
 					theme={theme}
 					session={baseSession}
 					existingSessions={[]}
@@ -175,7 +174,6 @@ describe('EditAgentModal — Git Re-scan Feature', () => {
 					onClose={mockOnClose}
 					onSave={mockOnSave}
 					onRescanGit={mockOnRescanGit}
-					onSelectGitSubdir={vi.fn()}
 					theme={theme}
 					session={gitSession}
 					existingSessions={[]}
@@ -198,7 +196,6 @@ describe('EditAgentModal — Git Re-scan Feature', () => {
 					onClose={mockOnClose}
 					onSave={mockOnSave}
 					onRescanGit={mockOnRescanGit}
-					onSelectGitSubdir={vi.fn()}
 					theme={theme}
 					session={baseSession}
 					existingSessions={[]}
@@ -227,7 +224,6 @@ describe('EditAgentModal — Git Re-scan Feature', () => {
 					onClose={mockOnClose}
 					onSave={mockOnSave}
 					onRescanGit={mockOnRescanGit}
-					onSelectGitSubdir={vi.fn()}
 					theme={theme}
 					session={baseSession}
 					existingSessions={[]}
@@ -258,7 +254,6 @@ describe('EditAgentModal — Git Re-scan Feature', () => {
 					onClose={mockOnClose}
 					onSave={mockOnSave}
 					onRescanGit={mockOnRescanGit}
-					onSelectGitSubdir={vi.fn()}
 					theme={theme}
 					session={baseSession}
 					existingSessions={[]}
@@ -287,7 +282,6 @@ describe('EditAgentModal — Git Re-scan Feature', () => {
 				onClose={mockOnClose}
 				onSave={mockOnSave}
 				onRescanGit={mockOnRescanGit}
-				onSelectGitSubdir={vi.fn()}
 				theme={theme}
 				session={baseSession}
 				existingSessions={[]}
@@ -304,8 +298,6 @@ describe('EditAgentModal — Subdirectory Git Scanning (Option C)', () => {
 	let mockOnSave: ReturnType<typeof vi.fn>;
 	let mockOnClose: ReturnType<typeof vi.fn>;
 	let mockOnRescanGit: ReturnType<typeof vi.fn>;
-	let mockOnSelectGitSubdir: ReturnType<typeof vi.fn>;
-
 	const baseSession: Session = {
 		id: 'test-session-subdir',
 		name: 'Test Subdir Session',
@@ -358,7 +350,6 @@ describe('EditAgentModal — Subdirectory Git Scanning (Option C)', () => {
 		mockOnSave = vi.fn();
 		mockOnClose = vi.fn();
 		mockOnRescanGit = vi.fn();
-		mockOnSelectGitSubdir = vi.fn();
 
 		mockRegisterLayer.mockClear().mockReturnValue('layer-edit-subdir-123');
 		mockUnregisterLayer.mockClear();
@@ -394,9 +385,9 @@ describe('EditAgentModal — Subdirectory Git Scanning (Option C)', () => {
 		vi.clearAllMocks();
 	});
 
-	it('should handle subdirs-found return and show selection UI', async () => {
-		// Session with scan results pre-populated — chooser should appear automatically
-		// (race condition fix: useEffect derives gitScanStatus from session.gitSubdirScanResults)
+	it('should show re-scan button when session has no git repo (even with stale gitSubdirScanResults)', async () => {
+		// The subdirectory chooser feature was removed. Sessions without isGitRepo
+		// should show the "Re-scan for Git Repository" button regardless of scan results.
 		const sessionWithSubdirs: Session = {
 			...baseSession,
 			gitSubdirScanResults: [
@@ -406,13 +397,6 @@ describe('EditAgentModal — Subdirectory Git Scanning (Option C)', () => {
 					isWorktree: false,
 					branch: 'main',
 					repoRoot: '/home/user/projects/app-one',
-				},
-				{
-					path: '/home/user/projects/app-two',
-					name: 'app-two',
-					isWorktree: false,
-					branch: 'develop',
-					repoRoot: '/home/user/projects/app-two',
 				},
 			],
 		};
@@ -424,7 +408,6 @@ describe('EditAgentModal — Subdirectory Git Scanning (Option C)', () => {
 					onClose={mockOnClose}
 					onSave={mockOnSave}
 					onRescanGit={mockOnRescanGit}
-					onSelectGitSubdir={mockOnSelectGitSubdir}
 					theme={theme}
 					session={sessionWithSubdirs}
 					existingSessions={[]}
@@ -432,9 +415,9 @@ describe('EditAgentModal — Subdirectory Git Scanning (Option C)', () => {
 			);
 		});
 
-		// Chooser should appear automatically — no Re-scan click needed
+		// Should show re-scan button (not a chooser)
 		await waitFor(() => {
-			expect(screen.getByText(/Git repositories found/)).toBeTruthy();
+			expect(screen.getByText('Re-scan for Git Repository')).toBeTruthy();
 		});
 	});
 
@@ -452,7 +435,6 @@ describe('EditAgentModal — Subdirectory Git Scanning (Option C)', () => {
 					onClose={mockOnClose}
 					onSave={mockOnSave}
 					onRescanGit={mockOnRescanGit}
-					onSelectGitSubdir={mockOnSelectGitSubdir}
 					theme={theme}
 					session={sessionWithGitRoot}
 					existingSessions={[]}
@@ -481,7 +463,6 @@ describe('EditAgentModal — Subdirectory Git Scanning (Option C)', () => {
 					onClose={mockOnClose}
 					onSave={mockOnSave}
 					onRescanGit={mockOnRescanGit}
-					onSelectGitSubdir={mockOnSelectGitSubdir}
 					theme={theme}
 					session={sessionNormalGit}
 					existingSessions={[]}
@@ -497,29 +478,7 @@ describe('EditAgentModal — Subdirectory Git Scanning (Option C)', () => {
 		expect(screen.queryByText(/(projects\/)/)).toBeNull();
 	});
 
-	it('should call onSelectGitSubdir when a subdirectory is clicked', async () => {
-		mockOnSelectGitSubdir.mockResolvedValue(true);
-
-		const sessionWithSubdirs: Session = {
-			...baseSession,
-			gitSubdirScanResults: [
-				{
-					path: '/home/user/projects/repo-a',
-					name: 'repo-a',
-					isWorktree: false,
-					branch: 'main',
-					repoRoot: '/home/user/projects/repo-a',
-				},
-				{
-					path: '/home/user/projects/repo-b',
-					name: 'repo-b',
-					isWorktree: true,
-					branch: 'feature',
-					repoRoot: '/home/user/projects/repo-b',
-				},
-			],
-		};
-
+	it('should render without errors for non-git sessions', async () => {
 		await act(async () => {
 			render(
 				<EditAgentModal
@@ -527,39 +486,6 @@ describe('EditAgentModal — Subdirectory Git Scanning (Option C)', () => {
 					onClose={mockOnClose}
 					onSave={mockOnSave}
 					onRescanGit={mockOnRescanGit}
-					onSelectGitSubdir={mockOnSelectGitSubdir}
-					theme={theme}
-					session={sessionWithSubdirs}
-					existingSessions={[]}
-				/>
-			);
-		});
-
-		// Chooser should appear automatically (race condition fix)
-		await waitFor(() => {
-			expect(screen.getByText(/Git repositories found/)).toBeTruthy();
-		});
-
-		// Click on the first subdirectory
-		await act(async () => {
-			fireEvent.click(screen.getByText('repo-a/'));
-		});
-
-		expect(mockOnSelectGitSubdir).toHaveBeenCalledWith(
-			'test-session-subdir',
-			'/home/user/projects/repo-a'
-		);
-	});
-
-	it('should pass onSelectGitSubdir prop without errors', async () => {
-		await act(async () => {
-			render(
-				<EditAgentModal
-					isOpen={true}
-					onClose={mockOnClose}
-					onSave={mockOnSave}
-					onRescanGit={mockOnRescanGit}
-					onSelectGitSubdir={mockOnSelectGitSubdir}
 					theme={theme}
 					session={baseSession}
 					existingSessions={[]}
@@ -573,129 +499,8 @@ describe('EditAgentModal — Subdirectory Git Scanning (Option C)', () => {
 		});
 	});
 
-	it('should show subdirectory chooser automatically when session has gitSubdirScanResults on open', async () => {
-		// This tests the race condition fix: when editAgentSession is updated with
-		// gitSubdirScanResults (e.g., from onSshRemote background detection),
-		// the chooser should appear without needing a Re-scan click.
-		const sessionWithSubdirs: Session = {
-			...baseSession,
-			isGitRepo: false,
-			gitSubdirScanResults: [
-				{
-					path: '/home/user/projects/repo-a',
-					name: 'repo-a',
-					isWorktree: false,
-					branch: 'main',
-					repoRoot: '/home/user/projects/repo-a',
-				},
-				{
-					path: '/home/user/projects/repo-b',
-					name: 'repo-b',
-					isWorktree: false,
-					branch: 'develop',
-					repoRoot: '/home/user/projects/repo-b',
-				},
-			],
-		};
-
-		await act(async () => {
-			render(
-				<EditAgentModal
-					isOpen={true}
-					onClose={mockOnClose}
-					onSave={mockOnSave}
-					onRescanGit={mockOnRescanGit}
-					onSelectGitSubdir={mockOnSelectGitSubdir}
-					theme={theme}
-					session={sessionWithSubdirs}
-					existingSessions={[]}
-				/>
-			);
-		});
-
-		// Chooser should appear automatically — no Re-scan click needed
-		await waitFor(() => {
-			expect(screen.getByText(/Git repositories found/)).toBeTruthy();
-			expect(screen.getByText('repo-a/')).toBeTruthy();
-			expect(screen.getByText('repo-b/')).toBeTruthy();
-		});
-	});
-
-	it('should show chooser when session prop updates with gitSubdirScanResults after initial render', async () => {
-		// This simulates the real-world flow: modal opens with no scan results,
-		// then the session prop is updated (via useEffect sync in App.tsx) with results.
-		const initialSession: Session = {
-			...baseSession,
-			isGitRepo: false,
-			gitSubdirScanResults: undefined,
-		};
-
-		const { rerender } = await act(async () => {
-			return render(
-				<EditAgentModal
-					isOpen={true}
-					onClose={mockOnClose}
-					onSave={mockOnSave}
-					onRescanGit={mockOnRescanGit}
-					onSelectGitSubdir={mockOnSelectGitSubdir}
-					theme={theme}
-					session={initialSession}
-					existingSessions={[]}
-				/>
-			);
-		});
-
-		// Initially should show Re-scan button
-		await waitFor(() => {
-			expect(screen.getByText('Re-scan for Git Repository')).toBeTruthy();
-		});
-
-		// Now simulate session prop update with gitSubdirScanResults
-		const updatedSession: Session = {
-			...initialSession,
-			gitSubdirScanResults: [
-				{
-					path: '/home/user/projects/app-x',
-					name: 'app-x',
-					isWorktree: false,
-					branch: 'main',
-					repoRoot: '/home/user/projects/app-x',
-				},
-				{
-					path: '/home/user/projects/app-y',
-					name: 'app-y',
-					isWorktree: true,
-					branch: 'feature',
-					repoRoot: '/home/user/projects/app-y',
-				},
-			],
-		};
-
-		await act(async () => {
-			rerender(
-				<EditAgentModal
-					isOpen={true}
-					onClose={mockOnClose}
-					onSave={mockOnSave}
-					onRescanGit={mockOnRescanGit}
-					onSelectGitSubdir={mockOnSelectGitSubdir}
-					theme={theme}
-					session={updatedSession}
-					existingSessions={[]}
-				/>
-			);
-		});
-
-		// Chooser should now appear automatically
-		await waitFor(() => {
-			expect(screen.getByText(/Git repositories found/)).toBeTruthy();
-			expect(screen.getByText('app-x/')).toBeTruthy();
-			expect(screen.getByText('app-y/')).toBeTruthy();
-		});
-	});
-
-	it('should NOT show chooser when session.isGitRepo is true even if gitSubdirScanResults exists', async () => {
-		// Edge case: isGitRepo=true takes precedence — show "detected", not chooser
+	it('should show "Git repository detected" when session.isGitRepo is true even if gitSubdirScanResults exists', async () => {
+		// isGitRepo=true takes precedence — show "detected"
 		const sessionGitDetectedWithStaleResults: Session = {
 			...baseSession,
 			isGitRepo: true,
@@ -708,13 +513,6 @@ describe('EditAgentModal — Subdirectory Git Scanning (Option C)', () => {
 					branch: 'main',
 					repoRoot: '/home/user/projects/repo-a',
 				},
-				{
-					path: '/home/user/projects/repo-b',
-					name: 'repo-b',
-					isWorktree: false,
-					branch: 'develop',
-					repoRoot: '/home/user/projects/repo-b',
-				},
 			],
 		};
 
@@ -725,7 +523,6 @@ describe('EditAgentModal — Subdirectory Git Scanning (Option C)', () => {
 					onClose={mockOnClose}
 					onSave={mockOnSave}
 					onRescanGit={mockOnRescanGit}
-					onSelectGitSubdir={mockOnSelectGitSubdir}
 					theme={theme}
 					session={sessionGitDetectedWithStaleResults}
 					existingSessions={[]}
@@ -737,112 +534,7 @@ describe('EditAgentModal — Subdirectory Git Scanning (Option C)', () => {
 			expect(screen.getByText('Git repository detected')).toBeTruthy();
 		});
 
-		// Should NOT show the chooser
+		// Should NOT show any chooser text
 		expect(screen.queryByText(/Git repositories found/)).toBeNull();
-	});
-
-	it('should show worktree badge for worktree subdirectories in chooser', async () => {
-		const sessionWithWorktree: Session = {
-			...baseSession,
-			isGitRepo: false,
-			gitSubdirScanResults: [
-				{
-					path: '/home/user/projects/main-repo',
-					name: 'main-repo',
-					isWorktree: false,
-					branch: 'main',
-					repoRoot: '/home/user/projects/main-repo',
-				},
-				{
-					path: '/home/user/projects/wt-feature',
-					name: 'wt-feature',
-					isWorktree: true,
-					branch: 'feature/login',
-					repoRoot: '/home/user/projects/main-repo',
-				},
-			],
-		};
-
-		await act(async () => {
-			render(
-				<EditAgentModal
-					isOpen={true}
-					onClose={mockOnClose}
-					onSave={mockOnSave}
-					onRescanGit={mockOnRescanGit}
-					onSelectGitSubdir={mockOnSelectGitSubdir}
-					theme={theme}
-					session={sessionWithWorktree}
-					existingSessions={[]}
-				/>
-			);
-		});
-
-		await waitFor(() => {
-			expect(screen.getByText(/Git repositories found/)).toBeTruthy();
-			expect(screen.getByText('main-repo/')).toBeTruthy();
-			expect(screen.getByText('wt-feature/')).toBeTruthy();
-			expect(screen.getByText('worktree')).toBeTruthy();
-		});
-	});
-
-	it('should transition from chooser to "detected" after selecting a subdirectory', async () => {
-		mockOnSelectGitSubdir.mockResolvedValue(true);
-
-		const sessionWithSubdirs: Session = {
-			...baseSession,
-			isGitRepo: false,
-			gitSubdirScanResults: [
-				{
-					path: '/home/user/projects/repo-a',
-					name: 'repo-a',
-					isWorktree: false,
-					branch: 'main',
-					repoRoot: '/home/user/projects/repo-a',
-				},
-				{
-					path: '/home/user/projects/repo-b',
-					name: 'repo-b',
-					isWorktree: false,
-					branch: 'develop',
-					repoRoot: '/home/user/projects/repo-b',
-				},
-			],
-		};
-
-		await act(async () => {
-			render(
-				<EditAgentModal
-					isOpen={true}
-					onClose={mockOnClose}
-					onSave={mockOnSave}
-					onRescanGit={mockOnRescanGit}
-					onSelectGitSubdir={mockOnSelectGitSubdir}
-					theme={theme}
-					session={sessionWithSubdirs}
-					existingSessions={[]}
-				/>
-			);
-		});
-
-		// Chooser should be visible
-		await waitFor(() => {
-			expect(screen.getByText(/Git repositories found/)).toBeTruthy();
-		});
-
-		// Click on repo-a
-		await act(async () => {
-			fireEvent.click(screen.getByText('repo-a/'));
-		});
-
-		// After selection, onSelectGitSubdir returns true → status becomes 'found'
-		await waitFor(() => {
-			expect(screen.getByText('Git repository detected')).toBeTruthy();
-		});
-
-		expect(mockOnSelectGitSubdir).toHaveBeenCalledWith(
-			'test-session-subdir',
-			'/home/user/projects/repo-a'
-		);
 	});
 });

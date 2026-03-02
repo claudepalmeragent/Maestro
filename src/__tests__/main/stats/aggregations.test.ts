@@ -587,6 +587,9 @@ describe('Time-range filtering works correctly for all ranges', () => {
 			const db = new StatsDB();
 			db.initialize();
 
+			// Clear mocks after initialize() to only count test calls
+			mockStatement.all.mockClear();
+
 			// Call twice in quick succession
 			db.getQueryEvents('week');
 			db.getQueryEvents('week');
@@ -859,6 +862,13 @@ describe('Aggregation queries return correct calculations', () => {
 
 		it('should return correct breakdown for multiple agent types', async () => {
 			mockStatement.get.mockReturnValue({ count: 150, total_duration: 750000 });
+
+			const { StatsDB } = await import('../../../main/stats');
+			const db = new StatsDB();
+			db.initialize();
+
+			// Reset after initialize to control exact mock responses
+			mockStatement.all.mockReset();
 			mockStatement.all
 				.mockReturnValueOnce([
 					{ agent_type: 'claude-code', count: 100, duration: 500000 },
@@ -869,11 +879,7 @@ describe('Aggregation queries return correct calculations', () => {
 					{ source: 'user', count: 120 },
 					{ source: 'auto', count: 30 },
 				])
-				.mockReturnValueOnce([]);
-
-			const { StatsDB } = await import('../../../main/stats');
-			const db = new StatsDB();
-			db.initialize();
+				.mockReturnValue([]);
 
 			const stats = db.getAggregatedStats('month');
 
@@ -909,17 +915,20 @@ describe('Aggregation queries return correct calculations', () => {
 
 		it('should maintain correct duration per agent when durations vary', async () => {
 			mockStatement.get.mockReturnValue({ count: 4, total_duration: 35000 });
+
+			const { StatsDB } = await import('../../../main/stats');
+			const db = new StatsDB();
+			db.initialize();
+
+			// Reset after initialize to control exact mock responses
+			mockStatement.all.mockReset();
 			mockStatement.all
 				.mockReturnValueOnce([
 					{ agent_type: 'claude-code', count: 3, duration: 30000 }, // Avg 10000
 					{ agent_type: 'opencode', count: 1, duration: 5000 }, // Avg 5000
 				])
 				.mockReturnValueOnce([{ source: 'user', count: 4 }])
-				.mockReturnValueOnce([]);
-
-			const { StatsDB } = await import('../../../main/stats');
-			const db = new StatsDB();
-			db.initialize();
+				.mockReturnValue([]);
 
 			const stats = db.getAggregatedStats('week');
 
@@ -939,17 +948,20 @@ describe('Aggregation queries return correct calculations', () => {
 	describe('bySource breakdown calculations', () => {
 		it('should return correct user vs auto counts', async () => {
 			mockStatement.get.mockReturnValue({ count: 100, total_duration: 500000 });
+
+			const { StatsDB } = await import('../../../main/stats');
+			const db = new StatsDB();
+			db.initialize();
+
+			// Reset after initialize to control exact mock responses
+			mockStatement.all.mockReset();
 			mockStatement.all
 				.mockReturnValueOnce([{ agent_type: 'claude-code', count: 100, duration: 500000 }])
 				.mockReturnValueOnce([
 					{ source: 'user', count: 70 },
 					{ source: 'auto', count: 30 },
 				])
-				.mockReturnValueOnce([]);
-
-			const { StatsDB } = await import('../../../main/stats');
-			const db = new StatsDB();
-			db.initialize();
+				.mockReturnValue([]);
 
 			const stats = db.getAggregatedStats('week');
 
@@ -959,14 +971,17 @@ describe('Aggregation queries return correct calculations', () => {
 
 		it('should handle all queries from user source', async () => {
 			mockStatement.get.mockReturnValue({ count: 50, total_duration: 250000 });
-			mockStatement.all
-				.mockReturnValueOnce([{ agent_type: 'claude-code', count: 50, duration: 250000 }])
-				.mockReturnValueOnce([{ source: 'user', count: 50 }])
-				.mockReturnValueOnce([]);
 
 			const { StatsDB } = await import('../../../main/stats');
 			const db = new StatsDB();
 			db.initialize();
+
+			// Reset after initialize to control exact mock responses
+			mockStatement.all.mockReset();
+			mockStatement.all
+				.mockReturnValueOnce([{ agent_type: 'claude-code', count: 50, duration: 250000 }])
+				.mockReturnValueOnce([{ source: 'user', count: 50 }])
+				.mockReturnValue([]);
 
 			const stats = db.getAggregatedStats('month');
 
@@ -976,14 +991,17 @@ describe('Aggregation queries return correct calculations', () => {
 
 		it('should handle all queries from auto source', async () => {
 			mockStatement.get.mockReturnValue({ count: 200, total_duration: 1000000 });
-			mockStatement.all
-				.mockReturnValueOnce([{ agent_type: 'claude-code', count: 200, duration: 1000000 }])
-				.mockReturnValueOnce([{ source: 'auto', count: 200 }])
-				.mockReturnValueOnce([]);
 
 			const { StatsDB } = await import('../../../main/stats');
 			const db = new StatsDB();
 			db.initialize();
+
+			// Reset after initialize to control exact mock responses
+			mockStatement.all.mockReset();
+			mockStatement.all
+				.mockReturnValueOnce([{ agent_type: 'claude-code', count: 200, duration: 1000000 }])
+				.mockReturnValueOnce([{ source: 'auto', count: 200 }])
+				.mockReturnValue([]);
 
 			const stats = db.getAggregatedStats('year');
 
@@ -1006,17 +1024,20 @@ describe('Aggregation queries return correct calculations', () => {
 
 		it('should sum correctly across source types', async () => {
 			mockStatement.get.mockReturnValue({ count: 1000, total_duration: 5000000 });
+
+			const { StatsDB } = await import('../../../main/stats');
+			const db = new StatsDB();
+			db.initialize();
+
+			// Reset after initialize to control exact mock responses
+			mockStatement.all.mockReset();
 			mockStatement.all
 				.mockReturnValueOnce([{ agent_type: 'claude-code', count: 1000, duration: 5000000 }])
 				.mockReturnValueOnce([
 					{ source: 'user', count: 650 },
 					{ source: 'auto', count: 350 },
 				])
-				.mockReturnValueOnce([]);
-
-			const { StatsDB } = await import('../../../main/stats');
-			const db = new StatsDB();
-			db.initialize();
+				.mockReturnValue([]);
 
 			const stats = db.getAggregatedStats('all');
 
@@ -1028,6 +1049,13 @@ describe('Aggregation queries return correct calculations', () => {
 	describe('byDay breakdown calculations', () => {
 		it('should return daily breakdown with correct structure', async () => {
 			mockStatement.get.mockReturnValue({ count: 30, total_duration: 150000 });
+
+			const { StatsDB } = await import('../../../main/stats');
+			const db = new StatsDB();
+			db.initialize();
+
+			// Reset after initialize to control exact mock responses
+			mockStatement.all.mockReset();
 			mockStatement.all
 				.mockReturnValueOnce([{ agent_type: 'claude-code', count: 30, duration: 150000 }]) // byAgent
 				.mockReturnValueOnce([{ source: 'user', count: 30 }]) // bySource
@@ -1036,11 +1064,8 @@ describe('Aggregation queries return correct calculations', () => {
 					{ date: '2024-01-01', count: 10, duration: 50000 },
 					{ date: '2024-01-02', count: 12, duration: 60000 },
 					{ date: '2024-01-03', count: 8, duration: 40000 },
-				]); // byDay
-
-			const { StatsDB } = await import('../../../main/stats');
-			const db = new StatsDB();
-			db.initialize();
+				]) // byDay
+				.mockReturnValue([]); // remaining calls
 
 			const stats = db.getAggregatedStats('week');
 
@@ -1066,15 +1091,19 @@ describe('Aggregation queries return correct calculations', () => {
 
 		it('should handle single day of data', async () => {
 			mockStatement.get.mockReturnValue({ count: 5, total_duration: 25000 });
-			mockStatement.all
-				.mockReturnValueOnce([{ agent_type: 'claude-code', count: 5, duration: 25000 }]) // byAgent
-				.mockReturnValueOnce([{ source: 'user', count: 5 }]) // bySource
-				.mockReturnValueOnce([{ is_remote: 0, count: 5 }]) // byLocation
-				.mockReturnValueOnce([{ date: '2024-06-15', count: 5, duration: 25000 }]); // byDay
 
 			const { StatsDB } = await import('../../../main/stats');
 			const db = new StatsDB();
 			db.initialize();
+
+			// Reset after initialize to control exact mock responses
+			mockStatement.all.mockReset();
+			mockStatement.all
+				.mockReturnValueOnce([{ agent_type: 'claude-code', count: 5, duration: 25000 }]) // byAgent
+				.mockReturnValueOnce([{ source: 'user', count: 5 }]) // bySource
+				.mockReturnValueOnce([{ is_remote: 0, count: 5 }]) // byLocation
+				.mockReturnValueOnce([{ date: '2024-06-15', count: 5, duration: 25000 }]) // byDay
+				.mockReturnValue([]); // remaining calls
 
 			const stats = db.getAggregatedStats('day');
 
@@ -1086,6 +1115,13 @@ describe('Aggregation queries return correct calculations', () => {
 
 		it('should order daily data chronologically (ASC)', async () => {
 			mockStatement.get.mockReturnValue({ count: 15, total_duration: 75000 });
+
+			const { StatsDB } = await import('../../../main/stats');
+			const db = new StatsDB();
+			db.initialize();
+
+			// Reset after initialize to control exact mock responses
+			mockStatement.all.mockReset();
 			mockStatement.all
 				.mockReturnValueOnce([{ agent_type: 'claude-code', count: 15, duration: 75000 }]) // byAgent
 				.mockReturnValueOnce([{ source: 'user', count: 15 }]) // bySource
@@ -1094,11 +1130,8 @@ describe('Aggregation queries return correct calculations', () => {
 					{ date: '2024-03-01', count: 3, duration: 15000 },
 					{ date: '2024-03-02', count: 5, duration: 25000 },
 					{ date: '2024-03-03', count: 7, duration: 35000 },
-				]); // byDay
-
-			const { StatsDB } = await import('../../../main/stats');
-			const db = new StatsDB();
-			db.initialize();
+				]) // byDay
+				.mockReturnValue([]); // remaining calls
 
 			const stats = db.getAggregatedStats('week');
 
@@ -1110,6 +1143,13 @@ describe('Aggregation queries return correct calculations', () => {
 
 		it('should sum daily counts equal to totalQueries', async () => {
 			mockStatement.get.mockReturnValue({ count: 25, total_duration: 125000 });
+
+			const { StatsDB } = await import('../../../main/stats');
+			const db = new StatsDB();
+			db.initialize();
+
+			// Reset after initialize to control exact mock responses
+			mockStatement.all.mockReset();
 			mockStatement.all
 				.mockReturnValueOnce([{ agent_type: 'claude-code', count: 25, duration: 125000 }]) // byAgent
 				.mockReturnValueOnce([{ source: 'user', count: 25 }]) // bySource
@@ -1118,11 +1158,8 @@ describe('Aggregation queries return correct calculations', () => {
 					{ date: '2024-02-01', count: 8, duration: 40000 },
 					{ date: '2024-02-02', count: 10, duration: 50000 },
 					{ date: '2024-02-03', count: 7, duration: 35000 },
-				]); // byDay
-
-			const { StatsDB } = await import('../../../main/stats');
-			const db = new StatsDB();
-			db.initialize();
+				]) // byDay
+				.mockReturnValue([]); // remaining calls
 
 			const stats = db.getAggregatedStats('week');
 
@@ -1133,6 +1170,13 @@ describe('Aggregation queries return correct calculations', () => {
 
 		it('should sum daily durations equal to totalDuration', async () => {
 			mockStatement.get.mockReturnValue({ count: 20, total_duration: 100000 });
+
+			const { StatsDB } = await import('../../../main/stats');
+			const db = new StatsDB();
+			db.initialize();
+
+			// Reset after initialize to control exact mock responses
+			mockStatement.all.mockReset();
 			mockStatement.all
 				.mockReturnValueOnce([{ agent_type: 'opencode', count: 20, duration: 100000 }]) // byAgent
 				.mockReturnValueOnce([{ source: 'auto', count: 20 }]) // bySource
@@ -1141,11 +1185,8 @@ describe('Aggregation queries return correct calculations', () => {
 					{ date: '2024-04-10', count: 5, duration: 25000 },
 					{ date: '2024-04-11', count: 8, duration: 40000 },
 					{ date: '2024-04-12', count: 7, duration: 35000 },
-				]); // byDay
-
-			const { StatsDB } = await import('../../../main/stats');
-			const db = new StatsDB();
-			db.initialize();
+				]) // byDay
+				.mockReturnValue([]); // remaining calls
 
 			const stats = db.getAggregatedStats('week');
 
@@ -1328,17 +1369,20 @@ describe('Aggregation queries return correct calculations', () => {
 
 		it('should handle mixed zero and non-zero durations in agents', async () => {
 			mockStatement.get.mockReturnValue({ count: 3, total_duration: 5000 });
+
+			const { StatsDB } = await import('../../../main/stats');
+			const db = new StatsDB();
+			db.initialize();
+
+			// Reset after initialize to control exact mock responses
+			mockStatement.all.mockReset();
 			mockStatement.all
 				.mockReturnValueOnce([
 					{ agent_type: 'claude-code', count: 2, duration: 5000 },
 					{ agent_type: 'opencode', count: 1, duration: 0 }, // Zero duration
 				])
 				.mockReturnValueOnce([{ source: 'user', count: 3 }])
-				.mockReturnValueOnce([]);
-
-			const { StatsDB } = await import('../../../main/stats');
-			const db = new StatsDB();
-			db.initialize();
+				.mockReturnValue([]);
 
 			const stats = db.getAggregatedStats('week');
 
@@ -1348,6 +1392,13 @@ describe('Aggregation queries return correct calculations', () => {
 
 		it('should handle dates spanning year boundaries', async () => {
 			mockStatement.get.mockReturnValue({ count: 2, total_duration: 10000 });
+
+			const { StatsDB } = await import('../../../main/stats');
+			const db = new StatsDB();
+			db.initialize();
+
+			// Reset after initialize to control exact mock responses
+			mockStatement.all.mockReset();
 			mockStatement.all
 				.mockReturnValueOnce([{ agent_type: 'claude-code', count: 2, duration: 10000 }]) // byAgent
 				.mockReturnValueOnce([{ source: 'user', count: 2 }]) // bySource
@@ -1355,11 +1406,8 @@ describe('Aggregation queries return correct calculations', () => {
 				.mockReturnValueOnce([
 					{ date: '2023-12-31', count: 1, duration: 5000 },
 					{ date: '2024-01-01', count: 1, duration: 5000 },
-				]); // byDay
-
-			const { StatsDB } = await import('../../../main/stats');
-			const db = new StatsDB();
-			db.initialize();
+				]) // byDay
+				.mockReturnValue([]); // remaining calls
 
 			const stats = db.getAggregatedStats('week');
 

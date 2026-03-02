@@ -33,47 +33,6 @@ Object.defineProperty(window, 'maestro', {
 	},
 	writable: true,
 });
-
-// Mock lucide-react icons
-vi.mock('lucide-react', () => ({
-	X: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="x-icon" className={className} style={style} />
-	),
-	History: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="history-icon" className={className} style={style} />
-	),
-	Play: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="play-icon" className={className} style={style} />
-	),
-	Clock: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="clock-icon" className={className} style={style} />
-	),
-	DollarSign: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="dollar-sign-icon" className={className} style={style} />
-	),
-	BarChart2: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="bar-chart-icon" className={className} style={style} />
-	),
-	CheckCircle: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="check-circle-icon" className={className} style={style} />
-	),
-	Bot: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="bot-icon" className={className} style={style} />
-	),
-	User: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="user-icon" className={className} style={style} />
-	),
-	Eye: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="eye-icon" className={className} style={style} />
-	),
-	Layers: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="layers-icon" className={className} style={style} />
-	),
-	FileJson: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-		<svg data-testid="file-json-icon" className={className} style={style} />
-	),
-}));
-
 // Create a mock theme
 const mockTheme: Theme = {
 	id: 'test-theme',
@@ -429,7 +388,7 @@ describe('HistoryHelpModal', () => {
 			render(<HistoryHelpModal {...defaultProps} />);
 
 			expect(screen.getByText('Activity Graph')).toBeInTheDocument();
-			expect(screen.getByTestId('bar-chart-icon')).toBeInTheDocument();
+			expect(screen.getByTestId('bar-chart2-icon')).toBeInTheDocument();
 		});
 
 		it('describes the activity graph', () => {
@@ -625,7 +584,7 @@ describe('HistoryHelpModal', () => {
 		it('applies accent color to BarChart2 icon', () => {
 			render(<HistoryHelpModal {...defaultProps} />);
 
-			const barChartIcon = screen.getByTestId('bar-chart-icon');
+			const barChartIcon = screen.getByTestId('bar-chart2-icon');
 			expect(barChartIcon).toHaveStyle({ color: mockTheme.colors.accent });
 		});
 

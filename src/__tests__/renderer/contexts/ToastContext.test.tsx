@@ -1,6 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, act, renderHook, waitFor } from '@testing-library/react';
 import React, { useEffect } from 'react';
+
+// Undo the global mock from setup.ts so we test the real context
+vi.unmock('../../../renderer/contexts/ToastContext');
+
 import { ToastProvider, useToast, Toast } from '../../../renderer/contexts/ToastContext';
 
 // Helper component to access toast context

@@ -65,6 +65,26 @@ vi.mock('../../../renderer/components/CustomThemeBuilder', () => ({
 	),
 }));
 
+// Mock CalibrationHistoryModal to prevent TypeError when planCalibration is undefined
+vi.mock('../../../renderer/components/CalibrationHistoryModal', () => ({
+	CalibrationHistoryModal: ({ isOpen }: { isOpen: boolean }) =>
+		isOpen ? <div data-testid="calibration-history-modal">Calibration History</div> : null,
+}));
+
+// Mock PlanCalibrationSettings to prevent TypeError when calibration data is incomplete
+vi.mock('../../../renderer/components/PlanCalibrationSettings', () => ({
+	PlanCalibrationSettings: () => (
+		<div data-testid="plan-calibration-settings">Plan Calibration Settings</div>
+	),
+}));
+
+// Mock HoneycombSettingsSection to avoid complex dependency chain
+vi.mock('../../../renderer/components/HoneycombSettingsSection', () => ({
+	HoneycombSettingsSection: () => (
+		<div data-testid="honeycomb-settings-section">Honeycomb Settings</div>
+	),
+}));
+
 // Mock useSettings hook (used for context management settings)
 vi.mock('../../../renderer/hooks/settings/useSettings', () => ({
 	useSettings: () => ({
@@ -79,6 +99,42 @@ vi.mock('../../../renderer/hooks/settings/useSettings', () => ({
 			contextWarningRedThreshold: 80,
 		},
 		updateContextManagementSettings: vi.fn(),
+		honeycombWarningSettings: {},
+		updateHoneycombWarningSettings: vi.fn(),
+		honeycombDataSource: 'mcp',
+		setHoneycombDataSource: vi.fn(),
+		honeycombMcpApiKey: '',
+		setHoneycombMcpApiKey: vi.fn(),
+		honeycombEnvironmentSlug: '',
+		setHoneycombEnvironmentSlug: vi.fn(),
+		honeycombMcpRegion: 'us',
+		setHoneycombMcpRegion: vi.fn(),
+		honeycombApiKey: '',
+		setHoneycombApiKey: vi.fn(),
+		honeycombDatasetSlug: '',
+		setHoneycombDatasetSlug: vi.fn(),
+		planCalibration: { calibrationPoints: [], lastCalibrated: null },
+		setPlanCalibration: vi.fn(),
+		documentGraphShowExternalLinks: false,
+		setDocumentGraphShowExternalLinks: vi.fn(),
+		documentGraphMaxNodes: 100,
+		setDocumentGraphMaxNodes: vi.fn(),
+		statsCollectionEnabled: true,
+		setStatsCollectionEnabled: vi.fn(),
+		defaultStatsTimeRange: '7d',
+		setDefaultStatsTimeRange: vi.fn(),
+		preventSleepEnabled: false,
+		setPreventSleepEnabled: vi.fn(),
+		disableGpuAcceleration: false,
+		setDisableGpuAcceleration: vi.fn(),
+		disableConfetti: false,
+		setDisableConfetti: vi.fn(),
+		synopsisEnabled: false,
+		setSynopsisEnabled: vi.fn(),
+		sshStatsTimeoutMs: 5000,
+		setSshStatsTimeoutMs: vi.fn(),
+		globalStatsRefreshIntervalMs: 30000,
+		setGlobalStatsRefreshIntervalMs: vi.fn(),
 	}),
 }));
 
@@ -213,8 +269,28 @@ const createDefaultProps = (overrides = {}) => ({
 	setAudioFeedbackCommand: vi.fn(),
 	toastDuration: 10,
 	setToastDuration: vi.fn(),
+	customShellPath: '',
+	setCustomShellPath: vi.fn(),
+	shellArgs: '',
+	setShellArgs: vi.fn(),
+	shellEnvVars: {},
+	setShellEnvVars: vi.fn(),
+	checkForUpdatesOnStartup: true,
+	setCheckForUpdatesOnStartup: vi.fn(),
+	enableBetaUpdates: false,
+	setEnableBetaUpdates: vi.fn(),
+	checkForNewModelsOnStartup: true,
+	setCheckForNewModelsOnStartup: vi.fn(),
+	crashReportingEnabled: false,
+	setCrashReportingEnabled: vi.fn(),
 	customAICommands: [],
 	setCustomAICommands: vi.fn(),
+	themeMode: 'manual' as const,
+	onThemeModeChange: vi.fn(),
+	lightThemeId: 'github-light',
+	onLightThemeIdChange: vi.fn(),
+	darkThemeId: 'dracula',
+	onDarkThemeIdChange: vi.fn(),
 	...overrides,
 });
 
@@ -401,14 +477,14 @@ describe('SettingsModal', () => {
 		});
 
 		it('should wrap around when navigating past last tab', async () => {
-			render(<SettingsModal {...createDefaultProps({ initialTab: 'ssh' })} />);
+			render(<SettingsModal {...createDefaultProps({ initialTab: 'honeycomb' })} />);
 
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(50);
 			});
 
-			// Start on SSH tab (last tab)
-			expect(screen.getByText('No SSH remotes configured')).toBeInTheDocument();
+			// Start on Honeycomb tab (last tab)
+			expect(screen.getByTitle('Honeycomb')).toBeInTheDocument();
 
 			// Press Cmd+Shift+] to wrap to general
 			fireEvent.keyDown(window, { key: ']', metaKey: true, shiftKey: true });
@@ -430,14 +506,15 @@ describe('SettingsModal', () => {
 			// Start on general tab (first tab)
 			expect(screen.getByText('Font Size')).toBeInTheDocument();
 
-			// Press Cmd+Shift+[ to wrap to SSH (now the last tab)
+			// Press Cmd+Shift+[ to wrap to Honeycomb (the last tab)
 			fireEvent.keyDown(window, { key: '[', metaKey: true, shiftKey: true });
 
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(100);
 			});
 
-			expect(screen.getByText('No SSH remotes configured')).toBeInTheDocument();
+			// Honeycomb tab should be active - the tab span text is rendered when active
+			expect(screen.getByTitle('Honeycomb')).toBeInTheDocument();
 		});
 	});
 
@@ -1077,7 +1154,8 @@ describe('SettingsModal', () => {
 		});
 
 		it('should toggle theme mode when Follow System Appearance is clicked', async () => {
-			render(<SettingsModal {...createDefaultProps({ initialTab: 'theme' })} />);
+			const onThemeModeChange = vi.fn();
+			render(<SettingsModal {...createDefaultProps({ initialTab: 'theme', onThemeModeChange })} />);
 
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(100);
@@ -1086,7 +1164,7 @@ describe('SettingsModal', () => {
 			const toggle = screen.getByLabelText('Toggle follow system appearance');
 			fireEvent.click(toggle);
 
-			expect(window.maestro.settings.set).toHaveBeenCalledWith('themeMode', 'system');
+			expect(onThemeModeChange).toHaveBeenCalledWith('system');
 		});
 
 		it('should not show light/dark selectors when in manual mode', async () => {
@@ -1100,19 +1178,13 @@ describe('SettingsModal', () => {
 			expect(screen.queryByText('Dark Mode Theme')).not.toBeInTheDocument();
 		});
 
-		it('should show light/dark selectors when toggled to system mode', async () => {
-			render(<SettingsModal {...createDefaultProps({ initialTab: 'theme' })} />);
+		it('should show light/dark selectors when in system mode', async () => {
+			render(
+				<SettingsModal {...createDefaultProps({ initialTab: 'theme', themeMode: 'system' })} />
+			);
 
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(100);
-			});
-
-			// Toggle to system mode
-			const toggle = screen.getByLabelText('Toggle follow system appearance');
-			fireEvent.click(toggle);
-
-			await act(async () => {
-				await vi.advanceTimersByTimeAsync(50);
 			});
 
 			expect(screen.getByText('Light Mode Theme')).toBeInTheDocument();
@@ -1120,62 +1192,62 @@ describe('SettingsModal', () => {
 		});
 
 		it('should save lightThemeId when light theme selector changes', async () => {
-			render(<SettingsModal {...createDefaultProps({ initialTab: 'theme' })} />);
+			const onLightThemeIdChange = vi.fn();
+			render(
+				<SettingsModal
+					{...createDefaultProps({
+						initialTab: 'theme',
+						themeMode: 'system',
+						onLightThemeIdChange,
+					})}
+				/>
+			);
 
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(100);
-			});
-
-			// Toggle to system mode first
-			const toggle = screen.getByLabelText('Toggle follow system appearance');
-			fireEvent.click(toggle);
-
-			await act(async () => {
-				await vi.advanceTimersByTimeAsync(50);
 			});
 
 			const lightSelect = screen.getByDisplayValue('GitHub Light');
 			fireEvent.change(lightSelect, { target: { value: 'github-light' } });
 
-			expect(window.maestro.settings.set).toHaveBeenCalledWith('lightThemeId', 'github-light');
+			expect(onLightThemeIdChange).toHaveBeenCalledWith('github-light');
 		});
 
 		it('should save darkThemeId when dark theme selector changes', async () => {
-			render(<SettingsModal {...createDefaultProps({ initialTab: 'theme' })} />);
+			const onDarkThemeIdChange = vi.fn();
+			render(
+				<SettingsModal
+					{...createDefaultProps({ initialTab: 'theme', themeMode: 'system', onDarkThemeIdChange })}
+				/>
+			);
 
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(100);
-			});
-
-			// Toggle to system mode first
-			const toggle = screen.getByLabelText('Toggle follow system appearance');
-			fireEvent.click(toggle);
-
-			await act(async () => {
-				await vi.advanceTimersByTimeAsync(50);
 			});
 
 			const darkSelect = screen.getByDisplayValue('Dracula');
 			fireEvent.change(darkSelect, { target: { value: 'dracula' } });
 
-			expect(window.maestro.settings.set).toHaveBeenCalledWith('darkThemeId', 'dracula');
+			expect(onDarkThemeIdChange).toHaveBeenCalledWith('dracula');
 		});
 
-		it('should load theme mode settings on open', async () => {
-			vi.mocked(window.maestro.settings.get).mockImplementation((key: string) => {
-				if (key === 'themeMode') return Promise.resolve('system');
-				if (key === 'lightThemeId') return Promise.resolve('github-light');
-				if (key === 'darkThemeId') return Promise.resolve('dracula');
-				return Promise.resolve(undefined);
-			});
-
-			render(<SettingsModal {...createDefaultProps({ initialTab: 'theme' })} />);
+		it('should show theme mode selectors when themeMode prop is system', async () => {
+			render(
+				<SettingsModal
+					{...createDefaultProps({
+						initialTab: 'theme',
+						themeMode: 'system',
+						lightThemeId: 'github-light',
+						darkThemeId: 'dracula',
+					})}
+				/>
+			);
 
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(100);
 			});
 
-			// After loading, system mode should be active and selectors should appear
+			// System mode should be active and selectors should appear
 			expect(screen.getByText('Light Mode Theme')).toBeInTheDocument();
 			expect(screen.getByText('Dark Mode Theme')).toBeInTheDocument();
 		});
@@ -1964,10 +2036,10 @@ describe('SettingsModal', () => {
 				await vi.advanceTimersByTimeAsync(100);
 			});
 
-			// Find the 100 button in max output lines section (not terminal width)
-			const buttons100 = screen.getAllByText('100');
-			// The second one is for max output lines
-			fireEvent.click(buttons100[buttons100.length - 1]);
+			// Find the 100 buttons (terminal width and max output lines)
+			const buttons100 = screen.getAllByRole('button', { name: '100' });
+			// The second button with text "100" is for max output lines
+			fireEvent.click(buttons100[1]);
 			expect(setMaxOutputLines).toHaveBeenCalledWith(100);
 		});
 	});

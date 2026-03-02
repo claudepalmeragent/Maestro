@@ -2613,7 +2613,7 @@ describe('useBatchProcessor hook', () => {
 			});
 
 			await startPromise;
-			expect(mockOnSpawnAgent).toHaveBeenCalledTimes(2);
+			await waitFor(() => expect(mockOnSpawnAgent).toHaveBeenCalledTimes(2));
 		});
 	});
 
@@ -2819,10 +2819,12 @@ describe('useBatchProcessor hook', () => {
 			});
 
 			// History entry should have elapsed time
-			expect(mockOnAddHistoryEntry).toHaveBeenCalledWith(
-				expect.objectContaining({
-					elapsedTimeMs: expect.any(Number),
-				})
+			await waitFor(() =>
+				expect(mockOnAddHistoryEntry).toHaveBeenCalledWith(
+					expect.objectContaining({
+						elapsedTimeMs: expect.any(Number),
+					})
+				)
 			);
 		});
 
@@ -2953,7 +2955,15 @@ describe('useBatchProcessor hook', () => {
 			});
 
 			// Should have called spawn with cwd override
-			expect(mockOnSpawnAgent).toHaveBeenCalledWith('test-session-id', 'Test', '/custom/worktree');
+			expect(mockOnSpawnAgent).toHaveBeenCalledWith(
+				'test-session-id',
+				'Test',
+				'/custom/worktree',
+				expect.objectContaining({
+					onData: expect.any(Function),
+					onUsage: expect.any(Function),
+				})
+			);
 		});
 	});
 
@@ -3239,7 +3249,15 @@ describe('useBatchProcessor hook', () => {
 			);
 
 			// Should have spawned agent with worktree path
-			expect(mockOnSpawnAgent).toHaveBeenCalledWith('test-session-id', 'Test', '/test/worktree');
+			expect(mockOnSpawnAgent).toHaveBeenCalledWith(
+				'test-session-id',
+				'Test',
+				'/test/worktree',
+				expect.objectContaining({
+					onData: expect.any(Function),
+					onUsage: expect.any(Function),
+				})
+			);
 		});
 
 		it('should handle worktree checkout failure with uncommitted changes', async () => {

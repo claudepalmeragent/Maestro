@@ -25,8 +25,8 @@ describe('ssh-options', () => {
 		});
 
 		it('includes keep-alive settings', () => {
-			expect(MASTER_SSH_OPTIONS.ServerAliveInterval).toBe('30');
-			expect(MASTER_SSH_OPTIONS.ServerAliveCountMax).toBe('3');
+			expect(MASTER_SSH_OPTIONS.ServerAliveInterval).toBe('15');
+			expect(MASTER_SSH_OPTIONS.ServerAliveCountMax).toBe('6');
 		});
 	});
 
@@ -44,8 +44,8 @@ describe('ssh-options', () => {
 		});
 
 		it('includes keep-alive settings', () => {
-			expect(BASE_SSH_OPTIONS.ServerAliveInterval).toBe('30');
-			expect(BASE_SSH_OPTIONS.ServerAliveCountMax).toBe('3');
+			expect(BASE_SSH_OPTIONS.ServerAliveInterval).toBe('15');
+			expect(BASE_SSH_OPTIONS.ServerAliveCountMax).toBe('6');
 		});
 	});
 

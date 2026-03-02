@@ -304,7 +304,7 @@ describe('AgentComparisonChart', () => {
 			const { container } = render(<AgentComparisonChart data={mockData} theme={theme} />);
 
 			// Legend container should have border-top
-			const legendContainer = container.querySelector('.flex.flex-wrap.gap-3.mt-4.pt-3.border-t');
+			const legendContainer = container.querySelector('.flex.flex-wrap.gap-4.mt-3.pt-3.border-t');
 			expect(legendContainer).toHaveStyle({
 				borderColor: theme.colors.border,
 			});

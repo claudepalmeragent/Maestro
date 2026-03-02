@@ -15,6 +15,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, renderHook, act, fireEvent } from '@testing-library/react';
 import React from 'react';
+
+// Undo the global mock from setup.ts so we test the real context
+vi.unmock('../../../renderer/contexts/LayerStackContext');
+
 import { LayerStackProvider, useLayerStack } from '../../../renderer/contexts/LayerStackContext';
 
 // Mock the useLayerStack hook from the hooks module

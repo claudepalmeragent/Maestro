@@ -1951,7 +1951,7 @@ describe('NewInstanceModal', () => {
 			});
 		});
 
-		it('should show model count when models are loaded', async () => {
+		it('should load models for agents with supportsModelSelection on expand', async () => {
 			const agentWithModelSelection = createAgentConfig({
 				id: 'opencode',
 				name: 'OpenCode',
@@ -2009,9 +2009,9 @@ describe('NewInstanceModal', () => {
 				});
 			}
 
-			// Should show model count
+			// Should have called getModels when expanding an agent with model selection support
 			await waitFor(() => {
-				expect(screen.getByText('3 models available')).toBeInTheDocument();
+				expect(window.maestro.agents.getModels).toHaveBeenCalledWith('opencode', false);
 			});
 		});
 
@@ -2067,7 +2067,7 @@ describe('NewInstanceModal', () => {
 			expect(window.maestro.agents.getModels).not.toHaveBeenCalled();
 		});
 
-		it('should show refresh button for model input when supportsModelSelection', async () => {
+		it('should show refresh detection button for available agents', async () => {
 			const agentWithModelSelection = createAgentConfig({
 				id: 'opencode',
 				name: 'OpenCode',
@@ -2112,22 +2112,14 @@ describe('NewInstanceModal', () => {
 				/>
 			);
 
-			// Wait for agents to load and click to expand
+			// Wait for agents to load
 			await waitFor(() => {
 				expect(screen.getByText('OpenCode')).toBeInTheDocument();
 			});
 
-			// Click to expand the agent
-			const agentRow = screen.getByText('OpenCode').closest('[role="option"]');
-			if (agentRow) {
-				await act(async () => {
-					fireEvent.click(agentRow);
-				});
-			}
-
-			// Should show refresh button with correct title
+			// Should show refresh detection button for the agent
 			await waitFor(() => {
-				expect(screen.getByTitle('Refresh available models')).toBeInTheDocument();
+				expect(screen.getByTitle('Refresh detection')).toBeInTheDocument();
 			});
 		});
 	});

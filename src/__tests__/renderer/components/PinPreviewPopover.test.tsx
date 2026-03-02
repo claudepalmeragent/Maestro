@@ -120,8 +120,11 @@ describe('PinPreviewPopover', () => {
 		});
 		expect(screen.getByTestId('markdown-renderer')).toBeInTheDocument();
 
-		// Hide popover
+		// Hide popover (scheduleHide uses a 150ms leave delay)
 		fireEvent.mouseLeave(container);
+		act(() => {
+			vi.advanceTimersByTime(200);
+		});
 		expect(screen.queryByTestId('markdown-renderer')).not.toBeInTheDocument();
 	});
 

@@ -15,11 +15,6 @@ import { CreateGroupModal } from '../../../renderer/components/CreateGroupModal'
 import { LayerStackProvider } from '../../../renderer/contexts/LayerStackContext';
 import type { Theme, Group } from '../../../renderer/types';
 
-// Mock lucide-react
-vi.mock('lucide-react', () => ({
-	X: () => <svg data-testid="x-icon" />,
-}));
-
 // Mock emoji-mart
 vi.mock('@emoji-mart/data', () => ({
 	default: { categories: [], emojis: {} },

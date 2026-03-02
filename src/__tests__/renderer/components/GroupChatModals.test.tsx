@@ -11,61 +11,6 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { NewGroupChatModal } from '../../../renderer/components/NewGroupChatModal';
 import { EditGroupChatModal } from '../../../renderer/components/EditGroupChatModal';
 import type { Theme, GroupChat, AgentConfig } from '../../../renderer/types';
-
-// Mock lucide-react icons
-vi.mock('lucide-react', () => ({
-	Folder: ({ className }: { className?: string }) => (
-		<span data-testid="folder-icon" className={className}>
-			📁
-		</span>
-	),
-	X: ({ className }: { className?: string }) => (
-		<span data-testid="x-icon" className={className}>
-			×
-		</span>
-	),
-	RefreshCw: ({ className }: { className?: string }) => (
-		<span data-testid="refresh-icon" className={className}>
-			🔄
-		</span>
-	),
-	Check: ({ className }: { className?: string }) => (
-		<span data-testid="check-icon" className={className}>
-			✓
-		</span>
-	),
-	Plus: ({ className }: { className?: string }) => (
-		<span data-testid="plus-icon" className={className}>
-			+
-		</span>
-	),
-	Trash2: ({ className }: { className?: string }) => (
-		<span data-testid="trash-icon" className={className}>
-			🗑
-		</span>
-	),
-	HelpCircle: ({ className }: { className?: string }) => (
-		<span data-testid="help-circle-icon" className={className}>
-			?
-		</span>
-	),
-	ChevronDown: ({ className }: { className?: string }) => (
-		<span data-testid="chevron-down-icon" className={className}>
-			▼
-		</span>
-	),
-	Settings: ({ className }: { className?: string }) => (
-		<span data-testid="settings-icon" className={className}>
-			⚙
-		</span>
-	),
-	ArrowLeft: ({ className }: { className?: string }) => (
-		<span data-testid="arrow-left-icon" className={className}>
-			←
-		</span>
-	),
-}));
-
 // Mock layer stack context
 const mockRegisterLayer = vi.fn(() => 'layer-group-chat-123');
 const mockUnregisterLayer = vi.fn();

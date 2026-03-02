@@ -74,7 +74,7 @@ describe('useAgentExecution', () => {
 	let onDataHandler: ((sid: string, data: string) => void) | undefined;
 	let onSessionIdHandler: ((sid: string, sessionId: string) => void) | undefined;
 	let onUsageHandler: ((sid: string, usage: UsageStats) => void) | undefined;
-	let onExitHandler: ((sid: string) => void) | undefined;
+	let onExitHandler: ((sid: string, code?: number, resultEmitted?: boolean) => void) | undefined;
 
 	beforeEach(() => {
 		vi.clearAllMocks();
@@ -99,10 +99,12 @@ describe('useAgentExecution', () => {
 			onUsageHandler = handler;
 			return () => {};
 		});
-		mockProcess.onExit.mockImplementation((handler: (sid: string) => void) => {
-			onExitHandler = handler;
-			return () => {};
-		});
+		mockProcess.onExit.mockImplementation(
+			(handler: (sid: string, code?: number, resultEmitted?: boolean) => void) => {
+				onExitHandler = handler;
+				return () => {};
+			}
+		);
 
 		window.maestro = {
 			...window.maestro,
@@ -163,7 +165,7 @@ describe('useAgentExecution', () => {
 				outputTokens: 3,
 				totalCostUsd: 0.02,
 			});
-			onExitHandler?.(targetSessionId);
+			onExitHandler?.(targetSessionId, 0, false);
 		});
 
 		const resultData = await spawnPromise;
@@ -229,7 +231,7 @@ describe('useAgentExecution', () => {
 
 		vi.useFakeTimers();
 		act(() => {
-			onExitHandler?.(targetSessionId);
+			onExitHandler?.(targetSessionId, 0, false);
 		});
 
 		await spawnPromise;
@@ -289,7 +291,7 @@ describe('useAgentExecution', () => {
 				outputTokens: 1,
 				totalCostUsd: 0.04,
 			});
-			onExitHandler?.(targetSessionId);
+			onExitHandler?.(targetSessionId, 0, false);
 		});
 
 		const resultData = await spawnPromise;
@@ -304,6 +306,7 @@ describe('useAgentExecution', () => {
 				inputTokens: 5,
 				outputTokens: 3,
 				totalCostUsd: 0.05,
+				reasoningTokens: undefined,
 			},
 		});
 	});
