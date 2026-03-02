@@ -57,11 +57,11 @@ describe('calibration utilities', () => {
 			...overrides,
 		});
 
-		it('includes Quality Weight and Effective Weight columns in header', () => {
+		it('includes Quality Weight and Contribution % columns in header', () => {
 			const csv = exportCalibrationCsv([makePoint()]);
 			const headerLine = csv.split('\n')[0];
 			expect(headerLine).toContain('Quality Weight');
-			expect(headerLine).toContain('Effective Weight');
+			expect(headerLine).toContain('Contribution %');
 			expect(headerLine).not.toContain(',Weight,');
 		});
 
@@ -79,17 +79,17 @@ describe('calibration utilities', () => {
 			expect(dataRow).toHaveLength(10);
 		});
 
-		it('effective weight equals quality weight when only one point (recency = 1.0)', () => {
+		it('contribution is 100% when only one point in window', () => {
 			const point = makePoint({ weight: 0.9 });
 			const csv = exportCalibrationCsv([point]);
 			const lines = csv.split('\n');
 			const values = lines[1].split(',');
-			// Quality weight index = 6, Effective weight index = 7
+			// Quality weight index = 6, Contribution % index = 7
 			expect(values[6]).toBe('0.90');
-			expect(values[7]).toBe('0.9000');
+			expect(values[7]).toBe('100.0');
 		});
 
-		it('effective weight is less than quality weight for older points', () => {
+		it('older points have lower contribution % than newer points', () => {
 			const newerPoint = makePoint({
 				id: 2,
 				timestamp: '2026-02-20T12:00:00.000Z',
@@ -105,15 +105,17 @@ describe('calibration utilities', () => {
 			const olderValues = lines[1].split(',');
 			const newerValues = lines[2].split(',');
 
-			const olderEffective = parseFloat(olderValues[7]);
-			const newerEffective = parseFloat(newerValues[7]);
+			const olderContribution = parseFloat(olderValues[7]);
+			const newerContribution = parseFloat(newerValues[7]);
 
-			expect(olderEffective).toBeCloseTo(0.45, 2); // 0.9 * 0.5
-			expect(newerEffective).toBeCloseTo(0.9, 2); // 0.9 * 1.0
-			expect(olderEffective).toBeLessThan(newerEffective);
+			// ew_older = 0.9 * 0.5 = 0.45, ew_newer = 0.9 * 1.0 = 0.9, sum = 1.35
+			// contribution_older = 0.45/1.35*100 ≈ 33.3%, contribution_newer = 0.9/1.35*100 ≈ 66.7%
+			expect(olderContribution).toBeCloseTo(33.3, 1);
+			expect(newerContribution).toBeCloseTo(66.7, 1);
+			expect(olderContribution).toBeLessThan(newerContribution);
 		});
 
-		it('computes recency per window independently', () => {
+		it('computes contribution per window independently', () => {
 			const fiveHrPoint = makePoint({
 				id: 1,
 				window: '5hr',
@@ -131,9 +133,9 @@ describe('calibration utilities', () => {
 			const fiveHrValues = lines[1].split(',');
 			const weeklyValues = lines[2].split(',');
 
-			// Both are the newest (and only) point in their window, so effective = quality
-			expect(fiveHrValues[7]).toBe('0.8000');
-			expect(weeklyValues[7]).toBe('0.8000');
+			// Both are the only point in their window, so contribution = 100%
+			expect(fiveHrValues[7]).toBe('100.0');
+			expect(weeklyValues[7]).toBe('100.0');
 		});
 	});
 

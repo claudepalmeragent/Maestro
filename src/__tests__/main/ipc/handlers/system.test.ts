@@ -245,6 +245,10 @@ describe('system IPC handlers', () => {
 				'power:getStatus',
 				'power:addReason',
 				'power:removeReason',
+				// Model handlers
+				'models:checkNew',
+				'models:getOptions',
+				'models:addDetected',
 			];
 
 			for (const channel of expectedChannels) {

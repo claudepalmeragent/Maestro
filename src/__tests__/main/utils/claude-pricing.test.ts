@@ -136,8 +136,8 @@ describe('claude-pricing', () => {
 			expect(isClaudeModelId(getDefaultModelId())).toBe(true);
 		});
 
-		it('should be Opus 4.5', () => {
-			expect(getDefaultModelId()).toBe('claude-opus-4-5-20251101');
+		it('should be Opus 4.6', () => {
+			expect(getDefaultModelId()).toBe('claude-opus-4-6-20260115');
 		});
 	});
 
@@ -190,13 +190,13 @@ describe('claude-pricing', () => {
 
 	describe('resolveModelAlias', () => {
 		it('should resolve basic aliases', () => {
-			expect(resolveModelAlias('opus')).toBe('claude-opus-4-5-20251101');
+			expect(resolveModelAlias('opus')).toBe('claude-opus-4-6-20260115');
 			expect(resolveModelAlias('sonnet')).toBe('claude-sonnet-4-6-20260218');
 			expect(resolveModelAlias('haiku')).toBe('claude-haiku-4-5-20251001');
 		});
 
 		it('should resolve versioned aliases', () => {
-			expect(resolveModelAlias('opus-4.5')).toBe('claude-opus-4-5-20251101');
+			expect(resolveModelAlias('opus-4.6')).toBe('claude-opus-4-6-20260115');
 			expect(resolveModelAlias('haiku-3.5')).toBe('claude-haiku-3-5-20241022');
 		});
 
@@ -205,11 +205,11 @@ describe('claude-pricing', () => {
 		});
 
 		it('should return the model ID if already valid', () => {
-			expect(resolveModelAlias('claude-opus-4-5-20251101')).toBe('claude-opus-4-5-20251101');
+			expect(resolveModelAlias('claude-opus-4-6-20260115')).toBe('claude-opus-4-6-20260115');
 		});
 
 		it('should handle case insensitivity', () => {
-			expect(resolveModelAlias('OPUS')).toBe('claude-opus-4-5-20251101');
+			expect(resolveModelAlias('OPUS')).toBe('claude-opus-4-6-20260115');
 			expect(resolveModelAlias('Sonnet')).toBe('claude-sonnet-4-6-20260218');
 		});
 
@@ -230,7 +230,7 @@ describe('claude-pricing', () => {
 		});
 
 		it('should return display name for alias', () => {
-			expect(getModelDisplayName('opus')).toBe('Claude Opus 4.5');
+			expect(getModelDisplayName('opus')).toBe('Claude Opus 4.6');
 		});
 
 		it('should return original ID for unknown model', () => {

@@ -145,6 +145,7 @@ describe('persistence IPC handlers', () => {
 				'groups:getAll',
 				'groups:setAll',
 				'cli:getActivity',
+				'calibration:reset',
 			];
 
 			for (const channel of expectedChannels) {

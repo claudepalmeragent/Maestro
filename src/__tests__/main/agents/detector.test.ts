@@ -23,14 +23,31 @@ vi.mock('../../../main/utils/logger', () => ({
 vi.mock('../../../main/stores/getters', () => ({
 	getModelRegistryStore: () => ({
 		get: (key: string) => {
+			if (key === 'models') {
+				return {
+					'claude-opus-4-6-20260115': { displayName: 'Claude Opus 4.6' },
+					'claude-opus-4-5-20251101': { displayName: 'Claude Opus 4.5' },
+					'claude-sonnet-4-6-20260218': { displayName: 'Claude Sonnet 4.6' },
+					'claude-sonnet-4-5-20250929': { displayName: 'Claude Sonnet 4.5' },
+					'claude-haiku-4-5-20251001': { displayName: 'Claude Haiku 4.5' },
+				};
+			}
 			if (key === 'aliases') {
 				return {
-					opus: 'claude-opus-4-5-20251101',
+					opus: 'claude-opus-4-6-20260115',
 					sonnet: 'claude-sonnet-4-6-20260218',
 					haiku: 'claude-haiku-4-5-20251001',
 					'opus-4.6': 'claude-opus-4-6-20260115',
 					'sonnet-4.5': 'claude-sonnet-4-5-20250929',
+					'claude-opus-4-6': 'claude-opus-4-6-20260115',
+					'claude-opus-4-5': 'claude-opus-4-5-20251101',
+					'claude-sonnet-4-6': 'claude-sonnet-4-6-20260218',
+					'claude-sonnet-4-5': 'claude-sonnet-4-5-20250929',
+					'claude-haiku-4-5': 'claude-haiku-4-5-20251001',
 				};
+			}
+			if (key === 'suppressedDisplayNames') {
+				return [];
 			}
 			return {};
 		},
@@ -1016,16 +1033,13 @@ describe('agent-detector', () => {
 			await detector.detectAgents();
 
 			const models = await detector.discoverModels('claude-code');
-			// Should contain family aliases from the mock registry
-			expect(models).toContain('opus');
-			expect(models).toContain('sonnet');
-			expect(models).toContain('haiku');
-			// Should contain Claude Code extras
-			expect(models).toContain('opusplan');
-			expect(models).toContain('sonnet[1m]');
-			// Should NOT contain versioned aliases (they have non-alpha chars)
-			expect(models).not.toContain('opus-4.6');
-			expect(models).not.toContain('sonnet-4.5');
+			// Should contain short-form model IDs from the mock registry
+			expect(models).toContain('claude-opus-4-6');
+			expect(models).toContain('claude-opus-4-5');
+			expect(models).toContain('claude-sonnet-4-6');
+			expect(models).toContain('claude-sonnet-4-5');
+			expect(models).toContain('claude-haiku-4-5');
+			expect(models).toHaveLength(5);
 		});
 
 		it('should return empty array for unavailable agents', async () => {

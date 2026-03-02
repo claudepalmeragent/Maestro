@@ -143,6 +143,12 @@ describe('agents IPC handlers', () => {
 				'agents:getPricingConfig',
 				'agents:setPricingConfig',
 				'agents:updateDetectedModel',
+				// Host settings handlers
+				'agents:getHostSettings',
+				'agents:setHostSettings',
+				// Version and update handlers
+				'agents:getVersion',
+				'agents:update',
 			];
 
 			for (const channel of expectedChannels) {

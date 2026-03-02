@@ -365,8 +365,8 @@ describe('pricing-resolver', () => {
 
 			const result = resolveModelForPricing('agent-1');
 
-			// Default is claude-opus-4-5-20251101 (from model registry store)
-			expect(result).toBe('claude-opus-4-5-20251101');
+			// Default is claude-opus-4-6-20260115 (from model registry store)
+			expect(result).toBe('claude-opus-4-6-20260115');
 		});
 	});
 
@@ -460,7 +460,7 @@ describe('pricing-resolver', () => {
 
 			expect(result).toEqual({
 				billingMode: 'api',
-				modelId: 'claude-opus-4-5-20251101',
+				modelId: 'claude-opus-4-6-20260115',
 				billingModeSource: 'default',
 				modelSource: 'default',
 			});

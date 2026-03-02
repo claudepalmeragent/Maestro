@@ -181,6 +181,8 @@ describe('groupChat IPC handlers', () => {
 				'groupChat:getHistoryFilePath',
 				// Image handlers
 				'groupChat:getImages',
+				// Round state
+				'groupChat:getRoundState',
 			];
 
 			for (const channel of expectedChannels) {
@@ -219,6 +221,7 @@ describe('groupChat IPC handlers', () => {
 			expect(groupChatStorage.createGroupChat).toHaveBeenCalledWith(
 				'Test Chat',
 				'claude-code',
+				undefined,
 				undefined
 			);
 			expect(groupChatModerator.spawnModerator).toHaveBeenCalledWith(mockChat, mockProcessManager);
@@ -253,7 +256,8 @@ describe('groupChat IPC handlers', () => {
 			expect(groupChatStorage.createGroupChat).toHaveBeenCalledWith(
 				'Config Chat',
 				'claude-code',
-				moderatorConfig
+				moderatorConfig,
+				undefined
 			);
 		});
 

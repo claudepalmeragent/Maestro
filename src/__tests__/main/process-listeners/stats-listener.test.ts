@@ -18,6 +18,45 @@ vi.mock('../../../main/utils/pricing-resolver', () => ({
 	resolveModelForPricing: vi.fn(() => 'claude-sonnet-4-20250514'),
 }));
 
+// Mock the model registry store so claude-pricing functions can resolve aliases and pricing
+vi.mock('../../../main/stores/getters', () => ({
+	getModelRegistryStore: () => ({
+		store: {
+			models: {
+				'claude-opus-4-6-20260115': {
+					displayName: 'Claude Opus 4.6',
+					family: 'opus',
+					pricing: {
+						INPUT_PER_MILLION: 5,
+						OUTPUT_PER_MILLION: 25,
+						CACHE_READ_PER_MILLION: 0.5,
+						CACHE_CREATION_PER_MILLION: 6.25,
+					},
+				},
+				'claude-sonnet-4-20250514': {
+					displayName: 'Claude Sonnet 4',
+					family: 'sonnet',
+					pricing: {
+						INPUT_PER_MILLION: 3,
+						OUTPUT_PER_MILLION: 15,
+						CACHE_READ_PER_MILLION: 0.3,
+						CACHE_CREATION_PER_MILLION: 3.75,
+					},
+				},
+			},
+			aliases: {
+				'claude-opus-4-6': 'claude-opus-4-6-20260115',
+				opus: 'claude-opus-4-6-20260115',
+				sonnet: 'claude-sonnet-4-20250514',
+			},
+			defaultModelId: 'claude-opus-4-6-20260115',
+		},
+	}),
+	getSessionsStore: () => ({
+		get: () => [],
+	}),
+}));
+
 describe('Stats Listener', () => {
 	let mockProcessManager: ProcessManager;
 	let mockSafeSend: SafeSendFn;
