@@ -131,12 +131,10 @@ export class ExitHandler {
 			}
 		}
 
-		// Check for SSH-specific errors at exit (only when running via SSH remote)
-		if (
-			!managedProcess.errorEmitted &&
-			managedProcess.sshRemoteId &&
-			(code !== 0 || managedProcess.stderrBuffer)
-		) {
+		// Check for SSH-specific errors at exit — runs unconditionally (not gated on sshRemoteId)
+		// SSH error patterns are specific enough that they won't false-positive on local processes.
+		// Running unconditionally ensures SSH errors are detected even if sshRemoteId was lost.
+		if (!managedProcess.errorEmitted && (code !== 0 || managedProcess.stderrBuffer)) {
 			const stderrToCheck = managedProcess.stderrBuffer || '';
 			const sshError = matchSshErrorPattern(stderrToCheck);
 			if (sshError) {

@@ -337,6 +337,33 @@ export function registerProcessHandlers(deps: ProcessHandlerDependencies): void 
 								!!effectiveCustomEnvVars && Object.keys(effectiveCustomEnvVars).length > 0,
 							sshCommand: `${sshCommand.command} ${sshCommand.args.join(' ')}`,
 						});
+					} else if (sshResult.source === 'not_found') {
+						// SSH was explicitly configured for this session but the remote was not found or is disabled.
+						// Instead of silently falling through to local execution, log the error and emit agent-error.
+						logger.error(
+							`SSH remote not found for session — cannot spawn. ` +
+								`Session has SSH config with remoteId '${config.sessionSshRemoteConfig?.remoteId}' ` +
+								`but no matching enabled remote exists in settings.`,
+							LOG_CONTEXT,
+							{ sessionId: config.sessionId, remoteId: config.sessionSshRemoteConfig?.remoteId }
+						);
+						const mainWindow = getMainWindow();
+						if (mainWindow && !mainWindow.isDestroyed()) {
+							const agentError = {
+								type: 'network_error' as const,
+								message: `SSH remote '${config.sessionSshRemoteConfig?.remoteId}' could not be found or is disabled. Check SSH Remote settings.`,
+								recoverable: true,
+								agentId: config.toolType,
+								sessionId: config.sessionId,
+								timestamp: Date.now(),
+								raw: {
+									sshSource: sshResult.source,
+									remoteId: config.sessionSshRemoteConfig?.remoteId,
+								},
+							};
+							mainWindow.webContents.send('agent:error', config.sessionId, agentError);
+						}
+						return { pid: 0, success: false };
 					}
 				}
 

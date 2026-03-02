@@ -14,6 +14,7 @@
  */
 
 import type { SshRemoteConfig, AgentSshRemoteConfig } from '../../shared/types';
+import { logger } from './logger';
 
 /**
  * Options for resolving SSH remote configuration.
@@ -42,7 +43,7 @@ export interface SshRemoteResolveResult {
 	 * - 'disabled': SSH remote is explicitly disabled for this session
 	 * - 'none': No SSH remote configured (local execution)
 	 */
-	source: 'session' | 'disabled' | 'none';
+	source: 'session' | 'disabled' | 'not_found' | 'none';
 }
 
 /**
@@ -108,7 +109,14 @@ export function getSshRemoteConfig(
 					source: 'session',
 				};
 			}
-			// If the specified remote doesn't exist or is disabled, fall through to local execution
+			// SSH remote was explicitly configured but not found or disabled — this is a warning condition
+			const allRemoteIds = sshRemotes.map((r) => `${r.id}(${r.enabled ? 'enabled' : 'disabled'})`);
+			logger.warn(
+				`SSH remote '${sessionSshConfig.remoteId}' not found or disabled. ` +
+					`Available remotes: [${allRemoteIds.join(', ')}]. Falling through to local execution.`,
+				'[ssh-remote-resolver]'
+			);
+			return { config: null, source: 'not_found' };
 		}
 	}
 

@@ -357,6 +357,39 @@ describe('StdoutHandler', () => {
 		});
 	});
 
+	describe('SSH error detection without sshRemoteId', () => {
+		it('detects SSH errors even when sshRemoteId is not set', async () => {
+			const { matchSshErrorPattern } = vi.mocked(
+				await import('../../../../main/parsers/error-patterns')
+			);
+			matchSshErrorPattern.mockReturnValueOnce({
+				type: 'agent_crashed',
+				message: 'Claude Code not found on remote host',
+				recoverable: true,
+			});
+
+			const sessionId = 'test-session-ssh-no-id';
+			const managedProcess: ManagedProcess = {
+				sessionId,
+				toolType: 'claude-code',
+				cwd: '/test',
+				pid: 1250,
+				isTerminal: false,
+				isStreamJsonMode: true,
+				jsonBuffer: '',
+				startTime: Date.now(),
+				sshRemoteId: undefined, // No SSH ID set — simulates flag loss
+			};
+			processes.set(sessionId, managedProcess);
+
+			// Simulate a stdout line that matches an SSH error pattern
+			stdoutHandler.handleData(sessionId, 'bash: claude: command not found\n');
+
+			// The error should still be detected and emitted
+			expect(managedProcess.errorEmitted).toBe(true);
+		});
+	});
+
 	describe('multiple usage updates', () => {
 		it('should update lastUsageTotals on each usage event', () => {
 			const sessionId = 'test-session-updates';

@@ -57,8 +57,10 @@ export class StderrHandler {
 			}
 		}
 
-		// Check for SSH-specific errors in stderr (only when running via SSH remote)
-		if (!managedProcess.errorEmitted && managedProcess.sshRemoteId) {
+		// Check for SSH-specific errors in stderr — runs unconditionally (not gated on sshRemoteId)
+		// SSH error patterns are specific enough that they won't false-positive on local processes.
+		// Running unconditionally ensures SSH errors are detected even if sshRemoteId was lost.
+		if (!managedProcess.errorEmitted) {
 			const sshError = matchSshErrorPattern(stderrData);
 			if (sshError) {
 				managedProcess.errorEmitted = true;

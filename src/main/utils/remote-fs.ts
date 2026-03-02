@@ -9,6 +9,7 @@
  * Unix commands (ls, cat, stat, du) via SSH, parsing their output.
  */
 
+import pLimit, { type LimitFunction } from 'p-limit';
 import { SshRemoteConfig } from '../../shared/types';
 import { execFileNoThrow, ExecResult } from './execFile';
 import { shellEscape } from './shell-escape';
@@ -111,12 +112,57 @@ function escapeRemotePath(dirPath: string): string {
 }
 
 /**
+ * Default maximum concurrent SSH channels per host.
+ * Matches OpenSSH's default MaxSessions (10).
+ * Reserved channels: 2 (for the agent process + overhead).
+ */
+const DEFAULT_MAX_SSH_SESSIONS = 10;
+const RESERVED_SSH_CHANNELS = 2;
+
+/**
+ * Per-host SSH concurrency limiters.
+ * Caps simultaneous SSH exec calls to prevent exceeding the remote server's MaxSessions limit.
+ * When the limit is reached, additional calls are queued (FIFO) — never dropped or errored.
+ */
+const hostLimiters = new Map<string, LimitFunction>();
+
+/**
+ * Get or create a concurrency limiter for the given SSH remote.
+ * The limit is derived from the remote's maxSessions setting (default: 10),
+ * minus a reserved channel budget for the agent process and overhead.
+ */
+function getHostLimiter(config: SshRemoteConfig): LimitFunction {
+	const key = `${config.username || ''}@${config.host}:${config.port || 22}`;
+	let limiter = hostLimiters.get(key);
+	if (!limiter) {
+		const maxSessions = config.maxSessions ?? DEFAULT_MAX_SSH_SESSIONS;
+		const concurrencyLimit = Math.max(1, maxSessions - RESERVED_SSH_CHANNELS);
+		limiter = pLimit(concurrencyLimit);
+		hostLimiters.set(key, limiter);
+		logger.debug(
+			`[remote-fs] Created SSH concurrency limiter for ${key}: limit=${concurrencyLimit} (maxSessions=${maxSessions})`
+		);
+	}
+	return limiter;
+}
+
+/**
+ * Update or reset the concurrency limiter for a host when settings change.
+ * Called when the user modifies maxSessions for a remote.
+ */
+export function resetHostLimiter(config: SshRemoteConfig): void {
+	const key = `${config.username || ''}@${config.host}:${config.port || 22}`;
+	hostLimiters.delete(key);
+}
+
+/**
  * Patterns indicating transient SSH errors that should be retried.
  * These are network/connection issues that may resolve on retry.
  */
 const RECOVERABLE_SSH_ERRORS = [
 	/connection closed/i,
 	/connection reset/i,
+	/connection refused/i, // Transient MaxSessions overflow — sshd rejected new channel
 	/broken pipe/i,
 	/network is unreachable/i,
 	/connection timed out/i,
@@ -176,6 +222,15 @@ function getBackoffDelay(attempt: number, baseDelay: number, maxDelay: number): 
  * @returns ExecResult with stdout, stderr, and exitCode
  */
 async function execRemoteCommand(
+	config: SshRemoteConfig,
+	remoteCommand: string,
+	deps: RemoteFsDeps = defaultDeps
+): Promise<ExecResult> {
+	const limiter = getHostLimiter(config);
+	return limiter(() => execRemoteCommandInner(config, remoteCommand, deps));
+}
+
+async function execRemoteCommandInner(
 	config: SshRemoteConfig,
 	remoteCommand: string,
 	deps: RemoteFsDeps = defaultDeps

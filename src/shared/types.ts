@@ -365,6 +365,15 @@ export interface SshRemoteConfig {
 	 * Used for display purposes to show where the config came from.
 	 */
 	sshConfigHost?: string;
+
+	/**
+	 * Maximum simultaneous SSH channels per connection.
+	 * Maps to OpenSSH's MaxSessions setting on the remote server.
+	 * Default: 10 (matches OpenSSH default — safe for internet-facing servers).
+	 * Local VMs and trusted networks can safely use 50-100.
+	 * The user must ensure the remote server's MaxSessions matches or exceeds this value.
+	 */
+	maxSessions?: number;
 }
 
 /**

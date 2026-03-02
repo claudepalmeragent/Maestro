@@ -1028,7 +1028,7 @@ describe('process IPC handlers', () => {
 			);
 		});
 
-		it('should run locally when no SSH remotes are configured', async () => {
+		it('should return error when SSH remote is configured but not found', async () => {
 			const mockAgent = {
 				id: 'claude-code',
 				requiresPty: true,
@@ -1042,7 +1042,7 @@ describe('process IPC handlers', () => {
 			mockProcessManager.spawn.mockReturnValue({ pid: 12345, success: true });
 
 			const handler = handlers.get('process:spawn');
-			await handler!({} as any, {
+			const result = await handler!({} as any, {
 				sessionId: 'session-1',
 				toolType: 'claude-code',
 				cwd: '/local/project',
@@ -1055,13 +1055,10 @@ describe('process IPC handlers', () => {
 				},
 			});
 
-			// No matching SSH remote, should run locally
-			expect(mockProcessManager.spawn).toHaveBeenCalledWith(
-				expect.objectContaining({
-					command: 'claude',
-					requiresPty: true, // Preserved when running locally
-				})
-			);
+			// SSH remote not found — should NOT fall through to local execution
+			// Instead, return error and emit agent:error event
+			expect(mockProcessManager.spawn).not.toHaveBeenCalled();
+			expect(result).toEqual({ pid: 0, success: false });
 		});
 
 		it('should use local home directory as cwd when spawning SSH (fixes ENOENT for remote-only paths)', async () => {

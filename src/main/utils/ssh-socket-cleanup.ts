@@ -90,8 +90,14 @@ export async function validateSshSocket(
 		if (maestroSockets.length === 0) {
 			// No master socket exists — trigger establishment
 			logger.debug(`No SSH master socket found, triggering establishment for ${host}`, LOG_CONTEXT);
-			triggerMasterReestablishment(host, port, username);
-			return true; // Return true — let the operation proceed (may use fallback direct connection)
+			const established = await triggerMasterReestablishment(host, port, username);
+			if (!established) {
+				logger.warn(
+					`SSH master re-establishment failed for ${host}, proceeding with direct connection`,
+					LOG_CONTEXT
+				);
+			}
+			return true; // Proceed — SSH may fall back to direct connection if master didn't come up
 		}
 
 		// Use ssh -O check to verify the master connection is alive
@@ -125,7 +131,13 @@ export async function validateSshSocket(
 
 			// "No ControlMaster" or "No such file" means no master for THIS host — trigger establishment
 			if (errorMsg.includes('No ControlMaster') || errorMsg.includes('No such file')) {
-				triggerMasterReestablishment(host, port, username);
+				const established = await triggerMasterReestablishment(host, port, username);
+				if (!established) {
+					logger.warn(
+						`SSH master re-establishment failed for ${host} after stale socket`,
+						LOG_CONTEXT
+					);
+				}
 				return true;
 			}
 
@@ -146,9 +158,9 @@ export async function validateSshSocket(
 					// Already removed or in use - ignore
 				}
 			}
-			// Trigger master re-establishment (async, non-blocking)
-			triggerMasterReestablishment(host, port, username);
-			return false;
+			// Trigger master re-establishment (blocking with timeout)
+			const established = await triggerMasterReestablishment(host, port, username);
+			return established;
 		}
 	} catch (err) {
 		// File system error reading /tmp - not critical, proceed with operation
@@ -165,7 +177,23 @@ export async function validateSshSocket(
  * the pre-flight check will either succeed (if the master comes up fast enough)
  * or fail and be retried by the retry logic in remote-fs.ts / other callers.
  */
-function triggerMasterReestablishment(host: string, port: number, username: string): void {
+/**
+ * Trigger master connection re-establishment and optionally wait for completion.
+ *
+ * @param host - SSH remote hostname
+ * @param port - SSH remote port
+ * @param username - SSH username
+ * @param options.timeoutMs - Maximum time to wait for re-establishment (default: 5000ms).
+ *                            Set to 0 for fire-and-forget (legacy behavior).
+ * @returns true if master was re-established (or timeout=0), false if failed/timed out.
+ */
+async function triggerMasterReestablishment(
+	host: string,
+	port: number,
+	username: string,
+	options: { timeoutMs?: number } = {}
+): Promise<boolean> {
+	const { timeoutMs = 5000 } = options;
 	try {
 		const statuses = sshHealthMonitor.getHealthStatuses();
 		const matching = statuses.find(
@@ -177,9 +205,33 @@ function triggerMasterReestablishment(host: string, port: number, username: stri
 			const remote = remotes.find((r) => r.remoteId === matching.remoteId);
 			if (remote) {
 				logger.debug(`Triggering master re-establishment for ${host}`, LOG_CONTEXT);
-				sshHealthMonitor.establishMaster(remote).catch((err) => {
-					logger.debug(`Master re-establishment failed for ${host}: ${err}`, LOG_CONTEXT);
-				});
+
+				if (timeoutMs === 0) {
+					// Fire-and-forget (legacy behavior)
+					sshHealthMonitor.establishMaster(remote).catch((err) => {
+						logger.debug(`Master re-establishment failed for ${host}: ${err}`, LOG_CONTEXT);
+					});
+					return true;
+				}
+
+				// Block until master is established or timeout
+				try {
+					await Promise.race([
+						sshHealthMonitor.establishMaster(remote),
+						new Promise<void>((_, reject) =>
+							setTimeout(() => reject(new Error('timeout')), timeoutMs)
+						),
+					]);
+					logger.debug(`Master re-established for ${host}`, LOG_CONTEXT);
+					return true;
+				} catch (err) {
+					const msg = err instanceof Error ? err.message : String(err);
+					logger.warn(
+						`Master re-establishment for ${host} failed or timed out: ${msg}`,
+						LOG_CONTEXT
+					);
+					return false;
+				}
 			}
 		} else {
 			logger.debug(
@@ -190,6 +242,7 @@ function triggerMasterReestablishment(host: string, port: number, username: stri
 	} catch (err) {
 		logger.debug(`Error triggering master re-establishment: ${err}`, LOG_CONTEXT);
 	}
+	return false;
 }
 
 /**

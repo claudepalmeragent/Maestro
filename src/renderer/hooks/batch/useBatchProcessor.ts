@@ -785,6 +785,16 @@ export function useBatchProcessor({
 			// we must fall back to sessionSshRemoteConfig.remoteId. See CLAUDE.md "SSH Remote Sessions".
 			const sshRemoteId =
 				session.sshRemoteId || session.sessionSshRemoteConfig?.remoteId || undefined;
+			// Validate: if session has SSH config enabled but no resolvable remote ID, log a warning
+			if (session.sessionSshRemoteConfig?.enabled && !sshRemoteId) {
+				window.maestro.logger.log(
+					'warn',
+					'Batch spawn: session has SSH config enabled but no resolvable SSH remote ID. ' +
+						'Processes may spawn locally instead of remotely.',
+					'BatchProcessor',
+					{ sessionId: session.id, remoteId: session.sessionSshRemoteConfig?.remoteId }
+				);
+			}
 			const worktreeWithSsh = worktree ? { ...worktree, sshRemoteId } : undefined;
 			const worktreeResult = await worktreeManager.setupWorktree(
 				session.cwd,

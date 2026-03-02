@@ -166,8 +166,11 @@ export class StdoutHandler {
 			}
 		}
 
-		// SSH error detection
-		if (!managedProcess.errorEmitted && managedProcess.sshRemoteId) {
+		// SSH error detection — runs unconditionally (not gated on sshRemoteId)
+		// SSH error patterns are specific enough (e.g., "bash: claude: command not found",
+		// "ssh: permission denied") that they won't false-positive on local processes.
+		// Running unconditionally ensures SSH errors are detected even if sshRemoteId was lost.
+		if (!managedProcess.errorEmitted) {
 			const sshError = matchSshErrorPattern(line);
 			if (sshError) {
 				managedProcess.errorEmitted = true;

@@ -1182,6 +1182,27 @@ function MaestroConsoleInner() {
 					correctedSession.sessionSshRemoteConfig?.remoteId ||
 					undefined;
 
+				// Validate SSH config on restore: if session references an SSH remote,
+				// check that it still exists and is enabled in settings
+				if (sshRemoteId && correctedSession.sessionSshRemoteConfig?.enabled) {
+					try {
+						const configsResult = await window.maestro.sshRemote.getConfigs();
+						if (configsResult.success && configsResult.configs) {
+							const matchingRemote = configsResult.configs.find(
+								(r) => r.id === sshRemoteId && r.enabled
+							);
+							if (!matchingRemote) {
+								console.warn(
+									`[restoreSession] SSH remote '${sshRemoteId}' no longer exists or is disabled for session ${correctedSession.id}. ` +
+										`Session will attempt local execution until SSH remote is reconfigured.`
+								);
+							}
+						}
+					} catch {
+						// SSH remote API not available during early startup — skip validation
+					}
+				}
+
 				// For SSH remote sessions, defer git operations to background to avoid blocking
 				// app startup on SSH connection timeouts (which can be 10+ seconds per session)
 				const isRemoteSession = !!sshRemoteId;
@@ -7556,6 +7577,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 					customEnvVars: activeSession.customEnvVars,
 					customModel: activeSession.customModel,
 					customContextWindow: activeSession.customContextWindow,
+					sessionSshRemoteConfig: activeSession.sessionSshRemoteConfig,
 				}
 			);
 

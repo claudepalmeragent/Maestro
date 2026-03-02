@@ -14,6 +14,16 @@ import {
 } from '../../../main/utils/ssh-remote-resolver';
 import type { SshRemoteConfig } from '../../../shared/types';
 
+// Mock logger (now imported by ssh-remote-resolver)
+vi.mock('../../../main/utils/logger', () => ({
+	logger: {
+		info: vi.fn(),
+		warn: vi.fn(),
+		error: vi.fn(),
+		debug: vi.fn(),
+	},
+}));
+
 describe('getSshRemoteConfig', () => {
 	// Test fixtures
 	const remote1: SshRemoteConfig = {
@@ -65,14 +75,14 @@ describe('getSshRemoteConfig', () => {
 			expect(result.source).toBe('none');
 		});
 
-		it('returns null even with session SSH config when no remotes exist', () => {
+		it('returns null with source "not_found" when session SSH config references nonexistent remote', () => {
 			const store = createMockStore([]);
 			const result = getSshRemoteConfig(store, {
 				sessionSshConfig: { enabled: true, remoteId: 'remote-1' },
 			});
 
 			expect(result.config).toBeNull();
-			expect(result.source).toBe('none');
+			expect(result.source).toBe('not_found');
 		});
 	});
 
@@ -126,26 +136,26 @@ describe('getSshRemoteConfig', () => {
 			expect(result.source).toBe('session');
 		});
 
-		it('returns null with source "none" when session remote ID not found', () => {
+		it('returns null with source "not_found" when session remote ID not found', () => {
 			const store = createMockStore([remote1, remote2]);
 			const result = getSshRemoteConfig(store, {
 				sessionSshConfig: { enabled: true, remoteId: 'non-existent' },
 			});
 
-			// Remote not found = local execution
+			// Remote not found = not_found source (distinct from 'none')
 			expect(result.config).toBeNull();
-			expect(result.source).toBe('none');
+			expect(result.source).toBe('not_found');
 		});
 
-		it('returns null with source "none" when session remote is disabled', () => {
+		it('returns null with source "not_found" when session remote is disabled', () => {
 			const store = createMockStore([remote1, disabledRemote]);
 			const result = getSshRemoteConfig(store, {
 				sessionSshConfig: { enabled: true, remoteId: 'remote-disabled' },
 			});
 
-			// Remote disabled = local execution
+			// Remote disabled = not_found source (distinct from 'none')
 			expect(result.config).toBeNull();
-			expect(result.source).toBe('none');
+			expect(result.source).toBe('not_found');
 		});
 
 		it('returns null when session enabled but no remoteId specified', () => {
@@ -178,6 +188,28 @@ describe('getSshRemoteConfig', () => {
 
 			expect(result.config).toEqual(remote2);
 			expect(result.source).toBe('session');
+		});
+	});
+
+	describe('when session remote ID does not match any enabled remote', () => {
+		it('returns null config with source "not_found" (not "none")', () => {
+			const store = createMockStore([remote1, disabledRemote]);
+			const result = getSshRemoteConfig(store, {
+				sessionSshConfig: { enabled: true, remoteId: 'nonexistent-id' },
+			});
+
+			expect(result.config).toBeNull();
+			expect(result.source).toBe('not_found');
+		});
+
+		it('returns "not_found" when remote exists but is disabled', () => {
+			const store = createMockStore([remote1, disabledRemote]);
+			const result = getSshRemoteConfig(store, {
+				sessionSshConfig: { enabled: true, remoteId: 'remote-disabled' },
+			});
+
+			expect(result.config).toBeNull();
+			expect(result.source).toBe('not_found');
 		});
 	});
 });

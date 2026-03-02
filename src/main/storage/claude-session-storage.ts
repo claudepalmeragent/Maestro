@@ -19,6 +19,7 @@ import { logger } from '../utils/logger';
 import { CLAUDE_SESSION_PARSE_LIMITS } from '../constants';
 import { calculateClaudeCost } from '../utils/pricing';
 import { encodeClaudeProjectPath } from '../utils/statsCache';
+import pLimit from 'p-limit';
 import {
 	readDirRemote,
 	readFileRemote,
@@ -1623,53 +1624,61 @@ export class ClaudeSessionStorage implements AgentSessionStorage {
 			return [];
 		}
 
-		// Parse each subagent file
+		// Parse each subagent file (concurrency-limited to prevent SSH MaxSessions overflow)
+		const maxSessions = sshConfig.maxSessions ?? 10;
+		const fileLimit = pLimit(Math.max(1, maxSessions - 2));
 		const subagents = await Promise.all(
-			agentFiles.map(async (entry) => {
-				const agentId = entry.name.replace('agent-', '').replace('.jsonl', '');
-				const filePath = `${subagentsDir}/${entry.name}`;
+			agentFiles.map((entry) =>
+				fileLimit(async () => {
+					const agentId = entry.name.replace('agent-', '').replace('.jsonl', '');
+					const filePath = `${subagentsDir}/${entry.name}`;
 
-				try {
-					// Get file stats
-					const statResult = await statRemote(filePath, sshConfig);
-					if (!statResult.success || !statResult.data) {
-						logger.error(`Failed to stat remote subagent file: ${filePath}`, LOG_CONTEXT);
-						return null;
-					}
-
-					// Skip empty files
-					if (statResult.data.size === 0) {
-						return null;
-					}
-
-					// Read file content (use partial for large files)
-					const LARGE_FILE_THRESHOLD = 5 * 1024 * 1024;
-					let content: string;
-
-					if (statResult.data.size > LARGE_FILE_THRESHOLD) {
-						// For large files, use partial reading
-						const partialResult = await readFileRemotePartial(filePath, sshConfig, 100, 50);
-						if (!partialResult.success || !partialResult.data) {
+					try {
+						// Get file stats
+						const statResult = await statRemote(filePath, sshConfig);
+						if (!statResult.success || !statResult.data) {
+							logger.error(`Failed to stat remote subagent file: ${filePath}`, LOG_CONTEXT);
 							return null;
 						}
-						content = partialResult.data.head + '\n' + partialResult.data.tail;
-					} else {
-						const readResult = await readFileRemote(filePath, sshConfig);
-						if (!readResult.success || !readResult.data) {
+
+						// Skip empty files
+						if (statResult.data.size === 0) {
 							return null;
 						}
-						content = readResult.data;
-					}
 
-					return parseSubagentContent(content, agentId, sessionId, filePath, {
-						size: statResult.data.size,
-						mtimeMs: statResult.data.mtime,
-					});
-				} catch (error) {
-					logger.error(`Error processing remote subagent file: ${entry.name}`, LOG_CONTEXT, error);
-					return null;
-				}
-			})
+						// Read file content (use partial for large files)
+						const LARGE_FILE_THRESHOLD = 5 * 1024 * 1024;
+						let content: string;
+
+						if (statResult.data.size > LARGE_FILE_THRESHOLD) {
+							// For large files, use partial reading
+							const partialResult = await readFileRemotePartial(filePath, sshConfig, 100, 50);
+							if (!partialResult.success || !partialResult.data) {
+								return null;
+							}
+							content = partialResult.data.head + '\n' + partialResult.data.tail;
+						} else {
+							const readResult = await readFileRemote(filePath, sshConfig);
+							if (!readResult.success || !readResult.data) {
+								return null;
+							}
+							content = readResult.data;
+						}
+
+						return parseSubagentContent(content, agentId, sessionId, filePath, {
+							size: statResult.data.size,
+							mtimeMs: statResult.data.mtime,
+						});
+					} catch (error) {
+						logger.error(
+							`Error processing remote subagent file: ${entry.name}`,
+							LOG_CONTEXT,
+							error
+						);
+						return null;
+					}
+				})
+			)
 		);
 
 		// Filter out nulls and sort by timestamp (newest first)

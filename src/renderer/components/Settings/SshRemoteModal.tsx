@@ -149,6 +149,9 @@ export function SshRemoteModal({
 	const [privateKeyPath, setPrivateKeyPath] = useState('');
 	const [envVars, setEnvVars] = useState<EnvVarEntry[]>([]);
 	const [enabled, setEnabled] = useState(true);
+	const [maxSessions, setMaxSessions] = useState<string>(
+		initialConfig?.maxSessions?.toString() || '10'
+	);
 	const [nextEnvVarId, setNextEnvVarId] = useState(0);
 	const [useSshConfig, setUseSshConfig] = useState(false);
 	const [sshConfigHost, setSshConfigHost] = useState<string | undefined>(undefined);
@@ -270,6 +273,7 @@ export function SshRemoteModal({
 				setEnvVars(entries);
 				setNextEnvVarId(entries.length);
 				setEnabled(initialConfig.enabled);
+				setMaxSessions(initialConfig.maxSessions?.toString() || '10');
 				setShowEnvVars(entries.length > 0);
 				setUseSshConfig(initialConfig.useSshConfig || false);
 				setSshConfigHost(initialConfig.sshConfigHost);
@@ -283,6 +287,7 @@ export function SshRemoteModal({
 				setEnvVars([]);
 				setNextEnvVarId(0);
 				setEnabled(true);
+				setMaxSessions('10');
 				setShowEnvVars(false);
 				setUseSshConfig(false);
 				setSshConfigHost(undefined);
@@ -318,6 +323,7 @@ export function SshRemoteModal({
 			remoteEnv:
 				Object.keys(envVarsToObject(envVars)).length > 0 ? envVarsToObject(envVars) : undefined,
 			enabled,
+			maxSessions: parseInt(maxSessions, 10) || 10,
 			useSshConfig,
 			sshConfigHost,
 		};
@@ -330,6 +336,7 @@ export function SshRemoteModal({
 		privateKeyPath,
 		envVars,
 		enabled,
+		maxSessions,
 		useSshConfig,
 		sshConfigHost,
 	]);
@@ -783,6 +790,19 @@ export function SshRemoteModal({
 						Environment variables passed to agents running on this remote host
 					</p>
 				</div>
+
+				{/* Max SSH Sessions */}
+				<FormInput
+					theme={theme}
+					label="Max SSH Sessions"
+					value={maxSessions}
+					onChange={setMaxSessions}
+					type="number"
+					placeholder="10"
+					monospace
+					className="w-24"
+					helperText="Maximum simultaneous SSH channels. Must match or be less than the remote server's MaxSessions setting. Local VMs can safely use 50-100. Default: 10 (OpenSSH default)."
+				/>
 
 				{/* Enabled Toggle */}
 				<div
