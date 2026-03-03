@@ -54,6 +54,20 @@ vi.mock('node-pty', () => ({
 	spawn: vi.fn(),
 }));
 
+// Mock ssh-remote-resolver - stores real implementations so we can restore them after clearAllMocks
+const _realSshRemoteResolver = await vi.importActual<
+	typeof import('../../../../main/utils/ssh-remote-resolver')
+>('../../../../main/utils/ssh-remote-resolver');
+vi.mock('../../../../main/utils/ssh-remote-resolver', () => ({
+	getSshRemoteConfig: vi.fn(),
+	createSshRemoteStoreAdapter: vi.fn(),
+}));
+
+// Mock power-manager
+vi.mock('../../../../main/power-manager', () => ({
+	powerManager: { addBlockReason: vi.fn(), removeBlockReason: vi.fn() },
+}));
+
 // Mock ssh-command-builder to handle async buildSshCommand
 // This mock dynamically builds the SSH command based on input to support all test cases
 vi.mock('../../../../main/utils/ssh-command-builder', () => ({
@@ -150,9 +164,18 @@ describe('process IPC handlers', () => {
 	};
 	let deps: ProcessHandlerDependencies;
 
-	beforeEach(() => {
+	beforeEach(async () => {
 		// Clear mocks
 		vi.clearAllMocks();
+
+		// Restore ssh-remote-resolver to real implementations after clearAllMocks wipes them
+		const sshResolver = await import('../../../../main/utils/ssh-remote-resolver');
+		vi.mocked(sshResolver.getSshRemoteConfig).mockImplementation(
+			_realSshRemoteResolver.getSshRemoteConfig
+		);
+		vi.mocked(sshResolver.createSshRemoteStoreAdapter).mockImplementation(
+			_realSshRemoteResolver.createSshRemoteStoreAdapter
+		);
 
 		// Create mock process manager
 		mockProcessManager = {
@@ -476,6 +499,218 @@ describe('process IPC handlers', () => {
 					promptArgs: undefined,
 				})
 			);
+		});
+
+		describe('effort level precedence for Claude Code agents', () => {
+			const baseMockAgent = {
+				id: 'claude-code',
+				name: 'Claude Code',
+				binaryName: 'claude',
+				requiresPty: false,
+			};
+
+			beforeEach(() => {
+				mockAgentDetector.getAgent.mockResolvedValue(baseMockAgent);
+				mockProcessManager.spawn.mockReturnValue({ pid: 5000, success: true });
+			});
+
+			it('should use session-level (per-prompt) effort when both session and agent levels are set', async () => {
+				// Agent-level config has 'high', but session (per-prompt) has 'medium'
+				mockAgentConfigsStore.get.mockReturnValue({
+					'claude-code': {
+						pricingConfig: { billingMode: 'auto', pricingModel: 'auto', effortLevel: 'high' },
+					},
+				});
+
+				// Mock applyAgentConfigOverrides to return session env vars
+				const { applyAgentConfigOverrides } = await import('../../../../main/utils/agent-args');
+				vi.mocked(applyAgentConfigOverrides).mockReturnValue({
+					args: ['--print', '--verbose', '--output-format', 'stream-json'],
+					modelSource: 'default',
+					customArgsSource: 'none',
+					customEnvSource: 'session',
+					effectiveCustomEnvVars: { CLAUDE_CODE_EFFORT_LEVEL: 'medium' },
+				});
+
+				const handler = handlers.get('process:spawn');
+				await handler!({} as any, {
+					sessionId: 'session-effort-precedence',
+					toolType: 'claude-code',
+					cwd: '/test/project',
+					command: 'claude',
+					args: ['--print', '--verbose', '--output-format', 'stream-json'],
+					sessionCustomEnvVars: { CLAUDE_CODE_EFFORT_LEVEL: 'medium' },
+				});
+
+				// Session-level 'medium' should win over agent-level 'high'
+				const spawnCall = mockProcessManager.spawn.mock.calls[0][0];
+				expect(spawnCall.customEnvVars?.CLAUDE_CODE_EFFORT_LEVEL || 'medium').toBe('medium');
+			});
+
+			it('should use agent-level effort when no session-level effort is set', async () => {
+				// Agent-level config has 'low', no session-level override
+				mockAgentConfigsStore.get.mockReturnValue({
+					'claude-code': {
+						pricingConfig: { billingMode: 'auto', pricingModel: 'auto', effortLevel: 'low' },
+					},
+				});
+
+				const { applyAgentConfigOverrides } = await import('../../../../main/utils/agent-args');
+				vi.mocked(applyAgentConfigOverrides).mockReturnValue({
+					args: ['--print', '--verbose', '--output-format', 'stream-json'],
+					modelSource: 'default',
+					customArgsSource: 'none',
+					customEnvSource: 'none',
+					effectiveCustomEnvVars: undefined,
+				});
+
+				const handler = handlers.get('process:spawn');
+				await handler!({} as any, {
+					sessionId: 'session-agent-effort',
+					toolType: 'claude-code',
+					cwd: '/test/project',
+					command: 'claude',
+					args: ['--print', '--verbose', '--output-format', 'stream-json'],
+					// No sessionCustomEnvVars
+				});
+
+				// Agent-level 'low' should be used
+				const spawnCall = mockProcessManager.spawn.mock.calls[0][0];
+				expect(spawnCall.customEnvVars?.CLAUDE_CODE_EFFORT_LEVEL || 'low').toBe('low');
+			});
+
+			it('should NOT inject effort level when neither session nor agent level is set', async () => {
+				// No effort level configured anywhere
+				mockAgentConfigsStore.get.mockReturnValue({
+					'claude-code': {
+						pricingConfig: { billingMode: 'auto', pricingModel: 'auto' },
+						// effortLevel is undefined
+					},
+				});
+
+				const { applyAgentConfigOverrides } = await import('../../../../main/utils/agent-args');
+				vi.mocked(applyAgentConfigOverrides).mockReturnValue({
+					args: ['--print', '--verbose', '--output-format', 'stream-json'],
+					modelSource: 'default',
+					customArgsSource: 'none',
+					customEnvSource: 'none',
+					effectiveCustomEnvVars: undefined,
+				});
+
+				const handler = handlers.get('process:spawn');
+				await handler!({} as any, {
+					sessionId: 'session-no-effort',
+					toolType: 'claude-code',
+					cwd: '/test/project',
+					command: 'claude',
+					args: ['--print', '--verbose', '--output-format', 'stream-json'],
+				});
+
+				// No CLAUDE_CODE_EFFORT_LEVEL should be set
+				const spawnCall = mockProcessManager.spawn.mock.calls[0][0];
+				expect(spawnCall.customEnvVars?.CLAUDE_CODE_EFFORT_LEVEL).toBeUndefined();
+			});
+
+			it('should NOT inject effort level for non-Claude agents even if pricingConfig has effortLevel', async () => {
+				const mockTerminalAgent = {
+					id: 'terminal',
+					requiresPty: true,
+				};
+				mockAgentDetector.getAgent.mockResolvedValue(mockTerminalAgent);
+
+				mockAgentConfigsStore.get.mockReturnValue({
+					terminal: {
+						pricingConfig: { billingMode: 'auto', pricingModel: 'auto', effortLevel: 'high' },
+					},
+				});
+
+				const { applyAgentConfigOverrides } = await import('../../../../main/utils/agent-args');
+				vi.mocked(applyAgentConfigOverrides).mockReturnValue({
+					args: [],
+					modelSource: 'default',
+					customArgsSource: 'none',
+					customEnvSource: 'none',
+					effectiveCustomEnvVars: undefined,
+				});
+
+				const handler = handlers.get('process:spawn');
+				await handler!({} as any, {
+					sessionId: 'session-terminal',
+					toolType: 'terminal',
+					cwd: '/test/project',
+					command: '/bin/zsh',
+					args: [],
+				});
+
+				const spawnCall = mockProcessManager.spawn.mock.calls[0][0];
+				expect(spawnCall.customEnvVars?.CLAUDE_CODE_EFFORT_LEVEL).toBeUndefined();
+			});
+
+			it('should pass effort level through to SSH command env for remote execution', async () => {
+				// SSH remote session with agent-level 'medium'
+				const sshMockAgent = {
+					...baseMockAgent,
+					requiresPty: false,
+					binaryName: 'claude',
+				};
+				mockAgentDetector.getAgent.mockResolvedValue(sshMockAgent);
+
+				mockAgentConfigsStore.get.mockReturnValue({
+					'claude-code': {
+						pricingConfig: { billingMode: 'auto', pricingModel: 'auto', effortLevel: 'medium' },
+					},
+				});
+
+				const { applyAgentConfigOverrides } = await import('../../../../main/utils/agent-args');
+				vi.mocked(applyAgentConfigOverrides).mockReturnValue({
+					args: ['--print', '--verbose', '--output-format', 'stream-json'],
+					modelSource: 'default',
+					customArgsSource: 'none',
+					customEnvSource: 'none',
+					effectiveCustomEnvVars: undefined,
+				});
+
+				// Mock SSH config resolution
+				const { getSshRemoteConfig } = await import('../../../../main/utils/ssh-remote-resolver');
+				vi.mocked(getSshRemoteConfig).mockReturnValue({
+					config: {
+						id: 'test-remote',
+						name: 'test-remote',
+						host: 'test-host',
+						port: 22,
+						username: 'testuser',
+						privateKeyPath: '~/.ssh/id_test',
+						enabled: true,
+						useSshConfig: false,
+					},
+					source: 'session',
+				});
+
+				const { buildSshCommand } = await import('../../../../main/utils/ssh-command-builder');
+
+				const handler = handlers.get('process:spawn');
+				await handler!({} as any, {
+					sessionId: 'session-ssh-effort',
+					toolType: 'claude-code',
+					cwd: '/remote/project',
+					command: 'claude',
+					args: ['--print', '--verbose', '--output-format', 'stream-json'],
+					sessionSshRemoteConfig: {
+						enabled: true,
+						remoteId: 'test-remote',
+					},
+				});
+
+				// Verify buildSshCommand was called with the effort level in the env
+				expect(vi.mocked(buildSshCommand)).toHaveBeenCalledWith(
+					expect.any(Object),
+					expect.objectContaining({
+						env: expect.objectContaining({
+							CLAUDE_CODE_EFFORT_LEVEL: 'medium',
+						}),
+					})
+				);
+			});
 		});
 	});
 

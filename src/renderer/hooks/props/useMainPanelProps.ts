@@ -280,8 +280,8 @@ export interface UseMainPanelPropsDeps {
 	onWizardClearError?: () => void;
 	onToggleWizardShowThinking?: () => void;
 
-	// Per-prompt effort level (Claude Code only)
-	handleEffortLevelChange?: (level: 'high' | 'medium' | 'low') => void;
+	// Per-prompt effort level (Claude Code only). undefined = use default.
+	handleEffortLevelChange?: (level: 'high' | 'medium' | 'low' | undefined) => void;
 	handleModelChange?: (model: string) => void;
 
 	// Global Auto Run status

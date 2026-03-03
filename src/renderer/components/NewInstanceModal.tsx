@@ -1402,6 +1402,13 @@ export function EditAgentModal({
 					// so the dropdown shows what the host is ACTUALLY configured to, not Maestro's stale value
 					if (detectedEffort) {
 						setPricingConfig((prev) => (prev ? { ...prev, effortLevel: detectedEffort } : null));
+						// Persist remote's value to electron store so it stays in sync
+						// The remote host is the source of truth for effort level
+						if (session) {
+							window.maestro.agents
+								.setPricingConfig(session.toolType, { effortLevel: detectedEffort })
+								.catch(() => {}); // Non-fatal
+						}
 					}
 				} else {
 					console.error('Failed to detect host settings:', result.error);
@@ -1553,9 +1560,11 @@ export function EditAgentModal({
 			}
 
 			// Determine effort level to write
+			// undefined/null = "Default" — clear host setting so Claude uses its built-in default
 			const newEffort = pricingConfig?.effortLevel ?? null;
 			const currentHostEffort = hostEffortLevel ?? null;
-			if (newEffort && newEffort !== currentHostEffort) {
+			if (newEffort !== currentHostEffort) {
+				// Write the new value (null clears it from host settings)
 				settingsToWrite.effortLevel = newEffort;
 			}
 
@@ -1662,8 +1671,17 @@ export function EditAgentModal({
 
 	// Handle effort level change (for Claude Code only)
 	// Stages in local state; persisted on Save
-	const handleEffortLevelChange = useCallback((level: 'low' | 'medium' | 'high') => {
-		setPricingConfig((prev) => (prev ? { ...prev, effortLevel: level } : null));
+	// undefined means "Default" — don't inject CLAUDE_CODE_EFFORT_LEVEL env var
+	const handleEffortLevelChange = useCallback((level: 'low' | 'medium' | 'high' | undefined) => {
+		setPricingConfig((prev) => {
+			if (!prev) return null;
+			if (level === undefined) {
+				// Remove effortLevel from config — will not be injected into SSH commands
+				const { effortLevel: _, ...rest } = prev;
+				return rest as typeof prev;
+			}
+			return { ...prev, effortLevel: level };
+		});
 	}, []);
 
 	// Check if form is valid for submission

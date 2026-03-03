@@ -163,8 +163,8 @@ interface InputAreaProps {
 	// Wizard thinking toggle
 	wizardShowThinking?: boolean;
 	onToggleWizardShowThinking?: () => void;
-	/** Called when the per-prompt effort level changes (Claude Code only) */
-	onEffortLevelChange?: (level: 'high' | 'medium' | 'low') => void;
+	/** Called when the per-prompt effort level changes (Claude Code only). undefined = use default. */
+	onEffortLevelChange?: (level: 'high' | 'medium' | 'low' | undefined) => void;
 	/** Called when the execution model changes (Claude Code only) */
 	onModelChange?: (model: string) => void;
 	/** Pinned items for the active tab (for {{PIN:...}} autocomplete) */
@@ -289,8 +289,8 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 		| 'medium'
 		| 'low'
 		| undefined;
-	const [promptEffortLevel, setPromptEffortLevel] = useState<'high' | 'medium' | 'low'>(
-		sessionEffortDefault ?? 'high'
+	const [promptEffortLevel, setPromptEffortLevel] = useState<'high' | 'medium' | 'low' | undefined>(
+		sessionEffortDefault
 	);
 
 	// Get agent capabilities for conditional feature rendering
@@ -360,6 +360,13 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 					// This ensures the effort toggle starts at the host's configured level, not a hardcoded 'high'.
 					if (!session.customEnvVars?.CLAUDE_CODE_EFFORT_LEVEL && detectedEffort) {
 						setPromptEffortLevel(detectedEffort);
+					}
+					// Persist remote's effort level to electron store so it stays in sync.
+					// The remote host is the source of truth for effort level.
+					if (detectedEffort && session.toolType === 'claude-code') {
+						window.maestro.agents
+							.setPricingConfig(session.toolType, { effortLevel: detectedEffort })
+							.catch(() => {}); // Non-fatal
 					}
 				}
 			})
@@ -650,10 +657,20 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 										fontWeight: isActive ? 600 : 400,
 									}}
 									onClick={() => {
-										setPromptEffortLevel(level);
-										onEffortLevelChange?.(level);
+										if (promptEffortLevel === level) {
+											// Clicking the active level toggles it OFF (back to default)
+											setPromptEffortLevel(undefined);
+											onEffortLevelChange?.(undefined);
+										} else {
+											setPromptEffortLevel(level);
+											onEffortLevelChange?.(level);
+										}
 									}}
-									title={`Set effort level to ${level}`}
+									title={
+										promptEffortLevel === level
+											? `Clear effort level (use default)`
+											: `Set effort level to ${level}`
+									}
 								>
 									{labels[level]}
 								</button>

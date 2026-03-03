@@ -281,7 +281,7 @@ export interface AgentConfigPanelProps {
 	detectedAuth?: DetectedAuth | null;
 	onBillingModeChange?: (mode: BillingModeValue) => void;
 	onPricingModelChange?: (model: PricingModelValue) => void;
-	onEffortLevelChange?: (level: 'low' | 'medium' | 'high') => void;
+	onEffortLevelChange?: (level: 'low' | 'medium' | 'high' | undefined) => void;
 	// Project folder pricing config (for inheritance indicator)
 	folderPricingConfig?: ProjectFolderPricingConfig | null;
 	// SSH Remote detection (for auth detection from remote hosts)
@@ -843,13 +843,19 @@ export function AgentConfigPanel({
 								borderColor: theme.colors.border,
 								backgroundColor: theme.colors.bgMain,
 							}}
-							value={pricingConfig?.effortLevel ?? 'high'}
+							value={pricingConfig?.effortLevel ?? ''}
 							onChange={(e) => {
-								const newEffort = e.target.value as 'low' | 'medium' | 'high';
-								onEffortLevelChange?.(newEffort);
+								const val = e.target.value;
+								if (val === '') {
+									// "Default" selected — clear effort level (don't inject env var)
+									onEffortLevelChange?.(undefined as any);
+								} else {
+									onEffortLevelChange?.(val as 'low' | 'medium' | 'high');
+								}
 							}}
 						>
-							<option value="high">High (default)</option>
+							<option value="">Default (use host setting)</option>
+							<option value="high">High</option>
 							<option value="medium">Medium</option>
 							<option value="low">Low</option>
 						</select>

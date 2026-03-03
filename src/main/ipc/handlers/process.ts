@@ -175,13 +175,23 @@ export function registerProcessHandlers(deps: ProcessHandlerDependencies): void 
 				let effectiveCustomEnvVars = configResolution.effectiveCustomEnvVars;
 
 				// Inject effort level for Claude Code agents
+				// Precedence: session-level per-prompt selection > agent-level pricingConfig > omit (let Claude default)
 				if (config.toolType === 'claude-code') {
-					const pricingConfig = agentConfigValues?.pricingConfig;
-					if (pricingConfig?.effortLevel) {
+					const sessionEffortLevel = config.sessionCustomEnvVars?.CLAUDE_CODE_EFFORT_LEVEL;
+					const agentEffortLevel = agentConfigValues?.pricingConfig?.effortLevel;
+					const resolvedEffortLevel = sessionEffortLevel || agentEffortLevel;
+
+					if (resolvedEffortLevel) {
 						if (!effectiveCustomEnvVars) {
 							effectiveCustomEnvVars = {};
 						}
-						effectiveCustomEnvVars['CLAUDE_CODE_EFFORT_LEVEL'] = pricingConfig.effortLevel;
+						effectiveCustomEnvVars['CLAUDE_CODE_EFFORT_LEVEL'] = resolvedEffortLevel;
+						logger.debug(`Effort level resolved for Claude Code`, LOG_CONTEXT, {
+							resolved: resolvedEffortLevel,
+							source: sessionEffortLevel ? 'session (per-prompt)' : 'agent config',
+							sessionLevel: sessionEffortLevel || 'none',
+							agentLevel: agentEffortLevel || 'none',
+						});
 					}
 				}
 

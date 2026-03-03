@@ -315,8 +315,8 @@ interface MainPanelProps {
 	onToggleWizardShowThinking?: () => void;
 	/** Called when user cancels document generation */
 	onWizardCancelGeneration?: () => void;
-	/** Called when the per-prompt effort level changes (Claude Code only) */
-	onEffortLevelChange?: (level: 'high' | 'medium' | 'low') => void;
+	/** Called when the per-prompt effort level changes (Claude Code only). undefined = use default. */
+	onEffortLevelChange?: (level: 'high' | 'medium' | 'low' | undefined) => void;
 	/** Called when the user changes the execution model from the InputArea dropdown */
 	onModelChange?: (model: string) => void;
 	/** All sessions for global Auto Run status */
