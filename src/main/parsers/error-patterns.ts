@@ -560,7 +560,7 @@ export const SSH_ERROR_PATTERNS: AgentErrorPatterns = {
 	permission_denied: [
 		{
 			// SSH authentication failure - wrong key, key not authorized, etc.
-			pattern: /ssh:.*permission denied/i,
+			pattern: /^ssh:\s.*permission denied/im,
 			message: 'SSH authentication failed. Check your SSH key configuration.',
 			recoverable: false,
 		},
@@ -596,49 +596,49 @@ export const SSH_ERROR_PATTERNS: AgentErrorPatterns = {
 	network_error: [
 		{
 			// SSH connection refused - sshd not running or firewall blocking
-			pattern: /ssh:.*connection refused/i,
+			pattern: /^ssh:\s.*connection refused/im,
 			message: 'SSH connection refused. Ensure the SSH server is running on the remote host.',
 			recoverable: true,
 		},
 		{
 			// SSH connection timed out
-			pattern: /ssh:.*connection timed out/i,
+			pattern: /^ssh:\s.*connection timed out/im,
 			message: 'SSH connection timed out. Check network connectivity and firewall rules.',
 			recoverable: true,
 		},
 		{
 			// SSH operation timed out
-			pattern: /ssh:.*operation timed out/i,
+			pattern: /^ssh:\s.*operation timed out/im,
 			message: 'SSH operation timed out. The remote host may be unreachable.',
 			recoverable: true,
 		},
 		{
 			// SSH hostname resolution failure
-			pattern: /ssh:.*could not resolve hostname/i,
+			pattern: /^ssh:\s.*could not resolve hostname/im,
 			message: 'SSH could not resolve hostname. Check the remote host address.',
 			recoverable: false,
 		},
 		{
 			// SSH no route to host
-			pattern: /ssh:.*no route to host/i,
+			pattern: /^ssh:\s.*no route to host/im,
 			message: 'SSH connection failed. No network route to the remote host.',
 			recoverable: true,
 		},
 		{
 			// SSH connection reset
-			pattern: /ssh:.*connection reset/i,
+			pattern: /^ssh:\s.*connection reset/im,
 			message: 'SSH connection was reset. The remote host may have terminated the connection.',
 			recoverable: true,
 		},
 		{
 			// SSH network unreachable
-			pattern: /ssh:.*network is unreachable/i,
+			pattern: /^ssh:\s.*network is unreachable/im,
 			message: 'SSH connection failed. The network is unreachable.',
 			recoverable: true,
 		},
 		{
 			// Generic SSH connection closed
-			pattern: /ssh:.*connection closed/i,
+			pattern: /^ssh:\s.*connection closed/im,
 			message: 'SSH connection was closed unexpectedly.',
 			recoverable: true,
 		},
@@ -656,21 +656,21 @@ export const SSH_ERROR_PATTERNS: AgentErrorPatterns = {
 			// bash/sh format: "bash: claude: command not found"
 			// zsh format: "zsh: command not found: claude"
 			pattern:
-				/bash:.*claude.*command not found|sh:.*claude.*command not found|zsh:.*command not found:.*claude/i,
+				/^bash:\s*(?:line \d+:\s*)?claude:\s*command not found|^sh:\s*(?:\d+:\s*)?claude:\s*command not found|^zsh:\s*command not found:\s*claude/im,
 			message: 'Claude command not found. Ensure Claude Code is installed.',
 			recoverable: false,
 		},
 		{
 			// Agent command not found for other agents
 			pattern:
-				/bash:.*opencode.*command not found|sh:.*opencode.*command not found|zsh:.*command not found:.*opencode/i,
+				/^bash:\s*(?:line \d+:\s*)?opencode:\s*command not found|^sh:\s*(?:\d+:\s*)?opencode:\s*command not found|^zsh:\s*command not found:\s*opencode/im,
 			message: 'OpenCode command not found. Ensure OpenCode is installed.',
 			recoverable: false,
 		},
 		{
 			// Agent command not found for codex
 			pattern:
-				/bash:.*codex.*command not found|sh:.*codex.*command not found|zsh:.*command not found:.*codex/i,
+				/^bash:\s*(?:line \d+:\s*)?codex:\s*command not found|^sh:\s*(?:\d+:\s*)?codex:\s*command not found|^zsh:\s*command not found:\s*codex/im,
 			message: 'Codex command not found. Ensure Codex is installed.',
 			recoverable: false,
 		},
@@ -826,17 +826,61 @@ export function clearPatternRegistry(): void {
 }
 
 /**
+ * Result from SSH error pattern matching, including diagnostic info about what matched.
+ */
+export interface SshErrorMatchResult {
+	type: AgentErrorType;
+	message: string;
+	recoverable: boolean;
+	/** The regex pattern source string that matched (for diagnostics) */
+	matchedPattern: string;
+	/** The portion of the input line that the regex matched (for diagnostics) */
+	matchedText: string;
+}
+
+/**
  * Match a line against SSH-specific error patterns.
  * This should be called in addition to agent-specific pattern matching
  * when a session is running via SSH remote execution.
  *
+ * Returns extended match info including which pattern matched and what text triggered it,
+ * enabling diagnostic logging to distinguish real SSH failures from false positives.
+ *
  * @param line - The line to check for SSH errors
- * @returns Matched error info or null if no match
+ * @returns Matched error info with diagnostics, or null if no match
  */
-export function matchSshErrorPattern(
-	line: string
-): { type: AgentErrorType; message: string; recoverable: boolean } | null {
-	return matchErrorPattern(SSH_ERROR_PATTERNS, line);
+export function matchSshErrorPattern(line: string): SshErrorMatchResult | null {
+	const errorTypes: AgentErrorType[] = [
+		'auth_expired',
+		'token_exhaustion',
+		'rate_limited',
+		'network_error',
+		'permission_denied',
+		'session_not_found',
+		'agent_crashed',
+	];
+
+	for (const errorType of errorTypes) {
+		const typePatterns = SSH_ERROR_PATTERNS[errorType];
+		if (!typePatterns) continue;
+
+		for (const pattern of typePatterns) {
+			const match = line.match(pattern.pattern);
+			if (match) {
+				const message =
+					typeof pattern.message === 'function' ? pattern.message(match) : pattern.message;
+				return {
+					type: errorType,
+					message,
+					recoverable: pattern.recoverable,
+					matchedPattern: pattern.pattern.source,
+					matchedText: match[0],
+				};
+			}
+		}
+	}
+
+	return null;
 }
 
 /**

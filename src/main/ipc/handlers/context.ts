@@ -132,7 +132,12 @@ export function registerContextHandlers(deps: ContextHandlerDependencies): void 
 		'context:groomContext',
 		withIpcErrorLogging(
 			handlerOpts('groomContext'),
-			async (projectRoot: string, agentType: string, prompt: string): Promise<string> => {
+			async (
+				projectRoot: string,
+				agentType: string,
+				prompt: string,
+				sshRemoteConfig?: { enabled: boolean; remoteId: string }
+			): Promise<string> => {
 				const processManager = requireDependency(getProcessManager, 'Process manager');
 				const agentDetector = requireDependency(getAgentDetector, 'Agent detector');
 
@@ -142,6 +147,7 @@ export function registerContextHandlers(deps: ContextHandlerDependencies): void 
 						projectRoot,
 						agentType,
 						prompt,
+						sshRemoteConfig,
 					},
 					processManager,
 					agentDetector

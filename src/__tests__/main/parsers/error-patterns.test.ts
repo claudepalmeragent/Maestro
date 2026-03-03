@@ -781,6 +781,27 @@ describe('error-patterns', () => {
 				);
 				expect(result).toBeNull();
 			});
+
+			it('should return null for "ssh: connection refused" embedded mid-line in JSON', () => {
+				const result = matchSshErrorPattern(
+					'{"type":"text","text":"The error ssh: connection refused means the server is down"}'
+				);
+				expect(result).toBeNull();
+			});
+
+			it('should return null for "bash: claude: command not found" embedded in AI response', () => {
+				const result = matchSshErrorPattern(
+					'{"type":"text","text":"The error bash: claude: command not found indicates..."}'
+				);
+				expect(result).toBeNull();
+			});
+
+			it('should return null for "ssh: permission denied" embedded in code output', () => {
+				const result = matchSshErrorPattern(
+					'   171→\\t\\t// \\"ssh: permission denied\\") that they wont false-positive'
+				);
+				expect(result).toBeNull();
+			});
 		});
 	});
 
@@ -796,6 +817,24 @@ describe('error-patterns', () => {
 		it('should return null for non-SSH errors', () => {
 			const result = matchSshErrorPattern('Some normal output');
 			expect(result).toBeNull();
+		});
+
+		it('should include diagnostic fields (matchedPattern and matchedText)', () => {
+			const result = matchSshErrorPattern('bash: claude: command not found');
+			expect(result).not.toBeNull();
+			expect(result?.matchedPattern).toBeDefined();
+			expect(result?.matchedPattern).toContain('claude');
+			expect(result?.matchedText).toBe('bash: claude: command not found');
+		});
+
+		it('should include matchedText showing what portion of input matched', () => {
+			const result = matchSshErrorPattern(
+				'ssh: connect to host example.com port 22: Connection refused'
+			);
+			expect(result).not.toBeNull();
+			expect(result?.matchedPattern).toBeDefined();
+			expect(result?.matchedText).toBeDefined();
+			expect(result?.matchedText!.length).toBeGreaterThan(0);
 		});
 	});
 

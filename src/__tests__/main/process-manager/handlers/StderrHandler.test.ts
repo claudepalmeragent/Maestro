@@ -80,6 +80,8 @@ describe('StderrHandler', () => {
 				type: 'agent_crashed',
 				message: 'Claude Code not found on remote host',
 				recoverable: true,
+				matchedPattern: 'bash:.*claude.*command not found',
+				matchedText: 'bash: claude: command not found',
 			});
 
 			const sessionId = 'test-session-ssh-with-id';
@@ -107,6 +109,8 @@ describe('StderrHandler', () => {
 				type: 'agent_crashed',
 				message: 'Claude Code not found on remote host',
 				recoverable: true,
+				matchedPattern: 'bash:.*claude.*command not found',
+				matchedText: 'bash: claude: command not found',
 			});
 
 			const sessionId = 'test-session-ssh-no-id';
@@ -175,6 +179,8 @@ describe('StderrHandler', () => {
 				type: 'agent_crashed',
 				message: 'SSH error detected',
 				recoverable: true,
+				matchedPattern: 'bash:.*claude.*command not found',
+				matchedText: 'bash: claude: command not found',
 			});
 
 			const sessionId = 'test-session-already-errored';

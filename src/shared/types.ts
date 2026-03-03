@@ -228,6 +228,13 @@ export interface AgentError {
 		stderr?: string;
 		stdout?: string;
 		errorLine?: string;
+		diagnostics?: {
+			handlerSource?: string;
+			processUptimeMs?: number;
+			hasProducedOutput?: boolean;
+			matchedPattern?: string;
+			matchedText?: string;
+		};
 	};
 
 	/** Parsed JSON error details (if the error contains structured JSON) */

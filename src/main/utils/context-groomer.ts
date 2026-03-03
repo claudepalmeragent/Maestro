@@ -15,6 +15,9 @@
 import { v4 as uuidv4 } from 'uuid';
 import { logger } from './logger';
 import { buildAgentArgs } from './agent-args';
+import { wrapSpawnWithSsh } from './ssh-spawn-helper';
+import { getSettingsStore } from '../stores/getters';
+import { isInitialized as areStoresInitialized } from '../stores/instances';
 import type { AgentDetector } from '../agents';
 
 const LOG_CONTEXT = '[ContextGroomer]';
@@ -33,6 +36,9 @@ export interface GroomingProcessManager {
 		prompt?: string;
 		promptArgs?: (prompt: string) => string[];
 		noPromptSeparator?: boolean;
+		customEnvVars?: Record<string, string>;
+		sshRemoteId?: string;
+		sshRemoteHost?: string;
 	}): { pid: number; success?: boolean } | null;
 	on(event: string, handler: (...args: unknown[]) => void): void;
 	off(event: string, handler: (...args: unknown[]) => void): void;
@@ -99,6 +105,11 @@ export interface GroomContextOptions {
 	readOnlyMode?: boolean;
 	/** Custom timeout in ms (default: 5 minutes) */
 	timeoutMs?: number;
+	/** SSH remote config for spawning on remote host */
+	sshRemoteConfig?: {
+		enabled: boolean;
+		remoteId: string;
+	};
 }
 
 /**
@@ -165,6 +176,52 @@ export async function groomContext(
 		yoloMode: false,
 		agentSessionId,
 	});
+
+	// Wrap with SSH if configured (must be done before Promise executor since it's async)
+	let spawnCommand = agent.command;
+	let spawnArgs = finalArgs;
+	let spawnCwd = projectRoot;
+	let spawnPrompt: string | undefined = prompt;
+	let spawnPromptArgs: ((p: string) => string[]) | undefined = agent.promptArgs;
+	let spawnNoPromptSeparator: boolean | undefined = agent.noPromptSeparator;
+	let sshRemoteId: string | undefined;
+	let sshRemoteHost: string | undefined;
+
+	if (options.sshRemoteConfig?.enabled && options.sshRemoteConfig?.remoteId) {
+		const storesInitialized = areStoresInitialized();
+		if (storesInitialized) {
+			const sshWrapResult = await wrapSpawnWithSsh(
+				{
+					command: agent.command,
+					args: finalArgs,
+					cwd: projectRoot,
+					prompt,
+					sshRemoteConfig: options.sshRemoteConfig,
+					binaryName: agent.binaryName,
+					promptArgs: agent.promptArgs,
+					noPromptSeparator: agent.noPromptSeparator,
+				},
+				getSettingsStore()
+			);
+
+			if (sshWrapResult.usedSsh) {
+				spawnCommand = sshWrapResult.command;
+				spawnArgs = sshWrapResult.args;
+				spawnCwd = sshWrapResult.cwd;
+				sshRemoteId = sshWrapResult.sshConfig?.id;
+				sshRemoteHost = sshWrapResult.sshConfig?.host;
+				spawnPrompt = undefined;
+				spawnPromptArgs = undefined;
+				spawnNoPromptSeparator = undefined;
+
+				logger.info('Grooming spawn wrapped with SSH', LOG_CONTEXT, {
+					groomerSessionId,
+					remoteId: sshRemoteId,
+					remoteHost: sshRemoteHost,
+				});
+			}
+		}
+	}
 
 	// Create a promise that collects the response
 	return new Promise<GroomContextResult>((resolve, reject) => {
@@ -285,12 +342,14 @@ export async function groomContext(
 		const spawnResult = processManager.spawn({
 			sessionId: groomerSessionId,
 			toolType: agentType,
-			cwd: projectRoot,
-			command: agent.command,
-			args: finalArgs,
-			prompt: prompt, // Triggers batch mode (no PTY)
-			promptArgs: agent.promptArgs, // For agents using flag-based prompt (e.g., OpenCode -p)
-			noPromptSeparator: agent.noPromptSeparator,
+			cwd: spawnCwd,
+			command: spawnCommand,
+			args: spawnArgs,
+			prompt: spawnPrompt, // Triggers batch mode (no PTY) — undefined when SSH wraps it
+			promptArgs: spawnPromptArgs,
+			noPromptSeparator: spawnNoPromptSeparator,
+			sshRemoteId,
+			sshRemoteHost,
 		});
 
 		if (!spawnResult || spawnResult.pid <= 0) {

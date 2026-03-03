@@ -144,10 +144,14 @@ export class SshCommandRunner {
 				// Check for SSH-specific errors
 				const sshError = matchSshErrorPattern(output);
 				if (sshError) {
-					logger.warn('[ProcessManager] SSH error detected in terminal command', 'ProcessManager', {
+					logger.warn('[ProcessManager] SSH error detected in TERMINAL command', 'ProcessManager', {
 						sessionId,
 						errorType: sshError.type,
-						message: sshError.message,
+						errorMessage: sshError.message,
+						matchedPattern: sshError.matchedPattern,
+						matchedText: sshError.matchedText,
+						rawOutput: output.substring(0, 500),
+						handlerSource: 'SshCommandRunner',
 					});
 				}
 

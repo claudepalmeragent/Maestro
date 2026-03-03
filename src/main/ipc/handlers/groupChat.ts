@@ -64,6 +64,8 @@ import { routeUserMessage, getGroupChatRoundState } from '../../group-chat/group
 // Agent detector import
 import { AgentDetector } from '../../agents';
 import { groomContext } from '../../utils/context-groomer';
+import { getSessionsStore } from '../../stores/getters';
+import { isInitialized as areStoresInitialized } from '../../stores/instances';
 import { v4 as uuidv4 } from 'uuid';
 
 const LOG_CONTEXT = '[GroupChat]';
@@ -583,6 +585,19 @@ This summary will be used to initialize your fresh session so you can continue s
 
 Respond with ONLY the summary text, no additional commentary.`;
 
+				// Look up SSH remote config from the participant's session
+				let sshRemoteConfig: { enabled: boolean; remoteId: string } | undefined;
+				if (areStoresInitialized()) {
+					const sessions = getSessionsStore().get('sessions', []);
+					const matchingSession = sessions.find((s) => s.id === participant.sessionId);
+					if (matchingSession?.sshRemoteId) {
+						sshRemoteConfig = {
+							enabled: true,
+							remoteId: matchingSession.sshRemoteId,
+						};
+					}
+				}
+
 				// Use the shared groomContext utility to get the summary
 				// This spawns a batch process, collects the response, and handles cleanup
 				let summaryResponse = '';
@@ -595,6 +610,7 @@ Respond with ONLY the summary text, no additional commentary.`;
 							agentSessionId: participant.agentSessionId, // Resume existing session for context
 							readOnlyMode: true, // Summary is read-only
 							timeoutMs: 60000, // 60 second timeout for summary
+							sshRemoteConfig,
 						},
 						processManager,
 						agentDetector

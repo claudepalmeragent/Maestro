@@ -113,6 +113,7 @@ export function registerSshRemoteHandlers(deps: SshRemoteHandlerDependencies): v
 					enabled: config.enabled ?? true,
 					useSshConfig: config.useSshConfig,
 					sshConfigHost: config.sshConfigHost,
+					maxSessions: config.maxSessions,
 				};
 
 				// Validate the configuration

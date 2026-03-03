@@ -357,8 +357,8 @@ describe('StdoutHandler', () => {
 		});
 	});
 
-	describe('SSH error detection without sshRemoteId', () => {
-		it('detects SSH errors even when sshRemoteId is not set', async () => {
+	describe('SSH error detection on stdout (lifecycle-gated)', () => {
+		it('detects SSH errors during startup window (no output yet, within 15s)', async () => {
 			const { matchSshErrorPattern } = vi.mocked(
 				await import('../../../../main/parsers/error-patterns')
 			);
@@ -366,9 +366,11 @@ describe('StdoutHandler', () => {
 				type: 'agent_crashed',
 				message: 'Claude Code not found on remote host',
 				recoverable: true,
+				matchedPattern: 'bash:.*claude.*command not found',
+				matchedText: 'bash: claude: command not found',
 			});
 
-			const sessionId = 'test-session-ssh-no-id';
+			const sessionId = 'test-session-ssh-startup';
 			const managedProcess: ManagedProcess = {
 				sessionId,
 				toolType: 'claude-code',
@@ -377,16 +379,92 @@ describe('StdoutHandler', () => {
 				isTerminal: false,
 				isStreamJsonMode: true,
 				jsonBuffer: '',
-				startTime: Date.now(),
-				sshRemoteId: undefined, // No SSH ID set — simulates flag loss
+				startTime: Date.now(), // Just started — within startup window
+				sshRemoteId: undefined,
 			};
 			processes.set(sessionId, managedProcess);
 
-			// Simulate a stdout line that matches an SSH error pattern
 			stdoutHandler.handleData(sessionId, 'bash: claude: command not found\n');
 
-			// The error should still be detected and emitted
+			// Should detect and emit during startup window
 			expect(managedProcess.errorEmitted).toBe(true);
+		});
+
+		it('SUPPRESSES SSH errors on stdout after startup window (process has produced output)', async () => {
+			const { matchSshErrorPattern } = vi.mocked(
+				await import('../../../../main/parsers/error-patterns')
+			);
+			matchSshErrorPattern.mockReturnValueOnce({
+				type: 'network_error',
+				message: 'SSH connection refused',
+				recoverable: true,
+				matchedPattern: 'ssh:.*connection refused',
+				matchedText: 'ssh: connection refused',
+			});
+
+			const sessionId = 'test-session-ssh-after-startup';
+			const managedProcess: ManagedProcess = {
+				sessionId,
+				toolType: 'claude-code',
+				cwd: '/test',
+				pid: 1251,
+				isTerminal: false,
+				isStreamJsonMode: true,
+				jsonBuffer: '',
+				startTime: Date.now() - 30_000, // Started 30s ago — well past startup window
+				streamedText: 'Some previous output', // Has produced output
+				sshRemoteId: 'remote-1',
+			};
+			processes.set(sessionId, managedProcess);
+
+			const emittedErrors: Array<{ sessionId: string; error: AgentError }> = [];
+			emitter.on('agent-error', (sid: string, error: AgentError) => {
+				emittedErrors.push({ sessionId: sid, error });
+			});
+
+			stdoutHandler.handleData(sessionId, 'ssh: connection refused in some AI response text\n');
+
+			// Should NOT emit error — suppressed as likely false positive
+			expect(managedProcess.errorEmitted).toBeUndefined();
+			expect(emittedErrors).toHaveLength(0);
+		});
+
+		it('SUPPRESSES SSH errors on stdout when process has been running > 15s', async () => {
+			const { matchSshErrorPattern } = vi.mocked(
+				await import('../../../../main/parsers/error-patterns')
+			);
+			matchSshErrorPattern.mockReturnValueOnce({
+				type: 'agent_crashed',
+				message: 'Claude command not found',
+				recoverable: false,
+				matchedPattern: 'bash:.*claude.*command not found',
+				matchedText: 'bash: claude: command not found',
+			});
+
+			const sessionId = 'test-session-ssh-old-process';
+			const managedProcess: ManagedProcess = {
+				sessionId,
+				toolType: 'claude-code',
+				cwd: '/test',
+				pid: 1252,
+				isTerminal: false,
+				isStreamJsonMode: true,
+				jsonBuffer: '',
+				startTime: Date.now() - 20_000, // Started 20s ago — past 15s window
+				sshRemoteId: 'remote-1',
+			};
+			processes.set(sessionId, managedProcess);
+
+			const emittedErrors: Array<{ sessionId: string; error: AgentError }> = [];
+			emitter.on('agent-error', (sid: string, error: AgentError) => {
+				emittedErrors.push({ sessionId: sid, error });
+			});
+
+			stdoutHandler.handleData(sessionId, 'bash: claude: command not found\n');
+
+			// Should NOT emit error — past startup window
+			expect(managedProcess.errorEmitted).toBeUndefined();
+			expect(emittedErrors).toHaveLength(0);
 		});
 	});
 

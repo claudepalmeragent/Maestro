@@ -43,8 +43,13 @@ export function createContextApi() {
 			ipcRenderer.invoke('context:getStoredSession', agentId, projectRoot, sessionId),
 
 		// Single-call grooming (recommended) - spawns batch process and returns response
-		groomContext: (projectRoot: string, agentType: string, prompt: string): Promise<string> =>
-			ipcRenderer.invoke('context:groomContext', projectRoot, agentType, prompt),
+		groomContext: (
+			projectRoot: string,
+			agentType: string,
+			prompt: string,
+			sshRemoteConfig?: { enabled: boolean; remoteId: string }
+		): Promise<string> =>
+			ipcRenderer.invoke('context:groomContext', projectRoot, agentType, prompt, sshRemoteConfig),
 
 		// Cancel all active grooming sessions
 		cancelGrooming: (): Promise<void> => ipcRenderer.invoke('context:cancelGrooming'),

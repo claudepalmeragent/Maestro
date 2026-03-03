@@ -166,31 +166,103 @@ export class StdoutHandler {
 			}
 		}
 
-		// SSH error detection — runs unconditionally (not gated on sshRemoteId)
-		// SSH error patterns are specific enough (e.g., "bash: claude: command not found",
-		// "ssh: permission denied") that they won't false-positive on local processes.
-		// Running unconditionally ensures SSH errors are detected even if sshRemoteId was lost.
+		// SSH error detection on stdout — GATED on process lifecycle.
+		//
+		// With -tt (forced TTY), remote stderr is merged into SSH stdout. This means
+		// ALL output from the AI agent — including its response text — flows through here.
+		// SSH error patterns like "ssh:.*connection refused" can match against the AI's
+		// own conversational text (e.g., discussing SSH errors), causing false-positive crashes.
+		//
+		// PROVEN BY DIAGNOSTICS (2026-03-02): Pattern "ssh:.*connection refused" matched
+		// against Claude's own streamed response text discussing SSH error patterns.
+		// processUptimeMs=30472, hasProducedOutput=true — definitively a false positive.
+		//
+		// GATING STRATEGY: Only check SSH patterns on stdout during the startup window
+		// (first 15 seconds AND before the agent has produced any output). After the agent
+		// starts producing output, stdout contains AI response data, not SSH errors.
+		// Real SSH errors (connection refused, broken pipe) arrive via stderr (StderrHandler)
+		// or are detected at exit (ExitHandler), which remain ungated.
+		const SSH_STDOUT_STARTUP_WINDOW_MS = 15_000;
 		if (!managedProcess.errorEmitted) {
-			const sshError = matchSshErrorPattern(line);
-			if (sshError) {
-				managedProcess.errorEmitted = true;
-				const agentError: AgentError = {
-					type: sshError.type,
-					message: sshError.message,
-					recoverable: sshError.recoverable,
-					agentId: toolType,
-					sessionId,
-					timestamp: Date.now(),
-					raw: { errorLine: line },
-					errorContext: managedProcess.spawnContext,
-				};
-				logger.debug('[ProcessManager] SSH error detected from output', 'ProcessManager', {
-					sessionId,
-					errorType: sshError.type,
-					errorMessage: sshError.message,
-				});
-				this.emitter.emit('agent-error', sessionId, agentError);
-				return;
+			const processUptimeMs = Date.now() - managedProcess.startTime;
+			const hasProducedOutput = !!(managedProcess.streamedText || managedProcess.stdoutBuffer);
+			// Gate on time only — stdoutBuffer gets populated before processLine runs,
+			// so hasProducedOutput would always be true even for the first line.
+			// The 15s window is sufficient: real SSH errors appear within seconds of spawn.
+			const isInStartupWindow = processUptimeMs < SSH_STDOUT_STARTUP_WINDOW_MS;
+
+			if (isInStartupWindow) {
+				const sshError = matchSshErrorPattern(line);
+				if (sshError) {
+					managedProcess.errorEmitted = true;
+
+					logger.warn(
+						'[ProcessManager] SSH error detected from STDOUT (startup window)',
+						'ProcessManager',
+						{
+							sessionId,
+							errorType: sshError.type,
+							errorMessage: sshError.message,
+							matchedPattern: sshError.matchedPattern,
+							matchedText: sshError.matchedText,
+							rawLine: line.substring(0, 500),
+							handlerSource: 'StdoutHandler',
+							processUptimeMs,
+							processUptimeSec: Math.round(processUptimeMs / 1000),
+							hasProducedOutput,
+							toolType,
+							spawnContext: managedProcess.spawnContext,
+							sshRemoteId: managedProcess.sshRemoteId,
+							sshRemoteHost: managedProcess.sshRemoteHost,
+							pid: managedProcess.pid,
+						}
+					);
+
+					const agentError: AgentError = {
+						type: sshError.type,
+						message: sshError.message,
+						recoverable: sshError.recoverable,
+						agentId: toolType,
+						sessionId,
+						timestamp: Date.now(),
+						raw: {
+							errorLine: line,
+							diagnostics: {
+								handlerSource: 'StdoutHandler',
+								processUptimeMs,
+								hasProducedOutput,
+								matchedPattern: sshError.matchedPattern,
+								matchedText: sshError.matchedText,
+							},
+						},
+						errorContext: managedProcess.spawnContext,
+					};
+					this.emitter.emit('agent-error', sessionId, agentError);
+					return;
+				}
+			} else {
+				// Outside startup window — check but only log, don't crash
+				const sshError = matchSshErrorPattern(line);
+				if (sshError) {
+					logger.info(
+						'[ProcessManager] SSH pattern matched on STDOUT after startup window — SUPPRESSED (likely false positive)',
+						'ProcessManager',
+						{
+							sessionId,
+							errorType: sshError.type,
+							matchedPattern: sshError.matchedPattern,
+							matchedText: sshError.matchedText?.substring(0, 200),
+							rawLine: line.substring(0, 200),
+							handlerSource: 'StdoutHandler',
+							processUptimeMs,
+							processUptimeSec: Math.round(processUptimeMs / 1000),
+							hasProducedOutput,
+							toolType,
+							pid: managedProcess.pid,
+						}
+					);
+					// DO NOT emit agent-error — this is almost certainly the AI's own output
+				}
 			}
 		}
 

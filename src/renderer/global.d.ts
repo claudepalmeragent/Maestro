@@ -164,7 +164,12 @@ interface MaestroAPI {
 			sessionId: string
 		) => Promise<SessionMessagesResult | null>;
 		// NEW: Single-call grooming (recommended) - spawns batch process and returns response
-		groomContext: (projectRoot: string, agentType: string, prompt: string) => Promise<string>;
+		groomContext: (
+			projectRoot: string,
+			agentType: string,
+			prompt: string,
+			sshRemoteConfig?: { enabled: boolean; remoteId: string }
+		) => Promise<string>;
 		// Cancel all active grooming sessions
 		cancelGrooming: () => Promise<void>;
 		// DEPRECATED: Use groomContext instead

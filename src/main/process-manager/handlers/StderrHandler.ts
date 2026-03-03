@@ -64,6 +64,29 @@ export class StderrHandler {
 			const sshError = matchSshErrorPattern(stderrData);
 			if (sshError) {
 				managedProcess.errorEmitted = true;
+				const processUptimeMs = Date.now() - managedProcess.startTime;
+				const hasProducedOutput = !!(managedProcess.streamedText || managedProcess.stdoutBuffer);
+
+				// Enhanced diagnostic logging — critical for distinguishing real SSH failures
+				// from false positives caused by subprocess stderr (especially with -tt TTY merging)
+				logger.warn('[ProcessManager] SSH error detected from STDERR', 'ProcessManager', {
+					sessionId,
+					errorType: sshError.type,
+					errorMessage: sshError.message,
+					matchedPattern: sshError.matchedPattern,
+					matchedText: sshError.matchedText,
+					rawStderr: stderrData.substring(0, 500),
+					handlerSource: 'StderrHandler',
+					processUptimeMs,
+					processUptimeSec: Math.round(processUptimeMs / 1000),
+					hasProducedOutput,
+					toolType,
+					spawnContext: managedProcess.spawnContext,
+					sshRemoteId: managedProcess.sshRemoteId,
+					sshRemoteHost: managedProcess.sshRemoteHost,
+					pid: managedProcess.pid,
+				});
+
 				const agentError: AgentError = {
 					type: sshError.type,
 					message: sshError.message,
@@ -73,14 +96,16 @@ export class StderrHandler {
 					timestamp: Date.now(),
 					raw: {
 						stderr: stderrData,
+						diagnostics: {
+							handlerSource: 'StderrHandler',
+							processUptimeMs,
+							hasProducedOutput,
+							matchedPattern: sshError.matchedPattern,
+							matchedText: sshError.matchedText,
+						},
 					},
 					errorContext: managedProcess.spawnContext,
 				};
-				logger.debug('[ProcessManager] SSH error detected from stderr', 'ProcessManager', {
-					sessionId,
-					errorType: sshError.type,
-					errorMessage: sshError.message,
-				});
 				this.emitter.emit('agent-error', sessionId, agentError);
 			}
 		}

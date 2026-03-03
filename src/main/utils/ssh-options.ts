@@ -25,7 +25,7 @@
  * the command will fail rather than silently creating a duplicate connection.
  * This is intentional: only one master should exist per host.
  *
- * ControlPersist=300 keeps the master alive for 5 minutes after the last
+ * ControlPersist=600 keeps the master alive for 10 minutes after the last
  * multiplexed connection closes, avoiding unnecessary reconnections.
  */
 export const MASTER_SSH_OPTIONS: Record<string, string> = {
@@ -36,7 +36,7 @@ export const MASTER_SSH_OPTIONS: Record<string, string> = {
 	RequestTTY: 'no',
 	ControlMaster: 'yes',
 	ControlPath: '/tmp/maestro-ssh-%C',
-	ControlPersist: '300',
+	ControlPersist: '600',
 	ServerAliveInterval: '15',
 	ServerAliveCountMax: '6',
 };

@@ -66,9 +66,26 @@ describe('Context Preload API', () => {
 				'context:groomContext',
 				'/project',
 				'claude-code',
-				'summarize this'
+				'summarize this',
+				undefined
 			);
 			expect(result).toBe('groomed context response');
+		});
+
+		it('should invoke context:groomContext with SSH config', async () => {
+			mockInvoke.mockResolvedValue('groomed context response via SSH');
+
+			const sshConfig = { enabled: true, remoteId: 'remote-1' };
+			const result = await api.groomContext('/project', 'claude-code', 'summarize this', sshConfig);
+
+			expect(mockInvoke).toHaveBeenCalledWith(
+				'context:groomContext',
+				'/project',
+				'claude-code',
+				'summarize this',
+				sshConfig
+			);
+			expect(result).toBe('groomed context response via SSH');
 		});
 
 		it('should propagate errors from IPC', async () => {

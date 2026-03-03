@@ -784,6 +784,14 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 														images: capturedImages.length > 0 ? capturedImages : undefined,
 														agentSessionId: tabAgentSessionId ?? undefined,
 														readOnlyMode: isReadOnly,
+														// Per-session config overrides (if set) — must match normal spawn
+														sessionCustomPath: freshSession.customPath,
+														sessionCustomArgs: freshSession.customArgs,
+														sessionCustomEnvVars: freshSession.customEnvVars,
+														sessionCustomModel: freshSession.customModel,
+														sessionCustomContextWindow: freshSession.customContextWindow,
+														// Per-session SSH remote config (takes precedence over agent-level SSH config)
+														sessionSshRemoteConfig: freshSession.sessionSshRemoteConfig,
 													})
 													.catch((err: unknown) => {
 														console.error('[InputProcessing] Resume spawn failed:', err);

@@ -139,6 +139,29 @@ export class ExitHandler {
 			const sshError = matchSshErrorPattern(stderrToCheck);
 			if (sshError) {
 				managedProcess.errorEmitted = true;
+				const processUptimeMs = Date.now() - managedProcess.startTime;
+				const hasProducedOutput = !!(managedProcess.streamedText || managedProcess.stdoutBuffer);
+
+				// Enhanced diagnostic logging — at exit, we have the full picture
+				logger.warn('[ProcessManager] SSH error detected at EXIT', 'ProcessManager', {
+					sessionId,
+					exitCode: code,
+					errorType: sshError.type,
+					errorMessage: sshError.message,
+					matchedPattern: sshError.matchedPattern,
+					matchedText: sshError.matchedText,
+					rawStderr: stderrToCheck.substring(0, 500),
+					handlerSource: 'ExitHandler',
+					processUptimeMs,
+					processUptimeSec: Math.round(processUptimeMs / 1000),
+					hasProducedOutput,
+					toolType,
+					spawnContext: managedProcess.spawnContext,
+					sshRemoteId: managedProcess.sshRemoteId,
+					sshRemoteHost: managedProcess.sshRemoteHost,
+					pid: managedProcess.pid,
+				});
+
 				const agentError: AgentError = {
 					type: sshError.type,
 					message: sshError.message,
@@ -149,15 +172,16 @@ export class ExitHandler {
 					raw: {
 						exitCode: code,
 						stderr: stderrToCheck,
+						diagnostics: {
+							handlerSource: 'ExitHandler',
+							processUptimeMs,
+							hasProducedOutput,
+							matchedPattern: sshError.matchedPattern,
+							matchedText: sshError.matchedText,
+						},
 					},
 					errorContext: managedProcess.spawnContext,
 				};
-				logger.debug('[ProcessManager] SSH error detected at exit', 'ProcessManager', {
-					sessionId,
-					exitCode: code,
-					errorType: sshError.type,
-					errorMessage: sshError.message,
-				});
 				this.emitter.emit('agent-error', sessionId, agentError);
 			}
 		}

@@ -1527,24 +1527,77 @@ export async function respawnParticipantWithRecovery(
 	// Emit participant state change to show this participant is working
 	groupChatEmitters.emitParticipantState?.(groupChatId, participantName, 'working');
 
-	// Spawn the recovery process
-	const spawnCommand = agent.path || agent.command;
+	// Determine if participant is on SSH remote
+	const participantUsingSshRemote = !!participant.sshRemoteName;
+
+	// Spawn the recovery process — wrap with SSH if needed (mirrors normal participant spawn)
+	let spawnCommand = agent.path || agent.command;
+	let spawnArgs = configResolution.args;
+	let spawnCwd = cwd;
+	let sshRemoteId: string | undefined;
+	let sshRemoteHost: string | undefined;
+
+	if (participantUsingSshRemote && matchingSession?.sshRemoteId) {
+		const sshRemoteConfig = {
+			enabled: true,
+			remoteId: matchingSession.sshRemoteId,
+		};
+
+		const storesInitialized = areStoresInitialized();
+		if (storesInitialized) {
+			const effectiveEnvVars =
+				configResolution.effectiveCustomEnvVars ?? getCustomEnvVarsCallback?.(participant.agentId);
+
+			const sshWrapResult = await wrapSpawnWithSsh(
+				{
+					command: agent.path || agent.command,
+					args: configResolution.args,
+					cwd,
+					prompt: fullPrompt,
+					customEnvVars: effectiveEnvVars,
+					sshRemoteConfig,
+					binaryName: agent?.binaryName,
+					promptArgs: agent?.promptArgs,
+					noPromptSeparator: agent?.noPromptSeparator,
+				},
+				getSettingsStore()
+			);
+
+			if (sshWrapResult.usedSsh) {
+				spawnCommand = sshWrapResult.command;
+				spawnArgs = sshWrapResult.args;
+				spawnCwd = sshWrapResult.cwd;
+				sshRemoteId = sshWrapResult.sshConfig?.id;
+				sshRemoteHost = sshWrapResult.sshConfig?.host;
+			}
+		}
+	}
+
 	console.log(`[GroupChat:Debug] Recovery spawn command: ${spawnCommand}`);
-	console.log(`[GroupChat:Debug] Recovery spawn args count: ${configResolution.args.length}`);
+	console.log(`[GroupChat:Debug] Recovery spawn args count: ${spawnArgs.length}`);
 
 	const spawnResult = processManager.spawn({
 		sessionId,
 		toolType: participant.agentId,
-		cwd,
+		cwd: spawnCwd,
 		command: spawnCommand,
-		args: configResolution.args,
+		args: spawnArgs,
 		readOnlyMode: readOnly ?? false,
-		prompt: fullPrompt,
+		// Don't pass prompt when using SSH — it's embedded in the SSH command
+		prompt: participantUsingSshRemote && sshRemoteId ? undefined : fullPrompt,
 		contextWindow: getContextWindowValue(agent, agentConfigValues),
 		customEnvVars:
-			configResolution.effectiveCustomEnvVars ?? getCustomEnvVarsCallback?.(participant.agentId),
-		promptArgs: agent.promptArgs,
-		noPromptSeparator: agent.noPromptSeparator,
+			participantUsingSshRemote && sshRemoteId
+				? undefined
+				: (configResolution.effectiveCustomEnvVars ??
+					getCustomEnvVarsCallback?.(participant.agentId)),
+		// Don't pass promptArgs/noPromptSeparator when using SSH — handled in SSH command
+		promptArgs: participantUsingSshRemote && sshRemoteId ? undefined : agent?.promptArgs,
+		noPromptSeparator:
+			participantUsingSshRemote && sshRemoteId ? undefined : agent?.noPromptSeparator,
+		// SSH remote context for tracking/error messages
+		sshRemoteId,
+		sshRemoteHost,
 	});
 
 	console.log(`[GroupChat:Debug] Recovery spawn result: ${JSON.stringify(spawnResult)}`);

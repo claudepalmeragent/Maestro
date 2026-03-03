@@ -89,6 +89,8 @@ describe('ExitHandler', () => {
 				type: 'agent_crashed',
 				message: 'SSH connection refused',
 				recoverable: true,
+				matchedPattern: 'ssh:.*connection refused',
+				matchedText: 'ssh: connect to host example.com port 22: Connection refused',
 			});
 
 			const sessionId = 'test-session-ssh-exit-with-id';
@@ -117,6 +119,8 @@ describe('ExitHandler', () => {
 				type: 'agent_crashed',
 				message: 'SSH connection refused',
 				recoverable: true,
+				matchedPattern: 'ssh:.*connection refused',
+				matchedText: 'ssh: connect to host example.com port 22: Connection refused',
 			});
 
 			const sessionId = 'test-session-ssh-exit-no-id';
