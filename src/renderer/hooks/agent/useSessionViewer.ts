@@ -194,8 +194,34 @@ export function useSessionViewer({
 			setMessages([]);
 			setMessagesOffset(0);
 			loadMessages(session, 0);
+
+			// For remote sessions with zero token data, fetch stats on demand
+			// This runs in parallel with message loading — non-blocking
+			if (sshRemoteId && session.inputTokens === 0 && session.outputTokens === 0) {
+				window.maestro.agentSessions
+					.getSessionStats(agentId, session.projectPath, session.sessionId, sshRemoteId)
+					.then((stats) => {
+						if (stats.inputTokens > 0 || stats.outputTokens > 0 || stats.messageCount > 0) {
+							setViewingSession((prev) => {
+								if (!prev || prev.sessionId !== session.sessionId) return prev;
+								return {
+									...prev,
+									inputTokens: stats.inputTokens,
+									outputTokens: stats.outputTokens,
+									cacheReadTokens: stats.cacheReadTokens,
+									cacheCreationTokens: stats.cacheCreationTokens,
+									costUsd: stats.costUsd,
+									messageCount: stats.messageCount || prev.messageCount,
+								};
+							});
+						}
+					})
+					.catch(() => {
+						// Stats fetch failure is non-critical — detail view shows 0s
+					});
+			}
 		},
-		[loadMessages]
+		[loadMessages, agentId, sshRemoteId]
 	);
 
 	/**

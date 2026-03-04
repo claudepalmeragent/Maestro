@@ -6,7 +6,7 @@
  * - Loads sessions using projectPath (not cwd) for consistent session storage access
  * - Handles starred sessions loading from origins
  * - Supports cursor-based pagination
- * - Auto-loads remaining sessions in background
+ * - Loads more sessions only when user scrolls (no auto-load)
  */
 
 import { renderHook, waitFor, act } from '@testing-library/react';
@@ -138,7 +138,7 @@ describe('useSessionPagination', () => {
 	});
 
 	describe('pagination', () => {
-		it('loads more sessions with the same projectPath', async () => {
+		it('loads more sessions with the same projectPath when loadMoreSessions is called', async () => {
 			mockListPaginated
 				.mockResolvedValueOnce({
 					sessions: [{ sessionId: 'session-1' }],
@@ -165,7 +165,15 @@ describe('useSessionPagination', () => {
 				expect(result.current.loading).toBe(false);
 			});
 
-			// The hook auto-loads remaining sessions in background
+			// Should NOT auto-load — hasMore should still be true
+			expect(result.current.hasMoreSessions).toBe(true);
+			expect(mockListPaginated).toHaveBeenCalledTimes(1);
+
+			// Manually trigger loadMoreSessions (simulating scroll)
+			await act(async () => {
+				await result.current.loadMoreSessions();
+			});
+
 			await waitFor(() => {
 				expect(result.current.hasMoreSessions).toBe(false);
 			});
@@ -185,6 +193,46 @@ describe('useSessionPagination', () => {
 				{ cursor: 'cursor-1', limit: 100 },
 				undefined // sshRemoteId
 			);
+		});
+
+		it('should NOT auto-load remaining sessions after initial load', async () => {
+			mockListPaginated.mockResolvedValueOnce({
+				sessions: Array(100)
+					.fill(null)
+					.map((_, i) => ({
+						sessionId: `session-${i}`,
+						projectPath: '/test',
+						timestamp: new Date().toISOString(),
+						modifiedAt: new Date().toISOString(),
+						firstMessage: `Message ${i}`,
+						messageCount: 10,
+						sizeBytes: 1000,
+						inputTokens: 100,
+						outputTokens: 50,
+					})),
+				hasMore: true,
+				totalCount: 300,
+				nextCursor: 'cursor-100',
+			});
+
+			const { result } = renderHook(() =>
+				useSessionPagination({
+					projectPath: '/test/project',
+					agentId: 'claude-code',
+				})
+			);
+
+			await waitFor(() => {
+				expect(result.current.loading).toBe(false);
+			});
+
+			// Wait 200ms to ensure no auto-load fires
+			await new Promise((resolve) => setTimeout(resolve, 200));
+
+			// Should only have been called once (initial load), NOT auto-loading more
+			expect(mockListPaginated).toHaveBeenCalledTimes(1);
+			expect(result.current.hasMoreSessions).toBe(true);
+			expect(result.current.sessions).toHaveLength(100);
 		});
 	});
 

@@ -20,6 +20,7 @@ import type { SubagentInfo } from '../../../renderer/types';
 
 // Mock the window.maestro API
 const mockListSubagents = vi.fn();
+const mockGetSubagentStats = vi.fn();
 
 beforeEach(() => {
 	vi.clearAllMocks();
@@ -28,11 +29,20 @@ beforeEach(() => {
 	(window as unknown as { maestro: unknown }).maestro = {
 		agentSessions: {
 			listSubagents: mockListSubagents,
+			getSubagentStats: mockGetSubagentStats,
 		},
 	};
 
-	// Default mock implementation
+	// Default mock implementations
 	mockListSubagents.mockResolvedValue([]);
+	mockGetSubagentStats.mockResolvedValue({
+		inputTokens: 0,
+		outputTokens: 0,
+		cacheReadTokens: 0,
+		cacheCreationTokens: 0,
+		cost: 0,
+		subagentCount: 0,
+	});
 });
 
 afterEach(() => {
@@ -491,6 +501,158 @@ describe('useSubagentLoader', () => {
 				'session-123',
 				undefined
 			);
+		});
+	});
+
+	describe('aggregatedStatsBySession', () => {
+		it('should fetch aggregated stats when a session is expanded', async () => {
+			const mockSubagents = [createMockSubagent('sub1')];
+			mockListSubagents.mockResolvedValue(mockSubagents);
+			mockGetSubagentStats.mockResolvedValue({
+				inputTokens: 5000,
+				outputTokens: 2000,
+				cacheReadTokens: 1000,
+				cacheCreationTokens: 500,
+				cost: 0.15,
+				subagentCount: 2,
+			});
+
+			const { result } = renderHook(() =>
+				useSubagentLoader({
+					agentId: 'claude-code',
+					projectPath: '/test/project',
+					sshRemoteId: 'remote-1',
+				})
+			);
+
+			await act(async () => {
+				await result.current.expandSession('session-123');
+			});
+
+			expect(mockGetSubagentStats).toHaveBeenCalledWith(
+				'claude-code',
+				'/test/project',
+				'session-123',
+				'remote-1'
+			);
+
+			expect(result.current.aggregatedStatsBySession.get('session-123')).toBeDefined();
+			expect(
+				result.current.aggregatedStatsBySession.get('session-123')?.aggregatedInputTokens
+			).toBe(5000);
+			expect(
+				result.current.aggregatedStatsBySession.get('session-123')?.aggregatedOutputTokens
+			).toBe(2000);
+			expect(
+				result.current.aggregatedStatsBySession.get('session-123')?.aggregatedCacheReadTokens
+			).toBe(1000);
+			expect(
+				result.current.aggregatedStatsBySession.get('session-123')?.aggregatedCacheCreationTokens
+			).toBe(500);
+			expect(result.current.aggregatedStatsBySession.get('session-123')?.aggregatedCostUsd).toBe(
+				0.15
+			);
+			expect(result.current.aggregatedStatsBySession.get('session-123')?.hasSubagents).toBe(true);
+			expect(result.current.aggregatedStatsBySession.get('session-123')?.subagentCount).toBe(2);
+		});
+
+		it('should cache aggregated stats and not refetch on collapse/re-expand', async () => {
+			const mockSubagents = [createMockSubagent('sub1')];
+			mockListSubagents.mockResolvedValue(mockSubagents);
+			mockGetSubagentStats.mockResolvedValue({
+				inputTokens: 5000,
+				outputTokens: 2000,
+				cacheReadTokens: 1000,
+				cacheCreationTokens: 500,
+				cost: 0.15,
+				subagentCount: 2,
+			});
+
+			const { result } = renderHook(() =>
+				useSubagentLoader({
+					agentId: 'claude-code',
+					projectPath: '/test/project',
+				})
+			);
+
+			// First expand
+			await act(async () => {
+				await result.current.expandSession('session-123');
+			});
+
+			expect(mockGetSubagentStats).toHaveBeenCalledTimes(1);
+
+			// Collapse
+			act(() => {
+				result.current.collapseSession('session-123');
+			});
+
+			// Re-expand — subagents are cached so loadSubagentsForSession returns early,
+			// which means getSubagentStats is NOT called again
+			await act(async () => {
+				await result.current.expandSession('session-123');
+			});
+
+			// Stats should still be cached from first expand
+			expect(result.current.aggregatedStatsBySession.get('session-123')).toBeDefined();
+			// getSubagentStats was only called once because subagent loading was cached
+			expect(mockGetSubagentStats).toHaveBeenCalledTimes(1);
+		});
+
+		it('should not break subagent loading when stats fetch fails', async () => {
+			const mockSubagents = [createMockSubagent('sub1')];
+			mockListSubagents.mockResolvedValue(mockSubagents);
+			mockGetSubagentStats.mockRejectedValue(new Error('Stats fetch failed'));
+
+			const { result } = renderHook(() =>
+				useSubagentLoader({
+					agentId: 'claude-code',
+					projectPath: '/test/project',
+				})
+			);
+
+			await act(async () => {
+				await result.current.expandSession('session-123');
+			});
+
+			// Subagents should still be loaded successfully
+			expect(result.current.subagentsBySession.get('session-123')).toEqual(mockSubagents);
+			// Stats should not be set
+			expect(result.current.aggregatedStatsBySession.get('session-123')).toBeUndefined();
+		});
+
+		it('should clear aggregated stats when clearCache is called', async () => {
+			const mockSubagents = [createMockSubagent('sub1')];
+			mockListSubagents.mockResolvedValue(mockSubagents);
+			mockGetSubagentStats.mockResolvedValue({
+				inputTokens: 5000,
+				outputTokens: 2000,
+				cacheReadTokens: 1000,
+				cacheCreationTokens: 500,
+				cost: 0.15,
+				subagentCount: 2,
+			});
+
+			const { result } = renderHook(() =>
+				useSubagentLoader({
+					agentId: 'claude-code',
+					projectPath: '/test/project',
+				})
+			);
+
+			// Load and expand
+			await act(async () => {
+				await result.current.expandSession('session-123');
+			});
+
+			expect(result.current.aggregatedStatsBySession.size).toBe(1);
+
+			// Clear cache
+			act(() => {
+				result.current.clearCache();
+			});
+
+			expect(result.current.aggregatedStatsBySession.size).toBe(0);
 		});
 	});
 

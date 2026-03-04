@@ -37,10 +37,9 @@ import path from 'path';
 import os from 'os';
 import fs from 'fs/promises';
 // Import for remote message counting (Task 17.5)
-import {
-	countRemoteClaudeMessages as countRemoteClaudeMessagesViaShell,
-	readDirRemote,
-} from '../../utils/remote-fs';
+import { execRemoteCommand, parseRemoteClaudeStatsViaShell } from '../../utils/remote-fs';
+import { calculateClaudeCost } from '../../utils/pricing';
+import { encodeClaudeProjectPath } from '../../utils/statsCache';
 
 // DEPRECATED: The following imports were used by the file-based stats scanning code.
 // They are kept here commented out alongside the deprecated code below for potential future use.
@@ -228,66 +227,29 @@ async function countRemoteClaudeMessagesForHost(
 	sshConfig: SshRemoteConfig,
 	_timeoutMs: number = 60000
 ): Promise<number> {
-	let totalMessages = 0;
-
 	try {
-		// List all project directories
-		const projectsResult = await readDirRemote('~/.claude/projects', sshConfig);
-		if (!projectsResult.success || !projectsResult.data) {
+		// Single batch command that finds ALL .jsonl files (sessions + subagents)
+		// and counts user/assistant messages across all of them in one SSH round-trip
+		const remoteScript = `
+find ~/.claude/projects -name '*.jsonl' -exec grep -cE '"type"[[:space:]]*:[[:space:]]*"(user|assistant)"' {} + 2>/dev/null | awk -F: '{s+=$NF}END{print s+0}'
+`.trim();
+
+		const result = await execRemoteCommand(sshConfig, remoteScript);
+
+		if (result.exitCode !== 0 && !result.stdout.trim()) {
+			logger.warn(
+				`Failed to count messages on remote ${sshConfig.name}: ${result.stderr}`,
+				LOG_CONTEXT
+			);
 			return 0;
 		}
 
-		const projectDirs = projectsResult.data.filter((e) => e.isDirectory);
-
-		for (const projectDir of projectDirs) {
-			const projectPath = `~/.claude/projects/${projectDir.name}`;
-
-			try {
-				const entriesResult = await readDirRemote(projectPath, sshConfig);
-				if (!entriesResult.success || !entriesResult.data) continue;
-
-				for (const entry of entriesResult.data) {
-					// Count messages in main session files
-					if (!entry.isDirectory && entry.name.endsWith('.jsonl')) {
-						const filePath = `${projectPath}/${entry.name}`;
-						const countResult = await countRemoteClaudeMessagesViaShell(filePath, sshConfig);
-						if (countResult.success && countResult.data) {
-							totalMessages += countResult.data;
-						}
-					}
-
-					// Count messages in subagent files
-					if (entry.isDirectory) {
-						const subagentsPath = `${projectPath}/${entry.name}/subagents`;
-						try {
-							const subResult = await readDirRemote(subagentsPath, sshConfig);
-							if (!subResult.success || !subResult.data) continue;
-
-							for (const subEntry of subResult.data) {
-								if (subEntry.isDirectory) continue;
-								if (!subEntry.name.startsWith('agent-') || !subEntry.name.endsWith('.jsonl'))
-									continue;
-
-								const subFilePath = `${subagentsPath}/${subEntry.name}`;
-								const countResult = await countRemoteClaudeMessagesViaShell(subFilePath, sshConfig);
-								if (countResult.success && countResult.data) {
-									totalMessages += countResult.data;
-								}
-							}
-						} catch {
-							// No subagents directory
-						}
-					}
-				}
-			} catch {
-				continue;
-			}
-		}
+		const count = parseInt(result.stdout.trim(), 10) || 0;
+		return count;
 	} catch (error) {
 		logger.warn(`Failed to count messages on remote ${sshConfig.name}`, LOG_CONTEXT, { error });
+		return 0;
 	}
-
-	return totalMessages;
 }
 
 // DEPRECATED: Global Stats now uses Usage Dashboard data
@@ -1014,6 +976,90 @@ export function registerAgentSessionsHandlers(deps?: AgentSessionsHandlerDepende
 		)
 	);
 
+	// ============ Get Session Stats (on-demand) ============
+
+	ipcMain.handle(
+		'agentSessions:getSessionStats',
+		withIpcErrorLogging(
+			handlerOpts('getSessionStats'),
+			async (
+				agentId: string,
+				projectPath: string,
+				sessionId: string,
+				sshRemoteId?: string
+			): Promise<{
+				inputTokens: number;
+				outputTokens: number;
+				cacheReadTokens: number;
+				cacheCreationTokens: number;
+				costUsd: number;
+				messageCount: number;
+				durationSeconds: number;
+			}> => {
+				const zeroResult = {
+					inputTokens: 0,
+					outputTokens: 0,
+					cacheReadTokens: 0,
+					cacheCreationTokens: 0,
+					costUsd: 0,
+					messageCount: 0,
+					durationSeconds: 0,
+				};
+
+				if (!sshRemoteId) {
+					// Local sessions already have full stats — no need to fetch
+					return zeroResult;
+				}
+
+				const sshConfig = getSshRemoteById(sshRemoteId);
+				if (!sshConfig) {
+					return zeroResult;
+				}
+
+				const storage = getSessionStorage(agentId);
+				if (!storage) {
+					return zeroResult;
+				}
+
+				try {
+					// Build the remote file path
+					const encodedPath = encodeClaudeProjectPath(projectPath);
+					const sessionFile = `~/.claude/projects/${encodedPath}/${sessionId}.jsonl`;
+
+					// Fetch token stats via single SSH command (includes messageCount)
+					const statsResult = await parseRemoteClaudeStatsViaShell(sessionFile, sshConfig);
+
+					if (!statsResult.success || !statsResult.data) {
+						return zeroResult;
+					}
+
+					const { inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, messageCount } =
+						statsResult.data;
+
+					const costUsd = calculateClaudeCost(
+						inputTokens,
+						outputTokens,
+						cacheReadTokens,
+						cacheCreationTokens
+					);
+
+					return {
+						inputTokens,
+						outputTokens,
+						cacheReadTokens,
+						cacheCreationTokens,
+						costUsd,
+						messageCount,
+						durationSeconds: 0, // Duration comes from timestamps already in the preview
+					};
+				} catch (error) {
+					logger.error(`Failed to fetch session stats: ${sessionId}`, LOG_CONTEXT, error);
+					return zeroResult;
+				}
+			}
+		)
+	);
+
 	// ============ Get Subagent Messages ============
 
 	ipcMain.handle(
@@ -1362,23 +1408,27 @@ export function registerAgentSessionsHandlers(deps?: AgentSessionsHandlerDepende
 				if (enabledRemotes.length > 0) {
 					const sshStatsTimeoutMs = settingsStore?.get('sshStatsTimeoutMs', 60000) ?? 60000;
 
-					for (const remote of enabledRemotes) {
-						try {
-							logger.info(`Counting messages on SSH remote: ${remote.name}`, LOG_CONTEXT);
-							const remoteMessages = await countRemoteClaudeMessagesForHost(
-								remote,
-								sshStatsTimeoutMs
-							);
-							result.totalMessages += remoteMessages;
-							result.byProvider['claude-code'].messages = result.totalMessages;
-
-							// Send streaming update after each remote
-							if (mainWindow && !mainWindow.isDestroyed()) {
-								mainWindow.webContents.send('agentSessions:globalStatsUpdate', { ...result });
+					// Query all remotes in parallel for faster results
+					const remoteResults = await Promise.all(
+						enabledRemotes.map(async (remote) => {
+							try {
+								logger.info(`Counting messages on SSH remote: ${remote.name}`, LOG_CONTEXT);
+								return await countRemoteClaudeMessagesForHost(remote, sshStatsTimeoutMs);
+							} catch (error) {
+								logger.warn(`Failed to count messages on ${remote.name}`, LOG_CONTEXT, { error });
+								return 0;
 							}
-						} catch (error) {
-							logger.warn(`Failed to count messages on ${remote.name}`, LOG_CONTEXT, { error });
-						}
+						})
+					);
+
+					// Sum all remote message counts
+					const totalRemoteMessages = remoteResults.reduce((sum, count) => sum + count, 0);
+					result.totalMessages += totalRemoteMessages;
+					result.byProvider['claude-code'].messages = result.totalMessages;
+
+					// Send update with all remote results
+					if (mainWindow && !mainWindow.isDestroyed()) {
+						mainWindow.webContents.send('agentSessions:globalStatsUpdate', { ...result });
 					}
 				}
 

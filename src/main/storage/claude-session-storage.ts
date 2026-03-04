@@ -24,7 +24,12 @@ import {
 	readDirRemote,
 	readFileRemote,
 	readFileRemotePartial,
+	readSessionMessagesRemote,
 	statRemote,
+	batchDiscoverSessionFilesRemote,
+	batchExtractSessionPreviewsRemote,
+	batchSubagentStatsRemote,
+	searchSessionFilesRemote,
 } from '../utils/remote-fs';
 import type {
 	AgentSessionStorage,
@@ -237,23 +242,57 @@ async function computeAggregatedStats(
 	sshConfig?: SshRemoteConfig
 ): Promise<AgentSessionInfo> {
 	try {
-		// Check if subagents folder exists
-		let subagentFiles: string[] = [];
-
+		// For remote sessions, use batch SSH command to get all stats in one call
 		if (isRemote && sshConfig) {
-			const dirResult = await readDirRemote(subagentsDir, sshConfig);
-			if (dirResult.success && dirResult.data) {
-				subagentFiles = dirResult.data
-					.filter((e) => !e.isDirectory && e.name.endsWith('.jsonl') && e.name.startsWith('agent-'))
-					.map((e) => e.name);
+			const batchResult = await batchSubagentStatsRemote(subagentsDir, sshConfig);
+			if (!batchResult.success || !batchResult.data) {
+				// No subagents or error — return session's own stats
+				return {
+					...session,
+					hasSubagents: false,
+					subagentCount: 0,
+					aggregatedInputTokens: session.inputTokens,
+					aggregatedOutputTokens: session.outputTokens,
+					aggregatedCacheReadTokens: session.cacheReadTokens,
+					aggregatedCacheCreationTokens: session.cacheCreationTokens,
+					aggregatedCostUsd: session.costUsd,
+					aggregatedMessageCount: session.messageCount,
+				};
 			}
-		} else {
-			try {
-				const files = await fs.readdir(subagentsDir);
-				subagentFiles = files.filter((f) => f.endsWith('.jsonl') && f.startsWith('agent-'));
-			} catch {
-				// No subagents folder
-			}
+
+			const stats = batchResult.data;
+			const aggregatedInputTokens = session.inputTokens + stats.inputTokens;
+			const aggregatedOutputTokens = session.outputTokens + stats.outputTokens;
+			const aggregatedCacheReadTokens = (session.cacheReadTokens || 0) + stats.cacheReadTokens;
+			const aggregatedCacheCreationTokens =
+				(session.cacheCreationTokens || 0) + stats.cacheCreationTokens;
+			const aggregatedCostUsd = calculateClaudeCost(
+				aggregatedInputTokens,
+				aggregatedOutputTokens,
+				aggregatedCacheReadTokens,
+				aggregatedCacheCreationTokens
+			);
+
+			return {
+				...session,
+				hasSubagents: stats.subagentCount > 0,
+				subagentCount: stats.subagentCount,
+				aggregatedInputTokens,
+				aggregatedOutputTokens,
+				aggregatedCacheReadTokens,
+				aggregatedCacheCreationTokens,
+				aggregatedCostUsd,
+				aggregatedMessageCount: session.messageCount + stats.messageCount,
+			};
+		}
+
+		// Local path: use filesystem directly (unchanged)
+		let subagentFiles: string[] = [];
+		try {
+			const files = await fs.readdir(subagentsDir);
+			subagentFiles = files.filter((f) => f.endsWith('.jsonl') && f.startsWith('agent-'));
+		} catch {
+			// No subagents folder
 		}
 
 		if (subagentFiles.length === 0) {
@@ -279,17 +318,8 @@ async function computeAggregatedStats(
 
 		for (const filename of subagentFiles) {
 			try {
-				let content: string;
-
-				if (isRemote && sshConfig) {
-					const filePath = `${subagentsDir}/${filename}`;
-					const result = await readFileRemote(filePath, sshConfig);
-					if (!result.success || !result.data) continue;
-					content = result.data;
-				} else {
-					const filePath = path.join(subagentsDir, filename);
-					content = await fs.readFile(filePath, 'utf-8');
-				}
+				const filePath = path.join(subagentsDir, filename);
+				const content = await fs.readFile(filePath, 'utf-8');
 
 				// Fast regex-based extraction
 				// IMPORTANT: Use negative lookbehind to avoid double-counting cache tokens
@@ -491,6 +521,52 @@ function parsePartialSessionContent(
 		);
 		return null;
 	}
+}
+
+/**
+ * Create a lightweight AgentSessionInfo from preview data.
+ * Token counts and cost are set to 0 — they are loaded on demand
+ * when the user clicks into the session detail view.
+ */
+function parseLightweightPreview(
+	preview: {
+		firstMessage: string;
+		firstTimestamp: string;
+		lastTimestamp: string;
+		totalLines: number;
+	},
+	sessionId: string,
+	projectPath: string,
+	stats: { size: number; mtimeMs: number }
+): AgentSessionInfo {
+	const timestamp = preview.firstTimestamp || new Date(stats.mtimeMs).toISOString();
+	const lastTimestamp = preview.lastTimestamp || timestamp;
+
+	const startTime = new Date(timestamp).getTime();
+	const endTime = new Date(lastTimestamp).getTime();
+	const durationSeconds = Math.max(0, Math.floor((endTime - startTime) / 1000));
+
+	// Estimate message count from total lines (same approximation as parsePartialSessionContent)
+	const estimatedMessageCount = Math.max(1, Math.floor(preview.totalLines * 0.4));
+
+	return {
+		sessionId,
+		projectPath,
+		timestamp,
+		modifiedAt: new Date(stats.mtimeMs).toISOString(),
+		firstMessage: preview.firstMessage.slice(
+			0,
+			CLAUDE_SESSION_PARSE_LIMITS.FIRST_MESSAGE_PREVIEW_LENGTH
+		),
+		messageCount: estimatedMessageCount,
+		sizeBytes: stats.size,
+		costUsd: 0,
+		inputTokens: 0,
+		outputTokens: 0,
+		cacheReadTokens: 0,
+		cacheCreationTokens: 0,
+		durationSeconds,
+	};
 }
 
 /**
@@ -1099,21 +1175,19 @@ export class ClaudeSessionStorage implements AgentSessionStorage {
 			LOG_CONTEXT
 		);
 
-		// First, list all project directories under ~/.claude/projects/
-		const projectsDirResult = await readDirRemote(projectsDir, sshConfig);
-		if (!projectsDirResult.success || !projectsDirResult.data) {
+		// Batch-discover all session files in a single SSH command
+		// Replaces individual readDirRemote + statRemote calls (was N+1 SSH commands)
+		const discoveryResult = await batchDiscoverSessionFilesRemote(projectsDir, sshConfig);
+		if (!discoveryResult.success || !discoveryResult.data) {
 			logger.warn(
-				`Failed to read remote projects directory: ${projectsDir} - ${projectsDirResult.error || 'unknown error'}`,
+				`Failed to batch-discover remote sessions: ${projectsDir} - ${discoveryResult.error || 'unknown error'}`,
 				LOG_CONTEXT
 			);
 			return { sessions: [], hasMore: false, totalCount: 0, nextCursor: null };
 		}
 
-		// Get all subdirectories (each is an encoded project path)
-		const projectDirs = projectsDirResult.data.filter((entry) => entry.isDirectory);
-
 		logger.info(
-			`Found ${projectDirs.length} project directories on remote: ${projectDirs.map((d) => d.name).join(', ')}`,
+			`Batch-discovered ${discoveryResult.data.length} session files on remote`,
 			LOG_CONTEXT
 		);
 
@@ -1128,53 +1202,16 @@ export class ClaudeSessionStorage implements AgentSessionStorage {
 			sizeBytes: number;
 		}
 
-		const allFileStats: RemoteFileInfo[] = [];
-
-		for (const projDir of projectDirs) {
-			const fullProjDir = `${projectsDir}/${projDir.name}`;
-
-			// List session files in this project directory
-			const dirResult = await readDirRemote(fullProjDir, sshConfig);
-			if (!dirResult.success || !dirResult.data) {
-				continue; // Skip directories we can't read
-			}
-
-			// Filter for .jsonl files
-			const sessionFiles = dirResult.data.filter(
-				(entry) => !entry.isDirectory && entry.name.endsWith('.jsonl')
-			);
-
-			// Get file stats for all session files in this project
-			const fileStatsPromises = sessionFiles.map(async (entry) => {
-				const sessionId = entry.name.replace('.jsonl', '');
-				const filePath = `${fullProjDir}/${entry.name}`;
-				try {
-					const statResult = await statRemote(filePath, sshConfig);
-					if (!statResult.success || !statResult.data) {
-						return null;
-					}
-					// Decode the project path from the directory name (reverse of encodeClaudeProjectPath)
-					// e.g., "-app" -> "/app", "-home-maestro" -> "/home/maestro"
-					const decodedProjectPath = this.decodeProjectPath(projDir.name);
-					return {
-						sessionId,
-						filename: entry.name,
-						filePath,
-						projectDir: projDir.name,
-						decodedProjectPath,
-						modifiedAt: statResult.data.mtime,
-						sizeBytes: statResult.data.size,
-					};
-				} catch {
-					return null;
-				}
-			});
-
-			const projectFileStats = await Promise.all(fileStatsPromises);
-			allFileStats.push(
-				...projectFileStats.filter((s): s is RemoteFileInfo => s !== null && s.sizeBytes > 0)
-			);
-		}
+		// Convert BatchDiscoveredFile[] to RemoteFileInfo[]
+		const allFileStats: RemoteFileInfo[] = discoveryResult.data.map((file) => ({
+			sessionId: file.filename.replace('.jsonl', ''),
+			filename: file.filename,
+			filePath: file.filePath,
+			projectDir: file.projectDirName,
+			decodedProjectPath: this.decodeProjectPath(file.projectDirName),
+			modifiedAt: file.mtime,
+			sizeBytes: file.size,
+		}));
 
 		// Sort all sessions by modification date (most recent first)
 		const sortedFiles = allFileStats.sort((a, b) => b.modifiedAt - a.modifiedAt);
@@ -1197,36 +1234,41 @@ export class ClaudeSessionStorage implements AgentSessionStorage {
 		const hasMore = startIndex + limit < totalCount;
 		const nextCursor = hasMore ? pageFiles[pageFiles.length - 1]?.sessionId : null;
 
-		// Read full content for sessions in this page
-		const sessions = await Promise.all(
-			pageFiles.map(async (fileInfo) => {
-				const session = await parseSessionFileRemote(
-					fileInfo.filePath,
-					fileInfo.sessionId,
-					fileInfo.decodedProjectPath, // Use the actual project path for this session
-					{ size: fileInfo.sizeBytes, mtimeMs: fileInfo.modifiedAt },
-					sshConfig
-				);
-				if (session) {
-					// Get origins for this specific project path
-					const sessionProjectOrigins = this.getProjectOrigins(fileInfo.decodedProjectPath);
-					return this.attachOriginInfo(session, sessionProjectOrigins);
-				}
-				return null;
-			})
+		// Lightweight batch extract: only pull preview text + timestamps (not full JSONL lines)
+		// Token counts and cost are loaded on-demand when user clicks into session detail
+		const batchPreviews = await batchExtractSessionPreviewsRemote(
+			pageFiles.map((f) => f.filePath),
+			sshConfig
 		);
+
+		const sessions = pageFiles.map((fileInfo) => {
+			const preview = batchPreviews.data?.get(fileInfo.filePath);
+			const session = parseLightweightPreview(
+				preview || { firstMessage: '', firstTimestamp: '', lastTimestamp: '', totalLines: 0 },
+				fileInfo.sessionId,
+				fileInfo.decodedProjectPath,
+				{ size: fileInfo.sizeBytes, mtimeMs: fileInfo.modifiedAt }
+			);
+			const sessionProjectOrigins = this.getProjectOrigins(fileInfo.decodedProjectPath);
+			return this.attachOriginInfo(session, sessionProjectOrigins);
+		});
 
 		const validSessions = sessions.filter((s): s is NonNullable<typeof s> => s !== null);
 
-		// Compute aggregated stats for each session (includes subagent stats)
-		const sessionsWithAggregatedStats = await Promise.all(
-			validSessions.map(async (session) => {
-				// For remote sessions, we need to use the encoded project path and session ID
-				const encodedPath = encodeClaudeProjectPath(session.projectPath);
-				const subagentsDir = `${this.getRemoteProjectsDir()}/${encodedPath}/${session.sessionId}/subagents`;
-				return computeAggregatedStats(session, subagentsDir, true, sshConfig);
-			})
-		);
+		// For remote sessions, skip eager subagent stats aggregation to avoid S×(1+A) SSH commands.
+		// Stats will be computed lazily when the user expands a session (via getSubagentStats IPC).
+		// Set aggregated fields to match the session's own stats (no subagent contribution yet).
+		const sessionsWithAggregatedStats = validSessions.map((session) => ({
+			...session,
+			hasSubagents: undefined, // Unknown until expanded — will be resolved by useSubagentLoader
+			subagentCount: undefined,
+			aggregatedInputTokens: session.inputTokens,
+			aggregatedOutputTokens: session.outputTokens,
+			aggregatedCacheReadTokens: session.cacheReadTokens,
+			aggregatedCacheCreationTokens: session.cacheCreationTokens,
+			aggregatedCostUsd: session.costUsd,
+			aggregatedMessageCount: session.messageCount,
+		}));
 
 		logger.info(
 			`Paginated Claude sessions (remote) - returned ${sessionsWithAggregatedStats.length} of ${totalCount} total (cursor: ${cursor || 'null'}, startIndex: ${startIndex}, hasMore: ${hasMore}, nextCursor: ${nextCursor || 'null'})`,
@@ -1265,26 +1307,79 @@ export class ClaudeSessionStorage implements AgentSessionStorage {
 		options?: SessionReadOptions,
 		sshConfig?: SshRemoteConfig
 	): Promise<SessionMessagesResult> {
-		// Get content either locally or via SSH
-		let content: string;
-
 		if (sshConfig) {
+			// Remote path: extract only the needed page of lines on the remote side
 			const projectDir = this.getRemoteEncodedProjectDir(projectPath);
 			const sessionFile = `${projectDir}/${sessionId}.jsonl`;
-			const result = await readFileRemote(sessionFile, sshConfig);
-			if (!result.success || !result.data) {
+			const offset = options?.offset ?? 0;
+			const limit = options?.limit ?? 20;
+
+			const pageResult = await readSessionMessagesRemote(sessionFile, offset, limit, sshConfig);
+
+			if (!pageResult.success || !pageResult.data) {
 				logger.error(
-					`Failed to read remote session messages: ${sessionFile} - ${result.error}`,
+					`Failed to read remote session messages: ${sessionFile} - ${pageResult.error}`,
 					LOG_CONTEXT
 				);
 				return { messages: [], total: 0, hasMore: false };
 			}
-			content = result.data;
-		} else {
-			const projectDir = this.getEncodedProjectDir(projectPath);
-			const sessionFile = path.join(projectDir, `${sessionId}.jsonl`);
-			content = await fs.readFile(sessionFile, 'utf-8');
+
+			const { lines: rawLines, totalLines, hasMore } = pageResult.data;
+
+			// Parse only the extracted lines (not the entire file)
+			const messages: SessionMessage[] = [];
+			for (const line of rawLines) {
+				try {
+					const entry = JSON.parse(line);
+					if (entry.type === 'user' || entry.type === 'assistant') {
+						let msgContent = '';
+						let toolUse = undefined;
+
+						if (entry.message?.content) {
+							if (typeof entry.message.content === 'string') {
+								msgContent = entry.message.content;
+							} else if (Array.isArray(entry.message.content)) {
+								const textBlocks = entry.message.content.filter(
+									(b: { type?: string }) => b.type === 'text'
+								);
+								const toolBlocks = entry.message.content.filter(
+									(b: { type?: string }) => b.type === 'tool_use'
+								);
+
+								msgContent = textBlocks.map((b: { text?: string }) => b.text).join('\n');
+								if (toolBlocks.length > 0) {
+									toolUse = toolBlocks;
+								}
+							}
+						}
+
+						if (msgContent && msgContent.trim()) {
+							messages.push({
+								type: entry.type,
+								role: entry.message?.role,
+								content: msgContent,
+								timestamp: entry.timestamp,
+								uuid: entry.uuid,
+								toolUse,
+							});
+						}
+					}
+				} catch {
+					// Skip malformed lines
+				}
+			}
+
+			return {
+				messages,
+				total: totalLines, // Approximate — total lines, not total messages
+				hasMore,
+			};
 		}
+
+		// Local path: read full file and paginate locally
+		const projectDir = this.getEncodedProjectDir(projectPath);
+		const sessionFile = path.join(projectDir, `${sessionId}.jsonl`);
+		const content = await fs.readFile(sessionFile, 'utf-8');
 
 		const lines = content.split('\n').filter((l) => l.trim());
 
@@ -1356,53 +1451,80 @@ export class ClaudeSessionStorage implements AgentSessionStorage {
 			return [];
 		}
 
-		// Get list of session files
-		let sessionFiles: string[];
-
 		if (sshConfig) {
 			const projectDir = this.getRemoteEncodedProjectDir(projectPath);
-			const dirResult = await readDirRemote(projectDir, sshConfig);
-			if (!dirResult.success || !dirResult.data) {
+
+			// Use remote-side grep to find matching files (2 SSH commands instead of N)
+			const searchResult = await searchSessionFilesRemote(projectDir, query, sshConfig);
+			if (!searchResult.success || !searchResult.data) {
 				return [];
 			}
-			sessionFiles = dirResult.data
-				.filter((entry) => !entry.isDirectory && entry.name.endsWith('.jsonl'))
-				.map((entry) => entry.name);
-		} else {
-			const localProjectDir = this.getEncodedProjectDir(projectPath);
-			try {
-				await fs.access(localProjectDir);
-			} catch {
-				return [];
+
+			const matchingSessions: SessionSearchResult[] = [];
+
+			for (const match of searchResult.data) {
+				const sessionId = match.filename.replace('.jsonl', '');
+
+				let matches = false;
+				let matchType: 'title' | 'user' | 'assistant' = 'title';
+				let matchCount = 0;
+
+				switch (searchMode) {
+					case 'title':
+						// Title search matches first user message — approximate with hasUserMatch
+						matches = match.hasUserMatch;
+						matchType = 'title';
+						matchCount = matches ? 1 : 0;
+						break;
+					case 'user':
+						matches = match.hasUserMatch;
+						matchType = 'user';
+						matchCount = match.userMatchCount;
+						break;
+					case 'assistant':
+						matches = match.hasAssistantMatch;
+						matchType = 'assistant';
+						matchCount = match.assistantMatchCount;
+						break;
+					case 'all':
+						matches = match.hasUserMatch || match.hasAssistantMatch;
+						matchType = match.hasUserMatch ? 'user' : 'assistant';
+						matchCount = match.userMatchCount + match.assistantMatchCount;
+						break;
+				}
+
+				if (matches) {
+					matchingSessions.push({
+						sessionId,
+						matchType,
+						matchPreview: match.matchPreview,
+						matchCount,
+					});
+				}
 			}
-			const files = await fs.readdir(localProjectDir);
-			sessionFiles = files.filter((f) => f.endsWith('.jsonl'));
+
+			return matchingSessions;
 		}
+
+		// Local search path
+		const localProjectDir = this.getEncodedProjectDir(projectPath);
+		try {
+			await fs.access(localProjectDir);
+		} catch {
+			return [];
+		}
+		const files = await fs.readdir(localProjectDir);
+		const sessionFiles = files.filter((f) => f.endsWith('.jsonl'));
 
 		const searchLower = query.toLowerCase();
 		const matchingSessions: SessionSearchResult[] = [];
 
-		// Get the appropriate project directory for path construction
-		const projectDir = sshConfig
-			? this.getRemoteEncodedProjectDir(projectPath)
-			: this.getEncodedProjectDir(projectPath);
-
 		for (const filename of sessionFiles) {
 			const sessionId = filename.replace('.jsonl', '');
-			const filePath = sshConfig ? `${projectDir}/${filename}` : path.join(projectDir, filename);
+			const filePath = path.join(localProjectDir, filename);
 
 			try {
-				// Get content either locally or via SSH
-				let content: string;
-				if (sshConfig) {
-					const result = await readFileRemote(filePath, sshConfig);
-					if (!result.success || !result.data) {
-						continue; // Skip files we can't read
-					}
-					content = result.data;
-				} else {
-					content = await fs.readFile(filePath, 'utf-8');
-				}
+				const content = await fs.readFile(filePath, 'utf-8');
 				const lines = content.split('\n').filter((l) => l.trim());
 
 				let titleMatch = false;

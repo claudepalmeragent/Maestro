@@ -221,7 +221,7 @@ function getBackoffDelay(attempt: number, baseDelay: number, maxDelay: number): 
  * @param deps Optional dependencies for testing
  * @returns ExecResult with stdout, stderr, and exitCode
  */
-async function execRemoteCommand(
+export async function execRemoteCommand(
 	config: SshRemoteConfig,
 	remoteCommand: string,
 	deps: RemoteFsDeps = defaultDeps
@@ -476,6 +476,91 @@ export async function readFileRemotePartial(
 	return {
 		success: true,
 		data: { head, tail, totalLines },
+	};
+}
+
+/**
+ * Result of reading a page of messages from a remote session file.
+ */
+export interface RemoteMessagePage {
+	/** The extracted JSONL lines for this page */
+	lines: string[];
+	/** Total number of lines in the file */
+	totalLines: number;
+	/** Whether there are more lines before this page */
+	hasMore: boolean;
+}
+
+/**
+ * Read a page of messages from a remote session file using remote-side extraction.
+ * Instead of transferring the entire file, counts total lines and extracts only
+ * the lines needed for the requested page.
+ *
+ * Messages are paginated from the END of the file (most recent first).
+ * offset=0, limit=20 returns the last 20 lines.
+ * offset=20, limit=20 returns lines 20-40 from the end.
+ *
+ * @param filePath Full path to the .jsonl file on the remote
+ * @param offset Number of lines to skip from the end (0 = start from most recent)
+ * @param limit Number of lines to return
+ * @param sshRemote SSH remote configuration
+ * @param deps Optional dependencies for testing
+ * @returns The extracted lines and total line count
+ */
+export async function readSessionMessagesRemote(
+	filePath: string,
+	offset: number,
+	limit: number,
+	sshRemote: SshRemoteConfig,
+	deps: RemoteFsDeps = defaultDeps
+): Promise<RemoteFsResult<RemoteMessagePage>> {
+	const escapedPath = escapeRemotePath(filePath);
+
+	// Single SSH command that:
+	// 1. Counts total lines (wc -l)
+	// 2. Extracts only the needed range using tail + head
+	//
+	// To get lines from the END with offset:
+	//   tail -n (offset + limit) | head -n limit
+	// This gives us `limit` lines starting at `offset` from the end.
+	const separator = '___MAESTRO_MSG_SEP___';
+	const tailCount = offset + limit;
+
+	const remoteCommand = `TOTAL=$(wc -l < ${escapedPath} 2>/dev/null) && echo "$TOTAL" && echo "${separator}" && tail -n ${tailCount} ${escapedPath} | head -n ${limit}`;
+
+	const result = await execRemoteCommand(sshRemote, remoteCommand, deps);
+
+	if (result.exitCode !== 0) {
+		const error = result.stderr || `Failed to read messages: ${filePath}`;
+		return {
+			success: false,
+			error: error.includes('No such file') ? `File not found: ${filePath}` : error,
+		};
+	}
+
+	// Parse output: first section is total count, second is the extracted lines
+	const sepIdx = result.stdout.indexOf(separator);
+	if (sepIdx === -1) {
+		return {
+			success: false,
+			error: `Failed to parse message page output for: ${filePath}`,
+		};
+	}
+
+	const totalLines = parseInt(result.stdout.slice(0, sepIdx).trim(), 10) || 0;
+	const linesSection = result.stdout.slice(sepIdx + separator.length).trim();
+	const lines = linesSection ? linesSection.split('\n') : [];
+
+	// hasMore = there are lines before this page
+	const hasMore = offset + limit < totalLines;
+
+	return {
+		success: true,
+		data: {
+			lines,
+			totalLines,
+			hasMore,
+		},
 	};
 }
 
@@ -1121,4 +1206,555 @@ grep -cE '"type"[[:space:]]*:[[:space:]]*"(user|assistant)"' "$FILE" 2>/dev/null
 		success: true,
 		data: count,
 	};
+}
+
+/**
+ * Batch-compute aggregated subagent stats for a session via a single SSH command.
+ * Finds all agent-*.jsonl files in the subagents directory and extracts token counts
+ * using remote-side grep/awk, avoiding individual file transfers.
+ *
+ * @param subagentsDir Path to the subagents directory (e.g., '~/.claude/projects/enc/sessId/subagents')
+ * @param sshRemote SSH remote configuration
+ * @param deps Optional dependencies for testing
+ * @returns Aggregated stats from all subagent files, or null if no subagents exist
+ */
+export interface BatchSubagentStats {
+	subagentCount: number;
+	inputTokens: number;
+	outputTokens: number;
+	cacheReadTokens: number;
+	cacheCreationTokens: number;
+	messageCount: number;
+}
+
+export async function batchSubagentStatsRemote(
+	subagentsDir: string,
+	sshRemote: SshRemoteConfig,
+	deps: RemoteFsDeps = defaultDeps
+): Promise<RemoteFsResult<BatchSubagentStats | null>> {
+	const escapedPath = escapeRemotePath(subagentsDir);
+
+	// Single command that:
+	// 1. Checks if the directory exists and has agent-*.jsonl files
+	// 2. Counts the number of subagent files
+	// 3. Extracts all token stats across all files using grep/awk
+	// 4. Counts user+assistant messages across all files
+	const remoteScript = `
+DIR=${escapedPath}
+if [ ! -d "$DIR" ]; then echo "NO_DIR"; exit 0; fi
+FILES=$(ls "$DIR"/agent-*.jsonl 2>/dev/null)
+if [ -z "$FILES" ]; then echo "NO_FILES"; exit 0; fi
+COUNT=$(echo "$FILES" | wc -l | tr -d ' ')
+echo "COUNT:$COUNT"
+# Input tokens (exclude cache variants using grep -v to filter lines)
+grep -ohE '"input_tokens"[[:space:]]*:[[:space:]]*[0-9]+' $FILES 2>/dev/null | grep -v cache | grep -oE '[0-9]+$' | awk '{s+=$1}END{print "INPUT:"s+0}'
+# Output tokens
+grep -ohE '"output_tokens"[[:space:]]*:[[:space:]]*[0-9]+' $FILES 2>/dev/null | grep -oE '[0-9]+$' | awk '{s+=$1}END{print "OUTPUT:"s+0}'
+# Cache read tokens
+grep -ohE '"cache_read_input_tokens"[[:space:]]*:[[:space:]]*[0-9]+' $FILES 2>/dev/null | grep -oE '[0-9]+$' | awk '{s+=$1}END{print "CACHE_READ:"s+0}'
+# Cache creation tokens
+grep -ohE '"cache_creation_input_tokens"[[:space:]]*:[[:space:]]*[0-9]+' $FILES 2>/dev/null | grep -oE '[0-9]+$' | awk '{s+=$1}END{print "CACHE_CREATE:"s+0}'
+# Message count (user + assistant)
+grep -chE '"type"[[:space:]]*:[[:space:]]*"(user|assistant)"' $FILES 2>/dev/null | awk '{s+=$1}END{print "MESSAGES:"s+0}'
+`.trim();
+
+	const result = await execRemoteCommand(sshRemote, remoteScript, deps);
+
+	const stdout = result.stdout.trim();
+
+	// Handle no-subagents cases
+	if (stdout === 'NO_DIR' || stdout === 'NO_FILES') {
+		return { success: true, data: null };
+	}
+
+	if (result.exitCode !== 0 && !stdout) {
+		return {
+			success: false,
+			error: result.stderr || 'Failed to compute subagent stats',
+		};
+	}
+
+	// Parse structured output
+	const lines = stdout.split('\n');
+	let subagentCount = 0;
+	let inputTokens = 0;
+	let outputTokens = 0;
+	let cacheReadTokens = 0;
+	let cacheCreationTokens = 0;
+	let messageCount = 0;
+
+	for (const line of lines) {
+		const [key, value] = line.split(':');
+		const num = parseInt(value, 10) || 0;
+		switch (key) {
+			case 'COUNT':
+				subagentCount = num;
+				break;
+			case 'INPUT':
+				inputTokens = num;
+				break;
+			case 'OUTPUT':
+				outputTokens = num;
+				break;
+			case 'CACHE_READ':
+				cacheReadTokens = num;
+				break;
+			case 'CACHE_CREATE':
+				cacheCreationTokens = num;
+				break;
+			case 'MESSAGES':
+				messageCount = num;
+				break;
+		}
+	}
+
+	return {
+		success: true,
+		data: {
+			subagentCount,
+			inputTokens,
+			outputTokens,
+			cacheReadTokens,
+			cacheCreationTokens,
+			messageCount,
+		},
+	};
+}
+
+/**
+ * Structured content returned for each file from batch parse.
+ */
+export interface BatchParsedFileContent {
+	head: string;
+	tail: string;
+	totalLines: number;
+}
+
+/**
+ * Lightweight preview data extracted from a remote session file.
+ * Contains only what's needed for the session list display.
+ * Token counts and cost are NOT included — they are loaded on demand.
+ */
+export interface BatchSessionPreview {
+	/** First ~200 chars of the first user or assistant message text */
+	firstMessage: string;
+	/** ISO timestamp from the first entry in the file */
+	firstTimestamp: string;
+	/** ISO timestamp from the last entry in the file */
+	lastTimestamp: string;
+	/** Total number of lines in the file */
+	totalLines: number;
+}
+
+/**
+ * Batch-extract lightweight preview data from remote session files.
+ * Instead of transferring raw JSONL lines (which can be enormous),
+ * this runs a remote awk script that extracts ONLY:
+ * - The text content of the first user/assistant message (truncated to ~200 chars)
+ * - The timestamp from the first entry
+ * - The timestamp from the last entry
+ * - The total line count
+ *
+ * Output per file is ~300 bytes max, making buffer overflow impossible
+ * even for 1000+ sessions.
+ *
+ * @param filePaths Array of full remote paths to .jsonl files
+ * @param sshRemote SSH remote configuration
+ * @param deps Optional dependencies for testing
+ * @returns Map of filePath -> preview data
+ */
+export async function batchExtractSessionPreviewsRemote(
+	filePaths: string[],
+	sshRemote: SshRemoteConfig,
+	deps: RemoteFsDeps = defaultDeps
+): Promise<RemoteFsResult<Map<string, BatchSessionPreview>>> {
+	if (filePaths.length === 0) {
+		return { success: true, data: new Map() };
+	}
+
+	const CHUNK_SIZE = 100; // Safe to chunk larger since output is tiny per file
+	const allResults = new Map<string, BatchSessionPreview>();
+
+	for (let i = 0; i < filePaths.length; i += CHUNK_SIZE) {
+		const chunk = filePaths.slice(i, i + CHUNK_SIZE);
+		const fileListStr = chunk.map((p) => `'${p.replace(/'/g, "'\\''")}'`).join(' ');
+
+		// Remote script that extracts minimal preview data per file:
+		// 1. wc -l for total line count
+		// 2. First timestamp from first line with a "timestamp" field
+		// 3. Last timestamp from last line with a "timestamp" field
+		// 4. First message text from first user/assistant entry (truncated)
+		//
+		// Uses grep + head/tail + sed to extract just the needed fields
+		// without transferring full JSONL lines.
+		const remoteScript = `
+for f in ${fileListStr}; do
+  if [ -f "$f" ]; then
+    TOTAL=$(wc -l < "$f" 2>/dev/null | tr -d ' ')
+    # Extract first timestamp (from first 5 lines)
+    FIRST_TS=$(head -n 5 "$f" 2>/dev/null | grep -o '"timestamp":"[^"]*"' | head -1 | sed 's/"timestamp":"//;s/"//')
+    # Extract last timestamp (from last 5 lines)
+    LAST_TS=$(tail -n 5 "$f" 2>/dev/null | grep -o '"timestamp":"[^"]*"' | tail -1 | sed 's/"timestamp":"//;s/"//')
+    # Extract first user or assistant message text (first 10 lines, truncated to 250 chars)
+    # Look for "type":"user" or "type":"assistant" entries and extract text content
+    FIRST_MSG=$(head -n 10 "$f" 2>/dev/null | grep -m 1 '"type":"\\(user\\|assistant\\)"' | grep -o '"text":"[^"]*"' | head -1 | sed 's/"text":"//;s/"$//' | cut -c1-250)
+    # Fallback: try extracting from "content":"..." string format if text block not found
+    if [ -z "$FIRST_MSG" ]; then
+      FIRST_MSG=$(head -n 10 "$f" 2>/dev/null | grep -m 1 '"type":"\\(user\\|assistant\\)"' | grep -o '"content":"[^"]*"' | head -1 | sed 's/"content":"//;s/"$//' | cut -c1-250)
+    fi
+    echo "===PREVIEW:$f==="
+    echo "LINES:$TOTAL"
+    echo "FIRST_TS:$FIRST_TS"
+    echo "LAST_TS:$LAST_TS"
+    echo "MSG:$FIRST_MSG"
+    echo "===END_PREVIEW==="
+  fi
+done
+`.trim();
+
+		const result = await execRemoteCommand(sshRemote, remoteScript, deps);
+
+		if (result.exitCode !== 0 && !result.stdout.trim()) {
+			// If this chunk failed, continue with other chunks
+			continue;
+		}
+
+		// Parse structured output
+		const output = result.stdout;
+		const previewRegex = /===PREVIEW:(.+?)===([\s\S]*?)===END_PREVIEW===/g;
+		let match;
+
+		while ((match = previewRegex.exec(output)) !== null) {
+			const filePath = match[1];
+			const block = match[2];
+
+			const linesMatch = block.match(/LINES:(\d*)/);
+			const firstTsMatch = block.match(/FIRST_TS:(.*)/);
+			const lastTsMatch = block.match(/LAST_TS:(.*)/);
+			const msgMatch = block.match(/MSG:(.*)/);
+
+			allResults.set(filePath, {
+				firstMessage: (msgMatch?.[1] || '').trim(),
+				firstTimestamp: (firstTsMatch?.[1] || '').trim(),
+				lastTimestamp: (lastTsMatch?.[1] || '').trim(),
+				totalLines: parseInt(linesMatch?.[1] || '0', 10) || 0,
+			});
+		}
+	}
+
+	return {
+		success: true,
+		data: allResults,
+	};
+}
+
+/**
+ * Batch-read head and tail lines from multiple session files in a single SSH command.
+ * Returns structured output with head (first N lines) and tail (last M lines) for each file.
+ *
+ * @param filePaths Array of remote file paths to read
+ * @param sshRemote SSH remote configuration
+ * @param headLines Number of lines to read from the start of each file (default: 20)
+ * @param tailLines Number of lines to read from the end of each file (default: 10)
+ * @param deps Optional dependencies for testing
+ * @returns Map of filePath -> { head, tail, totalLines }
+ */
+export async function batchParseSessionFilesRemote(
+	filePaths: string[],
+	sshRemote: SshRemoteConfig,
+	headLines: number = 20,
+	tailLines: number = 10,
+	deps: RemoteFsDeps = defaultDeps
+): Promise<RemoteFsResult<Map<string, BatchParsedFileContent>>> {
+	if (filePaths.length === 0) {
+		return { success: true, data: new Map() };
+	}
+
+	// Build file list for the remote script, properly escaped
+	// Batch in chunks to avoid ARG_MAX limits (~128KB on most systems)
+	const CHUNK_SIZE = 50;
+	const allResults = new Map<string, BatchParsedFileContent>();
+
+	for (let i = 0; i < filePaths.length; i += CHUNK_SIZE) {
+		const chunk = filePaths.slice(i, i + CHUNK_SIZE);
+		const fileListStr = chunk.map((p) => `'${p.replace(/'/g, "'\\''")}'`).join(' ');
+
+		const remoteScript = `
+for f in ${fileListStr}; do
+  if [ -f "$f" ]; then
+    TOTAL=$(wc -l < "$f" 2>/dev/null | tr -d ' ')
+    echo "===FILE:$f:$TOTAL==="
+    head -n ${headLines} "$f" 2>/dev/null
+    echo "===TAIL==="
+    tail -n ${tailLines} "$f" 2>/dev/null
+    echo "===END==="
+  fi
+done
+`.trim();
+
+		const result = await execRemoteCommand(sshRemote, remoteScript, deps);
+
+		if (result.exitCode !== 0 && !result.stdout.trim()) {
+			// If this chunk failed, continue with other chunks
+			continue;
+		}
+
+		// Parse structured output
+		const output = result.stdout;
+		const fileRegex = /===FILE:(.+?):(\d+)===([\s\S]*?)===TAIL===([\s\S]*?)===END===/g;
+		let match;
+
+		while ((match = fileRegex.exec(output)) !== null) {
+			const filePath = match[1];
+			const totalLines = parseInt(match[2], 10) || 0;
+			const head = match[3].trim();
+			const tail = match[4].trim();
+
+			allResults.set(filePath, { head, tail, totalLines });
+		}
+	}
+
+	return {
+		success: true,
+		data: allResults,
+	};
+}
+
+/**
+ * Batch-discover all session JSONL files across all project directories on a remote host.
+ * Replaces N+1 individual readDirRemote + statRemote calls with a single SSH command.
+ *
+ * Uses `find` to locate all .jsonl files (excluding subagent files) and outputs
+ * their modification time (epoch seconds), size (bytes), and full path.
+ *
+ * @param projectsDir Base projects directory (e.g., '~/.claude/projects')
+ * @param sshRemote SSH remote configuration
+ * @param deps Optional dependencies for testing
+ * @returns Array of discovered session files with metadata, sorted by mtime descending
+ */
+export interface BatchDiscoveredFile {
+	/** Full remote path to the file */
+	filePath: string;
+	/** Modification time as Unix timestamp in milliseconds */
+	mtime: number;
+	/** File size in bytes */
+	size: number;
+	/** The project directory name (encoded project path) */
+	projectDirName: string;
+	/** The session filename (e.g., 'uuid.jsonl') */
+	filename: string;
+}
+
+export async function batchDiscoverSessionFilesRemote(
+	projectsDir: string,
+	sshRemote: SshRemoteConfig,
+	deps: RemoteFsDeps = defaultDeps
+): Promise<RemoteFsResult<BatchDiscoveredFile[]>> {
+	const escapedPath = escapeRemotePath(projectsDir);
+
+	// Single find command that:
+	// 1. Searches for .jsonl files directly under project directories (maxdepth 2 from projects/)
+	// 2. Excludes subagent directories (not -path "*/subagents/*")
+	// 3. Outputs epoch mtime, size in bytes, and full path
+	// 4. Uses -printf for precise formatting (no locale issues)
+	// 5. Falls back to stat-based approach if -printf is not available (macOS)
+	const remoteScript = `
+if find ${escapedPath} -maxdepth 2 -name '*.jsonl' -not -path '*/subagents/*' -printf '%T@ %s %p\\n' 2>/dev/null | head -1 | grep -q '^[0-9]'; then
+  find ${escapedPath} -maxdepth 2 -name '*.jsonl' -not -path '*/subagents/*' -printf '%T@ %s %p\\n' 2>/dev/null | sort -rn
+else
+  find ${escapedPath} -maxdepth 2 -name '*.jsonl' -not -path '*/subagents/*' -exec stat -c '%Y %s %n' {} + 2>/dev/null | sort -rn
+fi
+`.trim();
+
+	const result = await execRemoteCommand(sshRemote, remoteScript, deps);
+
+	if (result.exitCode !== 0 && !result.stdout.trim()) {
+		return {
+			success: false,
+			error: result.stderr || 'Failed to discover session files on remote',
+		};
+	}
+
+	const files: BatchDiscoveredFile[] = [];
+	const lines = result.stdout.trim().split('\n').filter(Boolean);
+
+	for (const line of lines) {
+		// Format: "1709312345.1234567890 12345 /home/user/.claude/projects/encoded-path/session-id.jsonl"
+		// or:     "1709312345 12345 /path/to/file.jsonl" (stat -c format)
+		const match = line.match(/^(\d+(?:\.\d+)?)\s+(\d+)\s+(.+)$/);
+		if (!match) continue;
+
+		const mtime = Math.floor(parseFloat(match[1]) * 1000); // Convert epoch seconds to ms
+		const size = parseInt(match[2], 10);
+		const filePath = match[3];
+
+		// Skip empty files
+		if (size === 0) continue;
+
+		// Extract project dir name and filename from the path
+		// Path format: <projectsDir>/<encodedProjectPath>/<sessionId>.jsonl
+		// We need the segment after projectsDir and before the filename
+		const pathAfterProjects = filePath.substring(
+			filePath.indexOf('/.claude/projects/') + '/.claude/projects/'.length
+		);
+		const segments = pathAfterProjects.split('/');
+		if (segments.length < 2) continue; // Need at least projectDir/filename
+
+		const projectDirName = segments[0];
+		const filename = segments[segments.length - 1];
+
+		if (!filename.endsWith('.jsonl')) continue;
+
+		files.push({
+			filePath,
+			mtime,
+			size,
+			projectDirName,
+			filename,
+		});
+	}
+
+	return {
+		success: true,
+		data: files,
+	};
+}
+
+/**
+ * Search session files on a remote host using remote-side grep.
+ * First finds matching files, then extracts match context.
+ *
+ * @param projectDir The encoded project directory on the remote
+ * @param query The search query string
+ * @param sshRemote SSH remote configuration
+ * @param deps Optional dependencies for testing
+ * @returns Array of matching file paths with match previews
+ */
+export interface RemoteSearchMatch {
+	/** Full path to the matching file */
+	filePath: string;
+	/** The filename (e.g., 'session-id.jsonl') */
+	filename: string;
+	/** Preview context around the first match */
+	matchPreview: string;
+	/** Whether a user message matched */
+	hasUserMatch: boolean;
+	/** Whether an assistant message matched */
+	hasAssistantMatch: boolean;
+	/** Count of user message matches */
+	userMatchCount: number;
+	/** Count of assistant message matches */
+	assistantMatchCount: number;
+}
+
+export async function searchSessionFilesRemote(
+	projectDir: string,
+	query: string,
+	sshRemote: SshRemoteConfig,
+	deps: RemoteFsDeps = defaultDeps
+): Promise<RemoteFsResult<RemoteSearchMatch[]>> {
+	const escapedPath = escapeRemotePath(projectDir);
+	// Escape the query for use in grep (escape special regex chars)
+	const safeQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+	// Also escape single quotes for the shell
+	const shellQuery = safeQuery.replace(/'/g, "'\\''");
+
+	// Phase 1: Find files that contain the query string (case-insensitive)
+	// Only search .jsonl files, exclude subagent directories
+	const findScript = `
+grep -rli '${shellQuery}' ${escapedPath}/*.jsonl 2>/dev/null || true
+`.trim();
+
+	const findResult = await execRemoteCommand(sshRemote, findScript, deps);
+
+	if (findResult.exitCode !== 0 && !findResult.stdout.trim()) {
+		return { success: true, data: [] };
+	}
+
+	const matchingFiles = findResult.stdout.trim().split('\n').filter(Boolean);
+	if (matchingFiles.length === 0) {
+		return { success: true, data: [] };
+	}
+
+	// Phase 2: For each matching file, get match details
+	// Count user vs assistant matches and extract a preview
+	const fileListStr = matchingFiles.map((p) => `'${p.replace(/'/g, "'\\''")}'`).join(' ');
+
+	const detailScript = `
+for f in ${fileListStr}; do
+  FN=$(basename "$f")
+  # Count matches in user messages
+  UC=$(grep -ci '"type"[[:space:]]*:[[:space:]]*"user"' "$f" 2>/dev/null | head -1)
+  AC=$(grep -ci '"type"[[:space:]]*:[[:space:]]*"assistant"' "$f" 2>/dev/null | head -1)
+  # Get the first matching line containing the query for preview
+  PREVIEW=$(grep -im1 '${shellQuery}' "$f" 2>/dev/null | head -c 200)
+  echo "===MATCH:$f:$FN:$UC:$AC==="
+  echo "$PREVIEW"
+  echo "===END==="
+done
+`.trim();
+
+	const detailResult = await execRemoteCommand(sshRemote, detailScript, deps);
+
+	const matches: RemoteSearchMatch[] = [];
+	const matchRegex = /===MATCH:(.+?):(.+?):(\d+):(\d+)===([\s\S]*?)===END===/g;
+	let match;
+
+	while ((match = matchRegex.exec(detailResult.stdout)) !== null) {
+		const filePath = match[1];
+		const filename = match[2];
+		const userLineCount = parseInt(match[3], 10) || 0;
+		const assistantLineCount = parseInt(match[4], 10) || 0;
+		const previewLine = match[5].trim();
+
+		// Extract a meaningful preview from the matching line
+		let matchPreview = '';
+		if (previewLine) {
+			// Try to extract text content from the JSON line
+			try {
+				const entry = JSON.parse(previewLine);
+				let textContent = '';
+				if (entry.message?.content) {
+					if (typeof entry.message.content === 'string') {
+						textContent = entry.message.content;
+					} else if (Array.isArray(entry.message.content)) {
+						textContent = entry.message.content
+							.filter((b: { type?: string }) => b.type === 'text')
+							.map((b: { text?: string }) => b.text || '')
+							.join(' ');
+					}
+				}
+				if (textContent) {
+					const lowerText = textContent.toLowerCase();
+					const lowerQuery = query.toLowerCase();
+					const idx = lowerText.indexOf(lowerQuery);
+					if (idx >= 0) {
+						const start = Math.max(0, idx - 60);
+						const end = Math.min(textContent.length, idx + query.length + 60);
+						matchPreview =
+							(start > 0 ? '...' : '') +
+							textContent.slice(start, end) +
+							(end < textContent.length ? '...' : '');
+					} else {
+						matchPreview = textContent.slice(0, 120);
+					}
+				}
+			} catch {
+				// If JSON parsing fails, use raw preview
+				matchPreview = previewLine.slice(0, 120);
+			}
+		}
+
+		matches.push({
+			filePath,
+			filename,
+			matchPreview,
+			hasUserMatch: userLineCount > 0,
+			hasAssistantMatch: assistantLineCount > 0,
+			userMatchCount: userLineCount,
+			assistantMatchCount: assistantLineCount,
+		});
+	}
+
+	return { success: true, data: matches };
 }

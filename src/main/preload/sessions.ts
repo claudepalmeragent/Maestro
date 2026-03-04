@@ -409,6 +409,32 @@ export function createAgentSessionsApi() {
 				sessionId,
 				sshRemoteId
 			),
+
+		/**
+		 * Get detailed stats (tokens, cost, message count) for a single session.
+		 * Used for on-demand loading when viewing session details.
+		 */
+		getSessionStats: (
+			agentId: string,
+			projectPath: string,
+			sessionId: string,
+			sshRemoteId?: string
+		): Promise<{
+			inputTokens: number;
+			outputTokens: number;
+			cacheReadTokens: number;
+			cacheCreationTokens: number;
+			costUsd: number;
+			messageCount: number;
+			durationSeconds: number;
+		}> =>
+			ipcRenderer.invoke(
+				'agentSessions:getSessionStats',
+				agentId,
+				projectPath,
+				sessionId,
+				sshRemoteId
+			),
 	};
 }
 

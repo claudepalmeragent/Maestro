@@ -7,6 +7,17 @@ interface UseSubagentLoaderOptions {
 	sshRemoteId?: string;
 }
 
+interface AggregatedStats {
+	aggregatedInputTokens: number;
+	aggregatedOutputTokens: number;
+	aggregatedCacheReadTokens: number;
+	aggregatedCacheCreationTokens: number;
+	aggregatedCostUsd: number;
+	aggregatedMessageCount: number;
+	hasSubagents: boolean;
+	subagentCount: number;
+}
+
 interface UseSubagentLoaderReturn {
 	/** Map of sessionId -> subagents */
 	subagentsBySession: Map<string, SubagentInfo[]>;
@@ -14,6 +25,8 @@ interface UseSubagentLoaderReturn {
 	expandedSessions: Set<string>;
 	/** Loading state for each session */
 	loadingSubagents: Set<string>;
+	/** Map of sessionId -> aggregated stats (loaded on expand) */
+	aggregatedStatsBySession: Map<string, AggregatedStats>;
 	/** Load subagents for a session */
 	loadSubagentsForSession: (sessionId: string) => Promise<SubagentInfo[]>;
 	/** Toggle expansion of a session */
@@ -42,14 +55,22 @@ export function useSubagentLoader({
 	);
 	const [expandedSessions, setExpandedSessions] = useState<Set<string>>(new Set());
 	const [loadingSubagents, setLoadingSubagents] = useState<Set<string>>(new Set());
+	const [aggregatedStatsBySession, setAggregatedStatsBySession] = useState<
+		Map<string, AggregatedStats>
+	>(new Map());
 
 	// Track in-flight requests to prevent duplicates
 	const pendingRequests = useRef<Map<string, Promise<SubagentInfo[]>>>(new Map());
 
+	// Ref to access current cache without including it in useCallback deps
+	// This breaks the dependency cycle: state updates don't change callback identity
+	const subagentsCacheRef = useRef(subagentsBySession);
+	subagentsCacheRef.current = subagentsBySession;
+
 	const loadSubagentsForSession = useCallback(
 		async (sessionId: string): Promise<SubagentInfo[]> => {
 			// Return cached data if available
-			const cached = subagentsBySession.get(sessionId);
+			const cached = subagentsCacheRef.current.get(sessionId);
 			if (cached !== undefined) {
 				return cached;
 			}
@@ -84,6 +105,34 @@ export function useSubagentLoader({
 						return next;
 					});
 
+					// Also fetch aggregated stats for this session
+					try {
+						const stats = await window.maestro.agentSessions.getSubagentStats(
+							agentId,
+							projectPath,
+							sessionId,
+							sshRemoteId
+						);
+						if (stats) {
+							setAggregatedStatsBySession((prev) => {
+								const next = new Map(prev);
+								next.set(sessionId, {
+									aggregatedInputTokens: stats.inputTokens,
+									aggregatedOutputTokens: stats.outputTokens,
+									aggregatedCacheReadTokens: stats.cacheReadTokens,
+									aggregatedCacheCreationTokens: stats.cacheCreationTokens,
+									aggregatedCostUsd: stats.cost,
+									aggregatedMessageCount: 0, // Not available from IPC — subagent message count
+									hasSubagents: stats.subagentCount > 0,
+									subagentCount: stats.subagentCount,
+								});
+								return next;
+							});
+						}
+					} catch {
+						// Stats fetch failure is non-critical
+					}
+
 					return subagents;
 				} catch (error) {
 					console.error('Failed to load subagents for session:', sessionId, error);
@@ -108,7 +157,7 @@ export function useSubagentLoader({
 			pendingRequests.current.set(sessionId, request);
 			return request;
 		},
-		[agentId, projectPath, sshRemoteId, subagentsBySession]
+		[agentId, projectPath, sshRemoteId]
 	);
 
 	const expandSession = useCallback(
@@ -150,6 +199,7 @@ export function useSubagentLoader({
 		setSubagentsBySession(new Map());
 		setExpandedSessions(new Set());
 		setLoadingSubagents(new Set());
+		setAggregatedStatsBySession(new Map());
 		pendingRequests.current.clear();
 	}, []);
 
@@ -157,6 +207,7 @@ export function useSubagentLoader({
 		subagentsBySession,
 		expandedSessions,
 		loadingSubagents,
+		aggregatedStatsBySession,
 		loadSubagentsForSession,
 		toggleSessionExpansion,
 		expandSession,

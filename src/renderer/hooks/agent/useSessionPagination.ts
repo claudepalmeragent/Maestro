@@ -46,7 +46,6 @@ export interface UseSessionPaginationReturn {
  *
  * Features:
  * - Initial load of sessions with cursor-based pagination
- * - Auto-load remaining sessions in background after initial load
  * - Scroll-triggered loading at 70% scroll position
  * - Progressive stats fetching
  * - Session origins loading for starred status
@@ -242,35 +241,6 @@ export function useSessionPagination({
 			loadMoreSessions();
 		}
 	}, [hasMoreSessions, isLoadingMoreSessions, loadMoreSessions]);
-
-	// Ref to track the last loaded session count to avoid duplicate triggers
-	const lastLoadedCountRef = useRef(0);
-
-	// Auto-load ALL remaining sessions in background after initial load
-	// This ensures full search capability and accurate stats
-	useEffect(() => {
-		// Only trigger if we have more sessions and conditions are right
-		if (!loading && !isLoadingMoreSessions && hasMoreSessions && sessions.length > 0) {
-			// Check if sessions.length actually increased since last load
-			// This prevents infinite loop when no new sessions are added
-			if (sessions.length === lastLoadedCountRef.current) {
-				// No new sessions were added, don't try to load more
-				return;
-			}
-			lastLoadedCountRef.current = sessions.length;
-
-			// Small delay to let UI render first, then continue loading
-			const timer = setTimeout(() => {
-				loadMoreSessions();
-			}, 50);
-			return () => clearTimeout(timer);
-		}
-	}, [loading, isLoadingMoreSessions, hasMoreSessions, sessions.length, loadMoreSessions]);
-
-	// Reset the last loaded count when projectPath, agentId, or sshRemoteId changes
-	useEffect(() => {
-		lastLoadedCountRef.current = 0;
-	}, [projectPath, agentId, sshRemoteId]);
 
 	// Update a specific session in the list
 	const updateSession = useCallback((sessionId: string, updates: Partial<ClaudeSession>) => {

@@ -2491,10 +2491,17 @@ describe('AgentSessionsBrowser', () => {
 
 			expect(screen.getByText('First batch')).toBeInTheDocument();
 
-			// Trigger auto-load (the component auto-loads more after initial load)
-			await act(async () => {
-				await vi.advanceTimersByTimeAsync(100);
-			});
+			// Simulate scroll to 70%+ to trigger pagination (scroll-based loading)
+			const scrollContainer = screen.getByText('First batch').closest('.overflow-y-auto');
+			if (scrollContainer) {
+				Object.defineProperty(scrollContainer, 'scrollTop', { value: 700, configurable: true });
+				Object.defineProperty(scrollContainer, 'scrollHeight', { value: 1000, configurable: true });
+				Object.defineProperty(scrollContainer, 'clientHeight', { value: 100, configurable: true });
+				await act(async () => {
+					fireEvent.scroll(scrollContainer);
+					await vi.runAllTimersAsync();
+				});
+			}
 
 			expect(screen.getByText('Second batch')).toBeInTheDocument();
 		});
@@ -2529,10 +2536,18 @@ describe('AgentSessionsBrowser', () => {
 				await vi.runAllTimersAsync();
 			});
 
-			// Trigger load more
-			await act(async () => {
-				await vi.advanceTimersByTimeAsync(100);
-			});
+			// Simulate scroll to 70%+ to trigger pagination (scroll-based loading)
+			const scrollContainer = screen
+				.getByText('Help me with this code')
+				.closest('.overflow-y-auto');
+			if (scrollContainer) {
+				Object.defineProperty(scrollContainer, 'scrollTop', { value: 700, configurable: true });
+				Object.defineProperty(scrollContainer, 'scrollHeight', { value: 1000, configurable: true });
+				Object.defineProperty(scrollContainer, 'clientHeight', { value: 100, configurable: true });
+				await act(async () => {
+					fireEvent.scroll(scrollContainer);
+				});
+			}
 
 			expect(screen.getByText(/Loading more sessions/i)).toBeInTheDocument();
 
@@ -2629,6 +2644,11 @@ describe('AgentSessionsBrowser', () => {
 			await act(async () => {
 				renderWithProvider(<AgentSessionsBrowser {...createDefaultProps()} />);
 				await vi.runAllTimersAsync();
+			});
+
+			// Flush additional microtasks to ensure sessions render after async loading
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(0);
 			});
 
 			const sessionItem = screen
