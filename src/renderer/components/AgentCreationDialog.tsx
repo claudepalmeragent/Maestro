@@ -368,8 +368,16 @@ export function AgentCreationDialog({
 										>
 											{/* Agent header row */}
 											<div
+												role="button"
+												tabIndex={0}
 												onClick={() => handleSelectAgent(agent.id)}
-												className="w-full text-left px-3 py-2 flex items-center justify-between hover:bg-white/5 cursor-pointer"
+												onKeyDown={(e) => {
+													if (e.key === 'Enter' || e.key === ' ') {
+														e.preventDefault();
+														handleSelectAgent(agent.id);
+													}
+												}}
+												className="w-full text-left px-3 py-2 flex items-center justify-between hover:bg-white/5 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-offset-1"
 												style={{ color: theme.colors.textMain }}
 											>
 												<div className="flex items-center gap-2">

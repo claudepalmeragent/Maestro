@@ -77,6 +77,7 @@ export function GroupChatModal(props: GroupChatModalProps): JSX.Element | null {
 		ac.setCustomPath(groupChat.moderatorConfig?.customPath || '');
 		ac.setCustomArgs(groupChat.moderatorConfig?.customArgs || '');
 		ac.setCustomEnvVars(groupChat.moderatorConfig?.customEnvVars || {});
+		ac.setSshRemoteConfig(groupChat.moderatorConfig?.sshRemoteConfig as any);
 	}, [mode, isOpen, groupChat]);
 
 	// Focus name input when agents detected
@@ -86,10 +87,13 @@ export function GroupChatModal(props: GroupChatModalProps): JSX.Element | null {
 		}
 	}, [ac.isDetecting, isOpen]);
 
-	// Auto-select first supported agent (create mode only) after detection
+	// Auto-select first supported agent (create mode only) after detection,
+	// and revalidate if current selection is no longer available
 	useEffect(() => {
 		if (mode !== 'create' || ac.isDetecting || ac.detectedAgents.length === 0) return;
-		if (ac.selectedAgent) return; // Already selected
+
+		// If current selection is still valid, keep it
+		if (ac.selectedAgent && ac.detectedAgents.some((a) => a.id === ac.selectedAgent)) return;
 
 		const firstSupported = AGENT_TILES.find((tile) => {
 			if (!tile.supported) return false;
@@ -158,12 +162,16 @@ export function GroupChatModal(props: GroupChatModalProps): JSX.Element | null {
 		const originalEnvVars = groupChat.moderatorConfig?.customEnvVars || {};
 		const envVarsChanged = JSON.stringify(ac.customEnvVars) !== JSON.stringify(originalEnvVars);
 
+		const originalSshConfig = groupChat.moderatorConfig?.sshRemoteConfig;
+		const sshChanged = JSON.stringify(ac.sshRemoteConfig) !== JSON.stringify(originalSshConfig);
+
 		return (
 			nameChanged ||
 			agentChanged ||
 			pathChanged ||
 			argsChanged ||
 			envVarsChanged ||
+			sshChanged ||
 			configWasModified
 		);
 	}, [
@@ -173,6 +181,7 @@ export function GroupChatModal(props: GroupChatModalProps): JSX.Element | null {
 		ac.customPath,
 		ac.customArgs,
 		ac.customEnvVars,
+		ac.sshRemoteConfig,
 		configWasModified,
 	]);
 

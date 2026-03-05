@@ -19,7 +19,7 @@ declare const window: Window & {
 		agents: {
 			detect: (sshRemoteId?: string) => Promise<AgentConfig[]>;
 			getConfig: (agentId: string) => Promise<Record<string, any> | null>;
-			setConfig: (agentId: string, config: Record<string, any>) => Promise<void>;
+			setConfig: (agentId: string, config: Record<string, any>) => Promise<boolean>;
 			getModels: (agentId: string, force?: boolean) => Promise<string[]>;
 			refresh: (agentId: string) => Promise<void>;
 		};
