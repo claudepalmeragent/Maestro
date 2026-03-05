@@ -139,6 +139,11 @@ export function useSessionViewer({
 
 	const messagesContainerRef = useRef<HTMLDivElement>(null);
 
+	// Abort ref to discard in-flight loadMessages results after clearViewingSession.
+	// Incremented on every clearViewingSession and handleViewSession call;
+	// async callbacks check this before applying state updates.
+	const loadGenerationRef = useRef(0);
+
 	/**
 	 * Load messages for a session with pagination support
 	 * @param session - The session to load messages for
@@ -148,6 +153,7 @@ export function useSessionViewer({
 		async (session: AgentSession, offset: number = 0) => {
 			if (!cwd) return;
 
+			const generation = loadGenerationRef.current;
 			setMessagesLoading(true);
 			try {
 				// Use the generic agentSessions API with agentId parameter
@@ -159,6 +165,9 @@ export function useSessionViewer({
 					{ offset, limit: 20 },
 					sshRemoteId
 				);
+
+				// Discard results if the viewing session was cleared or changed while loading
+				if (generation !== loadGenerationRef.current) return;
 
 				if (offset === 0) {
 					setMessages(result.messages);
@@ -177,9 +186,14 @@ export function useSessionViewer({
 				setHasMoreMessages(result.hasMore);
 				setMessagesOffset(offset + result.messages.length);
 			} catch (error) {
+				// Discard errors if session was cleared while loading
+				if (generation !== loadGenerationRef.current) return;
 				console.error('Failed to load messages:', error);
 			} finally {
-				setMessagesLoading(false);
+				// Only clear loading state if this is still the current generation
+				if (generation === loadGenerationRef.current) {
+					setMessagesLoading(false);
+				}
 			}
 		},
 		[cwd, agentId, sshRemoteId]
@@ -190,6 +204,7 @@ export function useSessionViewer({
 	 */
 	const handleViewSession = useCallback(
 		(session: AgentSession) => {
+			loadGenerationRef.current++;
 			setViewingSession(session);
 			setMessages([]);
 			setMessagesOffset(0);
@@ -259,8 +274,13 @@ export function useSessionViewer({
 	 * Clear viewing session and return to list view
 	 */
 	const clearViewingSession = useCallback(() => {
+		loadGenerationRef.current++;
 		setViewingSession(null);
 		setMessages([]);
+		setMessagesOffset(0);
+		setHasMoreMessages(false);
+		setTotalMessages(0);
+		setMessagesLoading(false);
 	}, []);
 
 	return {

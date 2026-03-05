@@ -2125,6 +2125,151 @@ describe('AgentSessionsBrowser', () => {
 			expect(screen.queryByText('Resume')).not.toBeInTheDocument();
 			expect(screen.getByText(/Help me with this code/i)).toBeInTheDocument();
 		});
+
+		it('clears all message content when navigating back after loading earlier messages', async () => {
+			const session = createMockClaudeSession({ sessionId: 'session-1' });
+			vi.mocked(window.maestro.agentSessions.listPaginated).mockResolvedValue({
+				sessions: [session],
+				hasMore: false,
+				totalCount: 1,
+				nextCursor: null,
+			});
+
+			// Initial messages load: 1 message with hasMore=true
+			vi.mocked(window.maestro.agentSessions.read)
+				.mockResolvedValueOnce({
+					messages: [createMockMessage({ content: 'Recent message', uuid: 'msg-1' })],
+					total: 3,
+					hasMore: true,
+				})
+				// Load earlier: 2 older messages
+				.mockResolvedValueOnce({
+					messages: [
+						createMockMessage({ content: 'Older message A', uuid: 'msg-2' }),
+						createMockMessage({ content: 'Older message B', uuid: 'msg-3' }),
+					],
+					total: 3,
+					hasMore: false,
+				});
+
+			await act(async () => {
+				renderWithProvider(<AgentSessionsBrowser {...createDefaultProps()} />);
+				await vi.runAllTimersAsync();
+			});
+
+			// Click session to open detail view
+			const sessionItem = screen
+				.getByText(/Help me with this code/i)
+				.closest('div[class*="cursor-pointer"]');
+			await act(async () => {
+				fireEvent.click(sessionItem!);
+				await vi.runAllTimersAsync();
+			});
+
+			// Verify initial message loaded
+			expect(screen.getByText('Recent message')).toBeInTheDocument();
+
+			// Click "Load earlier messages"
+			const loadMoreButton = screen.getByText(/Load earlier messages/i);
+			await act(async () => {
+				fireEvent.click(loadMoreButton);
+				await vi.runAllTimersAsync();
+			});
+
+			// Verify earlier messages loaded
+			expect(screen.getByText('Older message A')).toBeInTheDocument();
+			expect(screen.getByText('Older message B')).toBeInTheDocument();
+
+			// Click Back button
+			const backButton = screen.getByTestId('chevron-left-icon').closest('button');
+			await act(async () => {
+				fireEvent.click(backButton!);
+				await vi.runAllTimersAsync();
+			});
+
+			// ALL message content should be gone — no stale messages in DOM
+			expect(screen.queryByText('Recent message')).not.toBeInTheDocument();
+			expect(screen.queryByText('Older message A')).not.toBeInTheDocument();
+			expect(screen.queryByText('Older message B')).not.toBeInTheDocument();
+
+			// Session list should be visible
+			expect(screen.getByText(/Help me with this code/i)).toBeInTheDocument();
+		});
+
+		it('discards in-flight message results after clicking Back', async () => {
+			const session = createMockClaudeSession({ sessionId: 'session-1' });
+			vi.mocked(window.maestro.agentSessions.listPaginated).mockResolvedValue({
+				sessions: [session],
+				hasMore: false,
+				totalCount: 1,
+				nextCursor: null,
+			});
+
+			// Initial messages load resolves immediately
+			let resolveLoadMore: (value: unknown) => void;
+			const loadMorePromise = new Promise((resolve) => {
+				resolveLoadMore = resolve;
+			});
+
+			vi.mocked(window.maestro.agentSessions.read)
+				.mockResolvedValueOnce({
+					messages: [createMockMessage({ content: 'Recent message', uuid: 'msg-1' })],
+					total: 3,
+					hasMore: true,
+				})
+				// Load earlier: returns a pending promise we control
+				.mockImplementationOnce(
+					() =>
+						loadMorePromise as Promise<{
+							messages: SessionMessage[];
+							total: number;
+							hasMore: boolean;
+						}>
+				);
+
+			await act(async () => {
+				renderWithProvider(<AgentSessionsBrowser {...createDefaultProps()} />);
+				await vi.runAllTimersAsync();
+			});
+
+			// Click session to open detail view
+			const sessionItem = screen
+				.getByText(/Help me with this code/i)
+				.closest('div[class*="cursor-pointer"]');
+			await act(async () => {
+				fireEvent.click(sessionItem!);
+				await vi.runAllTimersAsync();
+			});
+
+			// Click "Load earlier messages" — starts async SSH call (pending)
+			const loadMoreButton = screen.getByText(/Load earlier messages/i);
+			await act(async () => {
+				fireEvent.click(loadMoreButton);
+			});
+
+			// Click Back BEFORE the load completes
+			const backButton = screen.getByTestId('chevron-left-icon').closest('button');
+			await act(async () => {
+				fireEvent.click(backButton!);
+				await vi.runAllTimersAsync();
+			});
+
+			// Now resolve the pending load — results should be discarded
+			await act(async () => {
+				resolveLoadMore!({
+					messages: [createMockMessage({ content: 'Stale older message', uuid: 'msg-stale' })],
+					total: 3,
+					hasMore: false,
+				});
+				await vi.runAllTimersAsync();
+			});
+
+			// Stale message should NOT appear in the DOM
+			expect(screen.queryByText('Stale older message')).not.toBeInTheDocument();
+
+			// Session list should still be visible
+			expect(screen.getByText(/Help me with this code/i)).toBeInTheDocument();
+		});
 	});
 
 	// ============================================================================

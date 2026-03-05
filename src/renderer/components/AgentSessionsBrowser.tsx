@@ -1104,6 +1104,7 @@ export function AgentSessionsBrowser({
 			{viewingSubagent ? (
 				/* Subagent messages view */
 				<div
+					key="subagent"
 					className="subagent-messages-view min-h-0"
 					style={{ flex: 1, display: 'flex', flexDirection: 'column' }}
 				>
@@ -1215,7 +1216,7 @@ export function AgentSessionsBrowser({
 					</div>
 				</div>
 			) : viewingSession ? (
-				<div className="flex-1 flex flex-col overflow-hidden">
+				<div key="detail" className="flex-1 flex flex-col overflow-hidden">
 					{/* Session Stats Panel */}
 					<div
 						className="px-6 py-4 border-b shrink-0"
@@ -1492,7 +1493,7 @@ export function AgentSessionsBrowser({
 					</div>
 				</div>
 			) : (
-				<div className="flex-1 flex flex-col overflow-hidden">
+				<div key="list" className="flex-1 flex flex-col overflow-hidden">
 					{/* Stats Panel */}
 					{!loading && sessions.length > 0 && (
 						<div
