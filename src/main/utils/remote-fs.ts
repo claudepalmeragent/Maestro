@@ -1395,12 +1395,21 @@ for f in ${fileListStr}; do
     FIRST_TS=$(head -n 5 "$f" 2>/dev/null | grep -o '"timestamp":"[^"]*"' | head -1 | sed 's/"timestamp":"//;s/"//')
     # Extract last timestamp (from last 5 lines)
     LAST_TS=$(tail -n 5 "$f" 2>/dev/null | grep -o '"timestamp":"[^"]*"' | tail -1 | sed 's/"timestamp":"//;s/"//')
-    # Extract first user or assistant message text (first 10 lines, truncated to 250 chars)
-    # Look for "type":"user" or "type":"assistant" entries and extract text content
-    FIRST_MSG=$(head -n 10 "$f" 2>/dev/null | grep -m 1 '"type":"\\(user\\|assistant\\)"' | grep -o '"text":"[^"]*"' | head -1 | sed 's/"text":"//;s/"$//' | cut -c1-250)
-    # Fallback: try extracting from "content":"..." string format if text block not found
+    # Extract first message text, preferring assistant over user (first 20 lines, truncated to 200 chars)
+    # User messages often contain system prompts, so assistant responses make better previews
+    # Try assistant first (preferred)
+    FIRST_MSG=$(head -n 20 "$f" 2>/dev/null | grep -m 1 '"type":"assistant"' | grep -o '"text":"[^"]*"' | head -1 | sed 's/"text":"//;s/"$//' | cut -c1-200)
+    # Fallback: assistant with "content":"..." format
     if [ -z "$FIRST_MSG" ]; then
-      FIRST_MSG=$(head -n 10 "$f" 2>/dev/null | grep -m 1 '"type":"\\(user\\|assistant\\)"' | grep -o '"content":"[^"]*"' | head -1 | sed 's/"content":"//;s/"$//' | cut -c1-250)
+      FIRST_MSG=$(head -n 20 "$f" 2>/dev/null | grep -m 1 '"type":"assistant"' | grep -o '"content":"[^"]*"' | head -1 | sed 's/"content":"//;s/"$//' | cut -c1-200)
+    fi
+    # Fallback: user message with "text":"..." format
+    if [ -z "$FIRST_MSG" ]; then
+      FIRST_MSG=$(head -n 20 "$f" 2>/dev/null | grep -m 1 '"type":"user"' | grep -o '"text":"[^"]*"' | head -1 | sed 's/"text":"//;s/"$//' | cut -c1-200)
+    fi
+    # Fallback: user message with "content":"..." format
+    if [ -z "$FIRST_MSG" ]; then
+      FIRST_MSG=$(head -n 20 "$f" 2>/dev/null | grep -m 1 '"type":"user"' | grep -o '"content":"[^"]*"' | head -1 | sed 's/"content":"//;s/"$//' | cut -c1-200)
     fi
     echo "===PREVIEW:$f==="
     echo "LINES:$TOTAL"

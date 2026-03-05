@@ -200,6 +200,7 @@ export function registerClaudeHandlers(deps: ClaudeHandlerDependencies): void {
 						const content = await fs.readFile(filePath, 'utf-8');
 						const lines = content.split('\n').filter((l) => l.trim());
 
+						let firstAssistantMessage = '';
 						let firstUserMessage = '';
 						let timestamp = stats.mtime.toISOString();
 
@@ -209,6 +210,8 @@ export function registerClaudeHandlers(deps: ClaudeHandlerDependencies): void {
 						const messageCount = userMessageCount + assistantMessageCount;
 
 						// Extract first meaningful message content
+						// Prefer first assistant response as preview (more meaningful than system context)
+						// Fall back to first user message if no assistant response exists
 						for (
 							let i = 0;
 							i < Math.min(lines.length, CLAUDE_SESSION_PARSE_LIMITS.FIRST_MESSAGE_SCAN_LINES);
@@ -216,25 +219,34 @@ export function registerClaudeHandlers(deps: ClaudeHandlerDependencies): void {
 						) {
 							try {
 								const entry = JSON.parse(lines[i]);
-								if (entry.type === 'user' && entry.message?.content) {
+								// Capture first user message as fallback
+								if (!firstUserMessage && entry.type === 'user' && entry.message?.content) {
 									const textContent = extractTextFromContent(entry.message.content);
 									if (textContent.trim()) {
 										firstUserMessage = textContent;
 										timestamp = entry.timestamp || timestamp;
-										break;
 									}
 								}
-								if (!firstUserMessage && entry.type === 'assistant' && entry.message?.content) {
+								// Capture first assistant message as preferred preview
+								if (
+									!firstAssistantMessage &&
+									entry.type === 'assistant' &&
+									entry.message?.content
+								) {
 									const textContent = extractTextFromContent(entry.message.content);
 									if (textContent.trim()) {
-										firstUserMessage = textContent;
-										timestamp = entry.timestamp || timestamp;
+										firstAssistantMessage = textContent;
+										// Once we have assistant message, we can stop scanning
+										break;
 									}
 								}
 							} catch {
 								// Skip malformed lines
 							}
 						}
+
+						// Use assistant response as preview if available, otherwise fall back to user message
+						const previewMessage = firstAssistantMessage || firstUserMessage;
 
 						// Fast regex-based token extraction
 						let totalInputTokens = 0;
@@ -295,7 +307,7 @@ export function registerClaudeHandlers(deps: ClaudeHandlerDependencies): void {
 							projectPath,
 							timestamp,
 							modifiedAt: stats.mtime.toISOString(),
-							firstMessage: firstUserMessage.slice(
+							firstMessage: previewMessage.slice(
 								0,
 								CLAUDE_SESSION_PARSE_LIMITS.FIRST_MESSAGE_PREVIEW_LENGTH
 							),
@@ -419,6 +431,7 @@ export function registerClaudeHandlers(deps: ClaudeHandlerDependencies): void {
 							const content = await fs.readFile(fileInfo.filePath, 'utf-8');
 							const lines = content.split('\n').filter((l) => l.trim());
 
+							let firstAssistantMessage = '';
 							let firstUserMessage = '';
 							let timestamp = new Date(fileInfo.modifiedAt).toISOString();
 
@@ -428,6 +441,8 @@ export function registerClaudeHandlers(deps: ClaudeHandlerDependencies): void {
 							const messageCount = userMessageCount + assistantMessageCount;
 
 							// Extract first meaningful message
+							// Prefer first assistant response as preview (more meaningful than system context)
+							// Fall back to first user message if no assistant response exists
 							for (
 								let i = 0;
 								i < Math.min(lines.length, CLAUDE_SESSION_PARSE_LIMITS.FIRST_MESSAGE_SCAN_LINES);
@@ -435,25 +450,34 @@ export function registerClaudeHandlers(deps: ClaudeHandlerDependencies): void {
 							) {
 								try {
 									const entry = JSON.parse(lines[i]);
-									if (entry.type === 'user' && entry.message?.content) {
+									// Capture first user message as fallback
+									if (!firstUserMessage && entry.type === 'user' && entry.message?.content) {
 										const textContent = extractTextFromContent(entry.message.content);
 										if (textContent.trim()) {
 											firstUserMessage = textContent;
 											timestamp = entry.timestamp || timestamp;
-											break;
 										}
 									}
-									if (!firstUserMessage && entry.type === 'assistant' && entry.message?.content) {
+									// Capture first assistant message as preferred preview
+									if (
+										!firstAssistantMessage &&
+										entry.type === 'assistant' &&
+										entry.message?.content
+									) {
 										const textContent = extractTextFromContent(entry.message.content);
 										if (textContent.trim()) {
-											firstUserMessage = textContent;
-											timestamp = entry.timestamp || timestamp;
+											firstAssistantMessage = textContent;
+											// Once we have assistant message, we can stop scanning
+											break;
 										}
 									}
 								} catch {
 									// Skip malformed lines
 								}
 							}
+
+							// Use assistant response as preview if available, otherwise fall back to user message
+							const previewMessage = firstAssistantMessage || firstUserMessage;
 
 							// Token extraction
 							// IMPORTANT: Use negative lookbehind to avoid double-counting cache tokens
@@ -520,7 +544,7 @@ export function registerClaudeHandlers(deps: ClaudeHandlerDependencies): void {
 								projectPath,
 								timestamp,
 								modifiedAt: new Date(fileInfo.modifiedAt).toISOString(),
-								firstMessage: firstUserMessage.slice(
+								firstMessage: previewMessage.slice(
 									0,
 									CLAUDE_SESSION_PARSE_LIMITS.FIRST_MESSAGE_PREVIEW_LENGTH
 								),
@@ -1685,6 +1709,32 @@ export function registerClaudeHandlers(deps: ClaudeHandlerDependencies): void {
 				return origins[projectPath] || {};
 			}
 		)
+	);
+
+	ipcMain.handle(
+		'claude:getAllOriginsBySessionId',
+		withIpcErrorLogging(handlerOpts('getAllOriginsBySessionId', ORIGINS_LOG_CONTEXT), async () => {
+			const allOrigins = claudeSessionOriginsStore.get('origins', {});
+			const flat: Record<
+				string,
+				{ origin?: string; sessionName?: string; starred?: boolean; contextUsage?: number }
+			> = {};
+			for (const sessions of Object.values(allOrigins)) {
+				for (const [sessionId, data] of Object.entries(sessions)) {
+					if (typeof data === 'string') {
+						flat[sessionId] = { origin: data };
+					} else {
+						flat[sessionId] = {
+							origin: data.origin,
+							sessionName: data.sessionName,
+							starred: data.starred,
+							contextUsage: data.contextUsage,
+						};
+					}
+				}
+			}
+			return flat;
+		})
 	);
 
 	ipcMain.handle(

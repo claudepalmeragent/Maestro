@@ -1241,6 +1241,17 @@ export class ClaudeSessionStorage implements AgentSessionStorage {
 			sshConfig
 		);
 
+		// Pre-load ALL origins flattened by session ID for efficient lookup.
+		// Session IDs are globally unique UUIDs — project path scoping is unnecessary
+		// and the lossy decodeProjectPath would cause mismatches for paths with dashes/dots.
+		const allOrigins = this.originsStore.get('origins', {});
+		const flatOrigins: Record<string, StoredOriginData> = {};
+		for (const sessions of Object.values(allOrigins)) {
+			for (const [sessionId, data] of Object.entries(sessions)) {
+				flatOrigins[sessionId] = data;
+			}
+		}
+
 		const sessions = pageFiles.map((fileInfo) => {
 			const preview = batchPreviews.data?.get(fileInfo.filePath);
 			const session = parseLightweightPreview(
@@ -1249,8 +1260,20 @@ export class ClaudeSessionStorage implements AgentSessionStorage {
 				fileInfo.decodedProjectPath,
 				{ size: fileInfo.sizeBytes, mtimeMs: fileInfo.modifiedAt }
 			);
-			const sessionProjectOrigins = this.getProjectOrigins(fileInfo.decodedProjectPath);
-			return this.attachOriginInfo(session, sessionProjectOrigins);
+			// Look up origin info directly by session ID from flat map
+			const originData = flatOrigins[fileInfo.sessionId];
+			if (originData) {
+				const origin = typeof originData === 'string' ? originData : originData?.origin;
+				const sessionName = typeof originData === 'object' ? originData?.sessionName : undefined;
+				const starred = typeof originData === 'object' ? originData?.starred : undefined;
+				return {
+					...session,
+					origin: origin as AgentSessionOrigin | undefined,
+					sessionName,
+					starred,
+				};
+			}
+			return session;
 		});
 
 		const validSessions = sessions.filter((s): s is NonNullable<typeof s> => s !== null);

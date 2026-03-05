@@ -146,4 +146,79 @@ describe('batchExtractSessionPreviewsRemote', () => {
 		const command = sshCall[1][sshCall[1].length - 1];
 		expect(command).toContain("'\\''");
 	});
+
+	it('should verify shell script prefers assistant messages over user messages', async () => {
+		// The shell script should try assistant type first, then fall back to user
+		const stdout = [
+			'===PREVIEW:/path/session1.jsonl===',
+			'LINES:50',
+			'FIRST_TS:2026-01-01T00:00:00Z',
+			'LAST_TS:2026-01-01T01:00:00Z',
+			'MSG:I can help you with that React component.',
+			'===END_PREVIEW===',
+		].join('\n');
+
+		const deps = createMockDeps(stdout);
+		const result = await batchExtractSessionPreviewsRemote(
+			['/path/session1.jsonl'],
+			mockSshConfig,
+			deps
+		);
+
+		expect(result.success).toBe(true);
+		const s1 = result.data?.get('/path/session1.jsonl');
+		expect(s1?.firstMessage).toBe('I can help you with that React component.');
+
+		// Verify the shell script was called with assistant-first grep pattern
+		const execCall = (deps.execSsh as ReturnType<typeof vi.fn>).mock.calls[0];
+		const sshArgs = execCall[1];
+		const scriptArg = sshArgs[sshArgs.length - 1]; // Shell script is last ssh arg
+		expect(scriptArg).toContain('"type":"assistant"');
+		// Assistant grep should come BEFORE user grep in the script
+		const assistantIdx = scriptArg.indexOf('grep -m 1 \'"type":"assistant"\'');
+		const userIdx = scriptArg.indexOf('grep -m 1 \'"type":"user"\'');
+		expect(assistantIdx).toBeLessThan(userIdx);
+	});
+
+	it('should verify shell script scans 20 lines', async () => {
+		const stdout = [
+			'===PREVIEW:/path/session1.jsonl===',
+			'LINES:100',
+			'FIRST_TS:2026-01-01T00:00:00Z',
+			'LAST_TS:2026-01-01T01:00:00Z',
+			'MSG:Some message',
+			'===END_PREVIEW===',
+		].join('\n');
+
+		const deps = createMockDeps(stdout);
+		await batchExtractSessionPreviewsRemote(['/path/session1.jsonl'], mockSshConfig, deps);
+
+		// Verify the shell script uses head -n 20 (not head -n 10)
+		const execCall = (deps.execSsh as ReturnType<typeof vi.fn>).mock.calls[0];
+		const sshArgs = execCall[1];
+		const scriptArg = sshArgs[sshArgs.length - 1];
+		expect(scriptArg).toContain('head -n 20');
+		expect(scriptArg).not.toContain('head -n 10');
+	});
+
+	it('should verify shell script truncates to 200 chars', async () => {
+		const stdout = [
+			'===PREVIEW:/path/session1.jsonl===',
+			'LINES:10',
+			'FIRST_TS:2026-01-01T00:00:00Z',
+			'LAST_TS:2026-01-01T01:00:00Z',
+			'MSG:Short message',
+			'===END_PREVIEW===',
+		].join('\n');
+
+		const deps = createMockDeps(stdout);
+		await batchExtractSessionPreviewsRemote(['/path/session1.jsonl'], mockSshConfig, deps);
+
+		// Verify the shell script uses cut -c1-200 (not cut -c1-250)
+		const execCall = (deps.execSsh as ReturnType<typeof vi.fn>).mock.calls[0];
+		const sshArgs = execCall[1];
+		const scriptArg = sshArgs[sshArgs.length - 1];
+		expect(scriptArg).toContain('cut -c1-200');
+		expect(scriptArg).not.toContain('cut -c1-250');
+	});
 });

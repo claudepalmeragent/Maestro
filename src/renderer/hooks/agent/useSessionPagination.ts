@@ -114,17 +114,15 @@ export function useSessionPagination({
 				const starredFromOrigins = new Set<string>();
 
 				if (agentId === 'claude-code') {
-					// Claude Code uses its own origins store (claude:getSessionOrigins)
-					const origins = await window.maestro.claude.getSessionOrigins(projectPath);
+					// Load ALL origins flattened by session ID (not scoped by project path)
+					// Session IDs are globally unique UUIDs, so project path scoping is unnecessary
+					// and causes mismatches for SSH remote sessions where sessions span multiple project dirs
+					const origins = await window.maestro.claude.getAllOriginsBySessionId();
 					for (const [sessionId, originData] of Object.entries(origins)) {
-						if (typeof originData === 'object') {
-							if (originData?.starred) {
-								starredFromOrigins.add(sessionId);
-							}
-							originsMap.set(sessionId, originData);
-						} else if (typeof originData === 'string') {
-							originsMap.set(sessionId, { origin: originData });
+						if (originData?.starred) {
+							starredFromOrigins.add(sessionId);
 						}
+						originsMap.set(sessionId, originData);
 					}
 				} else {
 					// Other agents (Codex, OpenCode, etc.) use the generic origins store

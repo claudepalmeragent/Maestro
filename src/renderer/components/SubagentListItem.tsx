@@ -12,7 +12,12 @@ import {
 } from 'lucide-react';
 import type { Theme } from '../types';
 import type { SubagentInfo } from '../types';
-import { formatRelativeTime, formatNumber, getCostTooltip } from '../utils/formatters';
+import {
+	formatRelativeTime,
+	formatNumber,
+	getCostTooltip,
+	sanitizePreviewText,
+} from '../utils/formatters';
 
 interface SubagentListItemProps {
 	subagent: SubagentInfo;
@@ -161,7 +166,8 @@ export function SubagentListItem({
 					opacity: 0.8,
 				}}
 			>
-				{subagent.firstMessage || '(No preview)'}
+				{(subagent.firstMessage ? sanitizePreviewText(subagent.firstMessage) : null) ||
+					'(No preview)'}
 			</span>
 
 			{/* Metadata */}

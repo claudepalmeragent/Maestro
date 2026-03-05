@@ -177,6 +177,7 @@ describe('Claude IPC handlers', () => {
 				'claude:updateSessionStarred',
 				'claude:updateSessionContextUsage',
 				'claude:getSessionOrigins',
+				'claude:getAllOriginsBySessionId',
 				'claude:getAllNamedSessions',
 			];
 
@@ -223,7 +224,7 @@ describe('Claude IPC handlers', () => {
 			expect(result[0]).toMatchObject({
 				sessionId: expect.stringMatching(/^session-/),
 				projectPath: '/test/project',
-				firstMessage: 'Hello world',
+				firstMessage: 'Hi there!',
 			});
 		});
 
@@ -464,7 +465,7 @@ describe('Claude IPC handlers', () => {
 			expect(result).toHaveLength(1);
 			expect(result[0]).toMatchObject({
 				sessionId: 'session-corrupt',
-				firstMessage: 'Valid message',
+				firstMessage: 'Response', // Prefers assistant message over user message
 				messageCount: 2, // Still counts via regex
 			});
 		});
@@ -495,6 +496,64 @@ describe('Claude IPC handlers', () => {
 			expect(result).toHaveLength(1);
 			// Cost = (1M * 3 + 1M * 15 + 1M * 0.3 + 1M * 3.75) / 1M = 3 + 15 + 0.3 + 3.75 = 22.05
 			expect(result[0].costUsd).toBeCloseTo(22.05, 2);
+		});
+
+		it('should prefer assistant message over user message for firstMessage preview', async () => {
+			const fs = await import('fs/promises');
+
+			vi.mocked(fs.default.access).mockResolvedValue(undefined);
+			vi.mocked(fs.default.readdir).mockResolvedValue(['session-test1.jsonl'] as unknown as Awaited<
+				ReturnType<typeof fs.default.readdir>
+			>);
+
+			const mockMtime = new Date('2024-01-15T10:00:00Z');
+			vi.mocked(fs.default.stat).mockResolvedValue({
+				size: 1024,
+				mtime: mockMtime,
+			} as unknown as Awaited<ReturnType<typeof fs.default.stat>>);
+
+			// User message comes first (system prompt), then assistant message
+			const sessionContent = [
+				'{"type":"user","message":{"role":"user","content":"You are a helpful assistant. Follow these instructions..."},"timestamp":"2024-01-15T09:00:00Z","uuid":"uuid-1"}',
+				'{"type":"assistant","message":{"role":"assistant","content":"I can help you with that!"},"timestamp":"2024-01-15T09:01:00Z","uuid":"uuid-2"}',
+			].join('\n');
+
+			vi.mocked(fs.default.readFile).mockResolvedValue(sessionContent);
+
+			const handler = handlers.get('claude:listSessions');
+			const result = await handler!({} as any, '/test/project');
+
+			expect(result).toHaveLength(1);
+			// Should show assistant message, not the system prompt user message
+			expect(result[0].firstMessage).toContain('I can help you with that!');
+		});
+
+		it('should fall back to user message when no assistant message exists', async () => {
+			const fs = await import('fs/promises');
+
+			vi.mocked(fs.default.access).mockResolvedValue(undefined);
+			vi.mocked(fs.default.readdir).mockResolvedValue(['session-test2.jsonl'] as unknown as Awaited<
+				ReturnType<typeof fs.default.readdir>
+			>);
+
+			const mockMtime = new Date('2024-01-15T10:00:00Z');
+			vi.mocked(fs.default.stat).mockResolvedValue({
+				size: 512,
+				mtime: mockMtime,
+			} as unknown as Awaited<ReturnType<typeof fs.default.stat>>);
+
+			// Only a user message, no assistant
+			const sessionContent =
+				'{"type":"user","message":{"role":"user","content":"Hello, I need help"},"timestamp":"2024-01-15T09:00:00Z","uuid":"uuid-1"}\n';
+
+			vi.mocked(fs.default.readFile).mockResolvedValue(sessionContent);
+
+			const handler = handlers.get('claude:listSessions');
+			const result = await handler!({} as any, '/test/project');
+
+			expect(result).toHaveLength(1);
+			// Should show user message when no assistant message available
+			expect(result[0].firstMessage).toContain('Hello, I need help');
 		});
 	});
 
@@ -1759,6 +1818,81 @@ not valid json at all
 			const writtenContent = vi.mocked(fs.default.writeFile).mock.calls[0][1] as string;
 			// Only newline should remain (empty file basically)
 			expect(writtenContent.trim()).toBe('');
+		});
+	});
+
+	describe('claude:getAllOriginsBySessionId', () => {
+		it('should return empty object when no origins exist', async () => {
+			mockClaudeSessionOriginsStore.get.mockReturnValue({});
+
+			const handler = handlers.get('claude:getAllOriginsBySessionId');
+			const result = await handler!({} as any);
+
+			expect(result).toEqual({});
+		});
+
+		it('should flatten origins from multiple project paths into session-id-keyed map', async () => {
+			mockClaudeSessionOriginsStore.get.mockReturnValue({
+				'/app': {
+					'session-aaa': 'user',
+					'session-bbb': { origin: 'auto', sessionName: 'My Build Session', starred: true },
+				},
+				'/home/user/project': {
+					'session-ccc': { origin: 'user', sessionName: 'Debug Session' },
+					'session-ddd': 'auto',
+				},
+			});
+
+			const handler = handlers.get('claude:getAllOriginsBySessionId');
+			const result = await handler!({} as any);
+
+			expect(result['session-aaa']).toEqual({ origin: 'user' });
+			expect(result['session-bbb']).toEqual({
+				origin: 'auto',
+				sessionName: 'My Build Session',
+				starred: true,
+				contextUsage: undefined,
+			});
+			expect(result['session-ccc']).toEqual({
+				origin: 'user',
+				sessionName: 'Debug Session',
+				starred: undefined,
+				contextUsage: undefined,
+			});
+			expect(result['session-ddd']).toEqual({ origin: 'auto' });
+		});
+
+		it('should handle string-only origin data (legacy format)', async () => {
+			mockClaudeSessionOriginsStore.get.mockReturnValue({
+				'/app': {
+					'session-111': 'user',
+					'session-222': 'auto',
+				},
+			});
+
+			const handler = handlers.get('claude:getAllOriginsBySessionId');
+			const result = await handler!({} as any);
+
+			expect(result['session-111']).toEqual({ origin: 'user' });
+			expect(result['session-222']).toEqual({ origin: 'auto' });
+		});
+
+		it('should include contextUsage when present', async () => {
+			mockClaudeSessionOriginsStore.get.mockReturnValue({
+				'/app': {
+					'session-xyz': { origin: 'user', sessionName: 'Heavy Session', contextUsage: 85 },
+				},
+			});
+
+			const handler = handlers.get('claude:getAllOriginsBySessionId');
+			const result = await handler!({} as any);
+
+			expect(result['session-xyz']).toEqual({
+				origin: 'user',
+				sessionName: 'Heavy Session',
+				starred: undefined,
+				contextUsage: 85,
+			});
 		});
 	});
 

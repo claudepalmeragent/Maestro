@@ -439,4 +439,19 @@ describe('SubagentListItem', () => {
 		// (it stays the same because of isSelected check in handlers)
 		expect(button.style.background).toBe(initialBackground);
 	});
+
+	it('should sanitize newline characters in first message preview', () => {
+		const subagent = createMockSubagent({
+			firstMessage: 'Search for files\\nin the codebase\\nand report back',
+		});
+
+		const { container } = render(
+			<SubagentListItem subagent={subagent} theme={mockTheme} onClick={() => {}} />
+		);
+
+		// Should not contain literal \n — should be replaced with spaces
+		const textContent = container.textContent || '';
+		expect(textContent).not.toContain('\\n');
+		expect(textContent).toContain('Search for files in the codebase and report back');
+	});
 });

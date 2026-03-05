@@ -1362,6 +1362,46 @@ function MaestroConsoleInner() {
 						setSessions(restoredSessions);
 					}
 
+					// Sync tab names and starred status to the Claude session origins store.
+					// This backfills data for tabs modified before agentSessionId was set
+					// (handleRenameTab/handleTabStar only persist if agentSessionId is non-null).
+					// Fire-and-forget — does not block startup or affect UI.
+					// Same pattern as TabSwitcherModal lines 234-249.
+					(async () => {
+						try {
+							for (const session of restoredSessions) {
+								const agentId = session.toolType || 'claude-code';
+								for (const tab of session.aiTabs || []) {
+									if (!tab.agentSessionId) continue;
+									if (tab.name) {
+										if (agentId === 'claude-code') {
+											window.maestro.claude
+												.updateSessionName(session.projectRoot, tab.agentSessionId, tab.name)
+												.catch(() => {});
+										} else {
+											window.maestro.agentSessions
+												.setSessionName(agentId, session.projectRoot, tab.agentSessionId, tab.name)
+												.catch(() => {});
+										}
+									}
+									if (tab.starred) {
+										if (agentId === 'claude-code') {
+											window.maestro.claude
+												.updateSessionStarred(session.projectRoot, tab.agentSessionId, true)
+												.catch(() => {});
+										} else {
+											window.maestro.agentSessions
+												.setSessionStarred(agentId, session.projectRoot, tab.agentSessionId, true)
+												.catch(() => {});
+										}
+									}
+								}
+							}
+						} catch (err) {
+							console.warn('[App] Failed to sync tab metadata to origins store:', err);
+						}
+					})();
+
 					// For remote (SSH) sessions, fetch git info in background to avoid blocking
 					// startup on SSH connection timeouts. This runs after UI is shown.
 					for (const session of restoredSessions) {

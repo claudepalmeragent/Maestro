@@ -31,7 +31,12 @@ import {
 	Zap,
 } from 'lucide-react';
 import type { Theme } from '../types';
-import { formatSize, formatRelativeTime, getCostTooltip } from '../utils/formatters';
+import {
+	formatSize,
+	formatRelativeTime,
+	getCostTooltip,
+	sanitizePreviewText,
+} from '../utils/formatters';
 import type { ClaudeSession } from '../hooks';
 
 /**
@@ -253,7 +258,8 @@ export function SessionListItem({
 						className="font-medium truncate text-sm flex-1 min-w-0"
 						style={{ color: session.sessionName ? theme.colors.textDim : theme.colors.textMain }}
 					>
-						{session.firstMessage || `Session ${session.sessionId.slice(0, 8)}...`}
+						{(session.firstMessage ? sanitizePreviewText(session.firstMessage) : null) ||
+							`Session ${session.sessionId.slice(0, 8)}...`}
 					</span>
 					{/* Rename button for sessions without a name (shows on hover) */}
 					{!session.sessionName && !isRenaming && (

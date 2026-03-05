@@ -191,6 +191,14 @@ export function createClaudeApi() {
 			logDeprecationWarning('getSessionOrigins');
 			return ipcRenderer.invoke('claude:getSessionOrigins', projectPath);
 		},
+		getAllOriginsBySessionId: (): Promise<
+			Record<
+				string,
+				{ origin?: string; sessionName?: string; starred?: boolean; contextUsage?: number }
+			>
+		> => {
+			return ipcRenderer.invoke('claude:getAllOriginsBySessionId');
+		},
 		getAllNamedSessions: (): Promise<NamedSessionEntry[]> => {
 			logDeprecationWarning('getAllNamedSessions');
 			return ipcRenderer.invoke('claude:getAllNamedSessions');

@@ -136,6 +136,7 @@ export function AgentSessionsBrowser({
 		hasMoreSessions,
 		isLoadingMoreSessions,
 		totalSessionCount,
+		loadMoreSessions,
 		handleSessionsScroll,
 		sessionsContainerRef,
 		updateSession,
@@ -604,6 +605,30 @@ export function AgentSessionsBrowser({
 		showAllSessions,
 		namedOnly,
 	});
+
+	// Auto-load more sessions when Named filter is active but results are sparse.
+	// This creates a self-sustaining loop: each page load triggers a re-filter,
+	// and if results are still sparse, another page is loaded — until the view is
+	// filled or all sessions are exhausted.
+	const NAMED_FILTER_MIN_RESULTS = 20;
+	useEffect(() => {
+		if (
+			namedOnly &&
+			!loading &&
+			!isLoadingMoreSessions &&
+			hasMoreSessions &&
+			filteredSessions.length < NAMED_FILTER_MIN_RESULTS
+		) {
+			loadMoreSessions();
+		}
+	}, [
+		namedOnly,
+		loading,
+		isLoadingMoreSessions,
+		hasMoreSessions,
+		filteredSessions.length,
+		loadMoreSessions,
+	]);
 
 	// Stats always show totals for ALL sessions (fetched progressively from backend)
 	const stats = useMemo(() => {

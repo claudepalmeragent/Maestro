@@ -491,6 +491,7 @@ const mockMaestro = {
 		onProjectStatsUpdate: vi.fn().mockReturnValue(() => {}),
 		getAllNamedSessions: vi.fn().mockResolvedValue([]),
 		getSessionOrigins: vi.fn().mockResolvedValue({}),
+		getAllOriginsBySessionId: vi.fn().mockResolvedValue({}),
 		updateSessionName: vi.fn().mockResolvedValue(undefined),
 		updateSessionStarred: vi.fn().mockResolvedValue(undefined),
 		registerSessionOrigin: vi.fn().mockResolvedValue(undefined),

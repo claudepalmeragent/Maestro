@@ -1300,6 +1300,17 @@ interface MaestroAPI {
 				  }
 			>
 		>;
+		getAllOriginsBySessionId: () => Promise<
+			Record<
+				string,
+				{
+					origin?: string;
+					sessionName?: string;
+					starred?: boolean;
+					contextUsage?: number;
+				}
+			>
+		>;
 		getAllNamedSessions: () => Promise<
 			Array<{
 				agentId: string;

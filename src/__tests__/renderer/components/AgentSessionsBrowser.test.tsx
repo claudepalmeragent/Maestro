@@ -176,7 +176,7 @@ describe('AgentSessionsBrowser', () => {
 		vi.mocked(window.maestro.agentSessions.search).mockResolvedValue([]);
 
 		// Setup mock implementations for Claude-specific features (origins, stats)
-		vi.mocked(window.maestro.claude.getSessionOrigins).mockResolvedValue({});
+		vi.mocked(window.maestro.claude.getAllOriginsBySessionId).mockResolvedValue({});
 		vi.mocked(window.maestro.claude.getProjectStats).mockResolvedValue(undefined);
 		vi.mocked(window.maestro.claude.onProjectStatsUpdate).mockImplementation((callback) => {
 			projectStatsCallback = callback;
@@ -544,7 +544,7 @@ describe('AgentSessionsBrowser', () => {
 				totalCount: 1,
 				nextCursor: null,
 			});
-			vi.mocked(window.maestro.claude.getSessionOrigins).mockResolvedValue({
+			vi.mocked(window.maestro.claude.getAllOriginsBySessionId).mockResolvedValue({
 				'session-1': { origin: 'user', starred: true },
 			});
 
@@ -1126,6 +1126,115 @@ describe('AgentSessionsBrowser', () => {
 			expect(screen.queryByText('Unnamed one')).not.toBeInTheDocument();
 		});
 
+		it('auto-loads more sessions when Named filter results are sparse', async () => {
+			// First page: 3 sessions, only 1 named. hasMore = true
+			const firstPageSessions = [
+				createMockClaudeSession({
+					sessionId: 'session-named-1',
+					firstMessage: 'Named session',
+					sessionName: 'My Session',
+				}),
+				createMockClaudeSession({ sessionId: 'session-2', firstMessage: 'Unnamed A' }),
+				createMockClaudeSession({ sessionId: 'session-3', firstMessage: 'Unnamed B' }),
+			];
+
+			// Second page: 2 more sessions, 1 named. hasMore = false
+			const secondPageSessions = [
+				createMockClaudeSession({
+					sessionId: 'session-named-2',
+					firstMessage: 'Another named',
+					sessionName: 'Second Named',
+				}),
+				createMockClaudeSession({ sessionId: 'session-5', firstMessage: 'Unnamed C' }),
+			];
+
+			vi.mocked(window.maestro.agentSessions.listPaginated)
+				.mockResolvedValueOnce({
+					sessions: firstPageSessions,
+					hasMore: true,
+					totalCount: 5,
+					nextCursor: 'cursor-1',
+				})
+				.mockResolvedValueOnce({
+					sessions: secondPageSessions,
+					hasMore: false,
+					totalCount: 5,
+					nextCursor: null,
+				});
+
+			await act(async () => {
+				renderWithProvider(<AgentSessionsBrowser {...createDefaultProps()} />);
+				await vi.runAllTimersAsync();
+			});
+
+			// Click Named checkbox
+			const namedCheckbox = screen.getByLabelText('Named');
+			await act(async () => {
+				fireEvent.click(namedCheckbox);
+				await vi.runAllTimersAsync();
+			});
+
+			// Should have auto-loaded second page since named results < 20
+			// listPaginated called: once for initial load, once for auto-load
+			expect(window.maestro.agentSessions.listPaginated).toHaveBeenCalledTimes(2);
+		});
+
+		it('does not auto-load when Named filter has enough results', async () => {
+			// Create 25 named sessions — above the threshold of 20
+			const sessions = Array.from({ length: 25 }, (_, i) =>
+				createMockClaudeSession({
+					sessionId: `session-${i}`,
+					firstMessage: `Session ${i}`,
+					sessionName: `Name ${i}`,
+				})
+			);
+
+			vi.mocked(window.maestro.agentSessions.listPaginated).mockResolvedValue({
+				sessions,
+				hasMore: true,
+				totalCount: 50,
+				nextCursor: 'cursor-1',
+			});
+
+			await act(async () => {
+				renderWithProvider(<AgentSessionsBrowser {...createDefaultProps()} />);
+				await vi.runAllTimersAsync();
+			});
+
+			// Click Named checkbox
+			const namedCheckbox = screen.getByLabelText('Named');
+			await act(async () => {
+				fireEvent.click(namedCheckbox);
+				await vi.runAllTimersAsync();
+			});
+
+			// Should NOT have loaded more — 25 named results is above threshold
+			expect(window.maestro.agentSessions.listPaginated).toHaveBeenCalledTimes(1);
+		});
+
+		it('does not auto-load when Named filter is off', async () => {
+			// Only 1 session, unnamed. hasMore = true
+			const sessions = [
+				createMockClaudeSession({ sessionId: 'session-1', firstMessage: 'Unnamed' }),
+			];
+
+			vi.mocked(window.maestro.agentSessions.listPaginated).mockResolvedValue({
+				sessions,
+				hasMore: true,
+				totalCount: 100,
+				nextCursor: 'cursor-1',
+			});
+
+			await act(async () => {
+				renderWithProvider(<AgentSessionsBrowser {...createDefaultProps()} />);
+				await vi.runAllTimersAsync();
+			});
+
+			// Named filter is off (default), so no auto-load should happen
+			// even though there's only 1 visible session
+			expect(window.maestro.agentSessions.listPaginated).toHaveBeenCalledTimes(1);
+		});
+
 		it('shows all sessions with show all checkbox', async () => {
 			const sessions = [
 				createMockClaudeSession({ sessionId: 'd02d0bd6-test', firstMessage: 'UUID session' }),
@@ -1261,7 +1370,7 @@ describe('AgentSessionsBrowser', () => {
 				totalCount: 1,
 				nextCursor: null,
 			});
-			vi.mocked(window.maestro.claude.getSessionOrigins).mockResolvedValue({
+			vi.mocked(window.maestro.claude.getAllOriginsBySessionId).mockResolvedValue({
 				'session-1': { origin: 'user', starred: true },
 			});
 
@@ -1298,7 +1407,7 @@ describe('AgentSessionsBrowser', () => {
 				totalCount: 1,
 				nextCursor: null,
 			});
-			vi.mocked(window.maestro.claude.getSessionOrigins).mockResolvedValue({});
+			vi.mocked(window.maestro.claude.getAllOriginsBySessionId).mockResolvedValue({});
 
 			const onUpdateTab = vi.fn();
 			// Create session where cwd differs from projectRoot (simulates user did 'cd' in terminal)
@@ -1349,7 +1458,7 @@ describe('AgentSessionsBrowser', () => {
 				totalCount: 2,
 				nextCursor: null,
 			});
-			vi.mocked(window.maestro.claude.getSessionOrigins).mockResolvedValue({
+			vi.mocked(window.maestro.claude.getAllOriginsBySessionId).mockResolvedValue({
 				'session-2': { origin: 'user', starred: true },
 			});
 
@@ -1579,7 +1688,7 @@ describe('AgentSessionsBrowser', () => {
 				totalCount: 1,
 				nextCursor: null,
 			});
-			vi.mocked(window.maestro.claude.getSessionOrigins).mockResolvedValue({});
+			vi.mocked(window.maestro.claude.getAllOriginsBySessionId).mockResolvedValue({});
 
 			const onUpdateTab = vi.fn();
 			// Create session where cwd differs from projectRoot
@@ -2281,7 +2390,7 @@ describe('AgentSessionsBrowser', () => {
 				totalCount: 1,
 				nextCursor: null,
 			});
-			vi.mocked(window.maestro.claude.getSessionOrigins).mockResolvedValue({
+			vi.mocked(window.maestro.claude.getAllOriginsBySessionId).mockResolvedValue({
 				'session-1': { origin: 'user', starred: true },
 			});
 

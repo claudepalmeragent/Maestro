@@ -15,7 +15,7 @@ import { useSessionPagination } from '../../../renderer/hooks';
 
 // Mock the window.maestro API
 const mockListPaginated = vi.fn();
-const mockGetSessionOrigins = vi.fn();
+const mockGetAllOriginsBySessionId = vi.fn();
 const mockGetProjectStats = vi.fn();
 const mockGetOrigins = vi.fn();
 
@@ -31,7 +31,7 @@ beforeEach(() => {
 			getOrigins: mockGetOrigins,
 		},
 		claude: {
-			getSessionOrigins: mockGetSessionOrigins,
+			getAllOriginsBySessionId: mockGetAllOriginsBySessionId,
 			getProjectStats: mockGetProjectStats,
 		},
 	};
@@ -43,7 +43,7 @@ beforeEach(() => {
 		totalCount: 0,
 		nextCursor: null,
 	});
-	mockGetSessionOrigins.mockResolvedValue({});
+	mockGetAllOriginsBySessionId.mockResolvedValue({});
 	mockGetProjectStats.mockResolvedValue({});
 	mockGetOrigins.mockResolvedValue({});
 });
@@ -81,8 +81,8 @@ describe('useSessionPagination', () => {
 			);
 		});
 
-		it('uses projectPath for loading starred sessions from origins', async () => {
-			mockGetSessionOrigins.mockResolvedValue({
+		it('uses getAllOriginsBySessionId for loading starred sessions from origins', async () => {
+			mockGetAllOriginsBySessionId.mockResolvedValue({
 				'session-1': { origin: 'user', starred: true },
 				'session-2': { origin: 'user', starred: false },
 			});
@@ -101,7 +101,7 @@ describe('useSessionPagination', () => {
 				expect(result.current.loading).toBe(false);
 			});
 
-			expect(mockGetSessionOrigins).toHaveBeenCalledWith('/path/to/project');
+			expect(mockGetAllOriginsBySessionId).toHaveBeenCalled();
 			expect(onStarredSessionsLoaded).toHaveBeenCalledWith(new Set(['session-1']));
 		});
 
@@ -133,7 +133,7 @@ describe('useSessionPagination', () => {
 			});
 
 			expect(mockListPaginated).not.toHaveBeenCalled();
-			expect(mockGetSessionOrigins).not.toHaveBeenCalled();
+			expect(mockGetAllOriginsBySessionId).not.toHaveBeenCalled();
 		});
 	});
 
@@ -322,7 +322,7 @@ describe('useSessionPagination', () => {
 				expect(result.current.loading).toBe(false);
 			});
 
-			expect(mockGetSessionOrigins).not.toHaveBeenCalled();
+			expect(mockGetAllOriginsBySessionId).not.toHaveBeenCalled();
 			expect(mockGetProjectStats).not.toHaveBeenCalled();
 			expect(mockListPaginated).toHaveBeenCalledWith(
 				'opencode',
