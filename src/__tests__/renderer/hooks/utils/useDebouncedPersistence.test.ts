@@ -153,19 +153,24 @@ describe('prepareSessionForPersistence', () => {
 			expect(result.state).toBe('idle');
 		});
 
-		it('should exclude closedTabHistory, agentError, sshConnectionFailed', () => {
+		it('should exclude agentError, sshConnectionFailed but persist closedTabHistory', () => {
 			const session = createTestSession({
-				closedTabHistory: [{ id: 'tab-old' }] as any,
+				closedTabHistory: [
+					{ tab: { id: 'tab-old', logs: [] }, closedAt: Date.now(), originalIndex: 0 },
+				] as any,
 				agentError: 'some error' as any,
 				agentErrorPaused: true,
 				agentErrorTabId: 'tab-1',
 				sshConnectionFailed: true,
 			});
 			const result = prepareSessionForPersistence(session);
-			// These are destructured out in the function — they should not exist on the result
-			expect((result as any).closedTabHistory).toBeUndefined();
+			// agentError and sshConnectionFailed are destructured out — they should not exist on the result
 			expect((result as any).agentError).toBeUndefined();
 			expect((result as any).sshConnectionFailed).toBeUndefined();
+			// closedTabHistory is now persisted with truncated logs
+			expect(result.closedTabHistory).toEqual([
+				{ tab: { id: 'tab-old', logs: [] }, closedAt: expect.any(Number), originalIndex: 0 },
+			]);
 		});
 	});
 

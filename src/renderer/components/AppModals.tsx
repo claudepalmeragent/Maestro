@@ -40,6 +40,7 @@ import type {
 	LeaderboardRegistration,
 	BatchRunState,
 	PromptLibraryEntry,
+	ClosedTab,
 } from '../types';
 import type { FileNode } from '../types/fileTree';
 import type { WizardStep } from './Wizard/WizardContext';
@@ -871,6 +872,8 @@ export interface AppUtilityModalsProps {
 		sessionName: string,
 		starred?: boolean
 	) => void;
+	closedTabHistory: ClosedTab[];
+	onReopenClosedTab: (closedTabIndex: number) => void;
 
 	// FileSearchModal
 	fuzzyFileSearchOpen: boolean;
@@ -1054,6 +1057,8 @@ export function AppUtilityModals({
 	onCloseTabSwitcher,
 	onTabSelect,
 	onNamedSessionSelect,
+	closedTabHistory,
+	onReopenClosedTab,
 	// FileSearchModal
 	fuzzyFileSearchOpen,
 	filteredFileTree,
@@ -1260,8 +1265,10 @@ export function AppUtilityModals({
 					projectRoot={activeSession.projectRoot}
 					agentId={activeSession.toolType}
 					shortcut={tabShortcuts.tabSwitcher}
+					closedTabHistory={closedTabHistory}
 					onTabSelect={onTabSelect}
 					onNamedSessionSelect={onNamedSessionSelect}
+					onReopenClosedTab={onReopenClosedTab}
 					onClose={onCloseTabSwitcher}
 				/>
 			)}
@@ -1966,6 +1973,8 @@ export interface AppModalsProps {
 		sessionName: string,
 		starred?: boolean
 	) => void;
+	closedTabHistory: ClosedTab[];
+	onReopenClosedTab: (closedTabIndex: number) => void;
 	fuzzyFileSearchOpen: boolean;
 	filteredFileTree: FileNode[];
 	onCloseFileSearch: () => void;
@@ -2288,6 +2297,8 @@ export function AppModals(props: AppModalsProps) {
 		onCloseTabSwitcher,
 		onTabSelect,
 		onNamedSessionSelect,
+		closedTabHistory,
+		onReopenClosedTab,
 		fuzzyFileSearchOpen,
 		filteredFileTree,
 		onCloseFileSearch,
@@ -2603,6 +2614,8 @@ export function AppModals(props: AppModalsProps) {
 				onCloseTabSwitcher={onCloseTabSwitcher}
 				onTabSelect={onTabSelect}
 				onNamedSessionSelect={onNamedSessionSelect}
+				closedTabHistory={closedTabHistory}
+				onReopenClosedTab={onReopenClosedTab}
 				fuzzyFileSearchOpen={fuzzyFileSearchOpen}
 				filteredFileTree={filteredFileTree}
 				onCloseFileSearch={onCloseFileSearch}

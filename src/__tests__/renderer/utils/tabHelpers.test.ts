@@ -34,6 +34,7 @@ import {
 	navigateToLastTab,
 	createMergedSession,
 	hasActiveWizard,
+	truncateClosedTabLogs,
 } from '../../../renderer/utils/tabHelpers';
 import type { LogEntry } from '../../../renderer/types';
 import type { Session, AITab, ClosedTab } from '../../../renderer/types';
@@ -1372,6 +1373,108 @@ describe('tabHelpers', () => {
 				},
 			});
 			expect(hasActiveWizard(tab)).toBe(true);
+		});
+	});
+
+	describe('truncateClosedTabLogs', () => {
+		const makeClosedTab = (logCount: number, overrides?: Partial<ClosedTab>): ClosedTab => ({
+			tab: {
+				id: 'closed-tab-1',
+				agentSessionId: 'agent-session-1',
+				name: 'Test Tab',
+				starred: false,
+				logs: Array.from({ length: logCount }, (_, i) => ({
+					id: `log-${i}`,
+					timestamp: Date.now() + i,
+					source: i % 2 === 0 ? ('user' as const) : ('stdout' as const),
+					text: `Message ${i}`,
+				})),
+				inputValue: '',
+				stagedImages: [],
+				createdAt: Date.now(),
+				state: 'idle' as const,
+			},
+			index: 0,
+			closedAt: Date.now(),
+			...overrides,
+		});
+
+		it('returns empty array for empty input', () => {
+			expect(truncateClosedTabLogs([])).toEqual([]);
+		});
+
+		it('returns empty array for undefined-like input', () => {
+			expect(truncateClosedTabLogs(undefined as unknown as ClosedTab[])).toEqual([]);
+			expect(truncateClosedTabLogs(null as unknown as ClosedTab[])).toEqual([]);
+		});
+
+		it('does not truncate tabs with 6 or fewer logs (bookend size * 2)', () => {
+			const entry = makeClosedTab(6);
+			const result = truncateClosedTabLogs([entry]);
+			expect(result[0].tab.logs).toHaveLength(6);
+			expect(result[0].tab.logs).toEqual(entry.tab.logs);
+		});
+
+		it('does not truncate tabs with exactly 6 logs (boundary)', () => {
+			const entry = makeClosedTab(6);
+			const result = truncateClosedTabLogs([entry]);
+			expect(result[0].tab.logs).toHaveLength(6);
+		});
+
+		it('truncates tabs with more than 6 logs to first 3 + last 3', () => {
+			const entry = makeClosedTab(20);
+			const result = truncateClosedTabLogs([entry]);
+			expect(result[0].tab.logs).toHaveLength(6);
+			// First 3 should be logs 0, 1, 2
+			expect(result[0].tab.logs[0].text).toBe('Message 0');
+			expect(result[0].tab.logs[1].text).toBe('Message 1');
+			expect(result[0].tab.logs[2].text).toBe('Message 2');
+			// Last 3 should be logs 17, 18, 19
+			expect(result[0].tab.logs[3].text).toBe('Message 17');
+			expect(result[0].tab.logs[4].text).toBe('Message 18');
+			expect(result[0].tab.logs[5].text).toBe('Message 19');
+		});
+
+		it('truncates tabs with exactly 7 logs (just over boundary)', () => {
+			const entry = makeClosedTab(7);
+			const result = truncateClosedTabLogs([entry]);
+			expect(result[0].tab.logs).toHaveLength(6);
+			expect(result[0].tab.logs[0].text).toBe('Message 0');
+			expect(result[0].tab.logs[2].text).toBe('Message 2');
+			expect(result[0].tab.logs[3].text).toBe('Message 4');
+			expect(result[0].tab.logs[5].text).toBe('Message 6');
+		});
+
+		it('handles tabs with empty logs', () => {
+			const entry = makeClosedTab(0);
+			const result = truncateClosedTabLogs([entry]);
+			expect(result[0].tab.logs).toHaveLength(0);
+		});
+
+		it('processes multiple closed tabs independently', () => {
+			const entries = [makeClosedTab(20), makeClosedTab(3), makeClosedTab(100)];
+			const result = truncateClosedTabLogs(entries);
+			expect(result).toHaveLength(3);
+			expect(result[0].tab.logs).toHaveLength(6); // Truncated
+			expect(result[1].tab.logs).toHaveLength(3); // Not truncated
+			expect(result[2].tab.logs).toHaveLength(6); // Truncated
+		});
+
+		it('preserves non-log fields on the closed tab entry', () => {
+			const entry = makeClosedTab(20, { index: 5, closedAt: 1234567890 });
+			const result = truncateClosedTabLogs([entry]);
+			expect(result[0].index).toBe(5);
+			expect(result[0].closedAt).toBe(1234567890);
+			expect(result[0].tab.name).toBe('Test Tab');
+			expect(result[0].tab.agentSessionId).toBe('agent-session-1');
+			expect(result[0].tab.starred).toBe(false);
+		});
+
+		it('does not mutate the original array', () => {
+			const entry = makeClosedTab(20);
+			const originalLogCount = entry.tab.logs.length;
+			truncateClosedTabLogs([entry]);
+			expect(entry.tab.logs).toHaveLength(originalLogCount);
 		});
 	});
 });

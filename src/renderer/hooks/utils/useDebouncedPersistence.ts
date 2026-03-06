@@ -14,6 +14,7 @@
 
 import { useEffect, useRef, useCallback, useState } from 'react';
 import type { Session } from '../../types';
+import { truncateClosedTabLogs } from '../../utils/tabHelpers';
 
 // Maximum persisted logs per AI tab (matches session persistence limit)
 const MAX_PERSISTED_LOGS_PER_TAB = 100;
@@ -23,7 +24,8 @@ const MAX_PERSISTED_LOGS_PER_TAB = 100;
  * 1. Filtering out tabs with active wizard state (incomplete wizards should not persist)
  * 2. Truncating logs in each AI tab to MAX_PERSISTED_LOGS_PER_TAB entries
  * 3. Resetting runtime-only state (busy state, thinking time, etc.)
- * 4. Excluding runtime-only fields (closedTabHistory, agentError, etc.)
+ * 4. Excluding runtime-only fields (agentError, etc.)
+ * 5. Persisting closedTabHistory with truncated logs for space efficiency
  *
  * This ensures sessions don't get stuck in busy state after app restart,
  * since underlying processes are gone after restart.
@@ -82,7 +84,6 @@ export const prepareSessionForPersistence = (session: Session): Session => {
 	// Return session without runtime-only fields
 
 	const {
-		closedTabHistory,
 		agentError,
 		agentErrorPaused,
 		agentErrorTabId,
@@ -99,6 +100,8 @@ export const prepareSessionForPersistence = (session: Session): Session => {
 		...sessionWithoutRuntimeFields,
 		aiTabs: truncatedTabs,
 		activeTabId: newActiveTabId,
+		// Persist closed tab history with truncated logs for space efficiency
+		closedTabHistory: truncateClosedTabLogs(session.closedTabHistory || []),
 		// Reset runtime-only session state - processes don't survive app restart
 		state: 'idle',
 		busySource: undefined,

@@ -1242,7 +1242,7 @@ function TabBarInner({
 						onClick={onOpenTabSearch}
 						className="flex items-center justify-center w-6 h-6 rounded hover:bg-white/10 transition-colors"
 						style={{ color: theme.colors.textDim }}
-						title="Search tabs (Cmd+Shift+O)"
+						title="Search tabs (⌥⌘T)"
 					>
 						<Search className="w-4 h-4" />
 					</button>

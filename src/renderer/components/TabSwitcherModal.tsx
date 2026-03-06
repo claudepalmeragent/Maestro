@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Search, Star } from 'lucide-react';
-import type { AITab, Theme, Shortcut, ToolType } from '../types';
+import type { AITab, ClosedTab, Theme, Shortcut, ToolType } from '../types';
 import { fuzzyMatchWithScore } from '../utils/search';
 import { useLayerStack } from '../contexts/LayerStackContext';
 import { useListNavigation } from '../hooks';
@@ -27,7 +27,10 @@ interface NamedSession {
 }
 
 /** Union type for items in the list */
-type ListItem = { type: 'open'; tab: AITab } | { type: 'named'; session: NamedSession };
+type ListItem =
+	| { type: 'open'; tab: AITab }
+	| { type: 'named'; session: NamedSession }
+	| { type: 'closed'; entry: ClosedTab; displayIndex: number };
 
 interface TabSwitcherModalProps {
 	theme: Theme;
@@ -36,6 +39,7 @@ interface TabSwitcherModalProps {
 	projectRoot: string; // The initial project directory (used for Claude session storage)
 	agentId?: string;
 	shortcut?: Shortcut;
+	closedTabHistory?: ClosedTab[];
 	onTabSelect: (tabId: string) => void;
 	onNamedSessionSelect: (
 		agentSessionId: string,
@@ -43,6 +47,7 @@ interface TabSwitcherModalProps {
 		sessionName: string,
 		starred?: boolean
 	) => void;
+	onReopenClosedTab?: (closedTabIndex: number) => void;
 	onClose: () => void;
 }
 
@@ -100,6 +105,29 @@ function getUuidPill(agentSessionId: string | undefined | null): string | null {
 }
 
 /**
+ * Get the display name for a closed tab.
+ * Priority: name > first UUID octet > first user message (truncated) > "Untitled Tab"
+ */
+function getClosedTabDisplayName(closedTab: ClosedTab): string {
+	const { tab } = closedTab;
+	if (tab.name) {
+		return tab.name;
+	}
+	if (tab.agentSessionId) {
+		return tab.agentSessionId.split('-')[0].toUpperCase();
+	}
+	// Try to derive a name from the first user message
+	const firstUserLog = tab.logs?.find((log) => log.source === 'user');
+	if (firstUserLog?.text) {
+		const trimmed = firstUserLog.text.trim();
+		if (trimmed.length > 0) {
+			return trimmed.length > 50 ? trimmed.substring(0, 50) + '...' : trimmed;
+		}
+	}
+	return 'Untitled Tab';
+}
+
+/**
  * Circular progress gauge component
  */
 function ContextGauge({
@@ -154,7 +182,7 @@ function ContextGauge({
 	);
 }
 
-type ViewMode = 'open' | 'all-named' | 'starred';
+type ViewMode = 'open' | 'all-named' | 'starred' | 'recently-closed';
 
 /**
  * Tab Switcher Modal - Quick navigation between AI tabs with fuzzy search.
@@ -168,8 +196,10 @@ export function TabSwitcherModal({
 	projectRoot,
 	agentId = 'claude-code',
 	shortcut,
+	closedTabHistory = [],
 	onTabSelect,
 	onNamedSessionSelect,
+	onReopenClosedTab,
 	onClose,
 }: TabSwitcherModalProps) {
 	const [search, setSearch] = useState('');
@@ -310,12 +340,34 @@ export function TabSwitcherModal({
 				const nameA =
 					a.type === 'open'
 						? getTabDisplayName(a.tab).toLowerCase()
-						: a.session.sessionName.toLowerCase();
+						: a.type === 'named'
+							? a.session.sessionName.toLowerCase()
+							: '';
 				const nameB =
 					b.type === 'open'
 						? getTabDisplayName(b.tab).toLowerCase()
-						: b.session.sessionName.toLowerCase();
+						: b.type === 'named'
+							? b.session.sessionName.toLowerCase()
+							: '';
 				return nameA.localeCompare(nameB);
+			});
+
+			return items;
+		} else if (viewMode === 'recently-closed') {
+			// Recently Closed mode - show tabs from closedTabHistory
+			const items: ListItem[] = closedTabHistory.map((entry, index) => ({
+				type: 'closed' as const,
+				entry,
+				displayIndex: index,
+			}));
+
+			// Sort by closedAt (most recent first) - history is already in this order
+			// but explicit sort ensures consistency
+			items.sort((a, b) => {
+				if (a.type === 'closed' && b.type === 'closed') {
+					return b.entry.closedAt - a.entry.closedAt;
+				}
+				return 0;
 			});
 
 			return items;
@@ -351,17 +403,21 @@ export function TabSwitcherModal({
 				const nameA =
 					a.type === 'open'
 						? getTabDisplayName(a.tab).toLowerCase()
-						: a.session.sessionName.toLowerCase();
+						: a.type === 'named'
+							? a.session.sessionName.toLowerCase()
+							: '';
 				const nameB =
 					b.type === 'open'
 						? getTabDisplayName(b.tab).toLowerCase()
-						: b.session.sessionName.toLowerCase();
+						: b.type === 'named'
+							? b.session.sessionName.toLowerCase()
+							: '';
 				return nameA.localeCompare(nameB);
 			});
 
 			return items;
 		}
-	}, [viewMode, tabs, namedSessions, openTabSessionIds, projectRoot]);
+	}, [viewMode, tabs, namedSessions, openTabSessionIds, projectRoot, closedTabHistory]);
 
 	// Filter items based on search query
 	const filteredItems = useMemo(() => {
@@ -377,6 +433,9 @@ export function TabSwitcherModal({
 			if (item.type === 'open') {
 				displayName = getTabDisplayName(item.tab);
 				uuid = item.tab.agentSessionId || '';
+			} else if (item.type === 'closed') {
+				displayName = getClosedTabDisplayName(item.entry);
+				uuid = item.entry.tab.agentSessionId || '';
 			} else {
 				displayName = item.session.sessionName;
 				uuid = item.session.agentSessionId;
@@ -404,6 +463,10 @@ export function TabSwitcherModal({
 			if (item) {
 				if (item.type === 'open') {
 					onTabSelect(item.tab.id);
+				} else if (item.type === 'closed') {
+					if (onReopenClosedTab) {
+						onReopenClosedTab(item.displayIndex);
+					}
 				} else {
 					onNamedSessionSelect(
 						item.session.agentSessionId,
@@ -415,7 +478,7 @@ export function TabSwitcherModal({
 				onClose();
 			}
 		},
-		[filteredItems, onTabSelect, onNamedSessionSelect, onClose]
+		[filteredItems, onTabSelect, onNamedSessionSelect, onReopenClosedTab, onClose]
 	);
 
 	// Use the list navigation hook for keyboard navigation
@@ -444,12 +507,14 @@ export function TabSwitcherModal({
 	const toggleViewMode = useCallback((reverse = false) => {
 		setViewMode((prev) => {
 			if (reverse) {
-				if (prev === 'open') return 'starred';
+				if (prev === 'open') return 'recently-closed';
+				if (prev === 'recently-closed') return 'starred';
 				if (prev === 'starred') return 'all-named';
 				return 'open';
 			} else {
 				if (prev === 'open') return 'all-named';
 				if (prev === 'all-named') return 'starred';
+				if (prev === 'starred') return 'recently-closed';
 				return 'open';
 			}
 		});
@@ -496,7 +561,9 @@ export function TabSwitcherModal({
 								? 'Search open tabs...'
 								: viewMode === 'starred'
 									? 'Search starred sessions...'
-									: 'Search named sessions...'
+									: viewMode === 'recently-closed'
+										? 'Search recently closed tabs...'
+										: 'Search named sessions...'
 						}
 						style={{ color: theme.colors.textMain }}
 						value={search}
@@ -578,6 +645,20 @@ export function TabSwitcherModal({
 									!openTabSessionIds.has(s.agentSessionId)
 							).length}
 						)
+					</button>
+					<button
+						onClick={() => setViewMode('recently-closed')}
+						className="px-3 py-1 rounded-full text-xs font-medium transition-colors"
+						style={{
+							backgroundColor:
+								viewMode === 'recently-closed' ? theme.colors.accent : theme.colors.bgMain,
+							color:
+								viewMode === 'recently-closed'
+									? theme.colors.accentForeground
+									: theme.colors.textDim,
+						}}
+					>
+						Recently Closed ({closedTabHistory.length})
 					</button>
 					<span className="text-[10px] opacity-50 ml-auto" style={{ color: theme.colors.textDim }}>
 						Tab / ⇧Tab to switch
@@ -698,7 +779,7 @@ export function TabSwitcherModal({
 									)}
 								</button>
 							);
-						} else {
+						} else if (item.type === 'named') {
 							// Named session (not open)
 							const { session } = item;
 							const uuidPill = getUuidPill(session.agentSessionId);
@@ -769,6 +850,89 @@ export function TabSwitcherModal({
 									</div>
 								</button>
 							);
+						} else {
+							// Recently closed tab
+							const { entry } = item;
+							const displayName = getClosedTabDisplayName(entry);
+							const uuidPill = getUuidPill(entry.tab.agentSessionId);
+
+							return (
+								<button
+									key={`closed-${entry.closedAt}-${entry.tab.agentSessionId || entry.index}`}
+									ref={isSelected ? selectedItemRef : null}
+									onClick={() => handleSelectByIndex(i)}
+									className="w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-opacity-10"
+									style={{
+										backgroundColor: isSelected ? theme.colors.accent : 'transparent',
+										color: isSelected ? theme.colors.accentForeground : theme.colors.textMain,
+									}}
+								>
+									{/* Number Badge */}
+									{showNumber ? (
+										<div
+											className="flex-shrink-0 w-5 h-5 rounded flex items-center justify-center text-xs font-bold"
+											style={{ backgroundColor: theme.colors.bgMain, color: theme.colors.textDim }}
+										>
+											{numberBadge}
+										</div>
+									) : (
+										<div className="flex-shrink-0 w-5 h-5" />
+									)}
+
+									{/* Closed indicator (red dot) */}
+									<div className="flex-shrink-0 w-2 h-2">
+										<div
+											className="w-2 h-2 rounded-full"
+											style={{ backgroundColor: theme.colors.error || '#ef4444' }}
+										/>
+									</div>
+
+									{/* Tab Info */}
+									<div className="flex flex-col flex-1 min-w-0">
+										<div className="flex items-center gap-2">
+											<span className="font-medium truncate">{displayName}</span>
+											{uuidPill && (
+												<span
+													className="text-[10px] px-1.5 py-0.5 rounded font-mono flex-shrink-0"
+													style={{
+														backgroundColor: isSelected
+															? 'rgba(255,255,255,0.2)'
+															: theme.colors.bgMain,
+														color: isSelected
+															? theme.colors.accentForeground
+															: theme.colors.textDim,
+													}}
+												>
+													{uuidPill}
+												</span>
+											)}
+											{entry.tab.starred && <span style={{ color: theme.colors.warning }}>★</span>}
+										</div>
+										<div className="flex items-center gap-3 text-[10px] opacity-60">
+											<span>{formatRelativeTime(entry.closedAt)}</span>
+											{entry.tab.usageStats && (
+												<span>
+													{formatTokensCompact(
+														entry.tab.usageStats.inputTokens + entry.tab.usageStats.outputTokens
+													)}{' '}
+													tokens
+												</span>
+											)}
+										</div>
+									</div>
+
+									{/* Closed badge */}
+									<div
+										className="flex-shrink-0 text-[10px] px-2 py-1 rounded"
+										style={{
+											backgroundColor: isSelected ? 'rgba(255,255,255,0.2)' : theme.colors.bgMain,
+											color: isSelected ? theme.colors.accentForeground : theme.colors.textDim,
+										}}
+									>
+										Closed
+									</div>
+								</button>
+							);
 						}
 					})}
 
@@ -781,7 +945,9 @@ export function TabSwitcherModal({
 								? 'No open tabs'
 								: viewMode === 'starred'
 									? 'No starred sessions'
-									: 'No named sessions found'}
+									: viewMode === 'recently-closed'
+										? 'No recently closed tabs'
+										: 'No named sessions found'}
 						</div>
 					)}
 				</div>
@@ -793,7 +959,13 @@ export function TabSwitcherModal({
 				>
 					<span>
 						{filteredItems.length}{' '}
-						{viewMode === 'open' ? 'tabs' : viewMode === 'starred' ? 'starred' : 'sessions'}
+						{viewMode === 'open'
+							? 'tabs'
+							: viewMode === 'starred'
+								? 'starred'
+								: viewMode === 'recently-closed'
+									? 'closed'
+									: 'sessions'}
 					</span>
 					<span>↑↓ navigate • Enter select • ⌘1-9 quick select</span>
 				</div>

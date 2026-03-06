@@ -139,7 +139,7 @@ describe('TabBar', () => {
 				/>
 			);
 
-			expect(screen.getByTitle('Search tabs (Cmd+Shift+O)')).toBeInTheDocument();
+			expect(screen.getByTitle('Search tabs (⌥⌘T)')).toBeInTheDocument();
 		});
 
 		it('does not render tab search button when onOpenTabSearch not provided', () => {
@@ -154,7 +154,7 @@ describe('TabBar', () => {
 				/>
 			);
 
-			expect(screen.queryByTitle('Search tabs (Cmd+Shift+O)')).not.toBeInTheDocument();
+			expect(screen.queryByTitle('Search tabs (⌥⌘T)')).not.toBeInTheDocument();
 		});
 	});
 
@@ -659,7 +659,7 @@ describe('TabBar', () => {
 				/>
 			);
 
-			fireEvent.click(screen.getByTitle('Search tabs (Cmd+Shift+O)'));
+			fireEvent.click(screen.getByTitle('Search tabs (⌥⌘T)'));
 			expect(mockOnOpenTabSearch).toHaveBeenCalled();
 		});
 	});

@@ -51,7 +51,7 @@ The `Session` interface contains 50+ fields organized by domain. Below is a cate
 |---|---|---|
 | `aiTabs` | `AITab[]` | Array of conversation tabs |
 | `activeTabId` | `string \| null` | Currently active tab ID |
-| `closedTabHistory` | `AITab[]` | Recently closed tabs for undo |
+| `closedTabHistory` | `ClosedTab[]` | Recently closed tabs for undo/search (max 25, persisted with truncated logs) |
 
 ### Execution Queue
 

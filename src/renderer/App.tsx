@@ -1266,7 +1266,7 @@ function MaestroConsoleInner() {
 					agentError: undefined,
 					agentErrorPaused: false,
 					synopsisInProgress: false, // Runtime-only, clear to prevent queue lock on restart
-					closedTabHistory: [], // Runtime-only, reset on load
+					closedTabHistory: correctedSession.closedTabHistory || [], // Persisted, hydrate from store
 				};
 			} else {
 				// Process spawn failed
@@ -12442,6 +12442,32 @@ You are taking over this conversation. Based on the context above, provide a bri
 		},
 		[handleResumeSession, setActiveFocus]
 	);
+	const handleReopenClosedTabFromSearch = useCallback(
+		(closedTabIndex: number) => {
+			if (!activeSession) return;
+
+			const history = activeSession.closedTabHistory;
+			if (!history || closedTabIndex < 0 || closedTabIndex >= history.length) return;
+
+			// Reorder history so the selected entry is first, then call reopenClosedTab
+			// This reuses the existing reopenClosedTab logic (duplicate detection, index restoration, etc.)
+			const selectedEntry = history[closedTabIndex];
+			const remainingHistory = [
+				...history.slice(0, closedTabIndex),
+				...history.slice(closedTabIndex + 1),
+			];
+			const reorderedSession = {
+				...activeSession,
+				closedTabHistory: [selectedEntry, ...remainingHistory],
+			};
+
+			const result = reopenClosedTab(reorderedSession);
+			if (result) {
+				setSessions((prev) => prev.map((s) => (s.id === activeSession.id ? result.session : s)));
+			}
+		},
+		[activeSession, setSessions]
+	);
 	const handleCloseFileSearch = useCallback(() => setFuzzyFileSearchOpen(false), []);
 	const handleFileSearchSelect = useCallback(
 		(file: FlatFileItem) => {
@@ -13956,6 +13982,8 @@ You are taking over this conversation. Based on the context above, provide a bri
 					onCloseTabSwitcher={handleCloseTabSwitcher}
 					onTabSelect={handleUtilityTabSelect}
 					onNamedSessionSelect={handleNamedSessionSelect}
+					closedTabHistory={activeSession?.closedTabHistory || []}
+					onReopenClosedTab={handleReopenClosedTabFromSearch}
 					fuzzyFileSearchOpen={fuzzyFileSearchOpen}
 					filteredFileTree={filteredFileTree}
 					onCloseFileSearch={handleCloseFileSearch}

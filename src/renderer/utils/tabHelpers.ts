@@ -904,3 +904,42 @@ export function createMergedSession(
 
 	return { session, tabId };
 }
+
+/**
+ * Maximum number of log entries to keep at the start and end of a closed tab's logs
+ * when preparing for persistence. This keeps the persisted session size manageable
+ * while preserving enough context for the user to identify the tab.
+ */
+const CLOSED_TAB_LOG_BOOKEND_SIZE = 3;
+
+/**
+ * Truncate logs in closed tab history entries for efficient persistence.
+ * Keeps the first N and last N log entries from each closed tab, discarding the middle.
+ * This preserves enough context for display names and identification while limiting storage.
+ *
+ * @param closedTabs - Array of ClosedTab entries to truncate
+ * @returns New array with truncated logs in each tab
+ */
+export function truncateClosedTabLogs(closedTabs: ClosedTab[]): ClosedTab[] {
+	if (!closedTabs || closedTabs.length === 0) return [];
+
+	return closedTabs.map((entry) => {
+		const logs = entry.tab.logs;
+		if (!logs || logs.length <= CLOSED_TAB_LOG_BOOKEND_SIZE * 2) {
+			return entry; // No truncation needed
+		}
+
+		const truncatedLogs = [
+			...logs.slice(0, CLOSED_TAB_LOG_BOOKEND_SIZE),
+			...logs.slice(-CLOSED_TAB_LOG_BOOKEND_SIZE),
+		];
+
+		return {
+			...entry,
+			tab: {
+				...entry.tab,
+				logs: truncatedLogs,
+			},
+		};
+	});
+}

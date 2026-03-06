@@ -16,7 +16,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { TabSwitcherModal } from '../../../renderer/components/TabSwitcherModal';
 import { LayerStackProvider } from '../../../renderer/contexts/LayerStackContext';
-import type { Theme, AITab } from '../../../renderer/types';
+import type { Theme, AITab, ClosedTab } from '../../../renderer/types';
 // Create a test theme
 const createTestTheme = (overrides: Partial<Theme['colors']> = {}): Theme => ({
 	id: 'test-theme',
@@ -1138,7 +1138,7 @@ describe('TabSwitcherModal', () => {
 			expect(screen.getByText(/Starred \(3\)/)).toBeInTheDocument();
 		});
 
-		it('cycles through all three modes with Tab key', async () => {
+		it('cycles through all four modes with Tab key', async () => {
 			renderWithLayerStack(
 				<TabSwitcherModal
 					theme={theme}
@@ -1161,7 +1161,11 @@ describe('TabSwitcherModal', () => {
 			fireEvent.keyDown(input, { key: 'Tab' });
 			expect(screen.getByPlaceholderText('Search starred sessions...')).toBeInTheDocument();
 
-			// Tab 3: starred -> open
+			// Tab 3: starred -> recently-closed
+			fireEvent.keyDown(input, { key: 'Tab' });
+			expect(screen.getByPlaceholderText('Search recently closed tabs...')).toBeInTheDocument();
+
+			// Tab 4: recently-closed -> open
 			fireEvent.keyDown(input, { key: 'Tab' });
 			expect(screen.getByPlaceholderText('Search open tabs...')).toBeInTheDocument();
 		});
@@ -1962,13 +1966,13 @@ describe('TabSwitcherModal', () => {
 
 			const input = screen.getByPlaceholderText('Search open tabs...');
 
-			// Rapid Tab key presses - cycles through 3 modes: open -> all-named -> starred -> open
-			// 9 presses = 9 mod 3 = 0, so we end up back at open tabs
-			for (let i = 0; i < 9; i++) {
+			// Rapid Tab key presses - cycles through 4 modes: open -> all-named -> starred -> recently-closed -> open
+			// 12 presses = 12 mod 4 = 0, so we end up back at open tabs
+			for (let i = 0; i < 12; i++) {
 				fireEvent.keyDown(input, { key: 'Tab' });
 			}
 
-			// Should be back to open tabs (multiple of 3 switches)
+			// Should be back to open tabs (multiple of 4 switches)
 			expect(screen.getByPlaceholderText('Search open tabs...')).toBeInTheDocument();
 		});
 
@@ -2095,6 +2099,281 @@ describe('TabSwitcherModal', () => {
 
 			// In All Named mode, footer shows "sessions"
 			expect(screen.getByText('1 sessions')).toBeInTheDocument();
+		});
+	});
+
+	describe('recently closed view mode', () => {
+		const createClosedTab = (overrides: Partial<ClosedTab> = {}): ClosedTab => ({
+			tab: createTestTab({ name: 'Closed Session' }),
+			index: 0,
+			closedAt: Date.now() - 60000,
+			...overrides,
+		});
+
+		it('shows Recently Closed pill with count', () => {
+			const closedTabs = [createClosedTab(), createClosedTab()];
+
+			renderWithLayerStack(
+				<TabSwitcherModal
+					theme={theme}
+					tabs={[createTestTab({ name: 'Open Tab' })]}
+					activeTabId=""
+					projectRoot="/test"
+					closedTabHistory={closedTabs}
+					onTabSelect={vi.fn()}
+					onNamedSessionSelect={vi.fn()}
+					onClose={vi.fn()}
+				/>
+			);
+
+			expect(screen.getByText('Recently Closed (2)')).toBeInTheDocument();
+		});
+
+		it('switches to recently-closed view mode when pill is clicked', () => {
+			const closedTabs = [createClosedTab({ tab: createTestTab({ name: 'My Closed Tab' }) })];
+
+			renderWithLayerStack(
+				<TabSwitcherModal
+					theme={theme}
+					tabs={[createTestTab({ name: 'Open Tab' })]}
+					activeTabId=""
+					projectRoot="/test"
+					closedTabHistory={closedTabs}
+					onTabSelect={vi.fn()}
+					onNamedSessionSelect={vi.fn()}
+					onClose={vi.fn()}
+				/>
+			);
+
+			fireEvent.click(screen.getByText('Recently Closed (1)'));
+
+			expect(screen.getByPlaceholderText('Search recently closed tabs...')).toBeInTheDocument();
+			expect(screen.getByText('My Closed Tab')).toBeInTheDocument();
+		});
+
+		it('shows empty state when no closed tabs', () => {
+			renderWithLayerStack(
+				<TabSwitcherModal
+					theme={theme}
+					tabs={[createTestTab({ name: 'Open Tab' })]}
+					activeTabId=""
+					projectRoot="/test"
+					closedTabHistory={[]}
+					onTabSelect={vi.fn()}
+					onNamedSessionSelect={vi.fn()}
+					onClose={vi.fn()}
+				/>
+			);
+
+			fireEvent.click(screen.getByText('Recently Closed (0)'));
+
+			expect(screen.getByText('No recently closed tabs')).toBeInTheDocument();
+		});
+
+		it('calls onReopenClosedTab when a closed tab is selected', () => {
+			const onReopenClosedTab = vi.fn();
+			const onClose = vi.fn();
+			const closedTabs = [createClosedTab({ tab: createTestTab({ name: 'Reopen Me' }) })];
+
+			renderWithLayerStack(
+				<TabSwitcherModal
+					theme={theme}
+					tabs={[createTestTab({ name: 'Open Tab' })]}
+					activeTabId=""
+					projectRoot="/test"
+					closedTabHistory={closedTabs}
+					onTabSelect={vi.fn()}
+					onNamedSessionSelect={vi.fn()}
+					onReopenClosedTab={onReopenClosedTab}
+					onClose={onClose}
+				/>
+			);
+
+			fireEvent.click(screen.getByText('Recently Closed (1)'));
+			fireEvent.click(screen.getByText('Reopen Me'));
+
+			expect(onReopenClosedTab).toHaveBeenCalledWith(0);
+			expect(onClose).toHaveBeenCalled();
+		});
+
+		it('displays UUID pill for closed tabs with session IDs and name', () => {
+			const closedTabs = [
+				createClosedTab({
+					tab: createTestTab({
+						name: 'Named Closed Tab',
+						agentSessionId: 'abcd1234-efgh-5678-ijkl-mnopqrstuvwx',
+					}),
+				}),
+			];
+
+			renderWithLayerStack(
+				<TabSwitcherModal
+					theme={theme}
+					tabs={[createTestTab({ name: 'Open Tab' })]}
+					activeTabId=""
+					projectRoot="/test"
+					closedTabHistory={closedTabs}
+					onTabSelect={vi.fn()}
+					onNamedSessionSelect={vi.fn()}
+					onClose={vi.fn()}
+				/>
+			);
+
+			fireEvent.click(screen.getByText('Recently Closed (1)'));
+
+			// Display name and UUID pill both shown
+			expect(screen.getByText('Named Closed Tab')).toBeInTheDocument();
+			expect(screen.getByText('ABCD1234')).toBeInTheDocument();
+		});
+
+		it('shows footer with closed count in recently-closed mode', () => {
+			const closedTabs = [createClosedTab(), createClosedTab(), createClosedTab()];
+
+			renderWithLayerStack(
+				<TabSwitcherModal
+					theme={theme}
+					tabs={[createTestTab({ name: 'Open Tab' })]}
+					activeTabId=""
+					projectRoot="/test"
+					closedTabHistory={closedTabs}
+					onTabSelect={vi.fn()}
+					onNamedSessionSelect={vi.fn()}
+					onClose={vi.fn()}
+				/>
+			);
+
+			fireEvent.click(screen.getByText('Recently Closed (3)'));
+
+			expect(screen.getByText('3 closed')).toBeInTheDocument();
+		});
+
+		it('derives display name from first user message when no name or UUID', () => {
+			const closedTabs = [
+				createClosedTab({
+					tab: createTestTab({
+						name: '',
+						agentSessionId: '',
+						logs: [{ source: 'user', text: 'Help me write a function', timestamp: Date.now() }],
+					}),
+				}),
+			];
+
+			renderWithLayerStack(
+				<TabSwitcherModal
+					theme={theme}
+					tabs={[createTestTab({ name: 'Open Tab' })]}
+					activeTabId=""
+					projectRoot="/test"
+					closedTabHistory={closedTabs}
+					onTabSelect={vi.fn()}
+					onNamedSessionSelect={vi.fn()}
+					onClose={vi.fn()}
+				/>
+			);
+
+			fireEvent.click(screen.getByText('Recently Closed (1)'));
+
+			expect(screen.getByText('Help me write a function')).toBeInTheDocument();
+		});
+
+		it('shows "Untitled Tab" when closed tab has no name, UUID, or user message', () => {
+			const closedTabs = [
+				createClosedTab({
+					tab: createTestTab({
+						name: '',
+						agentSessionId: '',
+						logs: [],
+					}),
+				}),
+			];
+
+			renderWithLayerStack(
+				<TabSwitcherModal
+					theme={theme}
+					tabs={[createTestTab({ name: 'Open Tab' })]}
+					activeTabId=""
+					projectRoot="/test"
+					closedTabHistory={closedTabs}
+					onTabSelect={vi.fn()}
+					onNamedSessionSelect={vi.fn()}
+					onClose={vi.fn()}
+				/>
+			);
+
+			fireEvent.click(screen.getByText('Recently Closed (1)'));
+
+			expect(screen.getByText('Untitled Tab')).toBeInTheDocument();
+		});
+
+		it('shows "Closed" badge on closed tab items', () => {
+			const closedTabs = [createClosedTab({ tab: createTestTab({ name: 'Test Tab' }) })];
+
+			renderWithLayerStack(
+				<TabSwitcherModal
+					theme={theme}
+					tabs={[createTestTab({ name: 'Open Tab' })]}
+					activeTabId=""
+					projectRoot="/test"
+					closedTabHistory={closedTabs}
+					onTabSelect={vi.fn()}
+					onNamedSessionSelect={vi.fn()}
+					onClose={vi.fn()}
+				/>
+			);
+
+			fireEvent.click(screen.getByText('Recently Closed (1)'));
+
+			expect(screen.getByText('Closed')).toBeInTheDocument();
+		});
+
+		it('filters closed tabs with fuzzy search', () => {
+			const closedTabs = [
+				createClosedTab({ tab: createTestTab({ name: 'Feature Branch' }) }),
+				createClosedTab({ tab: createTestTab({ name: 'Bug Fix' }) }),
+			];
+
+			renderWithLayerStack(
+				<TabSwitcherModal
+					theme={theme}
+					tabs={[createTestTab({ name: 'Open Tab' })]}
+					activeTabId=""
+					projectRoot="/test"
+					closedTabHistory={closedTabs}
+					onTabSelect={vi.fn()}
+					onNamedSessionSelect={vi.fn()}
+					onClose={vi.fn()}
+				/>
+			);
+
+			fireEvent.click(screen.getByText('Recently Closed (2)'));
+			const input = screen.getByPlaceholderText('Search recently closed tabs...');
+			fireEvent.change(input, { target: { value: 'Bug' } });
+
+			expect(screen.getByText('Bug Fix')).toBeInTheDocument();
+			expect(screen.queryByText('Feature Branch')).not.toBeInTheDocument();
+		});
+
+		it('shows starred indicator on starred closed tabs', () => {
+			const closedTabs = [
+				createClosedTab({ tab: createTestTab({ name: 'Starred Tab', starred: true }) }),
+			];
+
+			renderWithLayerStack(
+				<TabSwitcherModal
+					theme={theme}
+					tabs={[createTestTab({ name: 'Open Tab' })]}
+					activeTabId=""
+					projectRoot="/test"
+					closedTabHistory={closedTabs}
+					onTabSelect={vi.fn()}
+					onNamedSessionSelect={vi.fn()}
+					onClose={vi.fn()}
+				/>
+			);
+
+			fireEvent.click(screen.getByText('Recently Closed (1)'));
+
+			expect(screen.getByText('★')).toBeInTheDocument();
 		});
 	});
 });
