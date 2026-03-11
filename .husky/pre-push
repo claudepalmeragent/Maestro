@@ -1,0 +1,5 @@
+#!/bin/sh
+
+# Run repo-wide validation before allowing a push.
+# This keeps formatting, type checks, and ESLint green before CI sees the branch.
+npm run validate:push
