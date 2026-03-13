@@ -6,8 +6,6 @@ import * as Sentry from '@sentry/electron/renderer';
 import MaestroConsole from './App';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { LayerStackProvider } from './contexts/LayerStackContext';
-import { ModalProvider } from './contexts/ModalContext';
-import { UILayoutProvider } from './contexts/UILayoutContext';
 import { WizardProvider } from './components/Wizard';
 import { logger } from './utils/logger';
 import './index.css';
@@ -88,13 +86,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
 	<React.StrictMode>
 		<ErrorBoundary>
 			<LayerStackProvider>
-				<ModalProvider>
-					<UILayoutProvider>
-						<WizardProvider>
-							<MaestroConsole />
-						</WizardProvider>
-					</UILayoutProvider>
-				</ModalProvider>
+				<WizardProvider>
+					<MaestroConsole />
+				</WizardProvider>
 			</LayerStackProvider>
 		</ErrorBoundary>
 	</React.StrictMode>
