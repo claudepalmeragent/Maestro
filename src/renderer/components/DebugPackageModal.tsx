@@ -13,7 +13,7 @@ import { Package, Check, Loader2, FolderOpen, AlertCircle, Copy } from 'lucide-r
 import type { Theme } from '../types';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 import { Modal, ModalFooter } from './ui/Modal';
-import { useToast } from '../contexts/ToastContext';
+import { notifyToast } from '../stores/notificationStore';
 
 interface DebugPackageModalProps {
 	theme: Theme;
@@ -31,7 +31,7 @@ interface PreviewCategory {
 type GenerationState = 'idle' | 'generating' | 'success' | 'error';
 
 export function DebugPackageModal({ theme, isOpen, onClose }: DebugPackageModalProps) {
-	const { addToast } = useToast();
+	const addToast = notifyToast;
 	const generateButtonRef = useRef<HTMLButtonElement>(null);
 
 	// Category selection state

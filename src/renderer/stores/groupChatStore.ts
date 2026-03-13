@@ -54,6 +54,11 @@ export interface GroupChatStoreState {
 	groupChatParticipantColors: Record<string, string>;
 	groupChatStagedImages: string[];
 
+	// Thinking
+	groupChatShowThinking: boolean;
+	groupChatThinkingContent: Map<string, string>;
+	groupChatThinkingCollapsed: Map<string, boolean>;
+
 	// Error
 	groupChatError: GroupChatErrorState | null;
 }
@@ -109,6 +114,15 @@ export interface GroupChatStoreActions {
 	) => void;
 	setGroupChatStagedImages: (v: string[] | ((prev: string[]) => string[])) => void;
 
+	// Thinking
+	setGroupChatShowThinking: (v: boolean | ((prev: boolean) => boolean)) => void;
+	setGroupChatThinkingContent: (
+		v: Map<string, string> | ((prev: Map<string, string>) => Map<string, string>)
+	) => void;
+	setGroupChatThinkingCollapsed: (
+		v: Map<string, boolean> | ((prev: Map<string, boolean>) => Map<string, boolean>)
+	) => void;
+
 	// Error
 	setGroupChatError: (
 		v:
@@ -156,6 +170,9 @@ export const useGroupChatStore = create<GroupChatStore>()((set) => ({
 	groupChatRightTab: 'participants' as GroupChatRightTab,
 	groupChatParticipantColors: {},
 	groupChatStagedImages: [],
+	groupChatShowThinking: false,
+	groupChatThinkingContent: new Map(),
+	groupChatThinkingCollapsed: new Map(),
 	groupChatError: null,
 
 	// --- Actions ---
@@ -179,6 +196,12 @@ export const useGroupChatStore = create<GroupChatStore>()((set) => ({
 		set((s) => ({ groupChatParticipantColors: resolve(v, s.groupChatParticipantColors) })),
 	setGroupChatStagedImages: (v) =>
 		set((s) => ({ groupChatStagedImages: resolve(v, s.groupChatStagedImages) })),
+	setGroupChatShowThinking: (v) =>
+		set((s) => ({ groupChatShowThinking: resolve(v, s.groupChatShowThinking) })),
+	setGroupChatThinkingContent: (v) =>
+		set((s) => ({ groupChatThinkingContent: resolve(v, s.groupChatThinkingContent) })),
+	setGroupChatThinkingCollapsed: (v) =>
+		set((s) => ({ groupChatThinkingCollapsed: resolve(v, s.groupChatThinkingCollapsed) })),
 	setGroupChatError: (v) => set((s) => ({ groupChatError: resolve(v, s.groupChatError) })),
 
 	clearGroupChatError: () => set({ groupChatError: null }),
@@ -224,6 +247,9 @@ export function getGroupChatActions() {
 		setGroupChatRightTab: state.setGroupChatRightTab,
 		setGroupChatParticipantColors: state.setGroupChatParticipantColors,
 		setGroupChatStagedImages: state.setGroupChatStagedImages,
+		setGroupChatShowThinking: state.setGroupChatShowThinking,
+		setGroupChatThinkingContent: state.setGroupChatThinkingContent,
+		setGroupChatThinkingCollapsed: state.setGroupChatThinkingCollapsed,
 		setGroupChatError: state.setGroupChatError,
 		clearGroupChatError: state.clearGroupChatError,
 		resetGroupChatState: state.resetGroupChatState,

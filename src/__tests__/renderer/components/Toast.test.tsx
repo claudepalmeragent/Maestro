@@ -16,11 +16,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { ToastContainer } from '../../../renderer/components/Toast';
 import type { Theme } from '../../../renderer/types';
-import * as ToastContext from '../../../renderer/contexts/ToastContext';
+import * as NotificationStore from '../../../renderer/stores/notificationStore';
 
-// Mock the ToastContext
-vi.mock('../../../renderer/contexts/ToastContext', () => ({
-	useToast: vi.fn(),
+// Mock the notificationStore
+vi.mock('../../../renderer/stores/notificationStore', () => ({
+	useNotificationStore: vi.fn(),
+	notifyToast: vi.fn(),
 }));
 
 const mockTheme: Theme = {
@@ -43,7 +44,7 @@ const mockTheme: Theme = {
 	},
 };
 
-const createMockToast = (overrides = {}): ToastContext.Toast => ({
+const createMockToast = (overrides = {}): NotificationStore.Toast => ({
 	id: 'toast-1',
 	type: 'info',
 	title: 'Test Toast',
@@ -53,23 +54,22 @@ const createMockToast = (overrides = {}): ToastContext.Toast => ({
 	...overrides,
 });
 
+/** Helper to set up the notification store mock with given toasts */
+function setupMockStore(toasts: NotificationStore.Toast[], removeToast: ReturnType<typeof vi.fn>) {
+	const mockFn = vi.mocked(NotificationStore.useNotificationStore);
+	mockFn.mockImplementation((selector?: any) => {
+		const state = { toasts, removeToast };
+		return selector ? selector(state) : state;
+	});
+}
+
 describe('Toast', () => {
-	let mockUseToast: ReturnType<typeof vi.fn>;
 	let mockRemoveToast: ReturnType<typeof vi.fn>;
 
 	beforeEach(() => {
 		vi.useFakeTimers();
 		mockRemoveToast = vi.fn();
-		mockUseToast = vi.mocked(ToastContext.useToast);
-		mockUseToast.mockReturnValue({
-			toasts: [],
-			addToast: vi.fn(),
-			removeToast: mockRemoveToast,
-			clearToasts: vi.fn(),
-			setDefaultDuration: vi.fn(),
-			setAudioFeedback: vi.fn(),
-			setOsNotifications: vi.fn(),
-		});
+		setupMockStore([], mockRemoveToast);
 	});
 
 	afterEach(() => {
@@ -86,15 +86,7 @@ describe('Toast', () => {
 
 	describe('rendering toasts', () => {
 		it('renders toast with title and message', () => {
-			mockUseToast.mockReturnValue({
-				toasts: [createMockToast()],
-				addToast: vi.fn(),
-				removeToast: mockRemoveToast,
-				clearToasts: vi.fn(),
-				setDefaultDuration: vi.fn(),
-				setAudioFeedback: vi.fn(),
-				setOsNotifications: vi.fn(),
-			});
+			setupMockStore([createMockToast()], mockRemoveToast);
 
 			render(<ToastContainer theme={mockTheme} />);
 			expect(screen.getByText('Test Toast')).toBeInTheDocument();
@@ -102,18 +94,13 @@ describe('Toast', () => {
 		});
 
 		it('renders multiple toasts', () => {
-			mockUseToast.mockReturnValue({
-				toasts: [
+			setupMockStore(
+				[
 					createMockToast({ id: 'toast-1', title: 'First' }),
 					createMockToast({ id: 'toast-2', title: 'Second' }),
 				],
-				addToast: vi.fn(),
-				removeToast: mockRemoveToast,
-				clearToasts: vi.fn(),
-				setDefaultDuration: vi.fn(),
-				setAudioFeedback: vi.fn(),
-				setOsNotifications: vi.fn(),
-			});
+				mockRemoveToast
+			);
 
 			render(<ToastContainer theme={mockTheme} />);
 			expect(screen.getByText('First')).toBeInTheDocument();
@@ -125,15 +112,7 @@ describe('Toast', () => {
 		it('renders all toast types without error', () => {
 			const types = ['success', 'error', 'warning', 'info'] as const;
 			types.forEach((type) => {
-				mockUseToast.mockReturnValue({
-					toasts: [createMockToast({ type, title: `${type} toast` })],
-					addToast: vi.fn(),
-					removeToast: mockRemoveToast,
-					clearToasts: vi.fn(),
-					setDefaultDuration: vi.fn(),
-					setAudioFeedback: vi.fn(),
-					setOsNotifications: vi.fn(),
-				});
+				setupMockStore([createMockToast({ type, title: `${type} toast` })], mockRemoveToast);
 
 				const { unmount } = render(<ToastContainer theme={mockTheme} />);
 				expect(screen.getByText(`${type} toast`)).toBeInTheDocument();
@@ -144,21 +123,16 @@ describe('Toast', () => {
 
 	describe('metadata display', () => {
 		it('displays group, project, and tab when provided', () => {
-			mockUseToast.mockReturnValue({
-				toasts: [
+			setupMockStore(
+				[
 					createMockToast({
 						group: 'Test Group',
 						project: 'My Project',
 						tabName: 'Tab 1',
 					}),
 				],
-				addToast: vi.fn(),
-				removeToast: mockRemoveToast,
-				clearToasts: vi.fn(),
-				setDefaultDuration: vi.fn(),
-				setAudioFeedback: vi.fn(),
-				setOsNotifications: vi.fn(),
-			});
+				mockRemoveToast
+			);
 
 			render(<ToastContainer theme={mockTheme} />);
 			expect(screen.getByText('Test Group')).toBeInTheDocument();
@@ -167,20 +141,15 @@ describe('Toast', () => {
 		});
 
 		it('shows agentSessionId as title attribute on tab name', () => {
-			mockUseToast.mockReturnValue({
-				toasts: [
+			setupMockStore(
+				[
 					createMockToast({
 						tabName: 'Tab 1',
 						agentSessionId: 'abc-123',
 					}),
 				],
-				addToast: vi.fn(),
-				removeToast: mockRemoveToast,
-				clearToasts: vi.fn(),
-				setDefaultDuration: vi.fn(),
-				setAudioFeedback: vi.fn(),
-				setOsNotifications: vi.fn(),
-			});
+				mockRemoveToast
+			);
 
 			render(<ToastContainer theme={mockTheme} />);
 			expect(screen.getByText('Tab 1')).toHaveAttribute('title', 'Claude Session: abc-123');
@@ -197,15 +166,7 @@ describe('Toast', () => {
 			];
 
 			testCases.forEach(({ duration, expected }) => {
-				mockUseToast.mockReturnValue({
-					toasts: [createMockToast({ taskDuration: duration })],
-					addToast: vi.fn(),
-					removeToast: mockRemoveToast,
-					clearToasts: vi.fn(),
-					setDefaultDuration: vi.fn(),
-					setAudioFeedback: vi.fn(),
-					setOsNotifications: vi.fn(),
-				});
+				setupMockStore([createMockToast({ taskDuration: duration })], mockRemoveToast);
 
 				const { unmount } = render(<ToastContainer theme={mockTheme} />);
 				expect(screen.getByText(new RegExp(`Completed in ${expected}`))).toBeInTheDocument();
@@ -214,15 +175,7 @@ describe('Toast', () => {
 		});
 
 		it('does not display when taskDuration is 0 or undefined', () => {
-			mockUseToast.mockReturnValue({
-				toasts: [createMockToast({ taskDuration: 0 })],
-				addToast: vi.fn(),
-				removeToast: mockRemoveToast,
-				clearToasts: vi.fn(),
-				setDefaultDuration: vi.fn(),
-				setAudioFeedback: vi.fn(),
-				setOsNotifications: vi.fn(),
-			});
+			setupMockStore([createMockToast({ taskDuration: 0 })], mockRemoveToast);
 
 			render(<ToastContainer theme={mockTheme} />);
 			expect(screen.queryByText(/Completed in/)).not.toBeInTheDocument();
@@ -231,15 +184,7 @@ describe('Toast', () => {
 
 	describe('close button', () => {
 		it('calls removeToast when clicked', async () => {
-			mockUseToast.mockReturnValue({
-				toasts: [createMockToast()],
-				addToast: vi.fn(),
-				removeToast: mockRemoveToast,
-				clearToasts: vi.fn(),
-				setDefaultDuration: vi.fn(),
-				setAudioFeedback: vi.fn(),
-				setOsNotifications: vi.fn(),
-			});
+			setupMockStore([createMockToast()], mockRemoveToast);
 
 			render(<ToastContainer theme={mockTheme} />);
 			const closeButton = screen.getAllByRole('button')[0];
@@ -256,15 +201,7 @@ describe('Toast', () => {
 	describe('session navigation', () => {
 		it('calls onSessionClick with sessionId when toast is clicked', () => {
 			const onSessionClick = vi.fn();
-			mockUseToast.mockReturnValue({
-				toasts: [createMockToast({ sessionId: 'session-1' })],
-				addToast: vi.fn(),
-				removeToast: mockRemoveToast,
-				clearToasts: vi.fn(),
-				setDefaultDuration: vi.fn(),
-				setAudioFeedback: vi.fn(),
-				setOsNotifications: vi.fn(),
-			});
+			setupMockStore([createMockToast({ sessionId: 'session-1' })], mockRemoveToast);
 
 			const { container } = render(
 				<ToastContainer theme={mockTheme} onSessionClick={onSessionClick} />
@@ -277,15 +214,10 @@ describe('Toast', () => {
 
 		it('includes tabId when provided', () => {
 			const onSessionClick = vi.fn();
-			mockUseToast.mockReturnValue({
-				toasts: [createMockToast({ sessionId: 'session-1', tabId: 'tab-1' })],
-				addToast: vi.fn(),
-				removeToast: mockRemoveToast,
-				clearToasts: vi.fn(),
-				setDefaultDuration: vi.fn(),
-				setAudioFeedback: vi.fn(),
-				setOsNotifications: vi.fn(),
-			});
+			setupMockStore(
+				[createMockToast({ sessionId: 'session-1', tabId: 'tab-1' })],
+				mockRemoveToast
+			);
 
 			const { container } = render(
 				<ToastContainer theme={mockTheme} onSessionClick={onSessionClick} />
@@ -298,15 +230,7 @@ describe('Toast', () => {
 
 		it('is not clickable without sessionId', () => {
 			const onSessionClick = vi.fn();
-			mockUseToast.mockReturnValue({
-				toasts: [createMockToast()],
-				addToast: vi.fn(),
-				removeToast: mockRemoveToast,
-				clearToasts: vi.fn(),
-				setDefaultDuration: vi.fn(),
-				setAudioFeedback: vi.fn(),
-				setOsNotifications: vi.fn(),
-			});
+			setupMockStore([createMockToast()], mockRemoveToast);
 
 			const { container } = render(
 				<ToastContainer theme={mockTheme} onSessionClick={onSessionClick} />
@@ -317,15 +241,7 @@ describe('Toast', () => {
 
 	describe('animation states', () => {
 		it('starts with entering animation then transitions to normal', () => {
-			mockUseToast.mockReturnValue({
-				toasts: [createMockToast()],
-				addToast: vi.fn(),
-				removeToast: mockRemoveToast,
-				clearToasts: vi.fn(),
-				setDefaultDuration: vi.fn(),
-				setAudioFeedback: vi.fn(),
-				setOsNotifications: vi.fn(),
-			});
+			setupMockStore([createMockToast()], mockRemoveToast);
 
 			const { container } = render(<ToastContainer theme={mockTheme} />);
 			const toastOuter = container.querySelector('.relative.overflow-hidden');
@@ -343,30 +259,14 @@ describe('Toast', () => {
 
 	describe('progress bar', () => {
 		it('renders when duration is provided', () => {
-			mockUseToast.mockReturnValue({
-				toasts: [createMockToast({ duration: 5000 })],
-				addToast: vi.fn(),
-				removeToast: mockRemoveToast,
-				clearToasts: vi.fn(),
-				setDefaultDuration: vi.fn(),
-				setAudioFeedback: vi.fn(),
-				setOsNotifications: vi.fn(),
-			});
+			setupMockStore([createMockToast({ duration: 5000 })], mockRemoveToast);
 
 			const { container } = render(<ToastContainer theme={mockTheme} />);
 			expect(container.querySelector('.h-1.rounded-b-lg')).toBeInTheDocument();
 		});
 
 		it('does not render when duration is 0', () => {
-			mockUseToast.mockReturnValue({
-				toasts: [createMockToast({ duration: 0 })],
-				addToast: vi.fn(),
-				removeToast: mockRemoveToast,
-				clearToasts: vi.fn(),
-				setDefaultDuration: vi.fn(),
-				setAudioFeedback: vi.fn(),
-				setOsNotifications: vi.fn(),
-			});
+			setupMockStore([createMockToast({ duration: 0 })], mockRemoveToast);
 
 			const { container } = render(<ToastContainer theme={mockTheme} />);
 			expect(container.querySelector('.h-1.rounded-b-lg')).not.toBeInTheDocument();

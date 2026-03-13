@@ -21,21 +21,45 @@ vi.mock('../renderer/contexts/LayerStackContext', async (importOriginal) => {
 	};
 });
 
-// Mock ToastContext globally — components using useToast() throw without a ToastProvider.
-vi.mock('../renderer/contexts/ToastContext', async (importOriginal) => {
-	const actual = await importOriginal<typeof import('../renderer/contexts/ToastContext')>();
-	return {
-		...actual,
-		useToast: vi.fn(() => ({
-			toasts: [],
-			addToast: vi.fn(),
-			removeToast: vi.fn(),
-			clearToasts: vi.fn(),
+// Mock notificationStore globally — components use notifyToast() and useNotificationStore().
+vi.mock('../renderer/stores/notificationStore', () => {
+	const mockState = {
+		toasts: [],
+		config: {
 			defaultDuration: 20,
-			setDefaultDuration: vi.fn(),
-			setAudioFeedback: vi.fn(),
-			setOsNotifications: vi.fn(),
-		})),
+			audioFeedbackEnabled: false,
+			audioFeedbackCommand: '',
+			osNotificationsEnabled: true,
+		},
+		addToast: vi.fn(),
+		removeToast: vi.fn(),
+		clearToasts: vi.fn(),
+		setDefaultDuration: vi.fn(),
+		setAudioFeedback: vi.fn(),
+		setOsNotifications: vi.fn(),
+	};
+	const useNotificationStore = Object.assign(
+		(selector?: (state: typeof mockState) => unknown) => {
+			return selector ? selector(mockState) : mockState;
+		},
+		{ getState: () => mockState, setState: vi.fn(), subscribe: vi.fn(), destroy: vi.fn() }
+	);
+	return {
+		useNotificationStore,
+		notifyToast: vi.fn().mockReturnValue('toast-mock-id'),
+		resetToastIdCounter: vi.fn(),
+		getNotificationState: () => mockState,
+		getNotificationActions: () => ({
+			addToast: mockState.addToast,
+			removeToast: mockState.removeToast,
+			clearToasts: mockState.clearToasts,
+			setDefaultDuration: mockState.setDefaultDuration,
+			setAudioFeedback: mockState.setAudioFeedback,
+			setOsNotifications: mockState.setOsNotifications,
+		}),
+		selectToasts: (s: typeof mockState) => s.toasts,
+		selectToastCount: (s: typeof mockState) => s.toasts.length,
+		selectConfig: (s: typeof mockState) => s.config,
 	};
 });
 

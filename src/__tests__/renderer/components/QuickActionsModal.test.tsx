@@ -37,9 +37,11 @@ vi.mock('../../../renderer/contexts/LayerStackContext', () => ({
 	}),
 }));
 
-vi.mock('../../../renderer/contexts/ToastContext', () => ({
-	useToast: () => ({
-		addToast: vi.fn(),
+vi.mock('../../../renderer/stores/notificationStore', () => ({
+	notifyToast: vi.fn().mockReturnValue('toast-mock-id'),
+	useNotificationStore: vi.fn((selector?: any) => {
+		const state = { toasts: [], removeToast: vi.fn() };
+		return selector ? selector(state) : state;
 	}),
 }));
 

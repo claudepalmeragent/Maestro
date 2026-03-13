@@ -92,12 +92,12 @@ import { useMainPanelProps, useSessionListProps, useRightPanelProps } from './ho
 
 // Import contexts
 import { useLayerStack } from './contexts/LayerStackContext';
-import { useToast } from './contexts/ToastContext';
+import { notifyToast, useNotificationStore } from './stores/notificationStore';
 import { useModalActions } from './stores/modalStore';
 import { GitStatusProvider } from './contexts/GitStatusContext';
 import { InputProvider, useInputContext } from './contexts/InputContext';
-import { GroupChatProvider, useGroupChat } from './contexts/GroupChatContext';
-import { AutoRunProvider, useAutoRun } from './contexts/AutoRunContext';
+import { useGroupChatStore } from './stores/groupChatStore';
+import { useBatchStore } from './stores/batchStore';
 import { useSessionStore, selectActiveSession } from './stores/sessionStore';
 import { useBatchedSessionUpdates } from './hooks/session/useBatchedSessionUpdates';
 import { InlineWizardProvider, useInlineWizardContext } from './contexts/InlineWizardContext';
@@ -115,7 +115,7 @@ import { parseSynopsis } from '../shared/synopsis';
 import { formatRelativeTime } from '../shared/formatters';
 
 // Import types and constants
-// Note: GroupChat, GroupChatState are now imported via GroupChatContext; GroupChatMessage still used locally
+// Note: GroupChat, GroupChatState types are imported from types; GroupChatMessage still used locally
 import type {
 	ToolType,
 	SessionState,
@@ -195,12 +195,10 @@ function MaestroConsoleInner() {
 	const { hasOpenLayers, hasOpenModal } = useLayerStack();
 
 	// --- TOAST NOTIFICATIONS ---
-	const {
-		addToast,
-		setDefaultDuration: setToastDefaultDuration,
-		setAudioFeedback,
-		setOsNotifications,
-	} = useToast();
+	const setToastDefaultDuration = useNotificationStore((s) => s.setDefaultDuration);
+	const setAudioFeedback = useNotificationStore((s) => s.setAudioFeedback);
+	const setOsNotifications = useNotificationStore((s) => s.setOsNotifications);
+	const addToast = notifyToast;
 
 	// --- PROJECT FOLDERS (for Prompt Library metadata) ---
 	const { getFolderById } = useProjectFoldersContext();
@@ -571,51 +569,53 @@ function MaestroConsoleInner() {
 	// OpenSpec commands (loaded from bundled prompts)
 	const [openspecCommands, setOpenspecCommands] = useState<OpenSpecCommand[]>([]);
 
-	// --- GROUP CHAT STATE (Phase 4: extracted to GroupChatContext) ---
+	// --- GROUP CHAT STATE (migrated to groupChatStore) ---
 	// Note: groupChatsExpanded remains here as it's a UI layout concern (now in uiStore)
 	const groupChatsExpanded = useUIStore((s) => s.groupChatsExpanded);
 	const setGroupChatsExpanded = useUIStore((s) => s.setGroupChatsExpanded);
 
-	// Use GroupChatContext for all group chat states
-	const {
-		groupChats,
-		setGroupChats,
-		activeGroupChatId,
-		setActiveGroupChatId,
-		groupChatMessages,
-		setGroupChatMessages,
-		groupChatState,
-		setGroupChatState,
-		groupChatStagedImages,
-		setGroupChatStagedImages,
-		groupChatReadOnlyMode,
-		setGroupChatReadOnlyMode,
-		groupChatExecutionQueue,
-		setGroupChatExecutionQueue,
-		groupChatRightTab,
-		setGroupChatRightTab,
-		groupChatParticipantColors,
-		setGroupChatParticipantColors,
-		moderatorUsage,
-		setModeratorUsage,
-		participantStates,
-		setParticipantStates,
-		groupChatStates,
-		setGroupChatStates,
-		allGroupChatParticipantStates,
-		setAllGroupChatParticipantStates,
-		groupChatError,
-		setGroupChatError,
-		groupChatInputRef,
-		groupChatMessagesRef,
-		clearGroupChatError: handleClearGroupChatErrorBase,
-		groupChatShowThinking,
-		setGroupChatShowThinking,
-		groupChatThinkingContent,
-		setGroupChatThinkingContent,
-		groupChatThinkingCollapsed,
-		setGroupChatThinkingCollapsed,
-	} = useGroupChat();
+	// Use groupChatStore (Zustand) for all group chat states
+	const groupChats = useGroupChatStore((s) => s.groupChats);
+	const setGroupChats = useGroupChatStore((s) => s.setGroupChats);
+	const activeGroupChatId = useGroupChatStore((s) => s.activeGroupChatId);
+	const setActiveGroupChatId = useGroupChatStore((s) => s.setActiveGroupChatId);
+	const groupChatMessages = useGroupChatStore((s) => s.groupChatMessages);
+	const setGroupChatMessages = useGroupChatStore((s) => s.setGroupChatMessages);
+	const groupChatState = useGroupChatStore((s) => s.groupChatState);
+	const setGroupChatState = useGroupChatStore((s) => s.setGroupChatState);
+	const groupChatStagedImages = useGroupChatStore((s) => s.groupChatStagedImages);
+	const setGroupChatStagedImages = useGroupChatStore((s) => s.setGroupChatStagedImages);
+	const groupChatReadOnlyMode = useGroupChatStore((s) => s.groupChatReadOnlyMode);
+	const setGroupChatReadOnlyMode = useGroupChatStore((s) => s.setGroupChatReadOnlyMode);
+	const groupChatExecutionQueue = useGroupChatStore((s) => s.groupChatExecutionQueue);
+	const setGroupChatExecutionQueue = useGroupChatStore((s) => s.setGroupChatExecutionQueue);
+	const groupChatRightTab = useGroupChatStore((s) => s.groupChatRightTab);
+	const setGroupChatRightTab = useGroupChatStore((s) => s.setGroupChatRightTab);
+	const groupChatParticipantColors = useGroupChatStore((s) => s.groupChatParticipantColors);
+	const setGroupChatParticipantColors = useGroupChatStore((s) => s.setGroupChatParticipantColors);
+	const moderatorUsage = useGroupChatStore((s) => s.moderatorUsage);
+	const setModeratorUsage = useGroupChatStore((s) => s.setModeratorUsage);
+	const participantStates = useGroupChatStore((s) => s.participantStates);
+	const setParticipantStates = useGroupChatStore((s) => s.setParticipantStates);
+	const groupChatStates = useGroupChatStore((s) => s.groupChatStates);
+	const setGroupChatStates = useGroupChatStore((s) => s.setGroupChatStates);
+	const allGroupChatParticipantStates = useGroupChatStore((s) => s.allGroupChatParticipantStates);
+	const setAllGroupChatParticipantStates = useGroupChatStore(
+		(s) => s.setAllGroupChatParticipantStates
+	);
+	const groupChatError = useGroupChatStore((s) => s.groupChatError);
+	const setGroupChatError = useGroupChatStore((s) => s.setGroupChatError);
+	const handleClearGroupChatErrorBase = useGroupChatStore((s) => s.clearGroupChatError);
+	const groupChatShowThinking = useGroupChatStore((s) => s.groupChatShowThinking);
+	const setGroupChatShowThinking = useGroupChatStore((s) => s.setGroupChatShowThinking);
+	const groupChatThinkingContent = useGroupChatStore((s) => s.groupChatThinkingContent);
+	const setGroupChatThinkingContent = useGroupChatStore((s) => s.setGroupChatThinkingContent);
+	const groupChatThinkingCollapsed = useGroupChatStore((s) => s.groupChatThinkingCollapsed);
+	const setGroupChatThinkingCollapsed = useGroupChatStore((s) => s.setGroupChatThinkingCollapsed);
+
+	// Local refs - were in GroupChatContext, not migrated to store
+	const groupChatInputRef = useRef<HTMLTextAreaElement>(null);
+	const groupChatMessagesRef = useRef<{ scrollToMessage: (timestamp: number) => void }>(null);
 
 	// SSH Remote configs for looking up SSH remote names (used for participant cards in group chat)
 	const [sshRemoteConfigs, setSshRemoteConfigs] = useState<Array<{ id: string; name: string }>>([]);
@@ -906,16 +906,14 @@ function MaestroConsoleInner() {
 
 	// Auto Run document management state (Phase 5: now from AutoRunContext)
 	// Content is per-session in session.autoRunContent
-	const {
-		documentList: autoRunDocumentList,
-		setDocumentList: setAutoRunDocumentList,
-		documentTree: autoRunDocumentTree,
-		setDocumentTree: setAutoRunDocumentTree,
-		isLoadingDocuments: autoRunIsLoadingDocuments,
-		setIsLoadingDocuments: setAutoRunIsLoadingDocuments,
-		documentTaskCounts: autoRunDocumentTaskCounts,
-		setDocumentTaskCounts: setAutoRunDocumentTaskCounts,
-	} = useAutoRun();
+	const autoRunDocumentList = useBatchStore((s) => s.documentList);
+	const setAutoRunDocumentList = useBatchStore((s) => s.setDocumentList);
+	const autoRunDocumentTree = useBatchStore((s) => s.documentTree);
+	const setAutoRunDocumentTree = useBatchStore((s) => s.setDocumentTree);
+	const autoRunIsLoadingDocuments = useBatchStore((s) => s.isLoadingDocuments);
+	const setAutoRunIsLoadingDocuments = useBatchStore((s) => s.setIsLoadingDocuments);
+	const autoRunDocumentTaskCounts = useBatchStore((s) => s.documentTaskCounts);
+	const setAutoRunDocumentTaskCounts = useBatchStore((s) => s.setDocumentTaskCounts);
 
 	// Restore focus when LogViewer closes to ensure global hotkeys work
 	useEffect(() => {
@@ -978,17 +976,17 @@ function MaestroConsoleInner() {
 		[recordShortcutUsage, onKeyboardMasteryLevelUp]
 	);
 
-	// Sync toast duration setting to ToastContext
+	// Sync toast duration setting to notificationStore
 	useEffect(() => {
 		setToastDefaultDuration(toastDuration);
 	}, [toastDuration, setToastDefaultDuration]);
 
-	// Sync audio feedback settings to ToastContext for TTS on toast notifications
+	// Sync audio feedback settings to notificationStore for TTS on toast notifications
 	useEffect(() => {
 		setAudioFeedback(audioFeedbackEnabled, audioFeedbackCommand);
 	}, [audioFeedbackEnabled, audioFeedbackCommand, setAudioFeedback]);
 
-	// Sync OS notifications setting to ToastContext
+	// Sync OS notifications setting to notificationStore
 	useEffect(() => {
 		setOsNotifications(osNotificationsEnabled);
 	}, [osNotificationsEnabled, setOsNotifications]);
@@ -3950,7 +3948,7 @@ function MaestroConsoleInner() {
 		}
 	}, [groupChatState]);
 
-	// Refs (groupChatInputRef and groupChatMessagesRef are now in GroupChatContext)
+	// Refs (groupChatInputRef and groupChatMessagesRef are local refs, not in store)
 	const logsEndRef = useRef<HTMLDivElement>(null);
 	const inputRef = useRef<HTMLTextAreaElement>(null);
 	const terminalOutputRef = useRef<HTMLDivElement>(null);
@@ -14794,24 +14792,20 @@ You are taking over this conversation. Based on the context above, provide a bri
  *
  * Wraps MaestroConsoleInner with context providers for centralized state management.
  * Phase 3: InputProvider - centralized input state management
- * Phase 4: GroupChatProvider - centralized group chat state management
- * Phase 5: AutoRunProvider - centralized Auto Run and batch processing state management
  * Phase 7: InlineWizardProvider - inline /wizard command state management
  * See refactor-details-2.md for full plan.
  * Note: SessionProvider removed - migrated to sessionStore (Zustand).
+ * Note: AutoRunProvider removed - migrated to batchStore (Zustand).
+ * Note: GroupChatProvider removed - migrated to groupChatStore (Zustand).
  */
 export default function MaestroConsole() {
 	return (
 		<ProjectFoldersProvider>
-			<AutoRunProvider>
-				<GroupChatProvider>
-					<InlineWizardProvider>
-						<InputProvider>
-							<MaestroConsoleInner />
-						</InputProvider>
-					</InlineWizardProvider>
-				</GroupChatProvider>
-			</AutoRunProvider>
+			<InlineWizardProvider>
+				<InputProvider>
+					<MaestroConsoleInner />
+				</InputProvider>
+			</InlineWizardProvider>
 		</ProjectFoldersProvider>
 	);
 }
