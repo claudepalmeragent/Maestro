@@ -269,7 +269,7 @@ export function useAgentSessionManagement(
 							starred: isStarred,
 							usageStats: finalUsageStats,
 							saveToHistory: defaultSaveToHistory,
-							showThinking: defaultShowThinking,
+							showThinking: defaultShowThinking ? 'on' : 'off',
 						});
 						if (!result) return s;
 

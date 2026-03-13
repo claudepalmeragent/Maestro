@@ -24,6 +24,7 @@ import type {
 	CustomAICommand,
 	SpecKitCommand,
 	OpenSpecCommand,
+	ThinkingMode,
 } from '../types';
 import { createTab, getActiveTab } from '../utils/tabHelpers';
 import { generateId } from '../utils/ids';
@@ -68,7 +69,7 @@ export interface AgentStoreActions {
 	 */
 	startNewSessionAfterError: (
 		sessionId: string,
-		options?: { saveToHistory?: boolean; showThinking?: boolean }
+		options?: { saveToHistory?: boolean; showThinking?: ThinkingMode }
 	) => void;
 
 	/**

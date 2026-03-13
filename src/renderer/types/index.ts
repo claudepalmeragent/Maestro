@@ -18,6 +18,7 @@ export type {
 	BatchDocumentEntry,
 	PlaybookDocumentEntry,
 	Playbook,
+	ThinkingMode,
 } from '../../shared/types';
 // Import for extension in this file
 import type {
@@ -25,6 +26,7 @@ import type {
 	BatchDocumentEntry,
 	UsageStats,
 	ToolType,
+	ThinkingMode,
 } from '../../shared/types';
 
 // Re-export group chat types from shared location
@@ -73,7 +75,7 @@ export interface WizardMessage {
 export interface WizardPreviousUIState {
 	readOnlyMode: boolean;
 	saveToHistory: boolean;
-	showThinking: boolean;
+	showThinking: ThinkingMode;
 }
 
 /**
@@ -518,7 +520,7 @@ export interface AITab {
 	readOnlyMode?: boolean; // When true, agent operates in plan/read-only mode
 	saveToHistory?: boolean; // When true, synopsis is requested after each completion and saved to History
 	lastSynopsisTime?: number; // Timestamp of last synopsis generation (for time-window context in prompts)
-	showThinking?: boolean; // When true, show streaming thinking/reasoning content in real-time
+	showThinking?: ThinkingMode; // Controls thinking display: 'off' | 'on' (temporary) | 'sticky' (persistent)
 	awaitingSessionId?: boolean; // True when this tab sent a message and is awaiting its session ID
 	thinkingStartTime?: number; // Timestamp when tab started thinking (for elapsed time display)
 	scrollTop?: number; // Saved scroll position for this tab's output view
@@ -536,6 +538,36 @@ export interface ClosedTab {
 	index: number; // Original position in the tab array
 	closedAt: number; // Timestamp when closed
 }
+
+// File preview tab for viewing files alongside AI conversation tabs
+export interface FilePreviewTab {
+	id: string; // Unique tab ID (UUID)
+	path: string; // Full file path
+	name: string; // Filename without extension (displayed as tab name)
+	extension: string; // File extension with dot (e.g., '.md', '.ts') - shown as badge
+	content: string; // File content (stored directly for simplicity - file previews are typically small)
+	scrollTop?: number; // Saved scroll position
+	editMode?: boolean; // Whether the file is in edit mode
+	editContent?: string; // Content being edited (undefined = not modified)
+	searchQuery?: string; // Current search query within file
+	navigationHistory?: { path: string; name: string; scrollTop?: number }[]; // Breadcrumb navigation
+	navigationIndex?: number; // Current position in navigation history
+}
+
+// Reference to a tab in the unified tab order (either AI or file tab)
+export type UnifiedTabRef = { type: 'ai' | 'file'; id: string };
+
+// Unified tab entry for rendering in TabBar
+// Discriminated union that includes the full tab data for each type
+export type UnifiedTab =
+	| { type: 'ai'; id: string; data: AITab }
+	| { type: 'file'; id: string; data: FilePreviewTab };
+
+// Unified closed tab entry for undo functionality (Cmd+Shift+T)
+// Can hold either an AITab or FilePreviewTab with type discrimination
+export type ClosedTabEntry =
+	| { type: 'ai'; tab: AITab; unifiedIndex: number; closedAt: number }
+	| { type: 'file'; tab: FilePreviewTab; unifiedIndex: number; closedAt: number };
 
 export interface Session {
 	id: string;
@@ -656,6 +688,14 @@ export interface Session {
 	activeTabId: string;
 	// Stack of recently closed tabs for undo (max 25, runtime-only, not persisted)
 	closedTabHistory: ClosedTab[];
+	// File preview tabs (for viewing files alongside AI tabs)
+	filePreviewTabs: FilePreviewTab[];
+	// Currently active file tab ID (null if an AI tab is active)
+	activeFileTabId: string | null;
+	// Unified tab ordering - determines visual order of all tabs (AI and file)
+	unifiedTabOrder: UnifiedTabRef[];
+	// Stack of recently closed tabs (both AI and file) for undo (max 25, runtime-only, not persisted)
+	unifiedClosedTabHistory: ClosedTabEntry[];
 	// Saved scroll position for terminal/shell output view
 	terminalScrollTop?: number;
 	// Draft input for terminal mode (persisted across session switches)

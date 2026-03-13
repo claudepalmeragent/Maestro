@@ -10,6 +10,7 @@
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
+import type { ThinkingMode } from '../types';
 import { logger } from '../utils/logger';
 import { parseWizardIntent } from '../services/wizardIntentParser';
 import {
@@ -62,7 +63,7 @@ export interface InlineWizardMessage {
 export interface PreviousUIState {
 	readOnlyMode: boolean;
 	saveToHistory: boolean;
-	showThinking: boolean;
+	showThinking: ThinkingMode;
 }
 
 /**

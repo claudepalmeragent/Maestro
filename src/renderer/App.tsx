@@ -1738,7 +1738,7 @@ function MaestroConsoleInner() {
 							createdAt: Date.now(),
 							state: 'idle',
 							saveToHistory: defaultSaveToHistory,
-							showThinking: defaultShowThinking,
+							showThinking: defaultShowThinking ? 'on' : 'off',
 						};
 
 						// Fetch git info (via SSH for remote sessions)
@@ -1802,6 +1802,10 @@ function MaestroConsoleInner() {
 							aiTabs: [initialTab],
 							activeTabId: initialTabId,
 							closedTabHistory: [],
+							filePreviewTabs: [],
+							activeFileTabId: null,
+							unifiedTabOrder: [{ type: 'ai' as const, id: initialTabId }],
+							unifiedClosedTabHistory: [],
 							customPath: parentSession.customPath,
 							customArgs: parentSession.customArgs,
 							customEnvVars: parentSession.customEnvVars,
@@ -4309,7 +4313,7 @@ function MaestroConsoleInner() {
 					if (s.id !== sessionId) return s;
 					const result = createTab(s, {
 						saveToHistory: defaultSaveToHistory,
-						showThinking: defaultShowThinking,
+						showThinking: defaultShowThinking ? 'on' : 'off',
 					});
 					if (!result) return s;
 					return result.session;
@@ -5436,7 +5440,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 				if (s.id !== currentSession.id) return s;
 				const result = createTab(s, {
 					saveToHistory: defaultSaveToHistory,
-					showThinking: defaultShowThinking,
+					showThinking: defaultShowThinking ? 'on' : 'off',
 				});
 				if (!result) return s;
 				return result.session;
@@ -5507,7 +5511,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 				if (s.id !== activeSessionIdRef.current) return s;
 				const result = createTab(s, {
 					saveToHistory: defaultSaveToHistory,
-					showThinking: defaultShowThinking,
+					showThinking: defaultShowThinking ? 'on' : 'off',
 				});
 				if (!result) return s;
 				return result.session;
@@ -5909,11 +5913,11 @@ You are taking over this conversation. Based on the context above, provide a bri
 						if (tab.showThinking) {
 							return {
 								...tab,
-								showThinking: false,
+								showThinking: 'off' as const,
 								logs: tab.logs.filter((l) => l.source !== 'thinking' && l.source !== 'tool'),
 							};
 						}
-						return { ...tab, showThinking: true };
+						return { ...tab, showThinking: 'on' as const };
 					}),
 				};
 			})
@@ -7516,7 +7520,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 					previousUIState: tabWizardState.previousUIState ?? {
 						readOnlyMode: false,
 						saveToHistory: true,
-						showThinking: false,
+						showThinking: 'off',
 					},
 					error: tabWizardState.error,
 					isGeneratingDocs: tabWizardState.isGeneratingDocs,
@@ -7785,7 +7789,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 			const currentUIState: PreviousUIState = {
 				readOnlyMode: activeTab.readOnlyMode ?? false,
 				saveToHistory: activeTab.saveToHistory ?? true,
-				showThinking: activeTab.showThinking ?? false,
+				showThinking: activeTab.showThinking ?? 'off',
 			};
 
 			// Start the inline wizard with the argument text (natural language input)
@@ -7841,7 +7845,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 		const result = createTab(activeSession, {
 			name: 'Wizard',
 			saveToHistory: defaultSaveToHistory,
-			showThinking: defaultShowThinking,
+			showThinking: defaultShowThinking ? 'on' : 'off',
 		});
 		if (!result) {
 			console.warn('[handleLaunchWizardTab] Failed to create new tab');
@@ -7866,7 +7870,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 		const currentUIState: PreviousUIState = {
 			readOnlyMode: false,
 			saveToHistory: defaultSaveToHistory,
-			showThinking: defaultShowThinking,
+			showThinking: defaultShowThinking ? 'on' : 'off',
 		};
 
 		// Start the inline wizard in the new tab
@@ -8122,7 +8126,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 				createdAt: Date.now(),
 				state: 'idle',
 				saveToHistory: defaultSaveToHistory,
-				showThinking: defaultShowThinking,
+				showThinking: defaultShowThinking ? 'on' : 'off',
 			};
 
 			// Get SSH remote ID for remote git operations
@@ -8189,6 +8193,10 @@ You are taking over this conversation. Based on the context above, provide a bri
 				aiTabs: [initialTab],
 				activeTabId: initialTabId,
 				closedTabHistory: [],
+				filePreviewTabs: [],
+				activeFileTabId: null,
+				unifiedTabOrder: [{ type: 'ai' as const, id: initialTabId }],
+				unifiedClosedTabHistory: [],
 				customPath: parentSession.customPath,
 				customArgs: parentSession.customArgs,
 				customEnvVars: parentSession.customEnvVars,
@@ -8311,7 +8319,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 								createdAt: Date.now(),
 								state: 'idle',
 								saveToHistory: defaultSaveToHistory,
-								showThinking: defaultShowThinking,
+								showThinking: defaultShowThinking ? 'on' : 'off',
 							};
 
 							// Fetch git info (with SSH support)
@@ -8376,6 +8384,10 @@ You are taking over this conversation. Based on the context above, provide a bri
 								aiTabs: [initialTab],
 								activeTabId: initialTabId,
 								closedTabHistory: [],
+								filePreviewTabs: [],
+								activeFileTabId: null,
+								unifiedTabOrder: [{ type: 'ai' as const, id: initialTabId }],
+								unifiedClosedTabHistory: [],
 								customPath: session.customPath,
 								customArgs: session.customArgs,
 								customEnvVars: session.customEnvVars,
@@ -9686,7 +9698,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 				createdAt: Date.now(),
 				state: 'idle',
 				saveToHistory: defaultSaveToHistory,
-				showThinking: defaultShowThinking,
+				showThinking: defaultShowThinking ? 'on' : 'off',
 			};
 
 			const newSession: Session = {
@@ -9734,6 +9746,10 @@ You are taking over this conversation. Based on the context above, provide a bri
 				aiTabs: [initialTab],
 				activeTabId: initialTabId,
 				closedTabHistory: [],
+				filePreviewTabs: [],
+				activeFileTabId: null,
+				unifiedTabOrder: [{ type: 'ai' as const, id: initialTabId }],
+				unifiedClosedTabHistory: [],
 				// Nudge message - appended to every interactive user message
 				nudgeMessage,
 				// Per-agent config (path, args, env vars, model)
@@ -9845,7 +9861,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 				createdAt: Date.now(),
 				state: 'idle',
 				saveToHistory: defaultSaveToHistory,
-				showThinking: defaultShowThinking,
+				showThinking: defaultShowThinking ? 'on' : 'off',
 			};
 
 			// Build Auto Run folder path
@@ -9896,6 +9912,10 @@ You are taking over this conversation. Based on the context above, provide a bri
 				aiTabs: [initialTab],
 				activeTabId: initialTabId,
 				closedTabHistory: [],
+				filePreviewTabs: [],
+				activeFileTabId: null,
+				unifiedTabOrder: [{ type: 'ai' as const, id: initialTabId }],
+				unifiedClosedTabHistory: [],
 				// Auto Run configuration from wizard
 				autoRunFolderPath,
 				autoRunSelectedFile,
@@ -11879,7 +11899,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 							createdAt: Date.now(),
 							state: 'idle',
 							saveToHistory: defaultSaveToHistory,
-							showThinking: defaultShowThinking,
+							showThinking: defaultShowThinking ? 'on' : 'off',
 						};
 
 						// Fetch git info for this subdirectory (with SSH support)
@@ -11945,6 +11965,10 @@ You are taking over this conversation. Based on the context above, provide a bri
 							aiTabs: [initialTab],
 							activeTabId: initialTabId,
 							closedTabHistory: [],
+							filePreviewTabs: [],
+							activeFileTabId: null,
+							unifiedTabOrder: [{ type: 'ai' as const, id: initialTabId }],
+							unifiedClosedTabHistory: [],
 							customPath: activeSession.customPath,
 							customArgs: activeSession.customArgs,
 							customEnvVars: activeSession.customEnvVars,
@@ -12062,7 +12086,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 					createdAt: Date.now(),
 					state: 'idle',
 					saveToHistory: defaultSaveToHistory,
-					showThinking: defaultShowThinking,
+					showThinking: defaultShowThinking ? 'on' : 'off',
 				};
 
 				// Fetch git info for the worktree (pass SSH remote ID for remote sessions)
@@ -12126,6 +12150,10 @@ You are taking over this conversation. Based on the context above, provide a bri
 					aiTabs: [initialTab],
 					activeTabId: initialTabId,
 					closedTabHistory: [],
+					filePreviewTabs: [],
+					activeFileTabId: null,
+					unifiedTabOrder: [{ type: 'ai' as const, id: initialTabId }],
+					unifiedClosedTabHistory: [],
 					customPath: activeSession.customPath,
 					customArgs: activeSession.customArgs,
 					customEnvVars: activeSession.customEnvVars,
@@ -12217,7 +12245,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 				createdAt: Date.now(),
 				state: 'idle',
 				saveToHistory: defaultSaveToHistory,
-				showThinking: defaultShowThinking,
+				showThinking: defaultShowThinking ? 'on' : 'off',
 			};
 
 			// Fetch git info for the worktree (pass SSH remote ID for remote sessions)
@@ -12281,6 +12309,10 @@ You are taking over this conversation. Based on the context above, provide a bri
 				aiTabs: [initialTab],
 				activeTabId: initialTabId,
 				closedTabHistory: [],
+				filePreviewTabs: [],
+				activeFileTabId: null,
+				unifiedTabOrder: [{ type: 'ai' as const, id: initialTabId }],
+				unifiedClosedTabHistory: [],
 				customPath: createWorktreeSession.customPath,
 				customArgs: createWorktreeSession.customArgs,
 				customEnvVars: createWorktreeSession.customEnvVars,
@@ -12575,11 +12607,11 @@ You are taking over this conversation. Based on the context above, provide a bri
 							// Turn off - clear thinking logs
 							return {
 								...tab,
-								showThinking: false,
+								showThinking: 'off' as const,
 								logs: tab.logs.filter((log) => log.source !== 'thinking'),
 							};
 						}
-						return { ...tab, showThinking: true };
+						return { ...tab, showThinking: 'on' as const };
 					}),
 				};
 			})
@@ -12630,11 +12662,11 @@ You are taking over this conversation. Based on the context above, provide a bri
 							if (tab.showThinking) {
 								return {
 									...tab,
-									showThinking: false,
+									showThinking: 'off' as const,
 									logs: tab.logs.filter((l) => l.source !== 'thinking' && l.source !== 'tool'),
 								};
 							}
-							return { ...tab, showThinking: true };
+							return { ...tab, showThinking: 'on' as const };
 						}),
 					};
 				})
@@ -14024,7 +14056,11 @@ You are taking over this conversation. Based on the context above, provide a bri
 						activeGroupChatId ? groupChatReadOnlyMode : (activeTab?.readOnlyMode ?? false)
 					}
 					onPromptToggleTabReadOnlyMode={handlePromptToggleTabReadOnlyMode}
-					promptTabShowThinking={activeGroupChatId ? false : (activeTab?.showThinking ?? false)}
+					promptTabShowThinking={
+						activeGroupChatId
+							? false
+							: !!(activeTab?.showThinking && activeTab.showThinking !== 'off')
+					}
 					onPromptToggleTabShowThinking={
 						activeGroupChatId ? undefined : handlePromptToggleTabShowThinking
 					}

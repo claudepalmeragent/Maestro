@@ -73,6 +73,10 @@ function createMockSession(overrides: Partial<Session> = {}): Session {
 		aiTabs: [],
 		activeTabId: '',
 		closedTabHistory: [],
+		filePreviewTabs: [],
+		activeFileTabId: null,
+		unifiedTabOrder: [],
+		unifiedClosedTabHistory: [],
 		...overrides,
 	};
 }
@@ -188,17 +192,21 @@ describe('tabHelpers', () => {
 		it('creates a tab with showThinking option', () => {
 			const session = createMockSession({ aiTabs: [] });
 
-			// Default should be false
+			// Default should be 'off'
 			const defaultResult = createTab(session);
-			expect(defaultResult.tab.showThinking).toBe(false);
+			expect(defaultResult.tab.showThinking).toBe('off');
 
-			// Explicit true
-			const trueResult = createTab(session, { showThinking: true });
-			expect(trueResult.tab.showThinking).toBe(true);
+			// Explicit 'on'
+			const onResult = createTab(session, { showThinking: 'on' });
+			expect(onResult.tab.showThinking).toBe('on');
 
-			// Explicit false
-			const falseResult = createTab(session, { showThinking: false });
-			expect(falseResult.tab.showThinking).toBe(false);
+			// Explicit 'sticky'
+			const stickyResult = createTab(session, { showThinking: 'sticky' });
+			expect(stickyResult.tab.showThinking).toBe('sticky');
+
+			// Explicit 'off'
+			const offResult = createTab(session, { showThinking: 'off' });
+			expect(offResult.tab.showThinking).toBe('off');
 		});
 
 		it('appends tab to existing tabs', () => {
@@ -266,7 +274,7 @@ describe('tabHelpers', () => {
 			expect(result!.session.aiTabs[0].id).toBe('tab-2');
 		});
 
-		it('selects next tab when active tab is closed', () => {
+		it('selects previous tab when active tab is closed', () => {
 			const tab1 = createMockTab({ id: 'tab-1' });
 			const tab2 = createMockTab({ id: 'tab-2' });
 			const tab3 = createMockTab({ id: 'tab-3' });
@@ -277,7 +285,8 @@ describe('tabHelpers', () => {
 
 			const result = closeTab(session, 'tab-2');
 
-			expect(result!.session.activeTabId).toBe('tab-3');
+			// Upstream behavior: selects the tab to the left (previous)
+			expect(result!.session.activeTabId).toBe('tab-1');
 		});
 
 		it('selects previous tab when closing last tab in list', () => {
@@ -1211,22 +1220,32 @@ describe('tabHelpers', () => {
 				projectRoot: '/project',
 				toolType: 'claude-code',
 				mergedLogs: [],
-				showThinking: true,
+				showThinking: 'on',
 			});
 
-			expect(sessionWithThinking.aiTabs[0].showThinking).toBe(true);
+			expect(sessionWithThinking.aiTabs[0].showThinking).toBe('on');
 
-			const { session: sessionWithoutThinking } = createMergedSession({
+			const { session: sessionWithSticky } = createMergedSession({
+				name: 'Sticky Thinking',
+				projectRoot: '/project',
+				toolType: 'claude-code',
+				mergedLogs: [],
+				showThinking: 'sticky',
+			});
+
+			expect(sessionWithSticky.aiTabs[0].showThinking).toBe('sticky');
+
+			const { session: sessionWithOff } = createMergedSession({
 				name: 'Without Thinking',
 				projectRoot: '/project',
 				toolType: 'claude-code',
 				mergedLogs: [],
-				showThinking: false,
+				showThinking: 'off',
 			});
 
-			expect(sessionWithoutThinking.aiTabs[0].showThinking).toBe(false);
+			expect(sessionWithOff.aiTabs[0].showThinking).toBe('off');
 
-			// Default should be false
+			// Default should be 'off'
 			const { session: sessionDefault } = createMergedSession({
 				name: 'Default Thinking',
 				projectRoot: '/project',
@@ -1234,7 +1253,7 @@ describe('tabHelpers', () => {
 				mergedLogs: [],
 			});
 
-			expect(sessionDefault.aiTabs[0].showThinking).toBe(false);
+			expect(sessionDefault.aiTabs[0].showThinking).toBe('off');
 		});
 
 		it('creates a session with terminal toolType sets correct inputMode', () => {
@@ -1341,7 +1360,7 @@ describe('tabHelpers', () => {
 					mode: null,
 					confidence: 0,
 					conversationHistory: [],
-					previousUIState: { readOnlyMode: false, saveToHistory: true, showThinking: false },
+					previousUIState: { readOnlyMode: false, saveToHistory: true, showThinking: 'off' },
 				},
 			});
 			expect(hasActiveWizard(tab)).toBe(false);
@@ -1355,7 +1374,7 @@ describe('tabHelpers', () => {
 					mode: 'new',
 					confidence: 50,
 					conversationHistory: [],
-					previousUIState: { readOnlyMode: false, saveToHistory: true, showThinking: false },
+					previousUIState: { readOnlyMode: false, saveToHistory: true, showThinking: 'off' },
 				},
 			});
 			expect(hasActiveWizard(tab)).toBe(true);
@@ -1369,7 +1388,7 @@ describe('tabHelpers', () => {
 					mode: 'iterate',
 					confidence: 75,
 					conversationHistory: [],
-					previousUIState: { readOnlyMode: false, saveToHistory: true, showThinking: false },
+					previousUIState: { readOnlyMode: false, saveToHistory: true, showThinking: 'off' },
 				},
 			});
 			expect(hasActiveWizard(tab)).toBe(true);
