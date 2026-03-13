@@ -1,6 +1,7 @@
-import { useCallback, MutableRefObject } from 'react';
+import { useCallback } from 'react';
 import type { Session } from '../../types';
 import type { NavHistoryEntry } from './useNavigationHistory';
+import { useSessionStore } from '../../stores/sessionStore';
 
 /**
  * Dependencies required by the useSessionNavigation hook
@@ -14,8 +15,6 @@ export interface UseSessionNavigationDeps {
 	setActiveSessionId: (id: string) => void;
 	/** Session list state setter */
 	setSessions: React.Dispatch<React.SetStateAction<Session[]>>;
-	/** Ref for tracking cycle position during session cycling */
-	cyclePositionRef: MutableRefObject<number>;
 }
 
 /**
@@ -52,7 +51,7 @@ export function useSessionNavigation(
 	sessions: Session[],
 	deps: UseSessionNavigationDeps
 ): UseSessionNavigationReturn {
-	const { navigateBack, navigateForward, setActiveSessionId, setSessions, cyclePositionRef } = deps;
+	const { navigateBack, navigateForward, setActiveSessionId, setSessions } = deps;
 
 	// Navigate back in history (through sessions and tabs)
 	const handleNavBack = useCallback(() => {
@@ -63,7 +62,7 @@ export function useSessionNavigation(
 			if (sessionExists) {
 				// Navigate to the session
 				setActiveSessionId(entry.sessionId);
-				cyclePositionRef.current = -1;
+				useSessionStore.getState().resetCyclePosition();
 
 				// If there's a tab ID, also switch to that tab
 				if (entry.tabId) {
@@ -79,7 +78,7 @@ export function useSessionNavigation(
 				}
 			}
 		}
-	}, [navigateBack, sessions, setActiveSessionId, cyclePositionRef, setSessions]);
+	}, [navigateBack, sessions, setActiveSessionId, setSessions]);
 
 	// Navigate forward in history (through sessions and tabs)
 	const handleNavForward = useCallback(() => {
@@ -90,7 +89,7 @@ export function useSessionNavigation(
 			if (sessionExists) {
 				// Navigate to the session
 				setActiveSessionId(entry.sessionId);
-				cyclePositionRef.current = -1;
+				useSessionStore.getState().resetCyclePosition();
 
 				// If there's a tab ID, also switch to that tab
 				if (entry.tabId) {
@@ -106,7 +105,7 @@ export function useSessionNavigation(
 				}
 			}
 		}
-	}, [navigateForward, sessions, setActiveSessionId, cyclePositionRef, setSessions]);
+	}, [navigateForward, sessions, setActiveSessionId, setSessions]);
 
 	return {
 		handleNavBack,

@@ -37,7 +37,7 @@ import { HoneycombWarningSash } from './HoneycombWarningSash';
 import { BudgetBarInline } from './BudgetBarInline';
 import { useHoneycombUsage } from '../hooks/useHoneycombUsage';
 import { useSettings } from '../hooks/settings/useSettings';
-import { useModalContext } from '../contexts/ModalContext';
+import { useModalActions } from '../stores/modalStore';
 import { SummarizeProgressOverlay } from './SummarizeProgressOverlay';
 import { WizardInputPanel } from './InlineWizard';
 import { useAgentCapabilities, useScrollIntoView } from '../hooks';
@@ -302,7 +302,7 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 	// Honeycomb usage data for spend warning sash and budget bars
 	const { data: honeycombUsageData, isConfigured: honeycombConfigured } = useHoneycombUsage();
 	const { planCalibration, honeycombWarningSettings } = useSettings();
-	const { setUsageDashboardOpen, setUsageDashboardInitialTab } = useModalContext();
+	const { setUsageDashboardOpen, setUsageDashboardInitialTab } = useModalActions();
 
 	// PERF: Memoize activeTab lookup to avoid O(n) search on every render
 	const activeTab = useMemo(

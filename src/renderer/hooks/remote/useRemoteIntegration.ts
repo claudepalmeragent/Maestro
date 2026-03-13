@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import type { Session, SessionState } from '../../types';
 import { createTab, closeTab } from '../../utils/tabHelpers';
+import { useSessionStore } from '../../stores/sessionStore';
 
 /**
  * Dependencies for the useRemoteIntegration hook.
@@ -11,10 +12,6 @@ export interface UseRemoteIntegrationDeps {
 	activeSessionId: string;
 	/** Whether live mode is enabled (web interface) */
 	isLiveMode: boolean;
-	/** Ref to current sessions array (avoids stale closures) */
-	sessionsRef: React.MutableRefObject<Session[]>;
-	/** Ref to current active session ID (avoids stale closures) */
-	activeSessionIdRef: React.MutableRefObject<string>;
 	/** Session state setter */
 	setSessions: React.Dispatch<React.SetStateAction<Session[]>>;
 	/** Active session ID setter */
@@ -54,8 +51,6 @@ export function useRemoteIntegration(deps: UseRemoteIntegrationDeps): UseRemoteI
 	const {
 		activeSessionId,
 		isLiveMode,
-		sessionsRef,
-		activeSessionIdRef,
 		setSessions,
 		setActiveSessionId,
 		defaultSaveToHistory,
@@ -82,11 +77,11 @@ export function useRemoteIntegration(deps: UseRemoteIntegrationDeps): UseRemoteI
 				});
 
 				// Verify the session exists
-				const targetSession = sessionsRef.current.find((s) => s.id === sessionId);
+				const targetSession = useSessionStore.getState().sessions.find((s) => s.id === sessionId);
 				console.log('[useRemoteIntegration] Target session lookup:', {
 					found: !!targetSession,
-					sessionCount: sessionsRef.current.length,
-					availableIds: sessionsRef.current.map((s) => s.id),
+					sessionCount: useSessionStore.getState().sessions.length,
+					availableIds: useSessionStore.getState().sessions.map((s) => s.id),
 				});
 
 				if (!targetSession) {
@@ -134,7 +129,7 @@ export function useRemoteIntegration(deps: UseRemoteIntegrationDeps): UseRemoteI
 		return () => {
 			unsubscribeRemote();
 		};
-	}, [sessionsRef, setSessions, setActiveSessionId]);
+	}, [setSessions, setActiveSessionId]);
 
 	// Handle remote mode switches from web interface
 	// This allows web mode switches to go through the same code path as desktop
@@ -172,7 +167,7 @@ export function useRemoteIntegration(deps: UseRemoteIntegrationDeps): UseRemoteI
 		const unsubscribeInterrupt = window.maestro.process.onRemoteInterrupt(
 			async (sessionId: string) => {
 				// Find the session
-				const session = sessionsRef.current.find((s) => s.id === sessionId);
+				const session = useSessionStore.getState().sessions.find((s) => s.id === sessionId);
 				if (!session) {
 					return;
 				}
@@ -207,7 +202,7 @@ export function useRemoteIntegration(deps: UseRemoteIntegrationDeps): UseRemoteI
 		return () => {
 			unsubscribeInterrupt();
 		};
-	}, [sessionsRef, setSessions]);
+	}, [setSessions]);
 
 	// Handle remote session selection from web interface
 	// This allows web clients to switch the active session in the desktop app
@@ -216,7 +211,7 @@ export function useRemoteIntegration(deps: UseRemoteIntegrationDeps): UseRemoteI
 		const unsubscribeSelectSession = window.maestro.process.onRemoteSelectSession(
 			(sessionId: string, tabId?: string) => {
 				// Check if session exists
-				const session = sessionsRef.current.find((s) => s.id === sessionId);
+				const session = useSessionStore.getState().sessions.find((s) => s.id === sessionId);
 				if (!session) {
 					return;
 				}
@@ -245,7 +240,7 @@ export function useRemoteIntegration(deps: UseRemoteIntegrationDeps): UseRemoteI
 		const unsubscribeSelectTab = window.maestro.process.onRemoteSelectTab(
 			(sessionId: string, tabId: string) => {
 				// First, switch to the session if not already active
-				const currentActiveId = activeSessionIdRef.current;
+				const currentActiveId = useSessionStore.getState().activeSessionId;
 				if (currentActiveId !== sessionId) {
 					setActiveSessionId(sessionId);
 				}
@@ -356,12 +351,12 @@ export function useRemoteIntegration(deps: UseRemoteIntegrationDeps): UseRemoteI
 			unsubscribeCloseTab();
 			unsubscribeRenameTab();
 		};
-	}, [sessionsRef, activeSessionIdRef, setSessions, setActiveSessionId, defaultSaveToHistory]);
+	}, [setSessions, setActiveSessionId, defaultSaveToHistory]);
 
 	// Broadcast tab changes to web clients when tabs, activeTabId, or tab properties change
 	// PERFORMANCE FIX: This effect was previously missing its dependency array, causing it to
 	// run on EVERY render (including every keystroke). Now it only runs when isLiveMode changes,
-	// and uses the sessionsRef to avoid reacting to every session state change.
+	// and uses useSessionStore.getState() to avoid reacting to every session state change.
 	// The internal comparison logic ensures broadcasts only happen when actually needed.
 	const prevTabsRef = useRef<
 		Map<string, { tabCount: number; activeTabId: string; tabsHash: string }>
@@ -380,7 +375,7 @@ export function useRemoteIntegration(deps: UseRemoteIntegrationDeps): UseRemoteI
 		// Use an interval to periodically check for changes instead of running on every render
 		// This dramatically reduces CPU usage during normal typing
 		const intervalId = setInterval(() => {
-			const sessions = sessionsRef.current;
+			const sessions = useSessionStore.getState().sessions;
 
 			sessions.forEach((session) => {
 				// Broadcast session state changes (busy/idle) to web clients
@@ -437,7 +432,7 @@ export function useRemoteIntegration(deps: UseRemoteIntegrationDeps): UseRemoteI
 		}, 500); // Check every 500ms - fast enough for good UX, slow enough to not impact typing
 
 		return () => clearInterval(intervalId);
-	}, [isLiveMode, sessionsRef]);
+	}, [isLiveMode]);
 
 	return {};
 }

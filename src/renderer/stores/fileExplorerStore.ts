@@ -24,11 +24,20 @@ export interface FilePreviewLoading {
 	path: string;
 }
 
+export interface FilePreviewData {
+	name: string;
+	content: string;
+	path: string;
+}
+
 export interface FileExplorerStoreState {
 	// File tree UI (migrated from uiStore)
 	selectedFileIndex: number;
 	fileTreeFilter: string;
 	fileTreeFilterOpen: boolean;
+
+	// File preview (migrated from UILayoutContext)
+	previewFile: FilePreviewData | null;
 
 	// File preview loading indicator (migrated from App.tsx)
 	filePreviewLoading: FilePreviewLoading | null;
@@ -50,6 +59,9 @@ export interface FileExplorerStoreActions {
 	setSelectedFileIndex: (index: number | ((prev: number) => number)) => void;
 	setFileTreeFilter: (filter: string | ((prev: string) => string)) => void;
 	setFileTreeFilterOpen: (open: boolean | ((prev: boolean) => boolean)) => void;
+
+	// File preview
+	setPreviewFile: (file: FilePreviewData | null) => void;
 
 	// File preview loading
 	setFilePreviewLoading: (loading: FilePreviewLoading | null) => void;
@@ -91,6 +103,7 @@ export const useFileExplorerStore = create<FileExplorerStore>()((set, get) => ({
 	selectedFileIndex: 0,
 	fileTreeFilter: '',
 	fileTreeFilterOpen: false,
+	previewFile: null,
 	filePreviewLoading: null,
 	filteredFileTree: [],
 	flatFileList: [],
@@ -103,6 +116,8 @@ export const useFileExplorerStore = create<FileExplorerStore>()((set, get) => ({
 	setFileTreeFilter: (v) => set((s) => ({ fileTreeFilter: resolve(v, s.fileTreeFilter) })),
 	setFileTreeFilterOpen: (v) =>
 		set((s) => ({ fileTreeFilterOpen: resolve(v, s.fileTreeFilterOpen) })),
+
+	setPreviewFile: (file) => set({ previewFile: file }),
 
 	setFilePreviewLoading: (loading) => set({ filePreviewLoading: loading }),
 
@@ -156,6 +171,7 @@ export function getFileExplorerActions() {
 		setSelectedFileIndex: state.setSelectedFileIndex,
 		setFileTreeFilter: state.setFileTreeFilter,
 		setFileTreeFilterOpen: state.setFileTreeFilterOpen,
+		setPreviewFile: state.setPreviewFile,
 		setFilePreviewLoading: state.setFilePreviewLoading,
 		setFilteredFileTree: state.setFilteredFileTree,
 		setFlatFileList: state.setFlatFileList,

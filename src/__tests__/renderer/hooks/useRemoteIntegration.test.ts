@@ -3,6 +3,25 @@ import { renderHook, act } from '@testing-library/react';
 import { useRemoteIntegration } from '../../../renderer/hooks';
 import type { Session, AITab } from '../../../renderer/types';
 
+// Mutable state for the mock store - tests update these in beforeEach/createDeps
+let mockStoreSessions: Session[] = [];
+let mockStoreActiveSessionId = '';
+
+vi.mock('../../../renderer/stores/sessionStore', () => ({
+	useSessionStore: Object.assign(
+		(selector?: any) => {
+			const state = { sessions: mockStoreSessions, activeSessionId: mockStoreActiveSessionId };
+			return selector ? selector(state) : state;
+		},
+		{
+			getState: () => ({
+				sessions: mockStoreSessions,
+				activeSessionId: mockStoreActiveSessionId,
+			}),
+		}
+	),
+}));
+
 const createMockTab = (overrides: Partial<AITab> = {}): AITab => ({
 	id: 'tab-1',
 	agentSessionId: null,
@@ -133,6 +152,8 @@ describe('useRemoteIntegration', () => {
 
 	beforeEach(() => {
 		vi.clearAllMocks();
+		mockStoreSessions = [];
+		mockStoreActiveSessionId = '';
 		onRemoteCommandHandler = undefined;
 		onRemoteSwitchModeHandler = undefined;
 		onRemoteInterruptHandler = undefined;
@@ -166,11 +187,14 @@ describe('useRemoteIntegration', () => {
 	) => {
 		const sessions = overrides.sessions ?? [createMockSession()];
 		const activeSessionId = overrides.activeSessionId ?? sessions[0]?.id ?? '';
-		const sessionsRef = { current: sessions };
-		const activeSessionIdRef = { current: activeSessionId };
+
+		// Update the mock store state so useSessionStore.getState() returns correct data
+		mockStoreSessions = sessions;
+		mockStoreActiveSessionId = activeSessionId;
+
 		const setSessions = vi.fn((fn: (prev: Session[]) => Session[]) => {
 			const result = typeof fn === 'function' ? fn(sessions) : fn;
-			sessionsRef.current = result;
+			mockStoreSessions = result;
 			return result;
 		});
 		const setActiveSessionId = vi.fn();
@@ -178,11 +202,10 @@ describe('useRemoteIntegration', () => {
 		return {
 			activeSessionId,
 			isLiveMode: overrides.isLiveMode ?? false,
-			sessionsRef,
-			activeSessionIdRef,
 			setSessions,
 			setActiveSessionId,
 			defaultSaveToHistory: true,
+			defaultShowThinking: false,
 		};
 	};
 

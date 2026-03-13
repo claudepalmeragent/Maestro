@@ -9,6 +9,7 @@ import type {
 	PinnedItem,
 } from '../../types';
 import type { CapacityCheckModalData } from '../../components/CapacityCheckModal';
+import { useSessionStore } from '../../stores/sessionStore';
 import { getActiveTab } from '../../utils/tabHelpers';
 import { generateId } from '../../utils/ids';
 import { substituteTemplateVariables } from '../../utils/templateVariables';
@@ -51,8 +52,6 @@ export interface UseInputProcessingDeps {
 	syncTerminalInputToSession: (value: string) => void;
 	/** Whether the active session is in AI mode */
 	isAiMode: boolean;
-	/** Reference to sessions array (for avoiding stale closures) */
-	sessionsRef: React.MutableRefObject<Session[]>;
 	/** Get batch state for a session */
 	getBatchState: (sessionId: string) => BatchState;
 	/** Active batch run state (may differ from session's batch state) */
@@ -124,7 +123,6 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 		syncAiInputToSession,
 		syncTerminalInputToSession,
 		isAiMode,
-		sessionsRef,
 		getBatchState,
 		// Note: activeBatchRunState is in deps interface but not used - kept for API compatibility
 		processQueuedItemRef,
@@ -708,7 +706,9 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 
 						// IMPORTANT: Get fresh session state from ref to avoid stale closure bug
 						// If user switches tabs quickly, activeSession from closure may have wrong activeTabId
-						const freshSession = sessionsRef.current.find((s) => s.id === activeSessionId);
+						const freshSession = useSessionStore
+							.getState()
+							.sessions.find((s) => s.id === activeSessionId);
 						if (!freshSession) throw new Error('Session not found');
 
 						// Use the ACTIVE TAB's agentSessionId (not the deprecated session-level one)
@@ -1065,7 +1065,6 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 			syncTerminalInputToSession,
 			isAiMode,
 			inputRef,
-			sessionsRef,
 			getBatchState,
 			processQueuedItemRef,
 			setSessions,

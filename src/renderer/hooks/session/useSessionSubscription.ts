@@ -17,8 +17,11 @@
  */
 
 import { useEffect, useCallback, useRef } from 'react';
-import { useSession } from '../../contexts/SessionContext';
-import type { ChangeType, SubscriptionCallback } from './useBatchedSessionUpdates';
+import type {
+	ChangeType,
+	SubscriptionCallback,
+	UseBatchedSessionUpdatesReturn,
+} from './useBatchedSessionUpdates';
 
 /**
  * Options for useSessionSubscription hook
@@ -32,6 +35,8 @@ export interface SessionSubscriptionOptions {
 	onUpdate: (changedTypes: Set<ChangeType>, sessionId: string) => void;
 	/** Whether subscription is active (default: true) */
 	enabled?: boolean;
+	/** The batched updater instance to subscribe to. When omitted, subscription is inactive. */
+	batchedUpdater?: UseBatchedSessionUpdatesReturn;
 }
 
 /**
@@ -67,8 +72,7 @@ export interface SessionSubscriptionOptions {
  * });
  */
 export function useSessionSubscription(options: SessionSubscriptionOptions): void {
-	const { sessionId, changeTypes, onUpdate, enabled = true } = options;
-	const { batchedUpdater } = useSession();
+	const { sessionId, changeTypes, onUpdate, enabled = true, batchedUpdater } = options;
 
 	// Use refs to avoid recreating the subscription callback
 	const sessionIdRef = useRef(sessionId);
@@ -115,7 +119,7 @@ export function useSessionSubscription(options: SessionSubscriptionOptions): voi
 
 	// Subscribe to changes
 	useEffect(() => {
-		if (!enabled) return;
+		if (!enabled || !batchedUpdater) return;
 
 		const unsubscribe = batchedUpdater.subscribe(handleChanges);
 		return unsubscribe;

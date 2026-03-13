@@ -93,12 +93,13 @@ import { useMainPanelProps, useSessionListProps, useRightPanelProps } from './ho
 // Import contexts
 import { useLayerStack } from './contexts/LayerStackContext';
 import { useToast } from './contexts/ToastContext';
-import { useModalContext } from './contexts/ModalContext';
+import { useModalActions } from './stores/modalStore';
 import { GitStatusProvider } from './contexts/GitStatusContext';
 import { InputProvider, useInputContext } from './contexts/InputContext';
 import { GroupChatProvider, useGroupChat } from './contexts/GroupChatContext';
 import { AutoRunProvider, useAutoRun } from './contexts/AutoRunContext';
-import { SessionProvider, useSession } from './contexts/SessionContext';
+import { useSessionStore, selectActiveSession } from './stores/sessionStore';
+import { useBatchedSessionUpdates } from './hooks/session/useBatchedSessionUpdates';
 import { InlineWizardProvider, useInlineWizardContext } from './contexts/InlineWizardContext';
 import { ProjectFoldersProvider, useProjectFoldersContext } from './contexts/ProjectFoldersContext';
 import { ToastContainer } from './components/Toast';
@@ -159,7 +160,8 @@ import { validateNewSession } from './utils/sessionValidation';
 import { estimateContextUsage } from './utils/contextUsage';
 import { formatLogsForClipboard } from './utils/contextExtractor';
 import { isLikelyConcatenatedToolNames, getSlashCommandDescription } from './constants/app';
-import { useUILayout } from './contexts/UILayoutContext';
+import { useUIStore } from './stores/uiStore';
+import { useFileExplorerStore } from './stores/fileExplorerStore';
 
 // Note: DEFAULT_IMAGE_ONLY_PROMPT is now imported from useInputProcessing hook
 
@@ -203,7 +205,7 @@ function MaestroConsoleInner() {
 	// --- PROJECT FOLDERS (for Prompt Library metadata) ---
 	const { getFolderById } = useProjectFoldersContext();
 
-	// --- MODAL STATE (centralized modal state management) ---
+	// --- MODAL STATE (centralized modal state management via Zustand) ---
 	const {
 		// Settings Modal
 		settingsModalOpen,
@@ -235,8 +237,10 @@ function MaestroConsoleInner() {
 		lightboxImages,
 		setLightboxImages,
 		setLightboxSource,
-		lightboxIsGroupChatRef,
-		lightboxAllowDeleteRef,
+		lightboxIsGroupChat,
+		setLightboxIsGroupChat,
+		lightboxAllowDelete,
+		setLightboxAllowDelete,
 		// About Modal
 		aboutModalOpen,
 		setAboutModalOpen,
@@ -387,7 +391,7 @@ function MaestroConsoleInner() {
 		setTourOpen,
 		tourFromWizard,
 		setTourFromWizard,
-	} = useModalContext();
+	} = useModalActions();
 
 	// --- MOBILE LANDSCAPE MODE (reading-only view) ---
 	const isMobileLandscape = useMobileLandscape();
@@ -546,29 +550,20 @@ function MaestroConsoleInner() {
 		tabShortcuts,
 	});
 
-	// --- SESSION STATE (Phase 6: extracted to SessionContext) ---
-	// Use SessionContext for all core session states
-	const {
-		sessions,
-		setSessions,
-		groups,
-		setGroups,
-		activeSessionId,
-		setActiveSessionId: setActiveSessionIdFromContext,
-		setActiveSessionIdInternal,
-		sessionsLoaded,
-		setSessionsLoaded,
-		initialLoadComplete,
-		sessionsRef,
-		groupsRef,
-		activeSessionIdRef,
-		batchedUpdater,
-		activeSession,
-		cyclePositionRef,
-		removedWorktreePaths: _removedWorktreePaths,
-		setRemovedWorktreePaths,
-		removedWorktreePathsRef,
-	} = useSession();
+	// --- SESSION STATE (migrated from SessionContext to sessionStore) ---
+	const sessions = useSessionStore((s) => s.sessions);
+	const setSessions = useSessionStore((s) => s.setSessions);
+	const groups = useSessionStore((s) => s.groups);
+	const setGroups = useSessionStore((s) => s.setGroups);
+	const activeSessionId = useSessionStore((s) => s.activeSessionId);
+	const setActiveSessionIdFromContext = useSessionStore((s) => s.setActiveSessionId);
+	const setActiveSessionIdInternal = useSessionStore((s) => s.setActiveSessionIdInternal);
+	const sessionsLoaded = useSessionStore((s) => s.sessionsLoaded);
+	const setSessionsLoaded = useSessionStore((s) => s.setSessionsLoaded);
+	const initialLoadComplete = useSessionStore((s) => s.initialLoadComplete);
+	const setRemovedWorktreePaths = useSessionStore((s) => s.setRemovedWorktreePaths);
+	const activeSession = useSessionStore(selectActiveSession);
+	const batchedUpdater = useBatchedSessionUpdates(setSessions);
 
 	// Spec Kit commands (loaded from bundled prompts)
 	const [speckitCommands, setSpeckitCommands] = useState<SpecKitCommand[]>([]);
@@ -577,8 +572,9 @@ function MaestroConsoleInner() {
 	const [openspecCommands, setOpenspecCommands] = useState<OpenSpecCommand[]>([]);
 
 	// --- GROUP CHAT STATE (Phase 4: extracted to GroupChatContext) ---
-	// Note: groupChatsExpanded remains here as it's a UI layout concern (already in UILayoutContext)
-	const { groupChatsExpanded, setGroupChatsExpanded } = useUILayout();
+	// Note: groupChatsExpanded remains here as it's a UI layout concern (now in uiStore)
+	const groupChatsExpanded = useUIStore((s) => s.groupChatsExpanded);
+	const setGroupChatsExpanded = useUIStore((s) => s.setGroupChatsExpanded);
 
 	// Use GroupChatContext for all group chat states
 	const {
@@ -709,26 +705,34 @@ function MaestroConsoleInner() {
 		setCommandHistorySelectedIndex,
 	} = useInputContext();
 
-	// UI State
-	const { leftSidebarOpen, setLeftSidebarOpen } = useUILayout();
-	const { rightPanelOpen, setRightPanelOpen } = useUILayout();
-	const { activeRightTab, setActiveRightTab } = useUILayout();
-	const { activeFocus, setActiveFocus } = useUILayout();
-	const { bookmarksCollapsed, setBookmarksCollapsed } = useUILayout();
-	const { showUnreadOnly, setShowUnreadOnly } = useUILayout();
-	// Track the active tab ID before entering unread filter mode, so we can restore it when exiting
-	const { preFilterActiveTabIdRef } = useUILayout();
+	// UI State (from uiStore)
+	const leftSidebarOpen = useUIStore((s) => s.leftSidebarOpen);
+	const setLeftSidebarOpen = useUIStore((s) => s.setLeftSidebarOpen);
+	const rightPanelOpen = useUIStore((s) => s.rightPanelOpen);
+	const setRightPanelOpen = useUIStore((s) => s.setRightPanelOpen);
+	const activeRightTab = useUIStore((s) => s.activeRightTab);
+	const setActiveRightTab = useUIStore((s) => s.setActiveRightTab);
+	const activeFocus = useUIStore((s) => s.activeFocus);
+	const setActiveFocus = useUIStore((s) => s.setActiveFocus);
+	const bookmarksCollapsed = useUIStore((s) => s.bookmarksCollapsed);
+	const setBookmarksCollapsed = useUIStore((s) => s.setBookmarksCollapsed);
+	const showUnreadOnly = useUIStore((s) => s.showUnreadOnly);
+	const setShowUnreadOnly = useUIStore((s) => s.setShowUnreadOnly);
 
-	// File Explorer State
-	const { previewFile, setPreviewFile } = useUILayout();
+	// File Explorer State (from fileExplorerStore)
+	const previewFile = useFileExplorerStore((s) => s.previewFile);
+	const setPreviewFile = useFileExplorerStore((s) => s.setPreviewFile);
 	const [filePreviewLoading, setFilePreviewLoading] = useState<{
 		name: string;
 		path: string;
 	} | null>(null);
-	const { selectedFileIndex, setSelectedFileIndex } = useUILayout();
+	const selectedFileIndex = useFileExplorerStore((s) => s.selectedFileIndex);
+	const setSelectedFileIndex = useFileExplorerStore((s) => s.setSelectedFileIndex);
 	const [flatFileList, setFlatFileList] = useState<any[]>([]);
-	const { fileTreeFilter, setFileTreeFilter } = useUILayout();
-	const { fileTreeFilterOpen, setFileTreeFilterOpen } = useUILayout();
+	const fileTreeFilter = useFileExplorerStore((s) => s.fileTreeFilter);
+	const setFileTreeFilter = useFileExplorerStore((s) => s.setFileTreeFilter);
+	const fileTreeFilterOpen = useFileExplorerStore((s) => s.fileTreeFilterOpen);
+	const setFileTreeFilterOpen = useFileExplorerStore((s) => s.setFileTreeFilterOpen);
 	const [isGraphViewOpen, setIsGraphViewOpen] = useState(false);
 	// File path to focus on when opening the Document Graph (relative to session.cwd)
 	const [graphFocusFilePath, setGraphFocusFilePath] = useState<string | undefined>(undefined);
@@ -756,15 +760,18 @@ function MaestroConsoleInner() {
 
 	// Note: Git Diff State, Tour Overlay State, and Git Log Viewer State are now from ModalContext
 
-	// Renaming State
-	const { editingGroupId, setEditingGroupId } = useUILayout();
-	const { editingSessionId, setEditingSessionId } = useUILayout();
+	// Renaming State (from uiStore)
+	const editingGroupId = useUIStore((s) => s.editingGroupId);
+	const setEditingGroupId = useUIStore((s) => s.setEditingGroupId);
+	const editingSessionId = useUIStore((s) => s.editingSessionId);
+	const setEditingSessionId = useUIStore((s) => s.setEditingSessionId);
 
 	// Drag and Drop State (for session list - image drag handled by useAppHandlers)
-	const { draggingSessionId, setDraggingSessionId } = useUILayout();
+	const draggingSessionId = useUIStore((s) => s.draggingSessionId);
+	const setDraggingSessionId = useUIStore((s) => s.setDraggingSessionId);
 
 	// Note: All modal states are now managed by ModalContext
-	// See useModalContext() destructuring above for modal states
+	// See useModalActions() destructuring above for modal states
 
 	// Stable callbacks for memoized modals (prevents re-renders from callback reference changes)
 	// NOTE: These must be declared AFTER the state they reference
@@ -870,21 +877,25 @@ function MaestroConsoleInner() {
 	}, []);
 
 	// Note: All modal states (confirmation, rename, queue browser, batch runner, etc.)
-	// are now managed by ModalContext - see useModalContext() destructuring above
+	// are now managed by modalStore - see useModalActions() destructuring above
 
 	// NOTE: showSessionJumpNumbers state is now provided by useMainKeyboardHandler hook
 
-	// Output Search State
-	const { outputSearchOpen, setOutputSearchOpen } = useUILayout();
-	const { outputSearchQuery, setOutputSearchQuery } = useUILayout();
+	// Output Search State (from uiStore)
+	const outputSearchOpen = useUIStore((s) => s.outputSearchOpen);
+	const setOutputSearchOpen = useUIStore((s) => s.setOutputSearchOpen);
+	const outputSearchQuery = useUIStore((s) => s.outputSearchQuery);
+	const setOutputSearchQuery = useUIStore((s) => s.setOutputSearchQuery);
 
 	// Note: Command History, Tab Completion, and @ Mention states are now in InputContext
 	// See useInputContext() destructuring above for these states
 
-	// Flash notification state (for inline notifications like "Commands disabled while agent is working")
-	const { flashNotification, setFlashNotification } = useUILayout();
+	// Flash notification state (from uiStore)
+	const flashNotification = useUIStore((s) => s.flashNotification);
+	const setFlashNotification = useUIStore((s) => s.setFlashNotification);
 	// Success flash notification state (for success messages like "Refresh complete")
-	const { successFlashNotification, setSuccessFlashNotification } = useUILayout();
+	const successFlashNotification = useUIStore((s) => s.successFlashNotification);
+	const setSuccessFlashNotification = useUIStore((s) => s.setSuccessFlashNotification);
 
 	// Note: Images are now stored per-tab in AITab.stagedImages
 	// See stagedImages/setStagedImages computed from active tab below
@@ -2046,7 +2057,7 @@ function MaestroConsoleInner() {
 			let targetTabId = tabIdFromSession;
 			if (!targetTabId) {
 				// Fallback: look up session from ref to find busy/active tab
-				const session = sessionsRef.current.find((s) => s.id === actualSessionId);
+				const session = useSessionStore.getState().sessions.find((s) => s.id === actualSessionId);
 				if (session) {
 					const targetTab = getWriteModeTab(session) || getActiveTab(session);
 					if (targetTab) {
@@ -2078,7 +2089,9 @@ function MaestroConsoleInner() {
 
 			// Clear error state if session had an error but is now receiving successful data
 			// This indicates the user fixed the issue (e.g., re-authenticated) and the agent is working
-			const sessionForErrorCheck = sessionsRef.current.find((s) => s.id === actualSessionId);
+			const sessionForErrorCheck = useSessionStore
+				.getState()
+				.sessions.find((s) => s.id === actualSessionId);
 			if (sessionForErrorCheck?.agentError) {
 				setSessions((prev) =>
 					prev.map((s) => {
@@ -2108,12 +2121,12 @@ function MaestroConsoleInner() {
 			// - The tab is not the active tab in this session, OR
 			// - The session is not the active session, OR
 			// - The user has scrolled up (not at bottom)
-			const session = sessionsRef.current.find((s) => s.id === actualSessionId);
+			const session = useSessionStore.getState().sessions.find((s) => s.id === actualSessionId);
 			if (session) {
 				const targetTab = session.aiTabs?.find((t) => t.id === targetTabId);
 				if (targetTab) {
 					const isTargetTabActive = targetTab.id === session.activeTabId;
-					const isThisSessionActive = session.id === activeSessionIdRef.current;
+					const isThisSessionActive = session.id === useSessionStore.getState().activeSessionId;
 					const isUserAtBottom = targetTab.isAtBottom !== false; // Default to true if undefined
 					const shouldMarkUnread = !isTargetTabActive || !isThisSessionActive || !isUserAtBottom;
 					batchedUpdater.markUnread(actualSessionId, targetTabId, shouldMarkUnread);
@@ -2240,7 +2253,9 @@ function MaestroConsoleInner() {
 				} | null = null;
 
 				if (isFromAi) {
-					const currentSession = sessionsRef.current.find((s) => s.id === actualSessionId);
+					const currentSession = useSessionStore
+						.getState()
+						.sessions.find((s) => s.id === actualSessionId);
 					if (currentSession) {
 						// Check if there are queued items to process next
 						// We still want to show a toast for this tab's completion even if other tabs have work queued
@@ -2284,7 +2299,7 @@ function MaestroConsoleInner() {
 
 						// Get group name for this session (sessions have groupId, groups have id)
 						const sessionGroup = currentSession.groupId
-							? groupsRef.current.find((g: any) => g.id === currentSession.groupId)
+							? useSessionStore.getState().groups.find((g: any) => g.id === currentSession.groupId)
 							: null;
 						const groupName = sessionGroup?.name || 'Ungrouped';
 						const projectName =
@@ -2637,7 +2652,9 @@ function MaestroConsoleInner() {
 				// Refresh git branches/tags after terminal command completes in git repos
 				// Check if the last command was a git command that might modify refs
 				if (!isFromAi) {
-					const currentSession = sessionsRef.current.find((s) => s.id === actualSessionId);
+					const currentSession = useSessionStore
+						.getState()
+						.sessions.find((s) => s.id === actualSessionId);
 					if (currentSession?.isGitRepo) {
 						// Get the last user command from shell logs
 						const userLogs = currentSession.shellLogs.filter((log) => log.source === 'user');
@@ -2765,9 +2782,9 @@ function MaestroConsoleInner() {
 
 						// Suppress toast if user is already viewing this tab (they'll see the response directly)
 						// Only show toasts for out-of-view completions (different session or different tab)
-						const currentActiveSession = sessionsRef.current.find(
-							(s) => s.id === activeSessionIdRef.current
-						);
+						const currentActiveSession = useSessionStore
+							.getState()
+							.sessions.find((s) => s.id === useSessionStore.getState().activeSessionId);
 						const isViewingCompletedTab =
 							currentActiveSession?.id === actualSessionId &&
 							(!tabIdFromSession || currentActiveSession.activeTabId === tabIdFromSession);
@@ -2841,9 +2858,9 @@ function MaestroConsoleInner() {
 								// Process any queued messages that were held during synopsis
 								// Use setTimeout to allow the state update to propagate first
 								setTimeout(() => {
-									const freshSession = sessionsRef.current.find(
-										(s) => s.id === synopsisData!.sessionId
-									);
+									const freshSession = useSessionStore
+										.getState()
+										.sessions.find((s) => s.id === synopsisData!.sessionId);
 									if (
 										freshSession &&
 										freshSession.executionQueue.length > 0 &&
@@ -2923,9 +2940,9 @@ function MaestroConsoleInner() {
 
 								// Process any queued messages that were held during synopsis
 								setTimeout(() => {
-									const freshSession = sessionsRef.current.find(
-										(s) => s.id === synopsisData!.sessionId
-									);
+									const freshSession = useSessionStore
+										.getState()
+										.sessions.find((s) => s.id === synopsisData!.sessionId);
 									if (
 										freshSession &&
 										freshSession.executionQueue.length > 0 &&
@@ -3159,7 +3176,9 @@ function MaestroConsoleInner() {
 			// not per-request values. Including them causes context % to exceed 100% impossibly.
 			// For Claude: context = inputTokens + cacheCreationInputTokens (new content only)
 			// For Codex: context = inputTokens + outputTokens (combined limit)
-			const sessionForUsage = sessionsRef.current.find((s) => s.id === actualSessionId);
+			const sessionForUsage = useSessionStore
+				.getState()
+				.sessions.find((s) => s.id === actualSessionId);
 			const agentToolType = sessionForUsage?.toolType;
 			const isClaudeUsage = agentToolType === 'claude-code' || agentToolType === 'claude';
 			const currentContextTokens = isClaudeUsage
@@ -3414,7 +3433,9 @@ function MaestroConsoleInner() {
 						);
 
 						// Get session for history entry
-						const session = sessionsRef.current.find((s) => s.id === actualSessionId);
+						const session = useSessionStore
+							.getState()
+							.sessions.find((s) => s.id === actualSessionId);
 
 						// Add history entry for Auto Run error (similar to stalled document entries)
 						if (addHistoryEntryRef.current && session) {
@@ -3634,7 +3655,7 @@ function MaestroConsoleInner() {
 				// run detection if the session doesn't already have git info.
 				// Re-detection can be triggered manually via the Re-scan button.
 				if (sshRemote?.id) {
-					const session = sessionsRef.current.find((s) => s.id === actualSessionId);
+					const session = useSessionStore.getState().sessions.find((s) => s.id === actualSessionId);
 					if (session) {
 						// Skip if git detection already completed for this session
 						if (session.isGitRepo) {
@@ -3941,7 +3962,7 @@ function MaestroConsoleInner() {
 	const mainPanelRef = useRef<MainPanelHandle>(null);
 
 	// Refs for toast notifications (to access latest values in event handlers)
-	// Note: sessionsRef, groupsRef, activeSessionIdRef are now provided by SessionContext
+	// Note: sessionsRef, groupsRef, activeSessionIdRef replaced by useSessionStore.getState()
 	const addToastRef = useRef(addToast);
 	const updateGlobalStatsRef = useRef(updateGlobalStats);
 	const customAICommandsRef = useRef(customAICommands);
@@ -4018,8 +4039,9 @@ function MaestroConsoleInner() {
 	}, []);
 
 	// Keyboard navigation state
-	const { selectedSidebarIndex, setSelectedSidebarIndex } = useUILayout();
-	// Note: activeSession is now provided by SessionContext
+	const selectedSidebarIndex = useUIStore((s) => s.selectedSidebarIndex);
+	const setSelectedSidebarIndex = useUIStore((s) => s.setSelectedSidebarIndex);
+	// Note: activeSession is now provided by sessionStore (Zustand)
 	// Note: activeTab is memoized later at line ~3795 - use that for all tab operations
 
 	// Discover slash commands when a session becomes active and doesn't have them yet
@@ -4411,8 +4433,6 @@ function MaestroConsoleInner() {
 	useRemoteIntegration({
 		activeSessionId,
 		isLiveMode,
-		sessionsRef,
-		activeSessionIdRef,
 		setSessions,
 		setActiveSessionId,
 		defaultSaveToHistory,
@@ -5178,7 +5198,6 @@ You are taking over this conversation. Based on the context above, provide a bri
 		navigateForward,
 		setActiveSessionId: setActiveSessionIdInternal,
 		setSessions,
-		cyclePositionRef,
 	});
 
 	// Sync terminal input when switching sessions
@@ -5409,7 +5428,6 @@ You are taking over this conversation. Based on the context above, provide a bri
 		showSuccessFlash,
 	} = useAgentExecution({
 		activeSession,
-		sessionsRef,
 		setSessions,
 		processQueuedItemRef,
 		setFlashNotification,
@@ -5434,7 +5452,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 	const handleNewAgentSession = useCallback(() => {
 		// Create a fresh AI tab using functional setState to avoid stale closure
 		setSessions((prev) => {
-			const currentSession = prev.find((s) => s.id === activeSessionIdRef.current);
+			const currentSession = prev.find((s) => s.id === useSessionStore.getState().activeSessionId);
 			if (!currentSession) return prev;
 			return prev.map((s) => {
 				if (s.id !== currentSession.id) return s;
@@ -5455,7 +5473,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 	const handleTabSelect = useCallback((tabId: string) => {
 		setSessions((prev) =>
 			prev.map((s) => {
-				if (s.id !== activeSessionIdRef.current) return s;
+				if (s.id !== useSessionStore.getState().activeSessionId) return s;
 				const result = setActiveTab(s, tabId);
 				return result ? result.session : s;
 			})
@@ -5469,7 +5487,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 	const performTabClose = useCallback((tabId: string) => {
 		setSessions((prev) =>
 			prev.map((s) => {
-				if (s.id !== activeSessionIdRef.current) return s;
+				if (s.id !== useSessionStore.getState().activeSessionId) return s;
 				// Check if this is a wizard tab - wizard tabs should not be added to close history
 				const tab = s.aiTabs.find((t) => t.id === tabId);
 				const isWizardTab = tab && hasActiveWizard(tab);
@@ -5487,7 +5505,9 @@ You are taking over this conversation. Based on the context above, provide a bri
 	const handleTabClose = useCallback(
 		(tabId: string) => {
 			// Find the tab to check if it has an active wizard
-			const session = sessionsRef.current.find((s) => s.id === activeSessionIdRef.current);
+			const session = useSessionStore
+				.getState()
+				.sessions.find((s) => s.id === useSessionStore.getState().activeSessionId);
 			const tab = session?.aiTabs.find((t) => t.id === tabId);
 
 			if (tab && hasActiveWizard(tab)) {
@@ -5508,7 +5528,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 	const handleNewTab = useCallback(() => {
 		setSessions((prev) =>
 			prev.map((s) => {
-				if (s.id !== activeSessionIdRef.current) return s;
+				if (s.id !== useSessionStore.getState().activeSessionId) return s;
 				const result = createTab(s, {
 					saveToHistory: defaultSaveToHistory,
 					showThinking: defaultShowThinking ? 'on' : 'off',
@@ -5526,7 +5546,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 	const handleCloseAllTabs = useCallback(() => {
 		setSessions((prev) =>
 			prev.map((s) => {
-				if (s.id !== activeSessionIdRef.current) return s;
+				if (s.id !== useSessionStore.getState().activeSessionId) return s;
 				// Close all tabs by iterating through them
 				let updatedSession = s;
 				const tabIds = s.aiTabs.map((t) => t.id);
@@ -5550,7 +5570,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 	const handleCloseOtherTabs = useCallback(() => {
 		setSessions((prev) =>
 			prev.map((s) => {
-				if (s.id !== activeSessionIdRef.current) return s;
+				if (s.id !== useSessionStore.getState().activeSessionId) return s;
 				let updatedSession = s;
 				const tabsToClose = s.aiTabs.filter((t) => t.id !== s.activeTabId);
 				for (const tab of tabsToClose) {
@@ -5572,7 +5592,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 	const handleCloseTabsLeft = useCallback(() => {
 		setSessions((prev) =>
 			prev.map((s) => {
-				if (s.id !== activeSessionIdRef.current) return s;
+				if (s.id !== useSessionStore.getState().activeSessionId) return s;
 				const activeIndex = s.aiTabs.findIndex((t) => t.id === s.activeTabId);
 				if (activeIndex <= 0) return s; // Nothing to close
 				let updatedSession = s;
@@ -5596,7 +5616,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 	const handleCloseTabsRight = useCallback(() => {
 		setSessions((prev) =>
 			prev.map((s) => {
-				if (s.id !== activeSessionIdRef.current) return s;
+				if (s.id !== useSessionStore.getState().activeSessionId) return s;
 				const activeIndex = s.aiTabs.findIndex((t) => t.id === s.activeTabId);
 				if (activeIndex < 0 || activeIndex >= s.aiTabs.length - 1) return s; // Nothing to close
 				let updatedSession = s;
@@ -5617,7 +5637,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 	const handleRemoveQueuedItem = useCallback((itemId: string) => {
 		setSessions((prev) =>
 			prev.map((s) => {
-				if (s.id !== activeSessionIdRef.current) return s;
+				if (s.id !== useSessionStore.getState().activeSessionId) return s;
 				return {
 					...s,
 					executionQueue: s.executionQueue.filter((item) => item.id !== itemId),
@@ -5644,7 +5664,9 @@ You are taking over this conversation. Based on the context above, provide a bri
 	// Extracted from inline function to prevent MainPanel re-renders
 	const handleDeleteLog = useCallback((logId: string): number | null => {
 		// Use refs to access current state without adding dependencies
-		const currentSession = sessionsRef.current.find((s) => s.id === activeSessionIdRef.current);
+		const currentSession = useSessionStore
+			.getState()
+			.sessions.find((s) => s.id === useSessionStore.getState().activeSessionId);
 		if (!currentSession) return null;
 
 		const isAIMode = currentSession.inputMode === 'ai';
@@ -5758,7 +5780,9 @@ You are taking over this conversation. Based on the context above, provide a bri
 	// PERF: Memoized callbacks for MainPanel tab management props
 	// These were previously inline arrow functions, causing MainPanel re-renders on every keystroke
 	const handleRequestTabRename = useCallback((tabId: string) => {
-		const session = sessionsRef.current.find((s) => s.id === activeSessionIdRef.current);
+		const session = useSessionStore
+			.getState()
+			.sessions.find((s) => s.id === useSessionStore.getState().activeSessionId);
 		if (!session) return;
 		const tab = session.aiTabs?.find((t) => t.id === tabId);
 		if (tab) {
@@ -5771,7 +5795,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 	const handleTabReorder = useCallback((fromIndex: number, toIndex: number) => {
 		setSessions((prev) =>
 			prev.map((s) => {
-				if (s.id !== activeSessionIdRef.current || !s.aiTabs) return s;
+				if (s.id !== useSessionStore.getState().activeSessionId || !s.aiTabs) return s;
 				const tabs = [...s.aiTabs];
 				const [movedTab] = tabs.splice(fromIndex, 1);
 				tabs.splice(toIndex, 0, movedTab);
@@ -5784,7 +5808,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 		(agentSessionId: string, updates: { name?: string | null; starred?: boolean }) => {
 			setSessions((prev) =>
 				prev.map((s) => {
-					if (s.id !== activeSessionIdRef.current) return s;
+					if (s.id !== useSessionStore.getState().activeSessionId) return s;
 					const tabIndex = s.aiTabs.findIndex((tab) => tab.agentSessionId === agentSessionId);
 					if (tabIndex === -1) return s;
 					return {
@@ -5806,11 +5830,13 @@ You are taking over this conversation. Based on the context above, provide a bri
 	);
 
 	const handleTabLock = useCallback((tabId: string, locked: boolean) => {
-		const session = sessionsRef.current.find((s) => s.id === activeSessionIdRef.current);
+		const session = useSessionStore
+			.getState()
+			.sessions.find((s) => s.id === useSessionStore.getState().activeSessionId);
 		if (!session) return;
 		setSessions((prev) =>
 			prev.map((s) =>
-				s.id === activeSessionIdRef.current
+				s.id === useSessionStore.getState().activeSessionId
 					? {
 							...s,
 							aiTabs: s.aiTabs.map((t) => (t.id === tabId ? { ...t, locked } : t)),
@@ -5821,14 +5847,16 @@ You are taking over this conversation. Based on the context above, provide a bri
 	}, []);
 
 	const handleTabStar = useCallback((tabId: string, starred: boolean) => {
-		const session = sessionsRef.current.find((s) => s.id === activeSessionIdRef.current);
+		const session = useSessionStore
+			.getState()
+			.sessions.find((s) => s.id === useSessionStore.getState().activeSessionId);
 		if (!session) return;
 		const tabToStar = session.aiTabs.find((t) => t.id === tabId);
 		if (!tabToStar?.agentSessionId) return;
 
 		setSessions((prev) =>
 			prev.map((s) => {
-				if (s.id !== activeSessionIdRef.current) return s;
+				if (s.id !== useSessionStore.getState().activeSessionId) return s;
 				const tab = s.aiTabs.find((t) => t.id === tabId);
 				if (tab?.agentSessionId) {
 					const agentId = s.toolType || 'claude-code';
@@ -5853,7 +5881,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 	const handleTabMarkUnread = useCallback((tabId: string) => {
 		setSessions((prev) =>
 			prev.map((s) => {
-				if (s.id !== activeSessionIdRef.current) return s;
+				if (s.id !== useSessionStore.getState().activeSessionId) return s;
 				return {
 					...s,
 					aiTabs: s.aiTabs.map((t) => (t.id === tabId ? { ...t, hasUnread: true } : t)),
@@ -5863,13 +5891,15 @@ You are taking over this conversation. Based on the context above, provide a bri
 	}, []);
 
 	const handleToggleTabReadOnlyMode = useCallback(() => {
-		const session = sessionsRef.current.find((s) => s.id === activeSessionIdRef.current);
+		const session = useSessionStore
+			.getState()
+			.sessions.find((s) => s.id === useSessionStore.getState().activeSessionId);
 		if (!session) return;
 		const activeTab = getActiveTab(session);
 		if (!activeTab) return;
 		setSessions((prev) =>
 			prev.map((s) => {
-				if (s.id !== activeSessionIdRef.current) return s;
+				if (s.id !== useSessionStore.getState().activeSessionId) return s;
 				return {
 					...s,
 					aiTabs: s.aiTabs.map((tab) =>
@@ -5881,13 +5911,15 @@ You are taking over this conversation. Based on the context above, provide a bri
 	}, []);
 
 	const handleToggleTabSaveToHistory = useCallback(() => {
-		const session = sessionsRef.current.find((s) => s.id === activeSessionIdRef.current);
+		const session = useSessionStore
+			.getState()
+			.sessions.find((s) => s.id === useSessionStore.getState().activeSessionId);
 		if (!session) return;
 		const activeTab = getActiveTab(session);
 		if (!activeTab) return;
 		setSessions((prev) =>
 			prev.map((s) => {
-				if (s.id !== activeSessionIdRef.current) return s;
+				if (s.id !== useSessionStore.getState().activeSessionId) return s;
 				return {
 					...s,
 					aiTabs: s.aiTabs.map((tab) =>
@@ -5899,13 +5931,15 @@ You are taking over this conversation. Based on the context above, provide a bri
 	}, []);
 
 	const handleToggleTabShowThinking = useCallback(() => {
-		const session = sessionsRef.current.find((s) => s.id === activeSessionIdRef.current);
+		const session = useSessionStore
+			.getState()
+			.sessions.find((s) => s.id === useSessionStore.getState().activeSessionId);
 		if (!session) return;
 		const activeTab = getActiveTab(session);
 		if (!activeTab) return;
 		setSessions((prev) =>
 			prev.map((s) => {
-				if (s.id !== activeSessionIdRef.current) return s;
+				if (s.id !== useSessionStore.getState().activeSessionId) return s;
 				return {
 					...s,
 					aiTabs: s.aiTabs.map((tab) => {
@@ -5928,7 +5962,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 	const handleEffortLevelChange = useCallback((level: 'high' | 'medium' | 'low') => {
 		setSessions((prev) =>
 			prev.map((s) => {
-				if (s.id !== activeSessionIdRef.current) return s;
+				if (s.id !== useSessionStore.getState().activeSessionId) return s;
 				return {
 					...s,
 					customEnvVars: {
@@ -5944,7 +5978,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 	const handleModelChange = useCallback((model: string) => {
 		setSessions((prev) =>
 			prev.map((s) => {
-				if (s.id !== activeSessionIdRef.current) return s;
+				if (s.id !== useSessionStore.getState().activeSessionId) return s;
 				return {
 					...s,
 					customModel: model || undefined,
@@ -5954,14 +5988,16 @@ You are taking over this conversation. Based on the context above, provide a bri
 	}, []);
 
 	const handleScrollPositionChange = useCallback((scrollTop: number) => {
-		const session = sessionsRef.current.find((s) => s.id === activeSessionIdRef.current);
+		const session = useSessionStore
+			.getState()
+			.sessions.find((s) => s.id === useSessionStore.getState().activeSessionId);
 		if (!session) return;
 		if (session.inputMode === 'ai') {
 			const activeTab = getActiveTab(session);
 			if (!activeTab) return;
 			setSessions((prev) =>
 				prev.map((s) => {
-					if (s.id !== activeSessionIdRef.current) return s;
+					if (s.id !== useSessionStore.getState().activeSessionId) return s;
 					return {
 						...s,
 						aiTabs: s.aiTabs.map((tab) => (tab.id === activeTab.id ? { ...tab, scrollTop } : tab)),
@@ -5971,21 +6007,25 @@ You are taking over this conversation. Based on the context above, provide a bri
 		} else {
 			setSessions((prev) =>
 				prev.map((s) =>
-					s.id === activeSessionIdRef.current ? { ...s, terminalScrollTop: scrollTop } : s
+					s.id === useSessionStore.getState().activeSessionId
+						? { ...s, terminalScrollTop: scrollTop }
+						: s
 				)
 			);
 		}
 	}, []);
 
 	const handleAtBottomChange = useCallback((isAtBottom: boolean) => {
-		const session = sessionsRef.current.find((s) => s.id === activeSessionIdRef.current);
+		const session = useSessionStore
+			.getState()
+			.sessions.find((s) => s.id === useSessionStore.getState().activeSessionId);
 		if (!session) return;
 		if (session.inputMode === 'ai') {
 			const activeTab = getActiveTab(session);
 			if (!activeTab) return;
 			setSessions((prev) =>
 				prev.map((s) => {
-					if (s.id !== activeSessionIdRef.current) return s;
+					if (s.id !== useSessionStore.getState().activeSessionId) return s;
 					return {
 						...s,
 						aiTabs: s.aiTabs.map((tab) =>
@@ -6002,7 +6042,10 @@ You are taking over this conversation. Based on the context above, provide a bri
 	const handleMainPanelInputBlur = useCallback(() => {
 		// Access current values via refs to avoid dependencies
 		const currentIsAiMode =
-			sessionsRef.current.find((s) => s.id === activeSessionIdRef.current)?.inputMode === 'ai';
+			useSessionStore
+				.getState()
+				.sessions.find((s) => s.id === useSessionStore.getState().activeSessionId)?.inputMode ===
+			'ai';
 		if (currentIsAiMode) {
 			syncAiInputToSession(aiInputValueLocalRef.current);
 		} else {
@@ -6029,7 +6072,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 
 			// Toggle: if already saved, remove from library instead
 			if (logId) {
-				const currentSessions = sessionsRef.current;
+				const currentSessions = useSessionStore.getState().sessions;
 				const currentSession = currentSessions.find((s) => s.id === activeSession.id);
 				const currentTab = currentSession?.aiTabs.find((t) => t.id === currentSession?.activeTabId);
 				const currentLog = currentTab?.logs.find((l) => l.id === logId);
@@ -6205,7 +6248,9 @@ You are taking over this conversation. Based on the context above, provide a bri
 
 	const handleRateResponse = useCallback(
 		async (logId: string, rating: 'liked' | 'disliked' | null) => {
-			const currentSession = sessionsRef.current.find((s) => s.id === activeSessionIdRef.current);
+			const currentSession = useSessionStore
+				.getState()
+				.sessions.find((s) => s.id === useSessionStore.getState().activeSessionId);
 			if (!currentSession) return;
 
 			const activeTab = currentSession.aiTabs.find((t) => t.id === currentSession.activeTabId);
@@ -6722,7 +6767,9 @@ You are taking over this conversation. Based on the context above, provide a bri
 	// PERF: Memoized callbacks for MainPanel file preview navigation
 	// These were inline arrow functions causing MainPanel re-renders on every keystroke
 	const handleMainPanelFileClick = useCallback(async (relativePath: string) => {
-		const currentSession = sessionsRef.current.find((s) => s.id === activeSessionIdRef.current);
+		const currentSession = useSessionStore
+			.getState()
+			.sessions.find((s) => s.id === useSessionStore.getState().activeSessionId);
 		if (!currentSession) return;
 		const filename = relativePath.split('/').pop() || relativePath;
 
@@ -6769,7 +6816,9 @@ You are taking over this conversation. Based on the context above, provide a bri
 	}, []);
 
 	const handleNavigateBack = useCallback(() => {
-		const currentSession = sessionsRef.current.find((s) => s.id === activeSessionIdRef.current);
+		const currentSession = useSessionStore
+			.getState()
+			.sessions.find((s) => s.id === useSessionStore.getState().activeSessionId);
 		if (!currentSession) return;
 		const historyIndex = currentSession.filePreviewHistoryIndex ?? -1;
 		const history = currentSession.filePreviewHistory ?? [];
@@ -6785,7 +6834,9 @@ You are taking over this conversation. Based on the context above, provide a bri
 	}, []);
 
 	const handleNavigateForward = useCallback(() => {
-		const currentSession = sessionsRef.current.find((s) => s.id === activeSessionIdRef.current);
+		const currentSession = useSessionStore
+			.getState()
+			.sessions.find((s) => s.id === useSessionStore.getState().activeSessionId);
 		if (!currentSession) return;
 		const historyIndex = currentSession.filePreviewHistoryIndex ?? -1;
 		const history = currentSession.filePreviewHistory ?? [];
@@ -6801,7 +6852,9 @@ You are taking over this conversation. Based on the context above, provide a bri
 	}, []);
 
 	const handleNavigateToIndex = useCallback((index: number) => {
-		const currentSession = sessionsRef.current.find((s) => s.id === activeSessionIdRef.current);
+		const currentSession = useSessionStore
+			.getState()
+			.sessions.find((s) => s.id === useSessionStore.getState().activeSessionId);
 		if (!currentSession) return;
 		const history = currentSession.filePreviewHistory ?? [];
 		if (index >= 0 && index < history.length) {
@@ -6813,7 +6866,9 @@ You are taking over this conversation. Based on the context above, provide a bri
 	}, []);
 
 	const handleMergeWith = useCallback((tabId: string) => {
-		const currentSession = sessionsRef.current.find((s) => s.id === activeSessionIdRef.current);
+		const currentSession = useSessionStore
+			.getState()
+			.sessions.find((s) => s.id === useSessionStore.getState().activeSessionId);
 		if (currentSession) {
 			setSessions((prev) =>
 				prev.map((s) => (s.id === currentSession.id ? { ...s, activeTabId: tabId } : s))
@@ -6823,7 +6878,9 @@ You are taking over this conversation. Based on the context above, provide a bri
 	}, []);
 
 	const handleOpenSendToAgentModal = useCallback((tabId: string) => {
-		const currentSession = sessionsRef.current.find((s) => s.id === activeSessionIdRef.current);
+		const currentSession = useSessionStore
+			.getState()
+			.sessions.find((s) => s.id === useSessionStore.getState().activeSessionId);
 		if (currentSession) {
 			setSessions((prev) =>
 				prev.map((s) => (s.id === currentSession.id ? { ...s, activeTabId: tabId } : s))
@@ -6833,7 +6890,9 @@ You are taking over this conversation. Based on the context above, provide a bri
 	}, []);
 
 	const handleCopyContext = useCallback((tabId: string) => {
-		const currentSession = sessionsRef.current.find((s) => s.id === activeSessionIdRef.current);
+		const currentSession = useSessionStore
+			.getState()
+			.sessions.find((s) => s.id === useSessionStore.getState().activeSessionId);
 		if (!currentSession) return;
 		const tab = currentSession.aiTabs.find((t) => t.id === tabId);
 		if (!tab || !tab.logs || tab.logs.length === 0) return;
@@ -6860,7 +6919,9 @@ You are taking over this conversation. Based on the context above, provide a bri
 
 	// Memoized handler for exporting tab as HTML
 	const handleExportHtml = useCallback(async (tabId: string) => {
-		const currentSession = sessionsRef.current.find((s) => s.id === activeSessionIdRef.current);
+		const currentSession = useSessionStore
+			.getState()
+			.sessions.find((s) => s.id === useSessionStore.getState().activeSessionId);
 		if (!currentSession) return;
 		const tab = currentSession.aiTabs.find((t) => t.id === tabId);
 		if (!tab || !tab.logs || tab.logs.length === 0) return;
@@ -6893,7 +6954,9 @@ You are taking over this conversation. Based on the context above, provide a bri
 
 	// Memoized handler for publishing tab as GitHub Gist
 	const handlePublishTabGist = useCallback((tabId: string) => {
-		const currentSession = sessionsRef.current.find((s) => s.id === activeSessionIdRef.current);
+		const currentSession = useSessionStore
+			.getState()
+			.sessions.find((s) => s.id === useSessionStore.getState().activeSessionId);
 		if (!currentSession) return;
 		const tab = currentSession.aiTabs.find((t) => t.id === tabId);
 		if (!tab || !tab.logs || tab.logs.length === 0) return;
@@ -6911,7 +6974,9 @@ You are taking over this conversation. Based on the context above, provide a bri
 
 	// Memoized handler for clearing agent error (wraps handleClearAgentError with session/tab context)
 	const handleClearAgentErrorForMainPanel = useCallback(() => {
-		const currentSession = sessionsRef.current.find((s) => s.id === activeSessionIdRef.current);
+		const currentSession = useSessionStore
+			.getState()
+			.sessions.find((s) => s.id === useSessionStore.getState().activeSessionId);
 		if (!currentSession) return;
 		const activeTab = currentSession.aiTabs.find((t) => t.id === currentSession.activeTabId);
 		if (!activeTab?.agentError) return;
@@ -6920,7 +6985,9 @@ You are taking over this conversation. Based on the context above, provide a bri
 
 	// Memoized handler for showing agent error modal
 	const handleShowAgentErrorModal = useCallback(() => {
-		const currentSession = sessionsRef.current.find((s) => s.id === activeSessionIdRef.current);
+		const currentSession = useSessionStore
+			.getState()
+			.sessions.find((s) => s.id === useSessionStore.getState().activeSessionId);
 		if (!currentSession) return;
 		const activeTab = currentSession.aiTabs.find((t) => t.id === currentSession.activeTabId);
 		if (!activeTab?.agentError) return;
@@ -7191,7 +7258,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 		// Process queued items after batch completion/stop
 		// This ensures pending user messages are processed after Auto Run ends
 		onProcessQueueAfterCompletion: (sessionId) => {
-			const session = sessionsRef.current.find((s) => s.id === sessionId);
+			const session = useSessionStore.getState().sessions.find((s) => s.id === sessionId);
 			if (session && session.executionQueue.length > 0 && processQueuedItemRef.current) {
 				// Pop first item and process it
 				const [nextItem, ...remainingQueue] = session.executionQueue;
@@ -7927,7 +7994,6 @@ You are taking over this conversation. Based on the context above, provide a bri
 		syncAiInputToSession,
 		syncTerminalInputToSession,
 		isAiMode,
-		sessionsRef,
 		getBatchState,
 		activeBatchRunState,
 		processQueuedItemRef,
@@ -8093,7 +8159,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 			}
 
 			// Get current sessions to check for duplicates
-			const currentSessions = sessionsRef.current;
+			const currentSessions = useSessionStore.getState().sessions;
 
 			// Find the parent session
 			const parentSession = currentSessions.find((s) => s.id === sessionId);
@@ -8257,7 +8323,9 @@ You are taking over this conversation. Based on the context above, provide a bri
 
 			try {
 				// Find sessions that have worktreeParentPath set (legacy model)
-				const worktreeParentSessions = sessionsRef.current.filter((s) => s.worktreeParentPath);
+				const worktreeParentSessions = useSessionStore
+					.getState()
+					.sessions.filter((s) => s.worktreeParentPath);
 				if (worktreeParentSessions.length === 0) return;
 
 				// Collect all new sessions to add in a single batch (avoids stale closure issues)
@@ -8282,13 +8350,13 @@ You are taking over this conversation. Based on the context above, provide a bri
 								continue;
 							}
 							// Skip if this path was manually removed by the user (use ref for current value)
-							const currentRemovedPaths = removedWorktreePathsRef.current;
+							const currentRemovedPaths = useSessionStore.getState().removedWorktreePaths;
 							if (currentRemovedPaths.has(subdir.path)) {
 								continue;
 							}
 
 							// Skip if session already exists (check current sessions via ref)
-							const currentSessions = sessionsRef.current;
+							const currentSessions = useSessionStore.getState().sessions;
 							const existingSession = currentSessions.find(
 								(s) => s.cwd === subdir.path || s.projectRoot === subdir.path
 							);
@@ -8608,17 +8676,21 @@ You are taking over this conversation. Based on the context above, provide a bri
 	// source: 'staged' allows deletion, 'history' is read-only
 	const handleSetLightboxImage = useCallback(
 		(image: string | null, contextImages?: string[], source: 'staged' | 'history' = 'history') => {
-			// Capture state SYNCHRONOUSLY in refs before any state updates
-			// This ensures values are available immediately when the component re-renders
-			// React batches state updates, so refs are more reliable for immediate access
-			lightboxIsGroupChatRef.current = activeGroupChatId !== null;
-			lightboxAllowDeleteRef.current = source === 'staged';
+			setLightboxIsGroupChat(activeGroupChatId !== null);
+			setLightboxAllowDelete(source === 'staged');
 
 			setLightboxImage(image);
 			setLightboxImages(contextImages || []);
 			setLightboxSource(source);
 		},
-		[activeGroupChatId]
+		[
+			activeGroupChatId,
+			setLightboxIsGroupChat,
+			setLightboxAllowDelete,
+			setLightboxImage,
+			setLightboxImages,
+			setLightboxSource,
+		]
 	);
 
 	// --- GROUP CHAT HANDLERS ---
@@ -8955,7 +9027,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 	);
 
 	const handleRescanGit = useCallback(async (sessionId: string): Promise<boolean> => {
-		const session = sessionsRef.current.find((s) => s.id === sessionId);
+		const session = useSessionStore.getState().sessions.find((s) => s.id === sessionId);
 		if (!session) return false;
 
 		const sshRemoteId =
@@ -9292,7 +9364,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 		//
 		// A bookmarked session visually appears in BOTH the bookmarks section AND its
 		// regular location (group or ungrouped). The same session can appear twice in
-		// the visual order. We track the current position with cyclePositionRef to
+		// the visual order. We track the current position with cyclePosition in the store to
 		// allow cycling through duplicate occurrences correctly.
 
 		// Visual order item can be either a session or a group chat
@@ -9393,9 +9465,9 @@ You are taking over this conversation. Based on the context above, provide a bri
 		const currentIsGroupChat = activeGroupChatId !== null;
 
 		// Determine current position in visual order
-		// If cyclePositionRef is valid and points to our current item, use it
+		// If cyclePosition is valid and points to our current item, use it
 		// Otherwise, find the first occurrence of our current item
-		let currentIndex = cyclePositionRef.current;
+		let currentIndex = useSessionStore.getState().cyclePosition;
 		if (
 			currentIndex < 0 ||
 			currentIndex >= visualOrder.length ||
@@ -9411,7 +9483,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 
 		if (currentIndex === -1) {
 			// Current item not visible, select first visible item
-			cyclePositionRef.current = 0;
+			useSessionStore.getState().setCyclePosition(0);
 			const firstItem = visualOrder[0];
 			if (firstItem.type === 'session') {
 				setActiveGroupChatId(null);
@@ -9431,7 +9503,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 			nextIndex = currentIndex === 0 ? visualOrder.length - 1 : currentIndex - 1;
 		}
 
-		cyclePositionRef.current = nextIndex;
+		useSessionStore.getState().setCyclePosition(nextIndex);
 		const nextItem = visualOrder[nextIndex];
 		if (nextItem.type === 'session') {
 			setActiveGroupChatId(null);
@@ -10122,28 +10194,27 @@ You are taking over this conversation. Based on the context above, provide a bri
 
 	// Toggle unread tabs filter with save/restore of active tab
 	const toggleUnreadFilter = useCallback(() => {
+		const { preFilterActiveTabId, setPreFilterActiveTabId } = useUIStore.getState();
 		if (!showUnreadOnly) {
 			// Entering filter mode: save current active tab
-			preFilterActiveTabIdRef.current = activeSession?.activeTabId || null;
+			setPreFilterActiveTabId(activeSession?.activeTabId || null);
 		} else {
 			// Exiting filter mode: restore previous active tab if it still exists
-			if (preFilterActiveTabIdRef.current && activeSession) {
-				const tabStillExists = activeSession.aiTabs.some(
-					(t) => t.id === preFilterActiveTabIdRef.current
-				);
+			if (preFilterActiveTabId && activeSession) {
+				const tabStillExists = activeSession.aiTabs.some((t) => t.id === preFilterActiveTabId);
 				if (tabStillExists) {
 					setSessions((prev) =>
 						prev.map((s) => {
 							if (s.id !== activeSession.id) return s;
-							return { ...s, activeTabId: preFilterActiveTabIdRef.current! };
+							return { ...s, activeTabId: preFilterActiveTabId! };
 						})
 					);
 				}
-				preFilterActiveTabIdRef.current = null;
+				setPreFilterActiveTabId(null);
 			}
 		}
 		setShowUnreadOnly((prev) => !prev);
-	}, [showUnreadOnly, activeSession]);
+	}, [showUnreadOnly, activeSession, setShowUnreadOnly]);
 
 	// Toggle star on the current active tab
 	const toggleTabStar = useCallback(() => {
@@ -10315,10 +10386,10 @@ You are taking over this conversation. Based on the context above, provide a bri
 				webInputMode,
 			});
 
-			// Find the session directly from sessionsRef (not from React state which may be stale)
-			const session = sessionsRef.current.find((s) => s.id === sessionId);
+			// Find the session directly from store (not from React state which may be stale)
+			const session = useSessionStore.getState().sessions.find((s) => s.id === sessionId);
 			if (!session) {
-				console.log('[Remote] ERROR: Session not found in sessionsRef:', sessionId);
+				console.log('[Remote] ERROR: Session not found in store:', sessionId);
 				return;
 			}
 
@@ -10698,8 +10769,8 @@ You are taking over this conversation. Based on the context above, provide a bri
 	// Process a queued item (called from onExit when queue has items)
 	// Handles both 'message' and 'command' types
 	const processQueuedItem = async (sessionId: string, item: QueuedItem) => {
-		// Use sessionsRef.current to get the latest session state (avoids stale closure)
-		const session = sessionsRef.current.find((s) => s.id === sessionId);
+		// Use useSessionStore.getState().sessions to get the latest session state (avoids stale closure)
+		const session = useSessionStore.getState().sessions.find((s) => s.id === sessionId);
 		if (!session) {
 			console.error('[processQueuedItem] Session not found:', sessionId);
 			return;
@@ -11057,7 +11128,9 @@ You are taking over this conversation. Based on the context above, provide a bri
 			await window.maestro.process.interrupt(targetSessionId);
 
 			// Check if there are queued items to process after interrupt
-			const currentSession = sessionsRef.current.find((s) => s.id === activeSession.id);
+			const currentSession = useSessionStore
+				.getState()
+				.sessions.find((s) => s.id === activeSession.id);
 			let queuedItemToProcess: { sessionId: string; item: QueuedItem } | null = null;
 
 			if (currentSession && currentSession.executionQueue.length > 0) {
@@ -11226,7 +11299,9 @@ You are taking over this conversation. Based on the context above, provide a bri
 					};
 
 					// Check if there are queued items to process after kill
-					const currentSessionForKill = sessionsRef.current.find((s) => s.id === activeSession.id);
+					const currentSessionForKill = useSessionStore
+						.getState()
+						.sessions.find((s) => s.id === activeSession.id);
 					let queuedItemAfterKill: {
 						sessionId: string;
 						item: QueuedItem;
@@ -11740,7 +11815,6 @@ You are taking over this conversation. Based on the context above, provide a bri
 	// Extracted hook for file tree operations (refresh, git state, filtering)
 	const { refreshFileTree, refreshGitFileState, filteredFileTree } = useFileTreeManagement({
 		sessions,
-		sessionsRef,
 		setSessions,
 		activeSessionId,
 		activeSession,
@@ -12417,22 +12491,24 @@ You are taking over this conversation. Based on the context above, provide a bri
 		setLightboxImage(null);
 		setLightboxImages([]);
 		setLightboxSource('history');
-		lightboxIsGroupChatRef.current = false;
-		lightboxAllowDeleteRef.current = false;
+		setLightboxIsGroupChat(false);
+		setLightboxAllowDelete(false);
 		// Return focus to input after closing carousel
 		setTimeout(() => inputRef.current?.focus(), 0);
-	}, []);
-	const handleNavigateLightbox = useCallback((img: string) => setLightboxImage(img), []);
+	}, [setLightboxSource, setLightboxIsGroupChat, setLightboxAllowDelete]);
+	const handleNavigateLightbox = useCallback(
+		(img: string) => setLightboxImage(img),
+		[setLightboxImage]
+	);
 	const handleDeleteLightboxImage = useCallback(
 		(img: string) => {
-			// Use ref for group chat check - refs are set synchronously before React batches state updates
-			if (lightboxIsGroupChatRef.current) {
+			if (lightboxIsGroupChat) {
 				setGroupChatStagedImages((prev) => prev.filter((i) => i !== img));
 			} else {
 				setStagedImages((prev) => prev.filter((i) => i !== img));
 			}
 		},
-		[setStagedImages]
+		[lightboxIsGroupChat, setStagedImages]
 	);
 	const handleCloseAutoRunSetup = useCallback(() => setAutoRunSetupModalOpen(false), []);
 	const handleCloseBatchRunner = useCallback(() => setBatchRunnerModalOpen(false), []);
@@ -13988,9 +14064,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 					stagedImages={stagedImages}
 					onCloseLightbox={handleCloseLightbox}
 					onNavigateLightbox={handleNavigateLightbox}
-					onDeleteLightboxImage={
-						lightboxAllowDeleteRef.current ? handleDeleteLightboxImage : undefined
-					}
+					onDeleteLightboxImage={lightboxAllowDelete ? handleDeleteLightboxImage : undefined}
 					gitDiffPreview={gitDiffPreview}
 					gitViewerCwd={gitViewerCwd}
 					onCloseGitDiff={handleCloseGitDiff}
@@ -14722,24 +14796,22 @@ You are taking over this conversation. Based on the context above, provide a bri
  * Phase 3: InputProvider - centralized input state management
  * Phase 4: GroupChatProvider - centralized group chat state management
  * Phase 5: AutoRunProvider - centralized Auto Run and batch processing state management
- * Phase 6: SessionProvider - centralized session and group state management
  * Phase 7: InlineWizardProvider - inline /wizard command state management
  * See refactor-details-2.md for full plan.
+ * Note: SessionProvider removed - migrated to sessionStore (Zustand).
  */
 export default function MaestroConsole() {
 	return (
-		<SessionProvider>
-			<ProjectFoldersProvider>
-				<AutoRunProvider>
-					<GroupChatProvider>
-						<InlineWizardProvider>
-							<InputProvider>
-								<MaestroConsoleInner />
-							</InputProvider>
-						</InlineWizardProvider>
-					</GroupChatProvider>
-				</AutoRunProvider>
-			</ProjectFoldersProvider>
-		</SessionProvider>
+		<ProjectFoldersProvider>
+			<AutoRunProvider>
+				<GroupChatProvider>
+					<InlineWizardProvider>
+						<InputProvider>
+							<MaestroConsoleInner />
+						</InputProvider>
+					</InlineWizardProvider>
+				</GroupChatProvider>
+			</AutoRunProvider>
+		</ProjectFoldersProvider>
 	);
 }

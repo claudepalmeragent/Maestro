@@ -9,6 +9,7 @@ import type {
 } from '../../types';
 import { getActiveTab } from '../../utils/tabHelpers';
 import { generateId } from '../../utils/ids';
+import { useSessionStore } from '../../stores/sessionStore';
 
 /**
  * Result from agent spawn operations.
@@ -26,8 +27,6 @@ export interface AgentSpawnResult {
 export interface UseAgentExecutionDeps {
 	/** Current active session (null if none selected) */
 	activeSession: Session | null;
-	/** Ref to sessions for accessing latest state without re-renders */
-	sessionsRef: React.MutableRefObject<Session[]>;
 	/** Session state setter */
 	setSessions: React.Dispatch<React.SetStateAction<Session[]>>;
 	/** Ref to processQueuedItem function for processing queue after agent exit */
@@ -124,7 +123,6 @@ export interface UseAgentExecutionReturn {
 export function useAgentExecution(deps: UseAgentExecutionDeps): UseAgentExecutionReturn {
 	const {
 		activeSession,
-		sessionsRef,
 		setSessions,
 		processQueuedItemRef,
 		setFlashNotification,
@@ -174,8 +172,8 @@ export function useAgentExecution(deps: UseAgentExecutionDeps): UseAgentExecutio
 				onUsage?: (tokens: number) => void;
 			}
 		): Promise<AgentSpawnResult> => {
-			// Use sessionsRef to get latest sessions (fixes stale closure when called right after session creation)
-			const session = sessionsRef.current.find((s) => s.id === sessionId);
+			// Use Zustand store to get latest sessions (fixes stale closure when called right after session creation)
+			const session = useSessionStore.getState().sessions.find((s) => s.id === sessionId);
 			if (!session) return { success: false };
 
 			// Use override cwd if provided (worktree mode), otherwise use session's cwd
@@ -310,8 +308,10 @@ export function useAgentExecution(deps: UseAgentExecutionDeps): UseAgentExecutio
 										console.warn('[spawnAgentForSession] Failed to record query stats:', err);
 									});
 
-								// Check for queued items BEFORE updating state (using sessionsRef for latest state)
-								const currentSession = sessionsRef.current.find((s) => s.id === sessionId);
+								// Check for queued items BEFORE updating state (using Zustand store for latest state)
+								const currentSession = useSessionStore
+									.getState()
+									.sessions.find((s) => s.id === sessionId);
 								let queuedItemToProcess: { sessionId: string; item: QueuedItem } | null = null;
 								const hasQueuedItems = currentSession && currentSession.executionQueue.length > 0;
 
@@ -416,7 +416,9 @@ export function useAgentExecution(deps: UseAgentExecutionDeps): UseAgentExecutio
 									// Wait for queue to drain by polling session state
 									// The queue is processed sequentially, so we wait until session becomes idle
 									const waitForQueueDrain = () => {
-										const checkSession = sessionsRef.current.find((s) => s.id === sessionId);
+										const checkSession = useSessionStore
+											.getState()
+											.sessions.find((s) => s.id === sessionId);
 										if (
 											!checkSession ||
 											checkSession.state === 'idle' ||
@@ -481,8 +483,8 @@ export function useAgentExecution(deps: UseAgentExecutionDeps): UseAgentExecutio
 				return { success: false };
 			}
 		},
-		[accumulateUsageStats, processQueuedItemRef, sessionsRef, setSessions]
-	); // Uses sessionsRef for latest sessions
+		[accumulateUsageStats, processQueuedItemRef, setSessions]
+	);
 
 	/**
 	 * Wrapper for slash commands that need to spawn an agent with just a prompt.

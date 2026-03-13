@@ -9,6 +9,18 @@ import type {
 	QueuedItem,
 } from '../../../renderer/types';
 
+let mockSessions: Session[] = [];
+
+vi.mock('../../../renderer/stores/sessionStore', () => ({
+	useSessionStore: Object.assign(
+		(selector?: any) => {
+			const state = { sessions: mockSessions };
+			return selector ? selector(state) : state;
+		},
+		{ getState: () => ({ sessions: mockSessions }) }
+	),
+}));
+
 // Create a mock AITab
 const createMockTab = (overrides: Partial<AITab> = {}): AITab => ({
 	id: 'tab-1',
@@ -128,7 +140,7 @@ describe('useInputProcessing', () => {
 	// Helper to create hook dependencies
 	const createDeps = (overrides: Partial<Parameters<typeof useInputProcessing>[0]> = {}) => {
 		const session = createMockSession();
-		const sessionsRef = { current: [session] };
+		mockSessions = [session];
 
 		return {
 			activeSession: session,
@@ -144,7 +156,6 @@ describe('useInputProcessing', () => {
 			syncAiInputToSession: mockSyncAiInputToSession,
 			syncTerminalInputToSession: mockSyncTerminalInputToSession,
 			isAiMode: true,
-			sessionsRef,
 			getBatchState: mockGetBatchState,
 			activeBatchRunState: defaultBatchState,
 			processQueuedItemRef: mockProcessQueuedItemRef,
@@ -735,13 +746,15 @@ describe('useInputProcessing', () => {
 			});
 			const deps = createDeps({
 				activeSession: session,
-				sessionsRef: { current: [session] },
 				inputValue: 'explain this code',
 			});
+			mockSessions = [session];
 			const { result } = renderHook(() => useInputProcessing(deps));
 
 			await act(async () => {
 				await result.current.processInput();
+				// Flush the fire-and-forget async IIFE that calls spawn
+				await new Promise((r) => setTimeout(r, 0));
 			});
 
 			// Verify spawn was called with the read-only suffix appended
@@ -770,14 +783,16 @@ describe('useInputProcessing', () => {
 			});
 			const deps = createDeps({
 				activeSession: session,
-				sessionsRef: { current: [session] },
 				inputValue: 'what does this function do',
 				activeBatchRunState: runningBatchState,
 			});
+			mockSessions = [session];
 			const { result } = renderHook(() => useInputProcessing(deps));
 
 			await act(async () => {
 				await result.current.processInput();
+				// Flush the fire-and-forget async IIFE that calls spawn
+				await new Promise((r) => setTimeout(r, 0));
 			});
 
 			// Verify spawn was called with read-only suffix (Auto Run without worktree forces read-only)
@@ -800,13 +815,15 @@ describe('useInputProcessing', () => {
 			});
 			const deps = createDeps({
 				activeSession: session,
-				sessionsRef: { current: [session] },
 				inputValue: 'fix this bug',
 			});
+			mockSessions = [session];
 			const { result } = renderHook(() => useInputProcessing(deps));
 
 			await act(async () => {
 				await result.current.processInput();
+				// Flush the fire-and-forget async IIFE that calls spawn
+				await new Promise((r) => setTimeout(r, 0));
 			});
 
 			// Verify spawn was called WITHOUT the read-only suffix

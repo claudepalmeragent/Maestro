@@ -3,6 +3,18 @@ import { renderHook, act, waitFor } from '@testing-library/react';
 import { useAgentExecution } from '../../../renderer/hooks';
 import type { Session, AITab, UsageStats, QueuedItem } from '../../../renderer/types';
 
+let mockSessions: Session[] = [];
+
+vi.mock('../../../renderer/stores/sessionStore', () => ({
+	useSessionStore: Object.assign(
+		(selector?: any) => {
+			const state = { sessions: mockSessions };
+			return selector ? selector(state) : state;
+		},
+		{ getState: () => ({ sessions: mockSessions }) }
+	),
+}));
+
 const createMockTab = (overrides: Partial<AITab> = {}): AITab => ({
 	id: 'tab-1',
 	agentSessionId: null,
@@ -130,14 +142,13 @@ describe('useAgentExecution', () => {
 			state: 'busy',
 			aiTabs: [createMockTab({ state: 'busy' })],
 		});
-		const sessionsRef = { current: [session] };
+		mockSessions = [session];
 		const setSessions = vi.fn();
 		const processQueuedItemRef = { current: null };
 
 		const { result } = renderHook(() =>
 			useAgentExecution({
 				activeSession: session,
-				sessionsRef,
 				setSessions,
 				processQueuedItemRef,
 				setFlashNotification: vi.fn(),
@@ -201,14 +212,13 @@ describe('useAgentExecution', () => {
 		const session = createMockSession({
 			executionQueue: [queuedItem],
 		});
-		const sessionsRef = { current: [session] };
+		mockSessions = [session];
 		const setSessions = vi.fn();
 		const processQueuedItemRef = { current: vi.fn().mockResolvedValue(undefined) };
 
 		const { result } = renderHook(() =>
 			useAgentExecution({
 				activeSession: session,
-				sessionsRef,
 				setSessions,
 				processQueuedItemRef,
 				setFlashNotification: vi.fn(),
@@ -248,14 +258,13 @@ describe('useAgentExecution', () => {
 
 	it('spawns a background synopsis session with resume ID', async () => {
 		const session = createMockSession();
-		const sessionsRef = { current: [session] };
+		mockSessions = [session];
 		const setSessions = vi.fn();
 		const processQueuedItemRef = { current: null };
 
 		const { result } = renderHook(() =>
 			useAgentExecution({
 				activeSession: session,
-				sessionsRef,
 				setSessions,
 				processQueuedItemRef,
 				setFlashNotification: vi.fn(),
@@ -314,14 +323,13 @@ describe('useAgentExecution', () => {
 	it('auto-dismisses flash notifications', () => {
 		vi.useFakeTimers();
 		const session = createMockSession();
-		const sessionsRef = { current: [session] };
+		mockSessions = [session];
 		const setFlashNotification = vi.fn();
 		const setSuccessFlashNotification = vi.fn();
 
 		const { result } = renderHook(() =>
 			useAgentExecution({
 				activeSession: session,
-				sessionsRef,
 				setSessions: vi.fn(),
 				processQueuedItemRef: { current: null },
 				setFlashNotification,

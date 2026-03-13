@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 import type { RightPanelHandle } from '../../components/RightPanel';
 import type { Session } from '../../types';
 import type { FileNode } from '../../types/fileTree';
+import { useSessionStore } from '../../stores/sessionStore';
 import {
 	loadFileTree,
 	compareFileTrees,
@@ -45,8 +46,6 @@ export type { SshContext } from '../../utils/fileExplorer';
 export interface UseFileTreeManagementDeps {
 	/** Current sessions array */
 	sessions: Session[];
-	/** Ref to sessions for accessing latest state without triggering effect re-runs */
-	sessionsRef: React.MutableRefObject<Session[]>;
 	/** Session state setter */
 	setSessions: React.Dispatch<React.SetStateAction<Session[]>>;
 	/** Currently active session ID */
@@ -86,25 +85,18 @@ export interface UseFileTreeManagementReturn {
 export function useFileTreeManagement(
 	deps: UseFileTreeManagementDeps
 ): UseFileTreeManagementReturn {
-	const {
-		sessions,
-		sessionsRef,
-		setSessions,
-		activeSessionId,
-		activeSession,
-		fileTreeFilter,
-		rightPanelRef,
-	} = deps;
+	const { sessions, setSessions, activeSessionId, activeSession, fileTreeFilter, rightPanelRef } =
+		deps;
 
 	/**
 	 * Refresh file tree for a session and return the changes detected.
-	 * Uses sessionsRef to avoid dependency on sessions state (prevents timer reset on every session change).
+	 * Uses useSessionStore.getState() to avoid dependency on sessions state (prevents timer reset on every session change).
 	 * Passes SSH context for remote sessions to enable remote file operations (Phase 2+).
 	 */
 	const refreshFileTree = useCallback(
 		async (sessionId: string): Promise<FileTreeChanges | undefined> => {
-			// Use sessionsRef to avoid dependency on sessions state (prevents timer reset on every session change)
-			const session = sessionsRef.current.find((s) => s.id === sessionId);
+			// Use useSessionStore.getState() to avoid dependency on sessions state (prevents timer reset on every session change)
+			const session = useSessionStore.getState().sessions.find((s) => s.id === sessionId);
 			if (!session) return undefined;
 
 			// Extract SSH context for remote file operations
@@ -161,7 +153,7 @@ export function useFileTreeManagement(
 				return undefined;
 			}
 		},
-		[sessionsRef, setSessions]
+		[setSessions]
 	);
 
 	/**

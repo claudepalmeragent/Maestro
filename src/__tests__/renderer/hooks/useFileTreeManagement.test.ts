@@ -19,6 +19,18 @@ import type { RefObject, SetStateAction } from 'react';
 import { loadFileTree, compareFileTrees } from '../../../renderer/utils/fileExplorer';
 import { gitService } from '../../../renderer/services/git';
 
+let mockSessions: Session[] = [];
+
+vi.mock('../../../renderer/stores/sessionStore', () => ({
+	useSessionStore: Object.assign(
+		(selector?: any) => {
+			const state = { sessions: mockSessions };
+			return selector ? selector(state) : state;
+		},
+		{ getState: () => ({ sessions: mockSessions }) }
+	),
+}));
+
 vi.mock('../../../renderer/utils/fileExplorer', () => ({
 	loadFileTree: vi.fn(),
 	compareFileTrees: vi.fn(),
@@ -68,15 +80,14 @@ const createMockSession = (overrides: Partial<Session> = {}): Session => ({
 
 const createSessionsState = (initialSessions: Session[]) => {
 	let sessions = initialSessions;
-	const sessionsRef = { current: sessions };
+	mockSessions = sessions;
 	const setSessions = vi.fn((updater: SetStateAction<Session[]>) => {
 		sessions = typeof updater === 'function' ? updater(sessions) : updater;
-		sessionsRef.current = sessions;
+		mockSessions = sessions;
 	});
 
 	return {
 		getSessions: () => sessions,
-		sessionsRef,
 		setSessions,
 	};
 };
@@ -86,7 +97,6 @@ const createDeps = (
 	overrides: Partial<UseFileTreeManagementDeps> = {}
 ): UseFileTreeManagementDeps => ({
 	sessions: state.getSessions(),
-	sessionsRef: state.sessionsRef,
 	setSessions: state.setSessions,
 	activeSessionId: state.getSessions()[0]?.id ?? null,
 	activeSession: state.getSessions()[0] ?? null,
@@ -104,6 +114,7 @@ describe('useFileTreeManagement', () => {
 
 	beforeEach(() => {
 		vi.clearAllMocks();
+		mockSessions = [];
 		originalHistory = window.maestro.history as typeof window.maestro.history | undefined;
 		window.maestro = {
 			...window.maestro,
