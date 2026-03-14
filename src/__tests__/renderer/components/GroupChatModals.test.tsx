@@ -1,5 +1,5 @@
 /**
- * @fileoverview Tests for NewGroupChatModal and EditGroupChatModal components
+ * @fileoverview Tests for GroupChatModal component (consolidated create/edit modes)
  *
  * Regression test for: MAESTRO_SESSION_RESUMED env var display in group chat moderator customization
  * This test ensures that when users customize the moderator agent in group chat modals,
@@ -8,8 +8,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
-import { NewGroupChatModal } from '../../../renderer/components/NewGroupChatModal';
-import { EditGroupChatModal } from '../../../renderer/components/EditGroupChatModal';
+import { GroupChatModal } from '../../../renderer/components/GroupChatModal';
 import type { Theme, GroupChat, AgentConfig } from '../../../renderer/types';
 // Mock layer stack context
 const mockRegisterLayer = vi.fn(() => 'layer-group-chat-123');
@@ -104,7 +103,8 @@ describe('Group Chat Modals', () => {
 			const onClose = vi.fn();
 
 			render(
-				<NewGroupChatModal
+				<GroupChatModal
+					mode="create"
 					theme={createMockTheme()}
 					isOpen={true}
 					onClose={onClose}
@@ -143,7 +143,8 @@ describe('Group Chat Modals', () => {
 			const groupChat = createMockGroupChat();
 
 			render(
-				<EditGroupChatModal
+				<GroupChatModal
+					mode="edit"
 					theme={createMockTheme()}
 					isOpen={true}
 					groupChat={groupChat}

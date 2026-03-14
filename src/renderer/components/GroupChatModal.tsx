@@ -1,12 +1,15 @@
 /**
- * EditGroupChatModal.tsx
+ * GroupChatModal.tsx
  *
- * Modal for editing an existing Group Chat. Allows user to:
- * - Change the name of the group chat
- * - Change the moderator agent
+ * Consolidated modal for creating and editing Group Chats. Allows user to:
+ * - Select a moderator agent from available agents
  * - Customize moderator settings (CLI args, path, ENV vars)
+ * - Enter a name for the group chat
  *
- * Similar to NewGroupChatModal but pre-populated with existing values.
+ * In 'create' mode: creates a new group chat.
+ * In 'edit' mode: edits an existing group chat with pre-populated values.
+ *
+ * Only shows agents that are both supported by Maestro and detected on the system.
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -19,10 +22,26 @@ import { AgentLogo, AGENT_TILES } from './Wizard/screens/AgentSelectionScreen';
 import { AgentConfigPanel } from './shared/AgentConfigPanel';
 import { SshRemoteSelector } from './shared/SshRemoteSelector';
 
-interface EditGroupChatModalProps {
+interface GroupChatModalCreateProps {
+	mode: 'create';
 	theme: Theme;
 	isOpen: boolean;
-	groupChat: GroupChat | null;
+	onClose: () => void;
+	onCreate: (
+		name: string,
+		moderatorAgentId: string,
+		moderatorConfig?: ModeratorConfig,
+		projectFolderId?: string
+	) => void;
+	projectFolderId?: string;
+	groupChat?: undefined;
+	onSave?: undefined;
+}
+
+interface GroupChatModalEditProps {
+	mode: 'edit';
+	theme: Theme;
+	isOpen: boolean;
 	onClose: () => void;
 	onSave: (
 		id: string,
@@ -30,15 +49,17 @@ interface EditGroupChatModalProps {
 		moderatorAgentId: string,
 		moderatorConfig?: ModeratorConfig
 	) => void;
+	groupChat: GroupChat | null;
+	onCreate?: undefined;
+	projectFolderId?: undefined;
 }
 
-export function EditGroupChatModal({
-	theme,
-	isOpen,
-	groupChat,
-	onClose,
-	onSave,
-}: EditGroupChatModalProps): JSX.Element | null {
+type GroupChatModalProps = GroupChatModalCreateProps | GroupChatModalEditProps;
+
+export function GroupChatModal(props: GroupChatModalProps): JSX.Element | null {
+	const { theme, isOpen, onClose } = props;
+	const isCreate = props.mode === 'create';
+
 	const [name, setName] = useState('');
 	const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
 	const [detectedAgents, setDetectedAgents] = useState<AgentConfig[]>([]);
@@ -73,31 +94,7 @@ export function EditGroupChatModal({
 	// Ref to track latest agentConfig for async save operations
 	const agentConfigRef = useRef<Record<string, any>>({});
 
-	// Initialize state from groupChat when modal opens
-	useEffect(() => {
-		if (!isOpen || !groupChat) {
-			return;
-		}
-
-		// Pre-populate from existing group chat
-		setName(groupChat.name);
-		setSelectedAgent(groupChat.moderatorAgentId);
-		setCustomPath(groupChat.moderatorConfig?.customPath || '');
-		setCustomArgs(groupChat.moderatorConfig?.customArgs || '');
-		setCustomEnvVars(groupChat.moderatorConfig?.customEnvVars || {});
-		setSshRemoteConfig(groupChat.moderatorConfig?.sshRemoteConfig);
-		setMaxRoundsOverride(
-			groupChat.maxRoundsOverride !== undefined ? String(groupChat.maxRoundsOverride) : ''
-		);
-		setViewMode('grid');
-		setIsTransitioning(false);
-		setAgentConfig({});
-		setAvailableModels([]);
-		setLoadingModels(false);
-		setRefreshingAgent(false);
-	}, [isOpen, groupChat]);
-
-	// Reset state when modal closes
+	// Reset all state when modal closes
 	const resetState = useCallback(() => {
 		setName('');
 		setSelectedAgent(null);
@@ -115,6 +112,32 @@ export function EditGroupChatModal({
 		setSshRemoteConfig(undefined);
 		setSshConnectionError(null);
 	}, []);
+
+	// Initialize state from groupChat when modal opens (edit mode only)
+	useEffect(() => {
+		if (!isOpen || isCreate || !props.groupChat) {
+			return;
+		}
+
+		const groupChat = props.groupChat;
+
+		// Pre-populate from existing group chat
+		setName(groupChat.name);
+		setSelectedAgent(groupChat.moderatorAgentId);
+		setCustomPath(groupChat.moderatorConfig?.customPath || '');
+		setCustomArgs(groupChat.moderatorConfig?.customArgs || '');
+		setCustomEnvVars(groupChat.moderatorConfig?.customEnvVars || {});
+		setSshRemoteConfig(groupChat.moderatorConfig?.sshRemoteConfig);
+		setMaxRoundsOverride(
+			groupChat.maxRoundsOverride !== undefined ? String(groupChat.maxRoundsOverride) : ''
+		);
+		setViewMode('grid');
+		setIsTransitioning(false);
+		setAgentConfig({});
+		setAvailableModels([]);
+		setLoadingModels(false);
+		setRefreshingAgent(false);
+	}, [isOpen, isCreate, props.groupChat]);
 
 	// Detect agents on mount
 	useEffect(() => {
@@ -136,6 +159,9 @@ export function EditGroupChatModal({
 						const errorAgent = connectionErrors[0] as AgentConfig & { error?: string };
 						setSshConnectionError(errorAgent.error || 'SSH connection failed');
 						setDetectedAgents([]);
+						if (isCreate) {
+							setSelectedAgent(null);
+						}
 						setIsDetecting(false);
 						return;
 					}
@@ -144,6 +170,20 @@ export function EditGroupChatModal({
 				setSshConnectionError(null);
 				const available = agents.filter((a: AgentConfig) => a.available && !a.hidden);
 				setDetectedAgents(available);
+
+				// Auto-select first available supported agent (create mode only)
+				if (isCreate && available.length > 0) {
+					// Find first agent that is both supported in AGENT_TILES and detected
+					const firstSupported = AGENT_TILES.find((tile) => {
+						if (!tile.supported) return false;
+						return available.some((a: AgentConfig) => a.id === tile.id);
+					});
+					if (firstSupported) {
+						setSelectedAgent(firstSupported.id);
+					} else if (available.length > 0) {
+						setSelectedAgent(available[0].id);
+					}
+				}
 			} catch (error) {
 				console.error('Failed to detect agents:', error);
 				if (sshRemoteConfig?.enabled) {
@@ -169,7 +209,7 @@ export function EditGroupChatModal({
 
 		detect();
 		loadSshRemotes();
-	}, [isOpen, resetState, sshRemoteConfig?.enabled, sshRemoteConfig?.remoteId]);
+	}, [isOpen, resetState, sshRemoteConfig?.enabled, sshRemoteConfig?.remoteId, isCreate]);
 
 	// Focus name input when agents detected
 	useEffect(() => {
@@ -193,40 +233,52 @@ export function EditGroupChatModal({
 		};
 	}, [customPath, customArgs, customEnvVars, sshRemoteConfig]);
 
-	const handleSave = useCallback(async () => {
-		if (name.trim() && selectedAgent && groupChat) {
-			const moderatorConfig = buildModeratorConfig();
-			onSave(groupChat.id, name.trim(), selectedAgent, moderatorConfig);
-
-			// Save maxRoundsOverride separately via update API
-			const parsedMaxRounds =
-				maxRoundsOverride.trim() !== '' ? parseInt(maxRoundsOverride, 10) : undefined;
-			if (parsedMaxRounds !== groupChat.maxRoundsOverride) {
-				try {
-					await (window as any).api?.groupChat?.update(groupChat.id, {
-						maxRoundsOverride: !isNaN(parsedMaxRounds as number) ? parsedMaxRounds : undefined,
-					});
-				} catch (error) {
-					console.error('Failed to save maxRoundsOverride:', error);
-				}
+	const handleSubmit = useCallback(async () => {
+		if (isCreate) {
+			if (name.trim() && selectedAgent) {
+				const moderatorConfig = buildModeratorConfig();
+				props.onCreate!(name.trim(), selectedAgent, moderatorConfig, props.projectFolderId);
+				resetState();
+				onClose();
 			}
+		} else {
+			const groupChat = props.groupChat;
+			if (name.trim() && selectedAgent && groupChat) {
+				const moderatorConfig = buildModeratorConfig();
+				props.onSave!(groupChat.id, name.trim(), selectedAgent, moderatorConfig);
 
-			resetState();
-			onClose();
+				// Save maxRoundsOverride separately via update API
+				const parsedMaxRounds =
+					maxRoundsOverride.trim() !== '' ? parseInt(maxRoundsOverride, 10) : undefined;
+				if (parsedMaxRounds !== groupChat.maxRoundsOverride) {
+					try {
+						await (window as any).api?.groupChat?.update(groupChat.id, {
+							maxRoundsOverride: !isNaN(parsedMaxRounds as number) ? parsedMaxRounds : undefined,
+						});
+					} catch (error) {
+						console.error('Failed to save maxRoundsOverride:', error);
+					}
+				}
+
+				resetState();
+				onClose();
+			}
 		}
 	}, [
+		isCreate,
 		name,
 		selectedAgent,
-		groupChat,
 		buildModeratorConfig,
+		props,
 		maxRoundsOverride,
-		onSave,
 		resetState,
 		onClose,
 	]);
 
-	// Check if anything has changed
+	// Check if anything has changed (edit mode only)
 	const hasChanges = useCallback((): boolean => {
+		if (isCreate) return false;
+		const groupChat = props.groupChat;
 		if (!groupChat) return false;
 
 		const nameChanged = name.trim() !== groupChat.name;
@@ -256,7 +308,8 @@ export function EditGroupChatModal({
 			configWasModified
 		);
 	}, [
-		groupChat,
+		isCreate,
+		props,
 		name,
 		selectedAgent,
 		customPath,
@@ -267,7 +320,9 @@ export function EditGroupChatModal({
 		configWasModified,
 	]);
 
-	const canSave = name.trim().length > 0 && selectedAgent !== null && hasChanges();
+	const canCreate = isCreate && name.trim().length > 0 && selectedAgent !== null;
+	const canSave = !isCreate && name.trim().length > 0 && selectedAgent !== null && hasChanges();
+	const canSubmit = isCreate ? canCreate : canSave;
 
 	// Open configuration panel for the selected agent
 	const handleOpenConfig = useCallback(async () => {
@@ -280,7 +335,6 @@ export function EditGroupChatModal({
 
 		// Load models if agent supports it
 		const agent = detectedAgents.find((a) => a.id === selectedAgent);
-		// Note: capabilities is added by agent-detector but not in the TypeScript type
 		if ((agent as any)?.capabilities?.supportsModelSelection) {
 			setLoadingModels(true);
 			try {
@@ -341,7 +395,9 @@ export function EditGroupChatModal({
 		}
 	}, [selectedAgent]);
 
-	if (!isOpen || !groupChat) return null;
+	// Early return conditions
+	if (!isOpen) return null;
+	if (!isCreate && !props.groupChat) return null;
 
 	// Filter AGENT_TILES to only show supported + detected agents
 	const availableTiles = AGENT_TILES.filter((tile) => {
@@ -366,13 +422,17 @@ export function EditGroupChatModal({
 		return remote?.name || remote?.host || 'Remote';
 	};
 
+	const modalPriority = isCreate
+		? MODAL_PRIORITIES.NEW_GROUP_CHAT
+		: MODAL_PRIORITIES.EDIT_GROUP_CHAT;
+
 	// Render configuration view
 	if (viewMode === 'config' && selectedAgentConfig && selectedTile) {
 		return (
 			<Modal
 				theme={theme}
 				title={`Configure ${selectedTile.name}`}
-				priority={MODAL_PRIORITIES.EDIT_GROUP_CHAT}
+				priority={modalPriority}
 				onClose={onClose}
 				width={600}
 				customHeader={
@@ -464,13 +524,17 @@ export function EditGroupChatModal({
 							const newConfig = { ...agentConfig, [key]: value };
 							setAgentConfig(newConfig);
 							agentConfigRef.current = newConfig;
-							setConfigWasModified(true);
+							if (!isCreate) {
+								setConfigWasModified(true);
+							}
 						}}
 						onConfigBlur={async () => {
 							if (selectedAgent) {
 								// Use ref to get latest config (state may be stale in async callback)
 								await window.maestro.agents.setConfig(selectedAgent, agentConfigRef.current);
-								setConfigWasModified(true);
+								if (!isCreate) {
+									setConfigWasModified(true);
+								}
 							}
 						}}
 						availableModels={availableModels}
@@ -486,12 +550,246 @@ export function EditGroupChatModal({
 		);
 	}
 
+	// Shared agent tile grid JSX
+	const agentTileGrid = (
+		<>
+			{/* SSH Connection Error */}
+			{sshConnectionError && (
+				<div
+					className="flex items-center gap-2 p-3 rounded-lg mb-4"
+					style={{
+						backgroundColor: `${theme.colors.error}15`,
+						border: `1px solid ${theme.colors.error}`,
+					}}
+				>
+					<AlertTriangle className="w-4 h-4 shrink-0" style={{ color: theme.colors.error }} />
+					<span className="text-sm" style={{ color: theme.colors.error }}>
+						{sshConnectionError}
+					</span>
+				</div>
+			)}
+
+			{isDetecting ? (
+				<div className="flex items-center justify-center py-8">
+					<div
+						className="w-6 h-6 border-2 border-t-transparent rounded-full animate-spin"
+						style={{ borderColor: theme.colors.accent, borderTopColor: 'transparent' }}
+					/>
+				</div>
+			) : sshConnectionError ? (
+				<div className="text-center py-8 text-sm" style={{ color: theme.colors.textDim }}>
+					Unable to connect to remote host. Please select a different remote or switch to Local
+					Execution.
+				</div>
+			) : availableTiles.length === 0 ? (
+				<div className="text-center py-8 text-sm" style={{ color: theme.colors.textDim }}>
+					No agents available. Please install Claude Code, OpenCode, or Codex.
+				</div>
+			) : (
+				<div className="grid grid-cols-3 gap-3">
+					{availableTiles.map((tile) => {
+						const isSelected = selectedAgent === tile.id;
+
+						return (
+							<div
+								key={tile.id}
+								role="button"
+								tabIndex={0}
+								onClick={() => setSelectedAgent(tile.id)}
+								onKeyDown={(e) => {
+									if (e.key === 'Enter' || e.key === ' ') {
+										e.preventDefault();
+										setSelectedAgent(tile.id);
+									}
+								}}
+								className="relative flex flex-col items-center p-4 pb-10 rounded-lg border-2 transition-all outline-none cursor-pointer"
+								style={{
+									backgroundColor: isSelected ? `${tile.brandColor}15` : theme.colors.bgMain,
+									borderColor: isSelected ? tile.brandColor : theme.colors.border,
+								}}
+							>
+								{/* Selection checkmark */}
+								{isSelected && (
+									<div
+										className="absolute top-2 right-2 w-5 h-5 rounded-full flex items-center justify-center"
+										style={{ backgroundColor: tile.brandColor }}
+									>
+										<Check className="w-3 h-3 text-white" />
+									</div>
+								)}
+								{/* Remote indicator badge */}
+								{isRemoteExecution && (
+									<div
+										className="absolute top-2 left-2 px-1.5 py-0.5 rounded text-[9px] font-medium"
+										style={{
+											backgroundColor: theme.colors.accent,
+											color: theme.colors.bgMain,
+										}}
+									>
+										Remote
+									</div>
+								)}
+								<AgentLogo
+									agentId={tile.id}
+									supported={true}
+									detected={true}
+									brandColor={tile.brandColor}
+									theme={theme}
+								/>
+								<span className="mt-2 text-sm font-medium" style={{ color: theme.colors.textMain }}>
+									{tile.name}
+								</span>
+								{/* Remote host info */}
+								{isRemoteExecution && (
+									<span className="text-[10px] mt-0.5" style={{ color: theme.colors.textDim }}>
+										on {getRemoteName(sshRemoteConfig?.remoteId ?? null)}
+									</span>
+								)}
+
+								{/* Customize button */}
+								<button
+									onClick={(e) => {
+										e.stopPropagation();
+										setSelectedAgent(tile.id);
+										// Small delay to update selection before opening config
+										setTimeout(() => handleOpenConfig(), 50);
+									}}
+									className="absolute bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-1 px-2 py-1 rounded text-[10px] hover:bg-white/10 transition-colors"
+									style={{
+										color: isSelected && hasCustomization ? tile.brandColor : theme.colors.textDim,
+									}}
+									title="Customize moderator settings"
+								>
+									<Settings className="w-3 h-3" />
+									Customize
+									{isSelected && hasCustomization && (
+										<span
+											className="w-1.5 h-1.5 rounded-full ml-0.5"
+											style={{ backgroundColor: tile.brandColor }}
+										/>
+									)}
+								</button>
+							</div>
+						);
+					})}
+				</div>
+			)}
+		</>
+	);
+
+	// SSH Remote section (shared)
+	const sshRemoteSection = sshRemotes.length > 0 && (
+		<div className={isCreate ? 'mb-6' : 'mb-4'}>
+			<SshRemoteSelector
+				theme={theme}
+				sshRemotes={sshRemotes}
+				sshRemoteConfig={sshRemoteConfig}
+				onSshRemoteConfigChange={setSshRemoteConfig}
+			/>
+		</div>
+	);
+
 	// Render grid view
+	if (isCreate) {
+		// Create mode layout
+		return (
+			<Modal
+				theme={theme}
+				title="New Group Chat"
+				priority={modalPriority}
+				onClose={onClose}
+				initialFocusRef={nameInputRef}
+				width={600}
+				customHeader={
+					<div
+						className="p-4 border-b flex items-center justify-between shrink-0"
+						style={{ borderColor: theme.colors.border }}
+					>
+						<div className="flex items-center gap-3">
+							<h2 className="text-sm font-bold" style={{ color: theme.colors.textMain }}>
+								New Group Chat
+							</h2>
+							<span
+								className="text-[10px] font-semibold tracking-wide uppercase px-2 py-0.5 rounded"
+								style={{
+									backgroundColor: `${theme.colors.accent}20`,
+									color: theme.colors.accent,
+									border: `1px solid ${theme.colors.accent}40`,
+								}}
+							>
+								Beta
+							</span>
+						</div>
+						<button
+							type="button"
+							onClick={onClose}
+							className="p-1 rounded hover:bg-white/10 transition-colors"
+							style={{ color: theme.colors.textDim }}
+							aria-label="Close modal"
+						>
+							<X className="w-4 h-4" />
+						</button>
+					</div>
+				}
+				footer={
+					<ModalFooter
+						theme={theme}
+						onCancel={onClose}
+						onConfirm={handleSubmit}
+						confirmLabel="Create"
+						confirmDisabled={!canSubmit}
+					/>
+				}
+			>
+				<div
+					className={`transition-opacity duration-150 ${isTransitioning ? 'opacity-0' : 'opacity-100'}`}
+				>
+					{/* Description */}
+					<div className="mb-6 text-sm leading-relaxed" style={{ color: theme.colors.textDim }}>
+						A Group Chat lets you collaborate with multiple AI agents in a single conversation. The{' '}
+						<span style={{ color: theme.colors.textMain }}>moderator</span> manages the conversation
+						flow, deciding when to involve other agents. You can{' '}
+						<span style={{ color: theme.colors.accent }}>@mention</span> any agent defined in
+						Maestro to bring them into the discussion. We're still working on this feature, but
+						right now Claude appears to be the best performing moderator.
+					</div>
+
+					{/* Agent Selection */}
+					<div className="mb-6">
+						<label
+							className="block text-sm font-medium mb-3"
+							style={{ color: theme.colors.textMain }}
+						>
+							Select Moderator
+						</label>
+
+						{agentTileGrid}
+					</div>
+
+					{/* SSH Remote Execution - Top Level */}
+					{sshRemoteSection}
+
+					{/* Name Input */}
+					<FormInput
+						ref={nameInputRef}
+						theme={theme}
+						label="Chat Name"
+						value={name}
+						onChange={setName}
+						onSubmit={canSubmit ? handleSubmit : undefined}
+						placeholder="e.g., Auth Feature Implementation"
+					/>
+				</div>
+			</Modal>
+		);
+	}
+
+	// Edit mode layout
 	return (
 		<Modal
 			theme={theme}
 			title="Edit Group Chat"
-			priority={MODAL_PRIORITIES.EDIT_GROUP_CHAT}
+			priority={modalPriority}
 			onClose={onClose}
 			initialFocusRef={nameInputRef}
 			width={600}
@@ -499,9 +797,9 @@ export function EditGroupChatModal({
 				<ModalFooter
 					theme={theme}
 					onCancel={onClose}
-					onConfirm={handleSave}
+					onConfirm={handleSubmit}
 					confirmLabel="Save"
-					confirmDisabled={!canSave}
+					confirmDisabled={!canSubmit}
 				/>
 			}
 		>
@@ -516,7 +814,7 @@ export function EditGroupChatModal({
 						label="Chat Name"
 						value={name}
 						onChange={setName}
-						onSubmit={canSave ? handleSave : undefined}
+						onSubmit={canSubmit ? handleSubmit : undefined}
 						placeholder="e.g., Auth Feature Implementation"
 					/>
 				</div>
@@ -530,144 +828,11 @@ export function EditGroupChatModal({
 						Moderator Agent
 					</label>
 
-					{/* SSH Connection Error */}
-					{sshConnectionError && (
-						<div
-							className="flex items-center gap-2 p-3 rounded-lg mb-4"
-							style={{
-								backgroundColor: `${theme.colors.error}15`,
-								border: `1px solid ${theme.colors.error}`,
-							}}
-						>
-							<AlertTriangle className="w-4 h-4 shrink-0" style={{ color: theme.colors.error }} />
-							<span className="text-sm" style={{ color: theme.colors.error }}>
-								{sshConnectionError}
-							</span>
-						</div>
-					)}
-
-					{isDetecting ? (
-						<div className="flex items-center justify-center py-8">
-							<div
-								className="w-6 h-6 border-2 border-t-transparent rounded-full animate-spin"
-								style={{ borderColor: theme.colors.accent, borderTopColor: 'transparent' }}
-							/>
-						</div>
-					) : sshConnectionError ? (
-						<div className="text-center py-8 text-sm" style={{ color: theme.colors.textDim }}>
-							Unable to connect to remote host. Please select a different remote or switch to Local
-							Execution.
-						</div>
-					) : availableTiles.length === 0 ? (
-						<div className="text-center py-8 text-sm" style={{ color: theme.colors.textDim }}>
-							No agents available. Please install Claude Code, OpenCode, or Codex.
-						</div>
-					) : (
-						<div className="grid grid-cols-3 gap-3">
-							{availableTiles.map((tile) => {
-								const isSelected = selectedAgent === tile.id;
-
-								return (
-									<div
-										key={tile.id}
-										role="button"
-										tabIndex={0}
-										onClick={() => setSelectedAgent(tile.id)}
-										onKeyDown={(e) => {
-											if (e.key === 'Enter' || e.key === ' ') {
-												e.preventDefault();
-												setSelectedAgent(tile.id);
-											}
-										}}
-										className="relative flex flex-col items-center p-4 pb-10 rounded-lg border-2 transition-all outline-none cursor-pointer"
-										style={{
-											backgroundColor: isSelected ? `${tile.brandColor}15` : theme.colors.bgMain,
-											borderColor: isSelected ? tile.brandColor : theme.colors.border,
-										}}
-									>
-										{/* Selection checkmark */}
-										{isSelected && (
-											<div
-												className="absolute top-2 right-2 w-5 h-5 rounded-full flex items-center justify-center"
-												style={{ backgroundColor: tile.brandColor }}
-											>
-												<Check className="w-3 h-3 text-white" />
-											</div>
-										)}
-										{/* Remote indicator badge */}
-										{isRemoteExecution && (
-											<div
-												className="absolute top-2 left-2 px-1.5 py-0.5 rounded text-[9px] font-medium"
-												style={{
-													backgroundColor: theme.colors.accent,
-													color: theme.colors.bgMain,
-												}}
-											>
-												Remote
-											</div>
-										)}
-										<AgentLogo
-											agentId={tile.id}
-											supported={true}
-											detected={true}
-											brandColor={tile.brandColor}
-											theme={theme}
-										/>
-										<span
-											className="mt-2 text-sm font-medium"
-											style={{ color: theme.colors.textMain }}
-										>
-											{tile.name}
-										</span>
-										{/* Remote host info */}
-										{isRemoteExecution && (
-											<span className="text-[10px] mt-0.5" style={{ color: theme.colors.textDim }}>
-												on {getRemoteName(sshRemoteConfig?.remoteId ?? null)}
-											</span>
-										)}
-
-										{/* Customize button */}
-										<button
-											onClick={(e) => {
-												e.stopPropagation();
-												setSelectedAgent(tile.id);
-												// Small delay to update selection before opening config
-												setTimeout(() => handleOpenConfig(), 50);
-											}}
-											className="absolute bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-1 px-2 py-1 rounded text-[10px] hover:bg-white/10 transition-colors"
-											style={{
-												color:
-													isSelected && hasCustomization ? tile.brandColor : theme.colors.textDim,
-											}}
-											title="Customize moderator settings"
-										>
-											<Settings className="w-3 h-3" />
-											Customize
-											{isSelected && hasCustomization && (
-												<span
-													className="w-1.5 h-1.5 rounded-full ml-0.5"
-													style={{ backgroundColor: tile.brandColor }}
-												/>
-											)}
-										</button>
-									</div>
-								);
-							})}
-						</div>
-					)}
+					{agentTileGrid}
 				</div>
 
 				{/* SSH Remote Execution - Top Level */}
-				{sshRemotes.length > 0 && (
-					<div className="mb-4">
-						<SshRemoteSelector
-							theme={theme}
-							sshRemotes={sshRemotes}
-							sshRemoteConfig={sshRemoteConfig}
-							onSshRemoteConfigChange={setSshRemoteConfig}
-						/>
-					</div>
-				)}
+				{sshRemoteSection}
 
 				{/* Max Rounds Override */}
 				<div className="mb-4">
@@ -697,7 +862,7 @@ export function EditGroupChatModal({
 				</div>
 
 				{/* Warning about changing moderator */}
-				{groupChat && selectedAgent !== groupChat.moderatorAgentId && (
+				{props.groupChat && selectedAgent !== props.groupChat.moderatorAgentId && (
 					<div
 						className="text-xs p-3 rounded"
 						style={{
@@ -714,3 +879,5 @@ export function EditGroupChatModal({
 		</Modal>
 	);
 }
+
+export type { GroupChatModalProps, GroupChatModalCreateProps, GroupChatModalEditProps };
