@@ -311,8 +311,8 @@ describe('agent-detector', () => {
 
 			const agents = await detector.detectAgents();
 
-			// Should have all 7 agents (terminal, claude-code, codex, gemini-cli, qwen3-coder, opencode, aider)
-			expect(agents.length).toBe(7);
+			// Should have all 8 agents (terminal, claude-code, codex, gemini-cli, qwen3-coder, opencode, factory-droid, aider)
+			expect(agents.length).toBe(8);
 
 			const agentIds = agents.map((a) => a.id);
 			expect(agentIds).toContain('terminal');
@@ -942,7 +942,7 @@ describe('agent-detector', () => {
 
 			const result = await detectPromise;
 			expect(result).toBeDefined();
-			expect(result.length).toBe(7);
+			expect(result.length).toBe(8);
 		});
 
 		it('should handle very long PATH', async () => {

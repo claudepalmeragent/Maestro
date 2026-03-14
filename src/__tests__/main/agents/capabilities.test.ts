@@ -260,6 +260,10 @@ describe('agent-capabilities', () => {
 				'supportsThinkingDisplay',
 				'supportsContextMerge',
 				'supportsContextExport',
+				'supportsWizard',
+				'supportsGroupChatModeration',
+				'usesJsonLineOutput',
+				'usesCombinedContextWindow',
 			];
 
 			const defaultKeys = Object.keys(DEFAULT_CAPABILITIES);
@@ -271,7 +275,11 @@ describe('agent-capabilities', () => {
 
 			for (const [agentId, capabilities] of Object.entries(AGENT_CAPABILITIES)) {
 				const agentKeys = Object.keys(capabilities);
-				expect(agentKeys.sort()).toEqual(expectedKeys.sort());
+				// Every agent must have at least all the keys from DEFAULT_CAPABILITIES
+				for (const key of expectedKeys) {
+					expect(agentKeys).toContain(key);
+				}
+				// Agents may also have optional extra keys (e.g., imageResumeMode)
 			}
 		});
 	});

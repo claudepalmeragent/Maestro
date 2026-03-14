@@ -1,7 +1,17 @@
 // Shared type definitions for Maestro CLI and Electron app
 // These types are used by both the CLI tool and the renderer process
 
-export type ToolType = 'claude' | 'claude-code' | 'aider' | 'opencode' | 'codex' | 'terminal';
+export { AGENT_IDS, isValidAgentId } from './agentIds';
+export type { AgentId } from './agentIds';
+
+import type { AgentId } from './agentIds';
+
+/**
+ * ToolType is the legacy name for AgentId.
+ * Includes 'claude' for backward compatibility with existing sessions/data
+ * that predate the 'claude-code' rename.
+ */
+export type ToolType = AgentId | 'claude';
 
 /**
  * ThinkingMode controls how AI reasoning/thinking content is displayed.

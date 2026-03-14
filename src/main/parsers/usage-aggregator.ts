@@ -45,7 +45,7 @@ export interface UsageStats {
  * Default context window sizes for different agents.
  * Used as fallback when the agent doesn't report its context window size.
  */
-export const DEFAULT_CONTEXT_WINDOWS: Record<ToolType, number> = {
+export const DEFAULT_CONTEXT_WINDOWS: Partial<Record<ToolType, number>> = {
 	'claude-code': 200000, // Claude 3.5 Sonnet/Claude 4 default context
 	claude: 200000, // Legacy Claude
 	codex: 200000, // OpenAI o3/o4-mini context window

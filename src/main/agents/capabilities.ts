@@ -69,6 +69,23 @@ export interface AgentCapabilities {
 
 	/** Agent can export its context for transfer to other sessions/agents */
 	supportsContextExport: boolean;
+
+	/** Agent supports inline wizard structured output conversations */
+	supportsWizard?: boolean;
+
+	/** Agent can serve as a group chat moderator */
+	supportsGroupChatModeration?: boolean;
+
+	/** Agent uses JSON line (JSONL) output format in CLI batch mode */
+	usesJsonLineOutput?: boolean;
+
+	/** Agent uses a combined input+output context window (vs separate limits) */
+	usesCombinedContextWindow?: boolean;
+
+	/** How images should be handled on resume when -i flag is not available.
+	 * 'prompt-embed': Save images to temp files and embed file paths in the prompt text.
+	 * undefined: Use default image handling (or no special resume handling needed). */
+	imageResumeMode?: 'prompt-embed';
 }
 
 /**
@@ -95,6 +112,10 @@ export const DEFAULT_CAPABILITIES: AgentCapabilities = {
 	supportsThinkingDisplay: false,
 	supportsContextMerge: false,
 	supportsContextExport: false,
+	supportsWizard: false,
+	supportsGroupChatModeration: false,
+	usesJsonLineOutput: false,
+	usesCombinedContextWindow: false,
 };
 
 /**
@@ -133,6 +154,10 @@ export const AGENT_CAPABILITIES: Record<string, AgentCapabilities> = {
 		supportsThinkingDisplay: true, // Emits streaming assistant messages
 		supportsContextMerge: true, // Can receive merged context via prompts
 		supportsContextExport: true, // Session storage supports context export
+		supportsWizard: true, // Supports inline wizard structured output
+		supportsGroupChatModeration: true, // Can serve as group chat moderator
+		usesJsonLineOutput: false, // Uses stream-json, not JSONL
+		usesCombinedContextWindow: false, // Claude has separate input/output limits
 	},
 
 	/**
@@ -159,6 +184,10 @@ export const AGENT_CAPABILITIES: Record<string, AgentCapabilities> = {
 		supportsThinkingDisplay: false, // Terminal is not an AI agent
 		supportsContextMerge: false, // Terminal is not an AI agent
 		supportsContextExport: false, // Terminal has no AI context
+		supportsWizard: false,
+		supportsGroupChatModeration: false,
+		usesJsonLineOutput: false,
+		usesCombinedContextWindow: false,
 	},
 
 	/**
@@ -188,6 +217,11 @@ export const AGENT_CAPABILITIES: Record<string, AgentCapabilities> = {
 		supportsThinkingDisplay: true, // Emits reasoning tokens (o3/o4-mini)
 		supportsContextMerge: true, // Can receive merged context via prompts
 		supportsContextExport: true, // Session storage supports context export
+		supportsWizard: true, // Supports inline wizard structured output
+		supportsGroupChatModeration: true, // Can serve as group chat moderator
+		usesJsonLineOutput: true, // Uses JSONL output format
+		usesCombinedContextWindow: true, // OpenAI models use combined context window
+		imageResumeMode: 'prompt-embed', // codex exec resume doesn't support -i; embed file paths in prompt text
 	},
 
 	/**
@@ -216,6 +250,10 @@ export const AGENT_CAPABILITIES: Record<string, AgentCapabilities> = {
 		supportsThinkingDisplay: false, // Not yet investigated
 		supportsContextMerge: false, // Not yet investigated - PLACEHOLDER
 		supportsContextExport: false, // Not yet investigated - PLACEHOLDER
+		supportsWizard: false, // PLACEHOLDER
+		supportsGroupChatModeration: false, // PLACEHOLDER
+		usesJsonLineOutput: false, // PLACEHOLDER
+		usesCombinedContextWindow: false, // PLACEHOLDER
 	},
 
 	/**
@@ -244,6 +282,42 @@ export const AGENT_CAPABILITIES: Record<string, AgentCapabilities> = {
 		supportsThinkingDisplay: false, // Not yet investigated
 		supportsContextMerge: false, // Not yet investigated - PLACEHOLDER
 		supportsContextExport: false, // Not yet investigated - PLACEHOLDER
+		supportsWizard: false, // PLACEHOLDER
+		supportsGroupChatModeration: false, // PLACEHOLDER
+		usesJsonLineOutput: false, // PLACEHOLDER
+		usesCombinedContextWindow: false, // PLACEHOLDER
+	},
+
+	/**
+	 * Factory Droid - Enterprise AI coding assistant from Factory
+	 * https://docs.factory.ai/cli
+	 *
+	 * Verified capabilities based on CLI testing (droid exec --help) and session file analysis.
+	 */
+	'factory-droid': {
+		supportsResume: true, // -s, --session-id <id> (requires a prompt) - Verified
+		supportsReadOnlyMode: true, // Default mode (no --auto flags) - Verified
+		supportsJsonOutput: true, // -o stream-json - Verified
+		supportsSessionId: true, // UUID in session filenames - Verified
+		supportsImageInput: true, // -f, --file flag - Verified
+		supportsImageInputOnResume: true, // -f works with -s flag - Verified
+		supportsSlashCommands: false, // Factory uses different command system
+		supportsSessionStorage: true, // ~/.factory/sessions/ (JSONL files) - Verified
+		supportsCostTracking: false, // Token counts only in settings.json, no USD cost
+		supportsUsageStats: true, // tokenUsage in settings.json - Verified
+		supportsBatchMode: true, // droid exec subcommand - Verified
+		requiresPromptToStart: true, // Requires prompt argument for exec
+		supportsStreaming: true, // stream-json format - Verified
+		supportsResultMessages: true, // Can detect end of conversation
+		supportsModelSelection: true, // -m, --model flag - Verified
+		supportsStreamJsonInput: true, // --input-format stream-json - Verified
+		supportsThinkingDisplay: true, // Emits thinking content in messages - Verified
+		supportsContextMerge: true, // Can receive merged context via prompts
+		supportsContextExport: true, // Session files are exportable
+		supportsWizard: false, // Not yet integrated with wizard
+		supportsGroupChatModeration: true, // Can serve as group chat moderator
+		usesJsonLineOutput: true, // Uses JSONL output format
+		usesCombinedContextWindow: false, // Depends on model provider
 	},
 
 	/**
@@ -273,6 +347,10 @@ export const AGENT_CAPABILITIES: Record<string, AgentCapabilities> = {
 		supportsThinkingDisplay: false, // Not yet investigated
 		supportsContextMerge: false, // Not yet investigated - PLACEHOLDER
 		supportsContextExport: false, // Not yet investigated - PLACEHOLDER
+		supportsWizard: false, // PLACEHOLDER
+		supportsGroupChatModeration: false, // PLACEHOLDER
+		usesJsonLineOutput: false, // PLACEHOLDER
+		usesCombinedContextWindow: false, // PLACEHOLDER
 	},
 
 	/**
@@ -302,6 +380,10 @@ export const AGENT_CAPABILITIES: Record<string, AgentCapabilities> = {
 		supportsThinkingDisplay: true, // Emits streaming text chunks
 		supportsContextMerge: true, // Can receive merged context via prompts
 		supportsContextExport: true, // Session storage supports context export
+		supportsWizard: true, // Supports inline wizard structured output
+		supportsGroupChatModeration: true, // Can serve as group chat moderator
+		usesJsonLineOutput: true, // Uses JSONL output format
+		usesCombinedContextWindow: false, // Depends on model provider
 	},
 };
 
@@ -324,5 +406,5 @@ export function getAgentCapabilities(agentId: string): AgentCapabilities {
  */
 export function hasCapability(agentId: string, capability: keyof AgentCapabilities): boolean {
 	const capabilities = getAgentCapabilities(agentId);
-	return capabilities[capability];
+	return !!capabilities[capability];
 }

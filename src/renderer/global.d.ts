@@ -42,6 +42,9 @@ interface ProcessConfig {
 		remoteId: string | null;
 		workingDirOverride?: string;
 	};
+	// Windows command line length workaround
+	sendPromptViaStdin?: boolean; // If true, send the prompt via stdin as JSON instead of command line
+	sendPromptViaStdinRaw?: boolean; // If true, send the prompt via stdin as raw text instead of command line
 }
 
 interface AgentConfigOption {
@@ -70,8 +73,13 @@ interface AgentCapabilities {
 	supportsResultMessages: boolean;
 	supportsModelSelection: boolean;
 	supportsStreamJsonInput: boolean;
+	supportsThinkingDisplay?: boolean;
 	supportsContextMerge: boolean;
 	supportsContextExport: boolean;
+	supportsWizard?: boolean;
+	supportsGroupChatModeration?: boolean;
+	usesJsonLineOutput?: boolean;
+	usesCombinedContextWindow?: boolean;
 }
 
 interface AgentConfig {
@@ -80,10 +88,13 @@ interface AgentConfig {
 	binaryName?: string;
 	available: boolean;
 	path?: string;
+	customPath?: string;
 	command: string;
 	args?: string[];
 	hidden?: boolean;
 	configOptions?: AgentConfigOption[];
+	yoloModeArgs?: string[];
+	readOnlyCliEnforced?: boolean;
 	capabilities?: AgentCapabilities;
 }
 
@@ -104,8 +115,13 @@ interface AgentCapabilities {
 	supportsResultMessages: boolean;
 	supportsModelSelection: boolean;
 	supportsStreamJsonInput: boolean;
+	supportsThinkingDisplay?: boolean;
 	supportsContextMerge: boolean;
 	supportsContextExport: boolean;
+	supportsWizard?: boolean;
+	supportsGroupChatModeration?: boolean;
+	usesJsonLineOutput?: boolean;
+	usesCombinedContextWindow?: boolean;
 }
 
 interface DirectoryEntry {
