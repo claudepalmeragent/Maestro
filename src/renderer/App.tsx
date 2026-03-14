@@ -92,12 +92,14 @@ import { useMainPanelProps, useSessionListProps, useRightPanelProps } from './ho
 
 // Import contexts
 import { useLayerStack } from './contexts/LayerStackContext';
-import { useToast } from './contexts/ToastContext';
-import { useModalContext } from './contexts/ModalContext';
+import { useNotificationStore, notifyToast } from './stores/notificationStore';
+import { useModalActions } from './stores/modalStore';
+import { useSessionStore, selectActiveSession } from './stores/sessionStore';
 import { GitStatusProvider } from './contexts/GitStatusContext';
 import { InputProvider, useInputContext } from './contexts/InputContext';
-import { GroupChatProvider, useGroupChat } from './contexts/GroupChatContext';
-import { AutoRunProvider, useAutoRun } from './contexts/AutoRunContext';
+import { useGroupChatStore } from './stores/groupChatStore';
+import type { GroupChatMessagesHandle } from './components/GroupChatMessages';
+import { useBatchStore } from './stores/batchStore';
 import { SessionProvider, useSession } from './contexts/SessionContext';
 import { InlineWizardProvider, useInlineWizardContext } from './contexts/InlineWizardContext';
 import { ProjectFoldersProvider, useProjectFoldersContext } from './contexts/ProjectFoldersContext';
@@ -159,7 +161,8 @@ import { validateNewSession } from './utils/sessionValidation';
 import { estimateContextUsage } from './utils/contextUsage';
 import { formatLogsForClipboard } from './utils/contextExtractor';
 import { isLikelyConcatenatedToolNames, getSlashCommandDescription } from './constants/app';
-import { useUILayout } from './contexts/UILayoutContext';
+import { useUIStore } from './stores/uiStore';
+import { useFileExplorerStore } from './stores/fileExplorerStore';
 
 // Note: DEFAULT_IMAGE_ONLY_PROMPT is now imported from useInputProcessing hook
 
@@ -193,17 +196,15 @@ function MaestroConsoleInner() {
 	const { hasOpenLayers, hasOpenModal } = useLayerStack();
 
 	// --- TOAST NOTIFICATIONS ---
-	const {
-		addToast,
-		setDefaultDuration: setToastDefaultDuration,
-		setAudioFeedback,
-		setOsNotifications,
-	} = useToast();
+	const addToast = notifyToast;
+	const setToastDefaultDuration = useNotificationStore((s) => s.setDefaultDuration);
+	const setAudioFeedback = useNotificationStore((s) => s.setAudioFeedback);
+	const setOsNotifications = useNotificationStore((s) => s.setOsNotifications);
 
 	// --- PROJECT FOLDERS (for Prompt Library metadata) ---
 	const { getFolderById } = useProjectFoldersContext();
 
-	// --- MODAL STATE (centralized modal state management) ---
+	// --- MODAL STATE (centralized modal state management via Zustand) ---
 	const {
 		// Settings Modal
 		settingsModalOpen,
@@ -235,8 +236,10 @@ function MaestroConsoleInner() {
 		lightboxImages,
 		setLightboxImages,
 		setLightboxSource,
-		lightboxIsGroupChatRef,
-		lightboxAllowDeleteRef,
+		lightboxIsGroupChat,
+		lightboxAllowDelete,
+		setLightboxIsGroupChat,
+		setLightboxAllowDelete,
 		// About Modal
 		aboutModalOpen,
 		setAboutModalOpen,
@@ -261,8 +264,6 @@ function MaestroConsoleInner() {
 		// Usage Dashboard
 		usageDashboardOpen,
 		setUsageDashboardOpen,
-		usageDashboardInitialTab,
-		setUsageDashboardInitialTab,
 		// Keyboard Mastery Celebration
 		pendingKeyboardMasteryLevel,
 		setPendingKeyboardMasteryLevel,
@@ -366,8 +367,6 @@ function MaestroConsoleInner() {
 		// Group Chat Modals
 		showNewGroupChatModal,
 		setShowNewGroupChatModal,
-		createGroupChatForFolderId,
-		setCreateGroupChatForFolderId,
 		showDeleteGroupChatModal,
 		setShowDeleteGroupChatModal,
 		showRenameGroupChatModal,
@@ -387,7 +386,15 @@ function MaestroConsoleInner() {
 		setTourOpen,
 		tourFromWizard,
 		setTourFromWizard,
-	} = useModalContext();
+	} = useModalActions();
+
+	// Local state - was in ModalContext, not migrated to store
+	const [usageDashboardInitialTab, setUsageDashboardInitialTab] = useState<string | undefined>(
+		undefined
+	);
+	const [createGroupChatForFolderId, setCreateGroupChatForFolderId] = useState<string | undefined>(
+		undefined
+	);
 
 	// --- MOBILE LANDSCAPE MODE (reading-only view) ---
 	const isMobileLandscape = useMobileLandscape();
@@ -546,29 +553,37 @@ function MaestroConsoleInner() {
 		tabShortcuts,
 	});
 
-	// --- SESSION STATE (Phase 6: extracted to SessionContext) ---
-	// Use SessionContext for all core session states
-	const {
-		sessions,
-		setSessions,
-		groups,
-		setGroups,
-		activeSessionId,
-		setActiveSessionId: setActiveSessionIdFromContext,
-		setActiveSessionIdInternal,
-		sessionsLoaded,
-		setSessionsLoaded,
-		initialLoadComplete,
-		sessionsRef,
-		groupsRef,
-		activeSessionIdRef,
-		batchedUpdater,
-		activeSession,
-		cyclePositionRef,
-		removedWorktreePaths: _removedWorktreePaths,
-		setRemovedWorktreePaths,
-		removedWorktreePathsRef,
-	} = useSession();
+	// --- SESSION STATE (migrated to sessionStore) ---
+	const sessions = useSessionStore((s) => s.sessions);
+	const setSessions = useSessionStore((s) => s.setSessions);
+	const groups = useSessionStore((s) => s.groups);
+	const setGroups = useSessionStore((s) => s.setGroups);
+	const activeSessionId = useSessionStore((s) => s.activeSessionId);
+	const setActiveSessionIdFromContext = useSessionStore((s) => s.setActiveSessionId);
+	const setActiveSessionIdInternal = useSessionStore((s) => s.setActiveSessionIdInternal);
+	const sessionsLoaded = useSessionStore((s) => s.sessionsLoaded);
+	const setSessionsLoaded = useSessionStore((s) => s.setSessionsLoaded);
+	const initialLoadComplete = useSessionStore((s) => s.initialLoadComplete);
+	const activeSession = useSessionStore(selectActiveSession);
+	const setRemovedWorktreePaths = useSessionStore((s) => s.setRemovedWorktreePaths);
+
+	// Refs for synchronous access in callbacks - synced from store state
+	const sessionsRef = useRef(sessions);
+	sessionsRef.current = sessions;
+	const groupsRef = useRef(groups);
+	groupsRef.current = groups;
+	const activeSessionIdRef = useRef(activeSessionId);
+	activeSessionIdRef.current = activeSessionId;
+	// Local ref for cycle position - used synchronously in session cycling callbacks
+	const cyclePositionRef = useRef(-1);
+	// Local ref for removed worktree paths - used synchronously in worktree callbacks
+	const removedWorktreePathsRef = useRef(new Set<string>());
+	// Keep removedWorktreePathsRef in sync with store
+	const removedWorktreePaths = useSessionStore((s) => s.removedWorktreePaths);
+	removedWorktreePathsRef.current = removedWorktreePaths;
+
+	// batchedUpdater remains from SessionContext (not migrated to store)
+	const { batchedUpdater } = useSession();
 
 	// Spec Kit commands (loaded from bundled prompts)
 	const [speckitCommands, setSpeckitCommands] = useState<SpecKitCommand[]>([]);
@@ -577,49 +592,61 @@ function MaestroConsoleInner() {
 	const [openspecCommands, setOpenspecCommands] = useState<OpenSpecCommand[]>([]);
 
 	// --- GROUP CHAT STATE (Phase 4: extracted to GroupChatContext) ---
-	// Note: groupChatsExpanded remains here as it's a UI layout concern (already in UILayoutContext)
-	const { groupChatsExpanded, setGroupChatsExpanded } = useUILayout();
+	// Note: groupChatsExpanded remains here as it's a UI layout concern (now in uiStore)
+	const groupChatsExpanded = useUIStore((s) => s.groupChatsExpanded);
+	const setGroupChatsExpanded = useUIStore((s) => s.setGroupChatsExpanded);
 
-	// Use GroupChatContext for all group chat states
-	const {
-		groupChats,
-		setGroupChats,
-		activeGroupChatId,
-		setActiveGroupChatId,
-		groupChatMessages,
-		setGroupChatMessages,
-		groupChatState,
-		setGroupChatState,
-		groupChatStagedImages,
-		setGroupChatStagedImages,
-		groupChatReadOnlyMode,
-		setGroupChatReadOnlyMode,
-		groupChatExecutionQueue,
-		setGroupChatExecutionQueue,
-		groupChatRightTab,
-		setGroupChatRightTab,
-		groupChatParticipantColors,
-		setGroupChatParticipantColors,
-		moderatorUsage,
-		setModeratorUsage,
-		participantStates,
-		setParticipantStates,
-		groupChatStates,
-		setGroupChatStates,
-		allGroupChatParticipantStates,
-		setAllGroupChatParticipantStates,
-		groupChatError,
-		setGroupChatError,
-		groupChatInputRef,
-		groupChatMessagesRef,
-		clearGroupChatError: handleClearGroupChatErrorBase,
-		groupChatShowThinking,
-		setGroupChatShowThinking,
-		groupChatThinkingContent,
-		setGroupChatThinkingContent,
-		groupChatThinkingCollapsed,
-		setGroupChatThinkingCollapsed,
-	} = useGroupChat();
+	// Group chat state from Zustand store
+	const groupChats = useGroupChatStore((s) => s.groupChats);
+	const setGroupChats = useGroupChatStore((s) => s.setGroupChats);
+	const activeGroupChatId = useGroupChatStore((s) => s.activeGroupChatId);
+	const setActiveGroupChatId = useGroupChatStore((s) => s.setActiveGroupChatId);
+	const groupChatMessages = useGroupChatStore((s) => s.groupChatMessages);
+	const setGroupChatMessages = useGroupChatStore((s) => s.setGroupChatMessages);
+	const groupChatState = useGroupChatStore((s) => s.groupChatState);
+	const setGroupChatState = useGroupChatStore((s) => s.setGroupChatState);
+	const groupChatStagedImages = useGroupChatStore((s) => s.groupChatStagedImages);
+	const setGroupChatStagedImages = useGroupChatStore((s) => s.setGroupChatStagedImages);
+	const groupChatReadOnlyMode = useGroupChatStore((s) => s.groupChatReadOnlyMode);
+	const setGroupChatReadOnlyMode = useGroupChatStore((s) => s.setGroupChatReadOnlyMode);
+	const groupChatExecutionQueue = useGroupChatStore((s) => s.groupChatExecutionQueue);
+	const setGroupChatExecutionQueue = useGroupChatStore((s) => s.setGroupChatExecutionQueue);
+	const groupChatRightTab = useGroupChatStore((s) => s.groupChatRightTab);
+	const setGroupChatRightTab = useGroupChatStore((s) => s.setGroupChatRightTab);
+	const groupChatParticipantColors = useGroupChatStore((s) => s.groupChatParticipantColors);
+	const setGroupChatParticipantColors = useGroupChatStore((s) => s.setGroupChatParticipantColors);
+	const moderatorUsage = useGroupChatStore((s) => s.moderatorUsage);
+	const setModeratorUsage = useGroupChatStore((s) => s.setModeratorUsage);
+	const participantStates = useGroupChatStore((s) => s.participantStates);
+	const setParticipantStates = useGroupChatStore((s) => s.setParticipantStates);
+	const groupChatStates = useGroupChatStore((s) => s.groupChatStates);
+	const setGroupChatStates = useGroupChatStore((s) => s.setGroupChatStates);
+	const allGroupChatParticipantStates = useGroupChatStore((s) => s.allGroupChatParticipantStates);
+	const setAllGroupChatParticipantStates = useGroupChatStore(
+		(s) => s.setAllGroupChatParticipantStates
+	);
+	const groupChatError = useGroupChatStore((s) => s.groupChatError);
+	const setGroupChatError = useGroupChatStore((s) => s.setGroupChatError);
+	const clearGroupChatErrorStore = useGroupChatStore((s) => s.clearGroupChatError);
+
+	// Local refs - were in GroupChatContext, not migrated to store
+	const groupChatInputRef = useRef<HTMLTextAreaElement>(null);
+	const groupChatMessagesRef = useRef<GroupChatMessagesHandle>(null);
+
+	// Local state - were in GroupChatContext, not migrated to store
+	const [groupChatShowThinking, setGroupChatShowThinking] = useState(false);
+	const [groupChatThinkingContent, setGroupChatThinkingContent] = useState<Map<string, string>>(
+		new Map()
+	);
+	const [groupChatThinkingCollapsed, setGroupChatThinkingCollapsed] = useState<
+		Map<string, boolean>
+	>(new Map());
+
+	// Wrapper for clearGroupChatError that also refocuses input
+	const handleClearGroupChatErrorBase = useCallback(() => {
+		clearGroupChatErrorStore();
+		setTimeout(() => groupChatInputRef.current?.focus(), 0);
+	}, [clearGroupChatErrorStore]);
 
 	// SSH Remote configs for looking up SSH remote names (used for participant cards in group chat)
 	const [sshRemoteConfigs, setSshRemoteConfigs] = useState<Array<{ id: string; name: string }>>([]);
@@ -709,26 +736,40 @@ function MaestroConsoleInner() {
 		setCommandHistorySelectedIndex,
 	} = useInputContext();
 
-	// UI State
-	const { leftSidebarOpen, setLeftSidebarOpen } = useUILayout();
-	const { rightPanelOpen, setRightPanelOpen } = useUILayout();
-	const { activeRightTab, setActiveRightTab } = useUILayout();
-	const { activeFocus, setActiveFocus } = useUILayout();
-	const { bookmarksCollapsed, setBookmarksCollapsed } = useUILayout();
-	const { showUnreadOnly, setShowUnreadOnly } = useUILayout();
+	// UI State (from uiStore)
+	const leftSidebarOpen = useUIStore((s) => s.leftSidebarOpen);
+	const setLeftSidebarOpen = useUIStore((s) => s.setLeftSidebarOpen);
+	const rightPanelOpen = useUIStore((s) => s.rightPanelOpen);
+	const setRightPanelOpen = useUIStore((s) => s.setRightPanelOpen);
+	const activeRightTab = useUIStore((s) => s.activeRightTab);
+	const setActiveRightTab = useUIStore((s) => s.setActiveRightTab);
+	const activeFocus = useUIStore((s) => s.activeFocus);
+	const setActiveFocus = useUIStore((s) => s.setActiveFocus);
+	const bookmarksCollapsed = useUIStore((s) => s.bookmarksCollapsed);
+	const setBookmarksCollapsed = useUIStore((s) => s.setBookmarksCollapsed);
+	const showUnreadOnly = useUIStore((s) => s.showUnreadOnly);
+	const setShowUnreadOnly = useUIStore((s) => s.setShowUnreadOnly);
 	// Track the active tab ID before entering unread filter mode, so we can restore it when exiting
-	const { preFilterActiveTabIdRef } = useUILayout();
+	const setPreFilterActiveTabId = useUIStore((s) => s.setPreFilterActiveTabId);
 
 	// File Explorer State
-	const { previewFile, setPreviewFile } = useUILayout();
+	// Local state - previewFile stores file content for preview, not in any Zustand store
+	const [previewFile, setPreviewFile] = useState<{
+		name: string;
+		content: string;
+		path: string;
+	} | null>(null);
 	const [filePreviewLoading, setFilePreviewLoading] = useState<{
 		name: string;
 		path: string;
 	} | null>(null);
-	const { selectedFileIndex, setSelectedFileIndex } = useUILayout();
+	const selectedFileIndex = useFileExplorerStore((s) => s.selectedFileIndex);
+	const setSelectedFileIndex = useFileExplorerStore((s) => s.setSelectedFileIndex);
 	const [flatFileList, setFlatFileList] = useState<any[]>([]);
-	const { fileTreeFilter, setFileTreeFilter } = useUILayout();
-	const { fileTreeFilterOpen, setFileTreeFilterOpen } = useUILayout();
+	const fileTreeFilter = useFileExplorerStore((s) => s.fileTreeFilter);
+	const setFileTreeFilter = useFileExplorerStore((s) => s.setFileTreeFilter);
+	const fileTreeFilterOpen = useFileExplorerStore((s) => s.fileTreeFilterOpen);
+	const setFileTreeFilterOpen = useFileExplorerStore((s) => s.setFileTreeFilterOpen);
 	const [isGraphViewOpen, setIsGraphViewOpen] = useState(false);
 	// File path to focus on when opening the Document Graph (relative to session.cwd)
 	const [graphFocusFilePath, setGraphFocusFilePath] = useState<string | undefined>(undefined);
@@ -754,17 +795,20 @@ function MaestroConsoleInner() {
 	const [deleteAgentModalOpen, setDeleteAgentModalOpen] = useState(false);
 	const [deleteAgentSession, setDeleteAgentSession] = useState<Session | null>(null);
 
-	// Note: Git Diff State, Tour Overlay State, and Git Log Viewer State are now from ModalContext
+	// Note: Git Diff State, Tour Overlay State, and Git Log Viewer State are now from modalStore
 
-	// Renaming State
-	const { editingGroupId, setEditingGroupId } = useUILayout();
-	const { editingSessionId, setEditingSessionId } = useUILayout();
+	// Renaming State (from uiStore)
+	const editingGroupId = useUIStore((s) => s.editingGroupId);
+	const setEditingGroupId = useUIStore((s) => s.setEditingGroupId);
+	const editingSessionId = useUIStore((s) => s.editingSessionId);
+	const setEditingSessionId = useUIStore((s) => s.setEditingSessionId);
 
 	// Drag and Drop State (for session list - image drag handled by useAppHandlers)
-	const { draggingSessionId, setDraggingSessionId } = useUILayout();
+	const draggingSessionId = useUIStore((s) => s.draggingSessionId);
+	const setDraggingSessionId = useUIStore((s) => s.setDraggingSessionId);
 
-	// Note: All modal states are now managed by ModalContext
-	// See useModalContext() destructuring above for modal states
+	// Note: All modal states are now managed by modalStore
+	// See useModalActions() destructuring above for modal states
 
 	// Stable callbacks for memoized modals (prevents re-renders from callback reference changes)
 	// NOTE: These must be declared AFTER the state they reference
@@ -870,21 +914,25 @@ function MaestroConsoleInner() {
 	}, []);
 
 	// Note: All modal states (confirmation, rename, queue browser, batch runner, etc.)
-	// are now managed by ModalContext - see useModalContext() destructuring above
+	// are now managed by modalStore - see useModalActions() destructuring above
 
 	// NOTE: showSessionJumpNumbers state is now provided by useMainKeyboardHandler hook
 
-	// Output Search State
-	const { outputSearchOpen, setOutputSearchOpen } = useUILayout();
-	const { outputSearchQuery, setOutputSearchQuery } = useUILayout();
+	// Output Search State (from uiStore)
+	const outputSearchOpen = useUIStore((s) => s.outputSearchOpen);
+	const setOutputSearchOpen = useUIStore((s) => s.setOutputSearchOpen);
+	const outputSearchQuery = useUIStore((s) => s.outputSearchQuery);
+	const setOutputSearchQuery = useUIStore((s) => s.setOutputSearchQuery);
 
 	// Note: Command History, Tab Completion, and @ Mention states are now in InputContext
 	// See useInputContext() destructuring above for these states
 
 	// Flash notification state (for inline notifications like "Commands disabled while agent is working")
-	const { flashNotification, setFlashNotification } = useUILayout();
+	const flashNotification = useUIStore((s) => s.flashNotification);
+	const setFlashNotification = useUIStore((s) => s.setFlashNotification);
 	// Success flash notification state (for success messages like "Refresh complete")
-	const { successFlashNotification, setSuccessFlashNotification } = useUILayout();
+	const successFlashNotification = useUIStore((s) => s.successFlashNotification);
+	const setSuccessFlashNotification = useUIStore((s) => s.setSuccessFlashNotification);
 
 	// Note: Images are now stored per-tab in AITab.stagedImages
 	// See stagedImages/setStagedImages computed from active tab below
@@ -893,18 +941,16 @@ function MaestroConsoleInner() {
 	const [isLiveMode, setIsLiveMode] = useState(false);
 	const [webInterfaceUrl, setWebInterfaceUrl] = useState<string | null>(null);
 
-	// Auto Run document management state (Phase 5: now from AutoRunContext)
+	// Auto Run document management state (now from batchStore)
 	// Content is per-session in session.autoRunContent
-	const {
-		documentList: autoRunDocumentList,
-		setDocumentList: setAutoRunDocumentList,
-		documentTree: autoRunDocumentTree,
-		setDocumentTree: setAutoRunDocumentTree,
-		isLoadingDocuments: autoRunIsLoadingDocuments,
-		setIsLoadingDocuments: setAutoRunIsLoadingDocuments,
-		documentTaskCounts: autoRunDocumentTaskCounts,
-		setDocumentTaskCounts: setAutoRunDocumentTaskCounts,
-	} = useAutoRun();
+	const autoRunDocumentList = useBatchStore((s) => s.documentList);
+	const setAutoRunDocumentList = useBatchStore((s) => s.setDocumentList);
+	const autoRunDocumentTree = useBatchStore((s) => s.documentTree);
+	const setAutoRunDocumentTree = useBatchStore((s) => s.setDocumentTree);
+	const autoRunIsLoadingDocuments = useBatchStore((s) => s.isLoadingDocuments);
+	const setAutoRunIsLoadingDocuments = useBatchStore((s) => s.setIsLoadingDocuments);
+	const autoRunDocumentTaskCounts = useBatchStore((s) => s.documentTaskCounts);
+	const setAutoRunDocumentTaskCounts = useBatchStore((s) => s.setDocumentTaskCounts);
 
 	// Restore focus when LogViewer closes to ensure global hotkeys work
 	useEffect(() => {
@@ -1802,6 +1848,10 @@ function MaestroConsoleInner() {
 							aiTabs: [initialTab],
 							activeTabId: initialTabId,
 							closedTabHistory: [],
+							filePreviewTabs: [],
+							activeFileTabId: null,
+							unifiedTabOrder: [{ type: 'ai' as const, id: initialTabId }],
+							unifiedClosedTabHistory: [],
 							customPath: parentSession.customPath,
 							customArgs: parentSession.customArgs,
 							customEnvVars: parentSession.customEnvVars,
@@ -4013,8 +4063,9 @@ function MaestroConsoleInner() {
 		};
 	}, []);
 
-	// Keyboard navigation state
-	const { selectedSidebarIndex, setSelectedSidebarIndex } = useUILayout();
+	// Keyboard navigation state (from uiStore)
+	const selectedSidebarIndex = useUIStore((s) => s.selectedSidebarIndex);
+	const setSelectedSidebarIndex = useUIStore((s) => s.setSelectedSidebarIndex);
 	// Note: activeSession is now provided by SessionContext
 	// Note: activeTab is memoized later at line ~3795 - use that for all tab operations
 
@@ -8189,6 +8240,10 @@ You are taking over this conversation. Based on the context above, provide a bri
 				aiTabs: [initialTab],
 				activeTabId: initialTabId,
 				closedTabHistory: [],
+				filePreviewTabs: [],
+				activeFileTabId: null,
+				unifiedTabOrder: [{ type: 'ai' as const, id: initialTabId }],
+				unifiedClosedTabHistory: [],
 				customPath: parentSession.customPath,
 				customArgs: parentSession.customArgs,
 				customEnvVars: parentSession.customEnvVars,
@@ -8376,6 +8431,10 @@ You are taking over this conversation. Based on the context above, provide a bri
 								aiTabs: [initialTab],
 								activeTabId: initialTabId,
 								closedTabHistory: [],
+								filePreviewTabs: [],
+								activeFileTabId: null,
+								unifiedTabOrder: [{ type: 'ai' as const, id: initialTabId }],
+								unifiedClosedTabHistory: [],
 								customPath: session.customPath,
 								customArgs: session.customArgs,
 								customEnvVars: session.customEnvVars,
@@ -8596,11 +8655,8 @@ You are taking over this conversation. Based on the context above, provide a bri
 	// source: 'staged' allows deletion, 'history' is read-only
 	const handleSetLightboxImage = useCallback(
 		(image: string | null, contextImages?: string[], source: 'staged' | 'history' = 'history') => {
-			// Capture state SYNCHRONOUSLY in refs before any state updates
-			// This ensures values are available immediately when the component re-renders
-			// React batches state updates, so refs are more reliable for immediate access
-			lightboxIsGroupChatRef.current = activeGroupChatId !== null;
-			lightboxAllowDeleteRef.current = source === 'staged';
+			setLightboxIsGroupChat(activeGroupChatId !== null);
+			setLightboxAllowDelete(source === 'staged');
 
 			setLightboxImage(image);
 			setLightboxImages(contextImages || []);
@@ -9734,6 +9790,10 @@ You are taking over this conversation. Based on the context above, provide a bri
 				aiTabs: [initialTab],
 				activeTabId: initialTabId,
 				closedTabHistory: [],
+				filePreviewTabs: [],
+				activeFileTabId: null,
+				unifiedTabOrder: [{ type: 'ai' as const, id: initialTabId }],
+				unifiedClosedTabHistory: [],
 				// Nudge message - appended to every interactive user message
 				nudgeMessage,
 				// Per-agent config (path, args, env vars, model)
@@ -9896,6 +9956,10 @@ You are taking over this conversation. Based on the context above, provide a bri
 				aiTabs: [initialTab],
 				activeTabId: initialTabId,
 				closedTabHistory: [],
+				filePreviewTabs: [],
+				activeFileTabId: null,
+				unifiedTabOrder: [{ type: 'ai' as const, id: initialTabId }],
+				unifiedClosedTabHistory: [],
 				// Auto Run configuration from wizard
 				autoRunFolderPath,
 				autoRunSelectedFile,
@@ -10104,22 +10168,21 @@ You are taking over this conversation. Based on the context above, provide a bri
 	const toggleUnreadFilter = useCallback(() => {
 		if (!showUnreadOnly) {
 			// Entering filter mode: save current active tab
-			preFilterActiveTabIdRef.current = activeSession?.activeTabId || null;
+			setPreFilterActiveTabId(activeSession?.activeTabId || null);
 		} else {
 			// Exiting filter mode: restore previous active tab if it still exists
-			if (preFilterActiveTabIdRef.current && activeSession) {
-				const tabStillExists = activeSession.aiTabs.some(
-					(t) => t.id === preFilterActiveTabIdRef.current
-				);
+			const savedTabId = useUIStore.getState().preFilterActiveTabId;
+			if (savedTabId && activeSession) {
+				const tabStillExists = activeSession.aiTabs.some((t) => t.id === savedTabId);
 				if (tabStillExists) {
 					setSessions((prev) =>
 						prev.map((s) => {
 							if (s.id !== activeSession.id) return s;
-							return { ...s, activeTabId: preFilterActiveTabIdRef.current! };
+							return { ...s, activeTabId: savedTabId };
 						})
 					);
 				}
-				preFilterActiveTabIdRef.current = null;
+				setPreFilterActiveTabId(null);
 			}
 		}
 		setShowUnreadOnly((prev) => !prev);
@@ -11945,6 +12008,10 @@ You are taking over this conversation. Based on the context above, provide a bri
 							aiTabs: [initialTab],
 							activeTabId: initialTabId,
 							closedTabHistory: [],
+							filePreviewTabs: [],
+							activeFileTabId: null,
+							unifiedTabOrder: [{ type: 'ai' as const, id: initialTabId }],
+							unifiedClosedTabHistory: [],
 							customPath: activeSession.customPath,
 							customArgs: activeSession.customArgs,
 							customEnvVars: activeSession.customEnvVars,
@@ -12126,6 +12193,10 @@ You are taking over this conversation. Based on the context above, provide a bri
 					aiTabs: [initialTab],
 					activeTabId: initialTabId,
 					closedTabHistory: [],
+					filePreviewTabs: [],
+					activeFileTabId: null,
+					unifiedTabOrder: [{ type: 'ai' as const, id: initialTabId }],
+					unifiedClosedTabHistory: [],
 					customPath: activeSession.customPath,
 					customArgs: activeSession.customArgs,
 					customEnvVars: activeSession.customEnvVars,
@@ -12281,6 +12352,10 @@ You are taking over this conversation. Based on the context above, provide a bri
 				aiTabs: [initialTab],
 				activeTabId: initialTabId,
 				closedTabHistory: [],
+				filePreviewTabs: [],
+				activeFileTabId: null,
+				unifiedTabOrder: [{ type: 'ai' as const, id: initialTabId }],
+				unifiedClosedTabHistory: [],
 				customPath: createWorktreeSession.customPath,
 				customArgs: createWorktreeSession.customArgs,
 				customEnvVars: createWorktreeSession.customEnvVars,
@@ -12385,22 +12460,21 @@ You are taking over this conversation. Based on the context above, provide a bri
 		setLightboxImage(null);
 		setLightboxImages([]);
 		setLightboxSource('history');
-		lightboxIsGroupChatRef.current = false;
-		lightboxAllowDeleteRef.current = false;
+		setLightboxIsGroupChat(false);
+		setLightboxAllowDelete(false);
 		// Return focus to input after closing carousel
 		setTimeout(() => inputRef.current?.focus(), 0);
 	}, []);
 	const handleNavigateLightbox = useCallback((img: string) => setLightboxImage(img), []);
 	const handleDeleteLightboxImage = useCallback(
 		(img: string) => {
-			// Use ref for group chat check - refs are set synchronously before React batches state updates
-			if (lightboxIsGroupChatRef.current) {
+			if (lightboxIsGroupChat) {
 				setGroupChatStagedImages((prev) => prev.filter((i) => i !== img));
 			} else {
 				setStagedImages((prev) => prev.filter((i) => i !== img));
 			}
 		},
-		[setStagedImages]
+		[lightboxIsGroupChat, setStagedImages]
 	);
 	const handleCloseAutoRunSetup = useCallback(() => setAutoRunSetupModalOpen(false), []);
 	const handleCloseBatchRunner = useCallback(() => setBatchRunnerModalOpen(false), []);
@@ -13956,9 +14030,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 					stagedImages={stagedImages}
 					onCloseLightbox={handleCloseLightbox}
 					onNavigateLightbox={handleNavigateLightbox}
-					onDeleteLightboxImage={
-						lightboxAllowDeleteRef.current ? handleDeleteLightboxImage : undefined
-					}
+					onDeleteLightboxImage={lightboxAllowDelete ? handleDeleteLightboxImage : undefined}
 					gitDiffPreview={gitDiffPreview}
 					gitViewerCwd={gitViewerCwd}
 					onCloseGitDiff={handleCloseGitDiff}
@@ -14683,26 +14755,23 @@ You are taking over this conversation. Based on the context above, provide a bri
  * MaestroConsole - Main application component with context providers
  *
  * Wraps MaestroConsoleInner with context providers for centralized state management.
- * Phase 3: InputProvider - centralized input state management
- * Phase 4: GroupChatProvider - centralized group chat state management
- * Phase 5: AutoRunProvider - centralized Auto Run and batch processing state management
- * Phase 6: SessionProvider - centralized session and group state management
- * Phase 7: InlineWizardProvider - inline /wizard command state management
- * See refactor-details-2.md for full plan.
+ * Remaining providers:
+ * - SessionProvider: still needed for batchedUpdater (not yet migrated to store)
+ * - ProjectFoldersProvider: project folder state
+ * - InlineWizardProvider: inline /wizard command state
+ * - InputProvider: centralized input state
+ * Removed providers (migrated to Zustand): ModalProvider, UILayoutProvider,
+ * AutoRunProvider, GroupChatProvider, ToastProvider.
  */
 export default function MaestroConsole() {
 	return (
 		<SessionProvider>
 			<ProjectFoldersProvider>
-				<AutoRunProvider>
-					<GroupChatProvider>
-						<InlineWizardProvider>
-							<InputProvider>
-								<MaestroConsoleInner />
-							</InputProvider>
-						</InlineWizardProvider>
-					</GroupChatProvider>
-				</AutoRunProvider>
+				<InlineWizardProvider>
+					<InputProvider>
+						<MaestroConsoleInner />
+					</InputProvider>
+				</InlineWizardProvider>
 			</ProjectFoldersProvider>
 		</SessionProvider>
 	);

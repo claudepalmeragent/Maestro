@@ -17,7 +17,7 @@ import React, {
 	ReactNode,
 } from 'react';
 import type { ProjectFolder } from '../../shared/types';
-import { useSession } from './SessionContext';
+import { useSessionStore } from '../stores/sessionStore';
 
 /**
  * Project folders context value - all folder states and operations
@@ -83,8 +83,8 @@ interface ProjectFoldersProviderProps {
  * </SessionProvider>
  */
 export function ProjectFoldersProvider({ children }: ProjectFoldersProviderProps): JSX.Element {
-	// Access session context for updating session state
-	const { setSessions } = useSession();
+	// Access session store for updating session state
+	const setSessions = useSessionStore((s) => s.setSessions);
 
 	// Core state
 	const [projectFolders, setProjectFolders] = useState<ProjectFolder[]>([]);

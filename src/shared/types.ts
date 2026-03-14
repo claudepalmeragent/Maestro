@@ -3,6 +3,14 @@
 
 export type ToolType = 'claude' | 'claude-code' | 'aider' | 'opencode' | 'codex' | 'terminal';
 
+/**
+ * ThinkingMode controls how AI reasoning/thinking content is displayed.
+ * - 'off': No thinking content shown (default)
+ * - 'on': Show thinking for the current message only (temporary)
+ * - 'sticky': Show thinking persistently until explicitly toggled off
+ */
+export type ThinkingMode = 'off' | 'on' | 'sticky';
+
 // Session group
 export interface Group {
 	id: string;

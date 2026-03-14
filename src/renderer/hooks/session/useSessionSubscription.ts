@@ -17,7 +17,7 @@
  */
 
 import { useEffect, useCallback, useRef } from 'react';
-import { useSession } from '../../contexts/SessionContext';
+import { useSession } from '../../contexts/SessionContext'; // batchedUpdater not yet in sessionStore
 import type { ChangeType, SubscriptionCallback } from './useBatchedSessionUpdates';
 
 /**

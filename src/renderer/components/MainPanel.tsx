@@ -1720,7 +1720,11 @@ export const MainPanel = React.memo(
 											onToggleTabReadOnlyMode={props.onToggleTabReadOnlyMode}
 											tabSaveToHistory={activeTab?.saveToHistory ?? false}
 											onToggleTabSaveToHistory={props.onToggleTabSaveToHistory}
-											tabShowThinking={activeTab?.showThinking ?? false}
+											tabShowThinking={
+												activeTab?.showThinking !== undefined &&
+												activeTab.showThinking !== false &&
+												activeTab.showThinking !== 'off'
+											}
 											onToggleTabShowThinking={props.onToggleTabShowThinking}
 											supportsThinking={hasCapability('supportsThinkingDisplay')}
 											onOpenPromptComposer={props.onOpenPromptComposer}

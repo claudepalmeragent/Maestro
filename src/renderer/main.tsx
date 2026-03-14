@@ -6,9 +6,6 @@ import * as Sentry from '@sentry/electron/renderer';
 import MaestroConsole from './App';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { LayerStackProvider } from './contexts/LayerStackContext';
-import { ToastProvider } from './contexts/ToastContext';
-import { ModalProvider } from './contexts/ModalContext';
-import { UILayoutProvider } from './contexts/UILayoutContext';
 import { WizardProvider } from './components/Wizard';
 import { logger } from './utils/logger';
 import './index.css';
@@ -88,17 +85,11 @@ window.addEventListener('unhandledrejection', (event: PromiseRejectionEvent) => 
 ReactDOM.createRoot(document.getElementById('root')!).render(
 	<React.StrictMode>
 		<ErrorBoundary>
-			<ToastProvider>
-				<LayerStackProvider>
-					<ModalProvider>
-						<UILayoutProvider>
-							<WizardProvider>
-								<MaestroConsole />
-							</WizardProvider>
-						</UILayoutProvider>
-					</ModalProvider>
-				</LayerStackProvider>
-			</ToastProvider>
+			<LayerStackProvider>
+				<WizardProvider>
+					<MaestroConsole />
+				</WizardProvider>
+			</LayerStackProvider>
 		</ErrorBoundary>
 	</React.StrictMode>
 );

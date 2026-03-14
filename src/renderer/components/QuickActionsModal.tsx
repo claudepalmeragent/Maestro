@@ -3,7 +3,7 @@ import { Search } from 'lucide-react';
 import type { Session, Group, Theme, Shortcut, RightPanelTab, SettingsTab } from '../types';
 import type { GroupChat } from '../../shared/group-chat-types';
 import { useLayerStack } from '../contexts/LayerStackContext';
-import { useToast } from '../contexts/ToastContext';
+import { notifyToast } from '../stores/notificationStore';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 import { gitService } from '../services/git';
 import { formatShortcutKeys } from '../utils/shortcutFormatter';
@@ -207,7 +207,7 @@ export function QuickActionsModal(props: QuickActionsModalProps) {
 	const modalRef = useRef<HTMLDivElement>(null);
 
 	const { registerLayer, unregisterLayer, updateLayerHandler } = useLayerStack();
-	const { addToast } = useToast();
+	const addToast = notifyToast;
 	const activeSession = sessions.find((s) => s.id === activeSessionId);
 
 	// Register layer on mount (handler will be updated by separate effect)

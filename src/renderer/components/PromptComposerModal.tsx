@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import type { Theme, PromptLibraryEntry } from '../types';
 import { useLayerStack } from '../contexts/LayerStackContext';
-import { useToast } from '../contexts/ToastContext';
+import { notifyToast } from '../stores/notificationStore';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 import { estimateTokenCount } from '../../shared/formatters';
 import { PromptLibrarySearchBar } from './PromptLibrarySearchBar';
@@ -94,7 +94,7 @@ export function PromptComposerModal({
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const { registerLayer, unregisterLayer } = useLayerStack();
-	const { addToast } = useToast();
+	const addToast = notifyToast;
 	const onCloseRef = useRef(onClose);
 	onCloseRef.current = onClose;
 	const onSubmitRef = useRef(onSubmit);
