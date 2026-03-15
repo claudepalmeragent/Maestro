@@ -1,9 +1,11 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { Copy, Check, Trash2 } from 'lucide-react';
 import { useLayerStack } from '../contexts/LayerStackContext';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 import { ConfirmModal } from './ConfirmModal';
 import type { Theme } from '../types';
+import { formatShortcutKeys } from '../utils/shortcutFormatter';
+import { safeClipboardWriteBlob } from '../utils/clipboard';
 
 interface LightboxModalProps {
 	image: string;
@@ -40,15 +42,18 @@ export function LightboxModal({
 			const blob = await response.blob();
 
 			// Write to clipboard
-			await navigator.clipboard.write([
+			const ok = await safeClipboardWriteBlob([
 				new ClipboardItem({
 					[blob.type]: blob,
 				}),
 			]);
 
-			setCopied(true);
-			setTimeout(() => setCopied(false), 2000);
+			if (ok) {
+				setCopied(true);
+				setTimeout(() => setCopied(false), 2000);
+			}
 		} catch (err) {
+			// Fetch/blob conversion errors — not clipboard
 			console.error('Failed to copy image to clipboard:', err);
 		}
 	};
@@ -193,7 +198,9 @@ export function LightboxModal({
 			)}
 			<img
 				src={image}
+				alt="Expanded image preview"
 				className="max-w-[90%] max-h-[90%] rounded shadow-2xl"
+				onMouseDown={(e) => e.stopPropagation()}
 				onClick={(e) => e.stopPropagation()}
 			/>
 
@@ -206,7 +213,7 @@ export function LightboxModal({
 						copyImageToClipboard();
 					}}
 					className="bg-white/10 hover:bg-white/20 text-white rounded-full p-3 backdrop-blur-sm transition-colors flex items-center gap-2"
-					title="Copy image to clipboard (⌘C)"
+					title={`Copy image to clipboard (${formatShortcutKeys(['Meta', 'c'])})`}
 				>
 					{copied ? <Check className="w-5 h-5" /> : <Copy className="w-5 h-5" />}
 					{copied && <span className="text-sm">Copied!</span>}

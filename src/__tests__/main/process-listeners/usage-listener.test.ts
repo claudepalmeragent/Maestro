@@ -80,8 +80,8 @@ describe('Usage Listener', () => {
 			patterns: {
 				REGEX_MODERATOR_SESSION: /^group-chat-(.+)-moderator-/,
 				REGEX_MODERATOR_SESSION_TIMESTAMP: /^group-chat-(.+)-moderator-\d+$/,
-				REGEX_AI_SUFFIX: /-ai-[^-]+$/,
-				REGEX_AI_TAB_ID: /-ai-([^-]+)$/,
+				REGEX_AI_SUFFIX: /-ai-.+$/,
+				REGEX_AI_TAB_ID: /-ai-(.+)$/,
 				REGEX_BATCH_SESSION: /-batch-\d+$/,
 				REGEX_SYNOPSIS_SESSION: /-synopsis-\d+$/,
 			},
@@ -162,19 +162,21 @@ describe('Usage Listener', () => {
 			});
 		});
 
-		it('should handle zero context window gracefully', async () => {
+		it('should handle zero context window gracefully (falls back to 200k default)', async () => {
 			setupListener();
 			const handler = eventHandlers.get('usage');
 			const usageStats = createMockUsageStats({ contextWindow: 0 });
 
 			handler?.('group-chat-test-chat-123-participant-TestAgent-abc123', usageStats);
 
+			// With contextWindow 0, falls back to 200k default
+			// 1800 / 200000 = 0.9% -> rounds to 1%
 			await vi.waitFor(() => {
 				expect(mockDeps.groupChatStorage.updateParticipant).toHaveBeenCalledWith(
 					'test-chat-123',
 					'TestAgent',
 					expect.objectContaining({
-						contextUsage: 0,
+						contextUsage: 1,
 					})
 				);
 			});

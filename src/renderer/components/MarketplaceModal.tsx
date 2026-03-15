@@ -5,7 +5,7 @@
  * Features category tabs, search filtering, keyboard navigation, and playbook tiles grid.
  */
 
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -30,6 +30,7 @@ import { useLayerStack } from '../contexts/LayerStackContext';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 import { useMarketplace } from '../hooks/batch/useMarketplace';
 import { generateProseStyles, createMarkdownComponents } from '../utils/markdownConfig';
+import { formatShortcutKeys } from '../utils/shortcutFormatter';
 
 // ============================================================================
 // Types
@@ -45,6 +46,8 @@ export interface MarketplaceModalProps {
 	sshRemoteId?: string;
 	onImportComplete: (folderName: string) => void;
 }
+
+const LOADING_TILE_IDS = ['tile-1', 'tile-2', 'tile-3', 'tile-4', 'tile-5', 'tile-6'];
 
 interface PlaybookTileProps {
 	playbook: MarketplacePlaybook;
@@ -412,20 +415,15 @@ function PlaybookDetailView({
 							Author
 						</h4>
 						{playbook.authorLink ? (
-							<a
-								href={playbook.authorLink}
-								target="_blank"
-								rel="noopener noreferrer"
-								className="text-sm hover:underline inline-flex items-center gap-1"
+							<button
+								onClick={() => window.maestro.shell.openExternal(playbook.authorLink!)}
+								tabIndex={0}
+								className="text-sm hover:underline inline-flex items-center gap-1 outline-none"
 								style={{ color: theme.colors.accent }}
-								onClick={(e) => {
-									e.preventDefault();
-									window.maestro.shell.openExternal(playbook.authorLink!);
-								}}
 							>
 								{playbook.author}
 								<ExternalLink className="w-3 h-3" />
-							</a>
+							</button>
 						) : (
 							<p className="text-sm" style={{ color: theme.colors.textMain }}>
 								{playbook.author}
@@ -648,11 +646,16 @@ function PlaybookDetailView({
 				<div className="flex items-center gap-3">
 					{/* Target folder input */}
 					<div className="flex-1">
-						<label className="block text-xs mb-1" style={{ color: theme.colors.textDim }}>
+						<label
+							htmlFor="marketplace-target-folder"
+							className="block text-xs mb-1"
+							style={{ color: theme.colors.textDim }}
+						>
 							Import to folder (relative to Auto Run folder or absolute path)
 						</label>
 						<div className="flex items-center gap-2">
 							<input
+								id="marketplace-target-folder"
 								type="text"
 								value={targetFolderName}
 								onChange={(e) => onTargetFolderChange(e.target.value)}
@@ -774,10 +777,21 @@ export function MarketplaceModal({
 	const [showHelp, setShowHelp] = useState(false);
 	const helpButtonRef = useRef<HTMLButtonElement>(null);
 
-	// Reset selection when filtered playbooks change
-	useEffect(() => {
-		setSelectedTileIndex(0);
-	}, [filteredPlaybooks.length, selectedCategory, searchQuery]);
+	const handleCategoryChange = useCallback(
+		(category: string) => {
+			setSelectedCategory(category);
+			setSelectedTileIndex(0);
+		},
+		[setSelectedCategory]
+	);
+
+	const handleSearchChange = useCallback(
+		(value: string) => {
+			setSearchQuery(value);
+			setSelectedTileIndex(0);
+		},
+		[setSearchQuery]
+	);
 
 	// Calculate grid columns based on container width (default to 3)
 	const gridColumns = 3;
@@ -976,11 +990,11 @@ export function MarketplaceModal({
 						if (e.key === '[') {
 							const currentIndex = categories.indexOf(selectedCategory);
 							const newIndex = Math.max(0, currentIndex - 1);
-							setSelectedCategory(categories[newIndex]);
+							handleCategoryChange(categories[newIndex]);
 						} else {
 							const currentIndex = categories.indexOf(selectedCategory);
 							const newIndex = Math.min(categories.length - 1, currentIndex + 1);
-							setSelectedCategory(categories[newIndex]);
+							handleCategoryChange(categories[newIndex]);
 						}
 					}
 				}
@@ -995,11 +1009,11 @@ export function MarketplaceModal({
 		isOpen,
 		categories,
 		selectedCategory,
-		setSelectedCategory,
 		showDetailView,
 		selectedPlaybook,
 		selectedDocFilename,
 		handleSelectDocument,
+		handleCategoryChange,
 	]);
 
 	// Arrow key navigation for tiles (list view only)
@@ -1081,7 +1095,7 @@ export function MarketplaceModal({
 				aria-modal="true"
 				aria-labelledby="marketplace-title"
 				tabIndex={-1}
-				className="w-[900px] max-w-[90vw] rounded-xl shadow-2xl border overflow-hidden flex flex-col h-[80vh] outline-none"
+				className="w-[1200px] max-w-[95vw] rounded-xl shadow-2xl border overflow-hidden flex flex-col max-h-[85vh] outline-none"
 				style={{
 					backgroundColor: theme.colors.bgActivity,
 					borderColor: theme.colors.border,
@@ -1149,8 +1163,8 @@ export function MarketplaceModal({
 											</h3>
 											<p className="text-xs mb-3" style={{ color: theme.colors.textDim }}>
 												The Playbook Exchange is a curated collection of Auto Run playbooks for
-												common development workflows. Browse, preview, and import playbooks directly
-												into your Auto Run folder.
+												common workflows. Browse, preview, and import playbooks directly into your
+												Auto Run folder.
 											</p>
 											<h4
 												className="text-xs font-semibold mb-1"
@@ -1165,14 +1179,14 @@ export function MarketplaceModal({
 											<button
 												onClick={() => {
 													window.maestro.shell.openExternal(
-														'https://github.com/pedramamini/Maestro-Playbooks'
+														'https://github.com/RunMaestro/Maestro-Playbooks'
 													);
 													setShowHelp(false);
 												}}
 												className="text-xs hover:opacity-80 transition-colors"
 												style={{ color: theme.colors.accent }}
 											>
-												github.com/pedramamini/Maestro-Playbooks
+												github.com/RunMaestro/Maestro-Playbooks
 											</button>
 											<div
 												className="mt-3 pt-3 border-t"
@@ -1193,7 +1207,7 @@ export function MarketplaceModal({
 								<button
 									onClick={() => {
 										window.maestro.shell.openExternal(
-											'https://github.com/pedramamini/Maestro-Playbooks'
+											'https://github.com/RunMaestro/Maestro-Playbooks'
 										);
 									}}
 									className="px-2 py-1 rounded hover:bg-white/10 transition-colors flex items-center gap-1.5 text-xs"
@@ -1248,7 +1262,7 @@ export function MarketplaceModal({
 								return (
 									<button
 										key={category}
-										onClick={() => setSelectedCategory(category)}
+										onClick={() => handleCategoryChange(category)}
 										className={`px-3 py-1.5 rounded text-sm whitespace-nowrap transition-colors ${
 											selectedCategory === category ? 'font-semibold' : ''
 										}`}
@@ -1282,7 +1296,7 @@ export function MarketplaceModal({
 									ref={searchInputRef}
 									type="text"
 									value={searchQuery}
-									onChange={(e) => setSearchQuery(e.target.value)}
+									onChange={(e) => handleSearchChange(e.target.value)}
 									onKeyDown={(e) => {
 										if (e.key === 'Escape') {
 											e.preventDefault();
@@ -1312,8 +1326,8 @@ export function MarketplaceModal({
 							{isLoading ? (
 								// Loading skeleton tiles
 								<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-									{[...Array(6)].map((_, i) => (
-										<PlaybookTileSkeleton key={i} theme={theme} />
+									{LOADING_TILE_IDS.map((tileId) => (
+										<PlaybookTileSkeleton key={tileId} theme={theme} />
 									))}
 								</div>
 							) : error ? (
@@ -1398,13 +1412,13 @@ export function MarketplaceModal({
 							<span className="flex items-center gap-3">
 								<span>
 									<kbd className="px-1.5 py-0.5 rounded bg-white/10 font-mono text-[10px]">
-										{navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'}+F
+										{formatShortcutKeys(['Meta', 'f'])}
 									</kbd>{' '}
 									search
 								</span>
 								<span>
 									<kbd className="px-1.5 py-0.5 rounded bg-white/10 font-mono text-[10px]">
-										{navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'}+Shift+[/]
+										{formatShortcutKeys(['Meta', 'Shift'])}+[/]
 									</kbd>{' '}
 									to switch tabs
 								</span>

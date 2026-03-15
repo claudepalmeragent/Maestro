@@ -1,67 +1,55 @@
-import React, { useRef, useEffect, useMemo } from 'react';
+/**
+ * ThemeTab - Theme selection and customization tab
+ *
+ * Displays grouped theme buttons (dark/light/vibe) with Tab key navigation,
+ * plus the custom theme builder. Self-sources theme settings from useSettings().
+ */
+
+import React, { useRef, useEffect } from 'react';
 import { Moon, Sun, Sparkles, Check } from 'lucide-react';
+import { useSettings } from '../../../hooks';
 import { CustomThemeBuilder } from '../../CustomThemeBuilder';
-import { useSettings } from '../../../hooks/settings/useSettings';
-import type { Theme, ThemeId, ThemeColors } from '../../../types';
+import type { Theme, ThemeId } from '../../../types';
 
 export interface ThemeTabProps {
 	theme: Theme;
 	themes: Record<string, Theme>;
-	activeThemeId?: ThemeId;
-	setActiveThemeId?: (id: ThemeId) => void;
-	customThemeColors?: ThemeColors;
-	setCustomThemeColors?: (colors: ThemeColors) => void;
-	customThemeBaseId?: ThemeId;
-	setCustomThemeBaseId?: (id: ThemeId) => void;
-	themeMode?: 'manual' | 'system';
-	onThemeModeChange?: (mode: 'manual' | 'system') => void;
-	lightThemeId?: ThemeId;
-	onLightThemeIdChange?: (id: ThemeId) => void;
-	darkThemeId?: ThemeId;
-	onDarkThemeIdChange?: (id: ThemeId) => void;
 	onThemeImportError?: (message: string) => void;
 	onThemeImportSuccess?: (message: string) => void;
 }
 
-export function ThemeTab(props: ThemeTabProps) {
-	const { theme, themes, onThemeImportError, onThemeImportSuccess } = props;
-
-	// Self-source theme settings from useSettings when not provided via props
-	const settings = useSettings();
-
-	const activeThemeId = props.activeThemeId ?? settings.activeThemeId;
-	const setActiveThemeId = props.setActiveThemeId ?? settings.setActiveThemeId;
-	const customThemeColors = props.customThemeColors ?? settings.customThemeColors;
-	const setCustomThemeColors = props.setCustomThemeColors ?? settings.setCustomThemeColors;
-	const customThemeBaseId = props.customThemeBaseId ?? settings.customThemeBaseId;
-	const setCustomThemeBaseId = props.setCustomThemeBaseId ?? settings.setCustomThemeBaseId;
-	const themeMode = props.themeMode ?? settings.themeMode;
-	const onThemeModeChange = props.onThemeModeChange ?? settings.setThemeMode;
-	const lightThemeId = props.lightThemeId ?? settings.lightThemeId;
-	const onLightThemeIdChange = props.onLightThemeIdChange ?? settings.setLightThemeId;
-	const darkThemeId = props.darkThemeId ?? settings.darkThemeId;
-	const onDarkThemeIdChange = props.onDarkThemeIdChange ?? settings.setDarkThemeId;
+export function ThemeTab({
+	theme,
+	themes,
+	onThemeImportError,
+	onThemeImportSuccess,
+}: ThemeTabProps) {
+	const {
+		activeThemeId,
+		setActiveThemeId,
+		customThemeColors,
+		setCustomThemeColors,
+		customThemeBaseId,
+		setCustomThemeBaseId,
+	} = useSettings();
 
 	const themePickerRef = useRef<HTMLDivElement>(null);
 
-	// Auto-focus the theme picker on mount
+	// Auto-focus theme picker on mount
 	useEffect(() => {
 		const timer = setTimeout(() => themePickerRef.current?.focus(), 50);
 		return () => clearTimeout(timer);
 	}, []);
 
-	// Group themes by mode for the dropdowns
-	const groupedThemes = useMemo(
-		() =>
-			Object.values(themes).reduce(
-				(acc: Record<string, Theme[]>, t: Theme) => {
-					if (!acc[t.mode]) acc[t.mode] = [];
-					acc[t.mode].push(t);
-					return acc;
-				},
-				{} as Record<string, Theme[]>
-			),
-		[themes]
+	// Group themes by mode (exclude 'custom' theme - it's handled separately)
+	const groupedThemes = Object.values(themes).reduce(
+		(acc: Record<string, Theme[]>, t: Theme) => {
+			if (t.id === 'custom') return acc; // Skip custom theme in regular grouping
+			if (!acc[t.mode]) acc[t.mode] = [];
+			acc[t.mode].push(t);
+			return acc;
+		},
+		{} as Record<string, Theme[]>
 	);
 
 	const handleThemePickerKeyDown = (e: React.KeyboardEvent) => {
@@ -76,7 +64,8 @@ export function ThemeTab(props: ThemeTabProps) {
 			];
 			// Add 'custom' as the last item in the cycle
 			const allThemeIds = [...allThemes.map((t) => t.id), 'custom'];
-			const currentIndex = allThemeIds.findIndex((id: string) => id === activeThemeId);
+			let currentIndex = allThemeIds.findIndex((id: string) => id === activeThemeId);
+			if (currentIndex === -1) currentIndex = 0;
 
 			let newThemeId: string;
 			if (e.shiftKey) {
@@ -100,104 +89,15 @@ export function ThemeTab(props: ThemeTabProps) {
 		}
 	};
 
-	// Theme mode handlers
-	const handleThemeModeChange = (mode: 'manual' | 'system') => {
-		onThemeModeChange(mode);
-	};
-
-	const handleLightThemeChange = (id: ThemeId) => {
-		onLightThemeIdChange(id);
-	};
-
-	const handleDarkThemeChange = (id: ThemeId) => {
-		onDarkThemeIdChange(id);
-	};
-
 	return (
 		<div
 			ref={themePickerRef}
 			className="space-y-6 outline-none"
 			tabIndex={0}
 			onKeyDown={handleThemePickerKeyDown}
+			role="group"
+			aria-label="Theme picker"
 		>
-			{/* System Theme Toggle */}
-			<div
-				className="flex items-center justify-between mb-4 pb-4 border-b"
-				style={{ borderColor: theme.colors.border }}
-			>
-				<div>
-					<span style={{ color: theme.colors.textMain }}>Follow System Appearance</span>
-					<p className="text-xs mt-0.5" style={{ color: theme.colors.textDim }}>
-						Automatically switch between light and dark themes
-					</p>
-				</div>
-				<button
-					onClick={() => handleThemeModeChange(themeMode === 'system' ? 'manual' : 'system')}
-					className="w-11 h-6 rounded-full transition-colors relative"
-					style={{ backgroundColor: themeMode === 'system' ? theme.colors.accent : '#4b5563' }}
-					aria-label="Toggle follow system appearance"
-				>
-					<div
-						className={`w-5 h-5 rounded-full bg-white absolute top-0.5 transition-transform ${
-							themeMode === 'system' ? 'translate-x-5' : 'translate-x-0.5'
-						}`}
-					/>
-				</button>
-			</div>
-
-			{/* Light/Dark theme selectors when in system mode */}
-			{themeMode === 'system' && (
-				<div className="space-y-4 mb-4">
-					<div>
-						<label className="text-sm mb-2 block" style={{ color: theme.colors.textDim }}>
-							Light Mode Theme
-						</label>
-						<select
-							value={lightThemeId}
-							onChange={(e) => handleLightThemeChange(e.target.value as ThemeId)}
-							className="w-full p-2 rounded border"
-							style={{
-								backgroundColor: theme.colors.bgActivity,
-								borderColor: theme.colors.border,
-								color: theme.colors.textMain,
-							}}
-						>
-							{(groupedThemes['light'] || []).map((t: Theme) => (
-								<option key={t.id} value={t.id}>
-									{t.name}
-								</option>
-							))}
-							{themes.custom && (
-								<option key="custom" value="custom">
-									{themes.custom.name}
-								</option>
-							)}
-						</select>
-					</div>
-					<div>
-						<label className="text-sm mb-2 block" style={{ color: theme.colors.textDim }}>
-							Dark Mode Theme
-						</label>
-						<select
-							value={darkThemeId}
-							onChange={(e) => handleDarkThemeChange(e.target.value as ThemeId)}
-							className="w-full p-2 rounded border"
-							style={{
-								backgroundColor: theme.colors.bgActivity,
-								borderColor: theme.colors.border,
-								color: theme.colors.textMain,
-							}}
-						>
-							{(groupedThemes['dark'] || []).map((t: Theme) => (
-								<option key={t.id} value={t.id}>
-									{t.name}
-								</option>
-							))}
-						</select>
-					</div>
-				</div>
-			)}
-
 			{['dark', 'light', 'vibe'].map((mode) => (
 				<div key={mode}>
 					<div

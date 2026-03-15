@@ -9,6 +9,7 @@ The Playbook Exchange is a curated collection of community-contributed playbooks
 ## Opening the Exchange
 
 Open the Playbook Exchange using:
+
 - **Quick Actions** — `Cmd+K` / `Ctrl+K` → search "Playbook Exchange"
 - **Auto Run panel** — Click the **Exchange** button (grid icon)
 
@@ -25,7 +26,7 @@ The exchange displays playbooks in a searchable grid organized by category:
 Use `Cmd+Shift+[` / `Cmd+Shift+]` (`Ctrl+Shift+[/]` on Windows/Linux) to quickly switch between category tabs.
 
 <Frame>
-  <img src="/screenshots/playbook-exchange-list.png" alt="Playbook Exchange browsing view" />
+  <img src="./screenshots/playbook-exchange-list.png" alt="Playbook Exchange browsing view" />
 </Frame>
 
 ## Playbook Details
@@ -46,7 +47,7 @@ Clicking a playbook tile (or pressing `Enter`) opens the detail view where you c
 - **`Esc`** — Return to the playbook grid
 
 <Frame>
-  <img src="/screenshots/playbook-exchange-details.png" alt="Playbook Exchange detail view" />
+  <img src="./screenshots/playbook-exchange-details.png" alt="Playbook Exchange detail view" />
 </Frame>
 
 ## Importing a Playbook
@@ -56,6 +57,7 @@ Clicking a playbook tile (or pressing `Enter`) opens the detail view where you c
 3. Click **Import Playbook**
 
 The import creates:
+
 - A subfolder in your Auto Run folder with the playbook name
 - All markdown task documents copied to that folder
 - An `assets/` subfolder with any supporting files (configs, scripts, templates) if the playbook includes them
@@ -69,7 +71,7 @@ For SSH remote sessions, playbooks can be imported directly to the remote host. 
 
 ## Exchange Data
 
-Playbooks are fetched from the [Maestro-Playbooks](https://github.com/pedramamini/Maestro-Playbooks) GitHub repository. The manifest is cached locally for 6 hours to minimize API calls.
+Playbooks are fetched from the [Maestro-Playbooks](https://github.com/RunMaestro/Maestro-Playbooks) GitHub repository. The manifest is cached locally for 6 hours to minimize API calls.
 
 - **Cache indicator** — Shows whether data is from cache and how old it is (e.g., "Cached 2h ago" or "Live")
 - **Refresh button** — Forces a fresh fetch from GitHub, bypassing the cache
@@ -79,7 +81,7 @@ Playbooks are fetched from the [Maestro-Playbooks](https://github.com/pedramamin
 Want to share your playbooks with the community? You can contribute in two ways:
 
 1. **From the Exchange** — Click the "Submit Playbook via GitHub" link in the header
-2. **Directly on GitHub** — Submit a pull request to the [Maestro-Playbooks repository](https://github.com/pedramamini/Maestro-Playbooks)
+2. **Directly on GitHub** — Submit a pull request to the [Maestro-Playbooks repository](https://github.com/RunMaestro/Maestro-Playbooks)
 
 Click the **?** help button in the Exchange header for more information about contributing.
 
@@ -87,19 +89,19 @@ Click the **?** help button in the Exchange header for more information about co
 
 ### List View
 
-| Action | macOS | Windows/Linux |
-|--------|-------|---------------|
-| Navigate tiles | Arrow keys | Arrow keys |
-| Open detail view | `Enter` | `Enter` |
-| Focus search | `Cmd+F` | `Ctrl+F` |
+| Action              | macOS           | Windows/Linux    |
+| ------------------- | --------------- | ---------------- |
+| Navigate tiles      | Arrow keys      | Arrow keys       |
+| Open detail view    | `Enter`         | `Enter`          |
+| Focus search        | `Cmd+F`         | `Ctrl+F`         |
 | Switch category tab | `Cmd+Shift+[/]` | `Ctrl+Shift+[/]` |
-| Close modal | `Esc` | `Esc` |
+| Close modal         | `Esc`           | `Esc`            |
 
 ### Detail View
 
-| Action | macOS | Windows/Linux |
-|--------|-------|---------------|
+| Action                 | macOS           | Windows/Linux    |
+| ---------------------- | --------------- | ---------------- |
 | Previous/next document | `Cmd+Shift+[/]` | `Ctrl+Shift+[/]` |
-| Page up/down | `Opt+Up/Down` | `Alt+Up/Down` |
-| Scroll to top/bottom | `Cmd+Up/Down` | `Ctrl+Up/Down` |
-| Back to list | `Esc` | `Esc` |
+| Page up/down           | `Opt+Up/Down`   | `Alt+Up/Down`    |
+| Scroll to top/bottom   | `Cmd+Up/Down`   | `Ctrl+Up/Down`   |
+| Back to list           | `Esc`           | `Esc`            |

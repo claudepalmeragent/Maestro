@@ -1,28 +1,39 @@
 /**
- * ShortcutsTab - Settings tab for viewing and recording keyboard shortcuts
+ * ShortcutsTab - Keyboard shortcuts settings tab
  *
- * This component provides a UI for:
- * - Viewing all general and AI tab keyboard shortcuts
- * - Recording new shortcut key bindings
- * - Filtering shortcuts by label
+ * Displays configurable shortcuts with recording, filtering, and
+ * grouping (General vs AI Tab). Self-sources shortcut settings
+ * from useSettings().
  */
 
-import React, { useState, useRef } from 'react';
-import type { Theme, Shortcut } from '../../../types';
+import React, { useState, useRef, useEffect } from 'react';
 import { useSettings } from '../../../hooks';
 import { formatShortcutKeys } from '../../../utils/shortcutFormatter';
+import type { Theme, Shortcut } from '../../../types';
 
 export interface ShortcutsTabProps {
 	theme: Theme;
 	hasNoAgents?: boolean;
+	onRecordingChange?: (isRecording: boolean) => void;
 }
 
-export function ShortcutsTab({ theme, hasNoAgents }: ShortcutsTabProps) {
+export function ShortcutsTab({ theme, hasNoAgents, onRecordingChange }: ShortcutsTabProps) {
 	const { shortcuts, setShortcuts, tabShortcuts, setTabShortcuts } = useSettings();
 
 	const [recordingId, setRecordingId] = useState<string | null>(null);
 	const [shortcutsFilter, setShortcutsFilter] = useState('');
 	const shortcutsFilterRef = useRef<HTMLInputElement>(null);
+
+	// Notify parent of recording state changes (for escape handler coordination)
+	useEffect(() => {
+		onRecordingChange?.(!!recordingId);
+	}, [recordingId, onRecordingChange]);
+
+	// Auto-focus filter input on mount
+	useEffect(() => {
+		const timer = setTimeout(() => shortcutsFilterRef.current?.focus(), 50);
+		return () => clearTimeout(timer);
+	}, []);
 
 	const handleRecord = (
 		e: React.KeyboardEvent,
@@ -165,7 +176,7 @@ export function ShortcutsTab({ theme, hasNoAgents }: ShortcutsTabProps) {
 					className="px-1.5 py-0.5 rounded font-mono"
 					style={{ backgroundColor: theme.colors.bgActivity }}
 				>
-					⌘/
+					{formatShortcutKeys(['Meta', '/'])}
 				</kbd>{' '}
 				from the main interface to view the full list of keyboard shortcuts.
 			</p>

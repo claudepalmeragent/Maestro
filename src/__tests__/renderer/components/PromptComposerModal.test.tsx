@@ -2,6 +2,7 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { PromptComposerModal } from '../../../renderer/components/PromptComposerModal';
+import { formatEnterToSend } from '../../../renderer/utils/shortcutFormatter';
 import { LayerStackProvider, useLayerStack } from '../../../renderer/contexts/LayerStackContext';
 import type { Theme } from '../../../renderer/types';
 
@@ -181,8 +182,7 @@ describe('PromptComposerModal', () => {
 				/>
 			);
 
-			// When enterToSend is false, it shows "⌘ + Enter"
-			expect(screen.getByText('⌘ + Enter')).toBeInTheDocument();
+			expect(screen.getByText(formatEnterToSend(false))).toBeInTheDocument();
 		});
 
 		it('should render close button with X icon', () => {

@@ -17,20 +17,8 @@
  */
 
 import type { AgentErrorType, ToolType } from '../../shared/types';
+import { isValidAgentId } from '../../shared/agentIds';
 import { logger } from '../utils/logger';
-
-/**
- * Valid ToolType values that have error patterns registered.
- * Used to validate input to getErrorPatterns and log warnings for unknown agents.
- */
-const VALID_TOOL_TYPES = new Set<string>([
-	'claude',
-	'claude-code',
-	'aider',
-	'opencode',
-	'codex',
-	'terminal',
-]);
 
 /**
  * Error pattern definition with regex and user-friendly message
@@ -59,7 +47,7 @@ export type AgentErrorPatterns = {
 // Claude Code Error Patterns
 // ============================================================================
 
-export const CLAUDE_ERROR_PATTERNS: AgentErrorPatterns = {
+const CLAUDE_ERROR_PATTERNS: AgentErrorPatterns = {
 	auth_expired: [
 		{
 			pattern: /invalid api key/i,
@@ -127,8 +115,8 @@ export const CLAUDE_ERROR_PATTERNS: AgentErrorPatterns = {
 			// Captures the actual vs maximum token counts for display
 			pattern: /prompt.*too\s+long:\s*(\d+)\s*tokens?\s*>\s*(\d+)\s*maximum/i,
 			message: (match: RegExpMatchArray) => {
-				const actual = parseInt(match[1], 10).toLocaleString();
-				const max = parseInt(match[2], 10).toLocaleString();
+				const actual = parseInt(match[1], 10).toLocaleString('en-US');
+				const max = parseInt(match[2], 10).toLocaleString('en-US');
 				return `Prompt is too long: ${actual} tokens exceeds the ${max} token limit. Start a new session.`;
 			},
 			recoverable: true,
@@ -190,14 +178,14 @@ export const CLAUDE_ERROR_PATTERNS: AgentErrorPatterns = {
 		},
 		{
 			pattern: /quota exceeded/i,
-			message: 'Your API quota has been exceeded.',
-			recoverable: false,
+			message: 'Your API quota has been exceeded. Resume when quota resets.',
+			recoverable: true,
 		},
 		{
 			// Matches: "usage limit" or "hit your limit"
 			pattern: /usage.?limit|hit your.*limit/i,
 			message: 'Usage limit reached. Check your plan for available quota.',
-			recoverable: false,
+			recoverable: true,
 		},
 	],
 
@@ -283,7 +271,7 @@ export const CLAUDE_ERROR_PATTERNS: AgentErrorPatterns = {
 // OpenCode Error Patterns
 // ============================================================================
 
-export const OPENCODE_ERROR_PATTERNS: AgentErrorPatterns = {
+const OPENCODE_ERROR_PATTERNS: AgentErrorPatterns = {
 	auth_expired: [
 		{
 			pattern: /invalid.*key/i,
@@ -394,7 +382,7 @@ export const OPENCODE_ERROR_PATTERNS: AgentErrorPatterns = {
 // Codex Error Patterns
 // ============================================================================
 
-export const CODEX_ERROR_PATTERNS: AgentErrorPatterns = {
+const CODEX_ERROR_PATTERNS: AgentErrorPatterns = {
 	auth_expired: [
 		{
 			pattern: /invalid.*api.*key/i,
@@ -449,8 +437,8 @@ export const CODEX_ERROR_PATTERNS: AgentErrorPatterns = {
 		},
 		{
 			pattern: /quota.*exceeded/i,
-			message: 'Your API quota has been exceeded.',
-			recoverable: false,
+			message: 'Your API quota has been exceeded. Resume when quota resets.',
+			recoverable: true,
 		},
 		{
 			// HTTP 429 - Rate limited. Word boundary prevents false positives from ports/versions
@@ -462,7 +450,7 @@ export const CODEX_ERROR_PATTERNS: AgentErrorPatterns = {
 			// Matches: "You've hit your usage limit" or "usage limit reached/exceeded"
 			pattern: /usage.?limit|hit your.*limit/i,
 			message: 'Usage limit reached. Please wait or check your plan quota.',
-			recoverable: false,
+			recoverable: true,
 		},
 	],
 
@@ -525,6 +513,148 @@ export const CODEX_ERROR_PATTERNS: AgentErrorPatterns = {
 		{
 			pattern: /unknown\s+(model|provider)/i,
 			message: 'Unknown model or provider. Check the model setting in configuration.',
+			recoverable: true,
+		},
+	],
+
+	session_not_found: [
+		{
+			pattern: /session.*not found/i,
+			message: 'Session not found. Starting fresh conversation.',
+			recoverable: true,
+		},
+		{
+			pattern: /invalid.*session/i,
+			message: 'Invalid session. Starting fresh conversation.',
+			recoverable: true,
+		},
+	],
+};
+
+// ============================================================================
+// Factory Droid Error Patterns
+// ============================================================================
+
+const FACTORY_DROID_ERROR_PATTERNS: AgentErrorPatterns = {
+	auth_expired: [
+		{
+			pattern: /invalid.*api.*key/i,
+			message: 'Invalid API key. Please check your Factory credentials.',
+			recoverable: true,
+		},
+		{
+			pattern: /authentication.*failed/i,
+			message: 'Authentication failed. Please verify your Factory API key.',
+			recoverable: true,
+		},
+		{
+			pattern: /unauthorized/i,
+			message: 'Unauthorized access. Please check your Factory API key.',
+			recoverable: true,
+		},
+		{
+			pattern: /FACTORY_API_KEY/i,
+			message: 'Factory API key not set. Please set FACTORY_API_KEY environment variable.',
+			recoverable: true,
+		},
+		{
+			pattern: /api.*key.*expired/i,
+			message: 'Your API key has expired. Please renew your Factory credentials.',
+			recoverable: true,
+		},
+	],
+
+	token_exhaustion: [
+		{
+			pattern: /context.*exceeded/i,
+			message: 'Context limit exceeded. Start a new session.',
+			recoverable: true,
+		},
+		{
+			pattern: /maximum.*tokens/i,
+			message: 'Maximum token limit reached. Start a new session.',
+			recoverable: true,
+		},
+		{
+			pattern: /token.*limit/i,
+			message: 'Token limit reached. Consider starting a fresh conversation.',
+			recoverable: true,
+		},
+		{
+			pattern: /prompt.*too\s+long/i,
+			message: 'Prompt is too long. Try a shorter message or start a new session.',
+			recoverable: true,
+		},
+	],
+
+	rate_limited: [
+		{
+			pattern: /rate.*limit/i,
+			message: 'Rate limit exceeded. Please wait before trying again.',
+			recoverable: true,
+		},
+		{
+			pattern: /too many requests/i,
+			message: 'Too many requests. Please wait before sending more messages.',
+			recoverable: true,
+		},
+		{
+			pattern: /quota.*exceeded/i,
+			message: 'Your API quota has been exceeded. Resume when quota resets.',
+			recoverable: true,
+		},
+		{
+			pattern: /\b429\b/,
+			message: 'Rate limited. Please wait and try again.',
+			recoverable: true,
+		},
+	],
+
+	network_error: [
+		{
+			pattern: /connection\s*(failed|refused|error|reset|closed)/i,
+			message: 'Connection failed. Check your internet connection.',
+			recoverable: true,
+		},
+		{
+			pattern: /ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND/i,
+			message: 'Network error. Check your internet connection.',
+			recoverable: true,
+		},
+		{
+			pattern: /request\s+timed?\s*out|timed?\s*out\s+waiting/i,
+			message: 'Request timed out. Please try again.',
+			recoverable: true,
+		},
+		{
+			pattern: /network\s+(error|failure|unavailable)/i,
+			message: 'Network error occurred. Please check your connection.',
+			recoverable: true,
+		},
+	],
+
+	permission_denied: [
+		{
+			pattern: /permission denied/i,
+			message: 'Permission denied. The agent cannot access the requested resource.',
+			recoverable: false,
+		},
+		{
+			pattern: /access denied/i,
+			message: 'Access denied to the requested resource.',
+			recoverable: false,
+		},
+		{
+			pattern: /autonomy.*level/i,
+			message: 'Operation requires higher autonomy level. Use --auto flag.',
+			recoverable: true,
+		},
+	],
+
+	agent_crashed: [
+		{
+			pattern: /\b(fatal|unexpected|internal|unhandled)\s+error\b/i,
+			message: 'An unexpected error occurred in the agent.',
 			recoverable: true,
 		},
 	],
@@ -713,6 +843,15 @@ export const SSH_ERROR_PATTERNS: AgentErrorPatterns = {
 			message: 'SSH protocol error. The connection may be unstable.',
 			recoverable: true,
 		},
+		{
+			// Shell parse error - indicates profile/rc file syntax issues on the remote
+			// zsh format: "zsh:35: parse error near `do'"
+			// bash format: "bash: line 35: syntax error near unexpected token `do'"
+			pattern: /zsh:\d+:\s*parse error|bash:\s*line\s*\d+:\s*syntax error/i,
+			message: (match: RegExpMatchArray) =>
+				`Shell profile syntax error on remote host: ${match[0]}. Check .zshrc or .bashrc on the remote server.`,
+			recoverable: false,
+		},
 	],
 };
 
@@ -724,6 +863,7 @@ const patternRegistry = new Map<ToolType, AgentErrorPatterns>([
 	['claude-code', CLAUDE_ERROR_PATTERNS],
 	['opencode', OPENCODE_ERROR_PATTERNS],
 	['codex', CODEX_ERROR_PATTERNS],
+	['factory-droid', FACTORY_DROID_ERROR_PATTERNS],
 ]);
 
 /**
@@ -737,17 +877,15 @@ const patternRegistry = new Map<ToolType, AgentErrorPatterns>([
  * @returns Error patterns for the agent, or empty object if not found
  */
 export function getErrorPatterns(agentId: ToolType | string): AgentErrorPatterns {
-	// Validate the agent ID against known ToolTypes
-	if (!VALID_TOOL_TYPES.has(agentId)) {
-		logger.warn(
-			`getErrorPatterns: Unknown agent ID "${agentId}". Valid IDs: ${Array.from(VALID_TOOL_TYPES).join(', ')}`
-		);
+	// Validate the agent ID against the single source of truth
+	if (!isValidAgentId(agentId)) {
+		logger.warn(`getErrorPatterns: Unknown agent ID "${agentId}".`);
 	}
 
 	const patterns = patternRegistry.get(agentId as ToolType);
 
 	// Log debug info when no patterns are found for a valid-looking agent
-	if (!patterns && VALID_TOOL_TYPES.has(agentId)) {
+	if (!patterns && isValidAgentId(agentId)) {
 		logger.debug(
 			`getErrorPatterns: No patterns registered for agent "${agentId}". This agent may not have error pattern support.`
 		);
@@ -787,6 +925,21 @@ export function matchErrorPattern(
 				// Support dynamic message functions that can use captured groups
 				const message =
 					typeof pattern.message === 'function' ? pattern.message(match) : pattern.message;
+
+				// Log detailed info for SSH shell parse errors to help debug
+				if (
+					pattern.pattern.source.includes('parse error') ||
+					pattern.pattern.source.includes('syntax error')
+				) {
+					logger.info('[ErrorPatterns] Shell parse error detected', 'error-patterns', {
+						errorType,
+						patternSource: pattern.pattern.source,
+						matchedText: match[0],
+						linePreview: line.substring(0, 200),
+						lineLength: line.length,
+					});
+				}
+
 				return {
 					type: errorType,
 					message,

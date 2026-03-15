@@ -15,7 +15,7 @@ import { describe, it, expect } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import React from 'react';
 import { SourceDistributionChart } from '../../../../renderer/components/UsageDashboard/SourceDistributionChart';
-import type { StatsAggregation } from '../../../../renderer/hooks/useStats';
+import type { StatsAggregation } from '../../../../renderer/hooks/stats/useStats';
 import { THEMES } from '../../../../shared/themes';
 
 // Test theme
@@ -28,7 +28,7 @@ const mockData: StatsAggregation = {
 	avgDuration: 72000, // 72 seconds
 	byAgent: {
 		'claude-code': { count: 30, duration: 2000000 },
-		aider: { count: 20, duration: 1600000 },
+		codex: { count: 20, duration: 1600000 },
 	},
 	bySource: { user: 35, auto: 15 },
 	byDay: [

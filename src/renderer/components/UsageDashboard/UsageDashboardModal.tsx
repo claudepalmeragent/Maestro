@@ -27,6 +27,10 @@ import { AgentUsageChart } from './AgentUsageChart';
 import { AgentThroughputChart } from './AgentThroughputChart';
 import { AutoRunStats } from './AutoRunStats';
 import { SessionStats } from './SessionStats';
+import { AgentEfficiencyChart } from './AgentEfficiencyChart';
+import { WeekdayComparisonChart } from './WeekdayComparisonChart';
+import { TasksByHourChart } from './TasksByHourChart';
+import { LongestAutoRunsTable } from './LongestAutoRunsTable';
 import { EmptyState } from './EmptyState';
 import { DashboardSkeleton } from './ChartSkeletons';
 import { ChartErrorBoundary } from './ChartErrorBoundary';
@@ -57,13 +61,19 @@ const OVERVIEW_SECTIONS = [
 ] as const;
 const AGENTS_SECTIONS = [
 	'session-stats',
+	'agent-efficiency',
 	'agent-comparison',
 	'agent-usage',
 	'agent-throughput',
 	'agent-cost',
 ] as const;
-const ACTIVITY_SECTIONS = ['activity-heatmap', 'duration-trends', 'throughput-trends'] as const;
-const AUTORUN_SECTIONS = ['autorun-stats'] as const;
+const ACTIVITY_SECTIONS = [
+	'activity-heatmap',
+	'weekday-comparison',
+	'duration-trends',
+	'throughput-trends',
+] as const;
+const AUTORUN_SECTIONS = ['autorun-stats', 'tasks-by-hour', 'longest-autoruns'] as const;
 
 type SectionId =
 	| (typeof OVERVIEW_SECTIONS)[number]
@@ -116,6 +126,7 @@ const TIME_RANGE_OPTIONS: { value: StatsTimeRange; label: string }[] = [
 	{ value: 'day', label: 'Today' },
 	{ value: 'week', label: 'This Week' },
 	{ value: 'month', label: 'This Month' },
+	{ value: 'quarter', label: 'This Quarter' },
 	{ value: 'year', label: 'This Year' },
 	{ value: 'all', label: 'All Time' },
 ];
@@ -129,6 +140,8 @@ const VIEW_MODE_TABS: { value: ViewMode; label: string }[] = [
 	{ value: 'dscomparison', label: 'DS Comparison' },
 ];
 
+const EMPTY_SESSIONS: Session[] = [];
+
 export function UsageDashboardModal({
 	isOpen,
 	onClose,
@@ -136,7 +149,7 @@ export function UsageDashboardModal({
 	colorBlindMode = false,
 	defaultTimeRange = 'week',
 	defaultViewMode,
-	sessions = [],
+	sessions = EMPTY_SESSIONS,
 }: UsageDashboardModalProps) {
 	const [timeRange, setTimeRange] = useState<StatsTimeRange>(defaultTimeRange);
 	const [viewMode, setViewMode] = useState<ViewMode>(defaultViewMode || 'overview');
@@ -191,6 +204,8 @@ export function UsageDashboardModal({
 	const { registerLayer, unregisterLayer } = useLayerStack();
 	const onCloseRef = useRef(onClose);
 	onCloseRef.current = onClose;
+	const viewModeRef = useRef(viewMode);
+	viewModeRef.current = viewMode;
 
 	// Reset time range to default when modal opens
 	useEffect(() => {
@@ -316,6 +331,11 @@ export function UsageDashboardModal({
 		}
 	}, [isOpen]);
 
+	const switchViewMode = useCallback((mode: ViewMode) => {
+		setViewMode(mode);
+		setFocusedSection(null);
+	}, []);
+
 	// Handle Cmd+Shift+[ and Cmd+Shift+] for tab navigation
 	useEffect(() => {
 		if (!isOpen) return;
@@ -326,24 +346,23 @@ export function UsageDashboardModal({
 				e.preventDefault();
 				e.stopPropagation();
 
-				const currentIndex = visibleTabs.findIndex((tab) => tab.value === viewMode);
+				const currentIndex = visibleTabs.findIndex((tab) => tab.value === viewModeRef.current);
 
 				if (e.key === '[') {
 					// Previous tab
 					const prevIndex = currentIndex > 0 ? currentIndex - 1 : visibleTabs.length - 1;
-					setViewMode(visibleTabs[prevIndex].value);
+					switchViewMode(visibleTabs[prevIndex].value);
 				} else {
 					// Next tab
 					const nextIndex = currentIndex < visibleTabs.length - 1 ? currentIndex + 1 : 0;
-					setViewMode(visibleTabs[nextIndex].value);
+					switchViewMode(visibleTabs[nextIndex].value);
 				}
-				setFocusedSection(null);
 			}
 		};
 
 		window.addEventListener('keydown', handleKeyDown, true);
 		return () => window.removeEventListener('keydown', handleKeyDown, true);
-	}, [isOpen, viewMode, visibleTabs]);
+	}, [isOpen, switchViewMode, visibleTabs]);
 
 	// Track container width for responsive layout
 	useEffect(() => {
@@ -410,6 +429,7 @@ export function UsageDashboardModal({
 			'cost-over-time': 'Cost Over Time Chart',
 			'cost-by-model': 'Cost by Model Chart',
 			'session-stats': 'Agent Statistics',
+			'agent-efficiency': 'Agent Efficiency Chart',
 			'agent-cost': 'Agent Cost Chart',
 			'agent-comparison': 'Provider Comparison Chart',
 			'agent-usage': 'Agent Usage Chart',
@@ -418,9 +438,12 @@ export function UsageDashboardModal({
 			'location-distribution': 'Location Distribution Chart',
 			'peak-hours': 'Peak Hours Chart',
 			'activity-heatmap': 'Activity Heatmap',
+			'weekday-comparison': 'Weekday vs Weekend Chart',
 			'duration-trends': 'Duration Trends Chart',
 			'throughput-trends': 'Throughput Trends Chart',
 			'autorun-stats': 'Auto Run Statistics',
+			'tasks-by-hour': 'Tasks by Time of Day Chart',
+			'longest-autoruns': 'Top 25 Longest Auto Runs',
 		};
 		return labels[sectionId] || sectionId;
 	}, []);
@@ -443,13 +466,11 @@ export function UsageDashboardModal({
 			if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
 				event.preventDefault();
 				const prevIndex = currentIndex > 0 ? currentIndex - 1 : visibleTabs.length - 1;
-				setViewMode(visibleTabs[prevIndex].value);
-				setFocusedSection(null);
+				switchViewMode(visibleTabs[prevIndex].value);
 			} else if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
 				event.preventDefault();
 				const nextIndex = currentIndex < visibleTabs.length - 1 ? currentIndex + 1 : 0;
-				setViewMode(visibleTabs[nextIndex].value);
-				setFocusedSection(null);
+				switchViewMode(visibleTabs[nextIndex].value);
 			} else if (event.key === 'Tab' && !event.shiftKey) {
 				// Tab into content area - focus first section
 				if (currentSections.length > 0 && data) {
@@ -458,7 +479,7 @@ export function UsageDashboardModal({
 				}
 			}
 		},
-		[viewMode, currentSections, data, navigateToSection, visibleTabs]
+		[viewMode, switchViewMode, currentSections, data, navigateToSection, visibleTabs]
 	);
 
 	// Handle keyboard navigation for chart sections
@@ -508,11 +529,6 @@ export function UsageDashboardModal({
 		[]
 	);
 
-	// Reset focused section when view mode changes
-	useEffect(() => {
-		setFocusedSection(null);
-	}, [viewMode]);
-
 	// Handle export to CSV
 	const handleExport = async () => {
 		setIsExporting(true);
@@ -547,13 +563,24 @@ export function UsageDashboardModal({
 			className="fixed inset-0 modal-overlay flex items-center justify-center z-[9999] animate-in fade-in duration-100"
 			onClick={onClose}
 		>
+			<button
+				type="button"
+				className="absolute inset-0"
+				tabIndex={-1}
+				onClick={(e) => {
+					e.stopPropagation();
+					onClose();
+				}}
+				aria-label="Close usage dashboard"
+			/>
 			<div
 				ref={containerRef}
 				tabIndex={-1}
 				role="dialog"
 				aria-modal="true"
 				aria-label="Usage Dashboard"
-				className="rounded-xl shadow-2xl border overflow-hidden flex flex-col outline-none"
+				className="relative z-10 rounded-xl shadow-2xl border overflow-hidden flex flex-col outline-none"
+				onClick={(e) => e.stopPropagation()}
 				style={{
 					backgroundColor: theme.colors.bgActivity,
 					borderColor: theme.colors.border,
@@ -562,7 +589,6 @@ export function UsageDashboardModal({
 					height: '85vh',
 					maxHeight: '900px',
 				}}
-				onClick={(e) => e.stopPropagation()}
 			>
 				{/* Header */}
 				<div
@@ -694,7 +720,7 @@ export function UsageDashboardModal({
 					{visibleTabs.map((tab) => (
 						<button
 							key={tab.value}
-							onClick={() => setViewMode(tab.value)}
+							onClick={() => switchViewMode(tab.value)}
 							className="px-4 py-2 rounded-lg text-sm font-medium transition-colors outline-none"
 							style={{
 								backgroundColor:
@@ -815,7 +841,12 @@ export function UsageDashboardModal({
 										data-testid="section-summary-cards"
 									>
 										<ChartErrorBoundary theme={theme} chartName="Summary Cards">
-											<SummaryCards data={data} theme={theme} columns={layout.summaryCardsCols} />
+											<SummaryCards
+												data={data}
+												theme={theme}
+												columns={layout.summaryCardsCols}
+												sessions={sessions}
+											/>
 										</ChartErrorBoundary>
 									</div>
 
@@ -1106,6 +1137,33 @@ export function UsageDashboardModal({
 										</ChartErrorBoundary>
 									</div>
 
+									{/* Agent Efficiency */}
+									<div
+										ref={setSectionRef('agent-efficiency')}
+										tabIndex={0}
+										role="region"
+										aria-label={getSectionLabel('agent-efficiency')}
+										onKeyDown={(e) => handleSectionKeyDown(e, 'agent-efficiency')}
+										className="outline-none rounded-lg transition-shadow dashboard-section-enter"
+										style={{
+											minHeight: '180px',
+											boxShadow:
+												focusedSection === 'agent-efficiency'
+													? `0 0 0 2px ${theme.colors.accent}`
+													: 'none',
+											animationDelay: '50ms',
+										}}
+										data-testid="section-agent-efficiency"
+									>
+										<ChartErrorBoundary theme={theme} chartName="Agent Efficiency">
+											<AgentEfficiencyChart
+												data={data}
+												theme={theme}
+												colorBlindMode={colorBlindMode}
+											/>
+										</ChartErrorBoundary>
+									</div>
+
 									{/* Provider Comparison */}
 									<div
 										ref={setSectionRef('agent-comparison')}
@@ -1250,6 +1308,33 @@ export function UsageDashboardModal({
 											/>
 										</ChartErrorBoundary>
 									</div>
+
+									{/* Weekday vs Weekend Comparison */}
+									<div
+										ref={setSectionRef('weekday-comparison')}
+										tabIndex={0}
+										role="region"
+										aria-label={getSectionLabel('weekday-comparison')}
+										onKeyDown={(e) => handleSectionKeyDown(e, 'weekday-comparison')}
+										className="outline-none rounded-lg transition-shadow dashboard-section-enter"
+										style={{
+											boxShadow:
+												focusedSection === 'weekday-comparison'
+													? `0 0 0 2px ${theme.colors.accent}`
+													: 'none',
+											animationDelay: '50ms',
+										}}
+										data-testid="section-weekday-comparison"
+									>
+										<ChartErrorBoundary theme={theme} chartName="Weekday Comparison">
+											<WeekdayComparisonChart
+												data={data}
+												theme={theme}
+												colorBlindMode={colorBlindMode}
+											/>
+										</ChartErrorBoundary>
+									</div>
+
 									<div
 										ref={setSectionRef('duration-trends')}
 										tabIndex={0}
@@ -1332,6 +1417,50 @@ export function UsageDashboardModal({
 												theme={theme}
 												columns={layout.autoRunStatsCols}
 											/>
+										</ChartErrorBoundary>
+									</div>
+
+									{/* Tasks by Time of Day */}
+									<div
+										ref={setSectionRef('tasks-by-hour')}
+										tabIndex={0}
+										role="region"
+										aria-label={getSectionLabel('tasks-by-hour')}
+										onKeyDown={(e) => handleSectionKeyDown(e, 'tasks-by-hour')}
+										className="outline-none rounded-lg transition-shadow dashboard-section-enter"
+										style={{
+											boxShadow:
+												focusedSection === 'tasks-by-hour'
+													? `0 0 0 2px ${theme.colors.accent}`
+													: 'none',
+											animationDelay: '100ms',
+										}}
+										data-testid="section-tasks-by-hour"
+									>
+										<ChartErrorBoundary theme={theme} chartName="Tasks by Hour">
+											<TasksByHourChart timeRange={timeRange} theme={theme} />
+										</ChartErrorBoundary>
+									</div>
+
+									{/* Top 25 Longest Auto Runs */}
+									<div
+										ref={setSectionRef('longest-autoruns')}
+										tabIndex={0}
+										role="region"
+										aria-label={getSectionLabel('longest-autoruns')}
+										onKeyDown={(e) => handleSectionKeyDown(e, 'longest-autoruns')}
+										className="outline-none rounded-lg transition-shadow dashboard-section-enter"
+										style={{
+											boxShadow:
+												focusedSection === 'longest-autoruns'
+													? `0 0 0 2px ${theme.colors.accent}`
+													: 'none',
+											animationDelay: '200ms',
+										}}
+										data-testid="section-longest-autoruns"
+									>
+										<ChartErrorBoundary theme={theme} chartName="Longest Auto Runs">
+											<LongestAutoRunsTable timeRange={timeRange} theme={theme} />
 										</ChartErrorBoundary>
 									</div>
 								</>

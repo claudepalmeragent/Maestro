@@ -13,6 +13,7 @@
  */
 
 import type { ToolType } from '../../shared/types';
+import { getAgentDisplayName as getDisplayName } from '../../shared/agentMetadata';
 import type { ContextSource, MergeRequest, GroomingProgress } from '../types/contextMerge';
 import type { LogEntry } from '../types';
 import {
@@ -59,28 +60,6 @@ export const AGENT_ARTIFACTS: Partial<Record<ToolType, string[]>> = {
 		'Claude Code',
 		'CLAUDE.md',
 	],
-	aider: [
-		// Slash commands
-		'/add',
-		'/drop',
-		'/commit',
-		'/diff',
-		'/undo',
-		'/clear',
-		'/run',
-		'/voice',
-		'/help',
-		'/quit',
-		'/ls',
-		'/map',
-		// Brand references
-		'Aider',
-		'aider',
-		// Model references
-		'gpt-4',
-		'gpt-3.5',
-		'GPT',
-	],
 	opencode: [
 		// Slash commands
 		'/help',
@@ -110,13 +89,17 @@ export const AGENT_ARTIFACTS: Partial<Record<ToolType, string[]>> = {
 		'openai codex',
 		'OpenAI Codex',
 	],
-	claude: [
-		// This is the base Claude (not Claude Code)
+	'factory-droid': [
+		// Brand references
+		'Factory',
+		'Droid',
+		'Factory Droid',
+		// Model references (can use multiple providers)
 		'Claude',
-		'Anthropic',
-		'sonnet',
-		'opus',
-		'haiku',
+		'GPT',
+		'Gemini',
+		'Opus',
+		'Sonnet',
 	],
 	terminal: [
 		// Terminal has no agent-specific artifacts
@@ -134,12 +117,6 @@ export const AGENT_TARGET_NOTES: Partial<Record<ToolType, string>> = {
     It uses slash commands like /compact, /clear, /cost for session management.
     It can handle large codebases and multi-file changes.
   `,
-	aider: `
-    Aider is an AI pair programming tool.
-    It works with git repositories and can make commits.
-    It uses /add to include files in context and /drop to remove them.
-    It focuses on code changes and git workflow.
-  `,
 	opencode: `
     OpenCode is a multi-model AI coding assistant.
     It supports multiple AI providers and models.
@@ -151,10 +128,11 @@ export const AGENT_TARGET_NOTES: Partial<Record<ToolType, string>> = {
     It can read files, edit code, and run terminal commands.
     It excels at complex reasoning and problem-solving.
   `,
-	claude: `
-    Claude is a general-purpose AI assistant by Anthropic.
-    It does not have direct file system or terminal access.
-    Code examples should be presented as text for the user to apply.
+	'factory-droid': `
+    Factory Droid is an enterprise AI coding assistant by Factory.
+    It supports multiple model providers (Claude, GPT, Gemini).
+    It can read and edit files, run commands, search code, and interact with git.
+    It has tiered autonomy levels for controlling operation permissions.
   `,
 	terminal: `
     Terminal is a raw shell interface.
@@ -166,15 +144,7 @@ export const AGENT_TARGET_NOTES: Partial<Record<ToolType, string>> = {
  * Get the human-readable name for an agent type.
  */
 export function getAgentDisplayName(agentType: ToolType): string {
-	const names: Partial<Record<ToolType, string>> = {
-		'claude-code': 'Claude Code',
-		aider: 'Aider',
-		opencode: 'OpenCode',
-		codex: 'OpenAI Codex',
-		claude: 'Claude',
-		terminal: 'Terminal',
-	};
-	return names[agentType] || agentType;
+	return getDisplayName(agentType);
 }
 
 /**
@@ -227,14 +197,6 @@ export interface GroomingConfig {
 }
 
 /**
- * Default configuration for grooming operations.
- */
-const DEFAULT_CONFIG: Required<GroomingConfig> = {
-	timeoutMs: 120000, // 2 minutes
-	defaultAgentType: 'claude-code',
-};
-
-/**
  * Service for grooming and consolidating multiple conversation contexts.
  *
  * @example
@@ -245,11 +207,10 @@ const DEFAULT_CONFIG: Required<GroomingConfig> = {
  * );
  */
 export class ContextGroomingService {
-	private config: Required<GroomingConfig>;
 	private activeGroomingSessionId: string | null = null;
 
-	constructor(config: GroomingConfig = {}) {
-		this.config = { ...DEFAULT_CONFIG, ...config };
+	constructor(_config: GroomingConfig = {}) {
+		// Config reserved for future use (e.g., custom grooming parameters)
 	}
 
 	/**
@@ -319,7 +280,7 @@ export class ContextGroomingService {
 			// Use the new single-call groomContext API (spawns batch process with prompt)
 			const groomedText = await window.maestro.context.groomContext(
 				targetProjectRoot,
-				this.config.defaultAgentType,
+				request.targetAgent,
 				prompt
 			);
 
@@ -423,62 +384,6 @@ Please consolidate the above contexts into a single, coherent summary following 
 		}
 		// Use same 4 chars per token heuristic as contextExtractor
 		return Math.ceil(totalChars / 4);
-	}
-
-	/**
-	 * Create a temporary session for the grooming process.
-	 * This session will be used to send the combined contexts and receive
-	 * the consolidated output.
-	 *
-	 * @param projectRoot - The project root path for the grooming session
-	 * @returns Promise resolving to the temporary session ID
-	 */
-	private async createGroomingSession(projectRoot: string): Promise<string> {
-		// Generate a unique session ID for grooming
-		const groomingSessionId = `grooming-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-
-		// Store the active session ID for cleanup purposes
-		this.activeGroomingSessionId = groomingSessionId;
-
-		// Call the IPC handler to create the grooming session
-		// This will spawn a headless agent process for context processing
-		try {
-			const result = await window.maestro.context.createGroomingSession(
-				projectRoot,
-				this.config.defaultAgentType
-			);
-
-			if (result) {
-				this.activeGroomingSessionId = result;
-				return result;
-			}
-
-			return groomingSessionId;
-		} catch {
-			// If IPC is not available, return the generated ID
-			// This allows the service to be tested without full IPC integration
-			return groomingSessionId;
-		}
-	}
-
-	/**
-	 * Send the grooming prompt to the temporary session and receive the response.
-	 *
-	 * @param sessionId - The grooming session ID
-	 * @param prompt - The complete grooming prompt
-	 * @returns Promise resolving to the groomed output text
-	 */
-	private async sendGroomingPrompt(sessionId: string, prompt: string): Promise<string> {
-		try {
-			// Call the IPC handler to send the prompt and get the response
-			const response = await window.maestro.context.sendGroomingPrompt(sessionId, prompt);
-			return response || '';
-		} catch {
-			// If IPC is not available, return an empty result
-			// This allows the service to be tested without full IPC integration
-			// In production, this would trigger the error handling path
-			throw new Error('Context grooming IPC not available. IPC handlers must be configured.');
-		}
 	}
 
 	/**

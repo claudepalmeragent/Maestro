@@ -19,10 +19,18 @@ export type {
 	PlaybookDocumentEntry,
 	Playbook,
 	ThinkingMode,
+	WorktreeRunTarget,
 } from '../../shared/types';
+
+// Re-export Symphony types for session metadata
+export type { SymphonySessionMetadata } from '../../shared/symphony-types';
+// Import Symphony types for use in this file
+import type { SymphonySessionMetadata } from '../../shared/symphony-types';
+
 // Import for extension in this file
 import type {
 	WorktreeConfig as BaseWorktreeConfig,
+	WorktreeRunTarget,
 	BatchDocumentEntry,
 	UsageStats,
 	ToolType,
@@ -66,6 +74,8 @@ export interface WizardMessage {
 	confidence?: number;
 	/** Parsed ready flag from assistant responses */
 	ready?: boolean;
+	/** Base64-encoded image data URLs attached to this message */
+	images?: string[];
 }
 
 /**
@@ -75,7 +85,7 @@ export interface WizardMessage {
 export interface WizardPreviousUIState {
 	readOnlyMode: boolean;
 	saveToHistory: boolean;
-	showThinking: boolean;
+	showThinking: ThinkingMode;
 }
 
 /**
@@ -222,6 +232,7 @@ export interface QueuedItem {
 	images?: string[]; // Attached images (base64)
 	// For commands
 	command?: string; // Slash command (e.g., '/commit')
+	commandArgs?: string; // Arguments passed after the command (e.g., 'Blah blah' from '/speckit.plan Blah blah')
 	commandDescription?: string; // Command description for display
 	// Display metadata
 	tabName?: string; // Tab name at time of queuing (for display)
@@ -297,6 +308,7 @@ export interface BatchRunConfig {
 	loopEnabled: boolean; // Loop back to first doc when done
 	maxLoops?: number | null; // Max loop iterations (null/undefined = infinite)
 	worktree?: WorktreeConfig; // Optional worktree configuration
+	worktreeTarget?: WorktreeRunTarget; // Optional target for dispatching to a worktree agent
 	/** Enable document polling during task execution (default: true) */
 	enablePolling?: boolean;
 	/** Polling interval in milliseconds (default: 10000 local, 15000 SSH) */
@@ -520,7 +532,7 @@ export interface AITab {
 	readOnlyMode?: boolean; // When true, agent operates in plan/read-only mode
 	saveToHistory?: boolean; // When true, synopsis is requested after each completion and saved to History
 	lastSynopsisTime?: number; // Timestamp of last synopsis generation (for time-window context in prompts)
-	showThinking?: ThinkingMode | boolean; // Controls thinking display: 'off' | 'on' (temporary) | 'sticky' (persistent), or boolean for legacy compat
+	showThinking?: ThinkingMode; // Controls thinking display: 'off' | 'on' (temporary) | 'sticky' (persistent)
 	awaitingSessionId?: boolean; // True when this tab sent a message and is awaiting its session ID
 	thinkingStartTime?: number; // Timestamp when tab started thinking (for elapsed time display)
 	scrollTop?: number; // Saved scroll position for this tab's output view
@@ -529,16 +541,30 @@ export interface AITab {
 	pendingMergedContext?: string; // Context from merge that needs to be sent with next message
 	autoSendOnActivate?: boolean; // When true, automatically send inputValue when tab becomes active
 	wizardState?: SessionWizardState; // Per-tab inline wizard state for /wizard command
+	isGeneratingName?: boolean; // True while automatic tab naming is in progress
+}
+
+// A single "thinking item" — one busy tab within a session.
+// Used by ThinkingStatusPill to show all active work across all agents.
+export interface ThinkingItem {
+	session: Session;
+	tab: AITab | null; // null for legacy sessions without tab-level tracking
 }
 
 // Closed tab entry for undo functionality (Cmd+Shift+T)
 // Stores tab data with original position for restoration
+// This is the legacy interface for AI tabs only - kept for backwards compatibility
 export interface ClosedTab {
 	tab: AITab; // The closed tab data
 	index: number; // Original position in the tab array
 	closedAt: number; // Timestamp when closed
 }
 
+/**
+ * File Preview Tab for in-tab file viewing.
+ * Designed to coexist with AITab and future terminal tabs in the unified tab system.
+ * File tabs persist across session switches and app restarts.
+ */
 /**
  * Navigation history entry for file preview breadcrumb navigation.
  * Tracks the files visited within a single file preview tab.
@@ -609,8 +635,8 @@ export interface Session {
 	// Usage statistics from AI responses
 	usageStats?: UsageStats;
 	inputMode: 'terminal' | 'ai';
-	// AI process PID (for non-batch agents like Aider)
-	// For Claude batch mode, this is 0 since processes spawn per-message
+	// AI process PID (for agents with persistent processes)
+	// For batch mode agents, this is 0 since processes spawn per-message
 	aiPid: number;
 	// Terminal uses runCommand() which spawns fresh shells per command
 	// This field is kept for backwards compatibility but is always 0
@@ -784,6 +810,7 @@ export interface Session {
 	customModel?: string; // Custom model ID (overrides agent-level)
 	customProviderPath?: string; // Custom provider path (overrides agent-level)
 	customContextWindow?: number; // Custom context window size (overrides agent-level)
+	documentGraphLayout?: 'mindmap' | 'radial' | 'force'; // Document Graph layout algorithm preference (overrides global default)
 	// Per-session SSH remote configuration (overrides agent-level SSH config)
 	// When set, this session uses the specified SSH remote; when not set, runs locally
 	sessionSshRemoteConfig?: {
@@ -807,6 +834,9 @@ export interface Session {
 	 * Empty array or undefined = appears in "Unassigned" section.
 	 */
 	projectFolderIds?: string[];
+
+	// Symphony contribution metadata (only set for Symphony sessions)
+	symphonyMetadata?: SymphonySessionMetadata;
 }
 
 export interface AgentConfigOption {
@@ -839,6 +869,10 @@ export interface AgentCapabilities {
 	supportsThinkingDisplay?: boolean;
 	supportsContextMerge?: boolean;
 	supportsContextExport?: boolean;
+	supportsWizard?: boolean;
+	supportsGroupChatModeration?: boolean;
+	usesJsonLineOutput?: boolean;
+	usesCombinedContextWindow?: boolean;
 }
 
 export interface AgentConfig {
@@ -853,6 +887,7 @@ export interface AgentConfig {
 	hidden?: boolean; // If true, agent is hidden from UI (internal use only)
 	configOptions?: AgentConfigOption[]; // Agent-specific configuration options
 	yoloModeArgs?: string[]; // Args for YOLO/full-access mode (e.g., ['--dangerously-skip-permissions'])
+	readOnlyCliEnforced?: boolean; // Whether the agent's CLI enforces read-only mode (false = prompt-only enforcement)
 	capabilities?: AgentCapabilities; // Agent capabilities (added at runtime)
 }
 
@@ -883,12 +918,16 @@ export interface ProcessConfig {
 		remoteId: string | null;
 		workingDirOverride?: string;
 	};
+	// Windows command line length workaround
+	sendPromptViaStdin?: boolean; // If true, send the prompt via stdin as JSON instead of command line
+	sendPromptViaStdinRaw?: boolean; // If true, send the prompt via stdin as raw text instead of command line
 }
 
 // Directory entry from fs:readDir
 export interface DirectoryEntry {
 	name: string;
 	isDirectory: boolean;
+	isFile: boolean;
 	path: string;
 }
 
@@ -1039,6 +1078,26 @@ export interface LeaderboardSubmitResponse {
 	};
 }
 
+// Encore Features - optional features that are disabled by default
+// Each key is a feature ID, value indicates whether it's enabled
+export interface EncoreFeatureFlags {
+	directorNotes: boolean;
+}
+
+// Director's Notes settings for synopsis generation
+export interface DirectorNotesSettings {
+	/** Agent type to use for synopsis generation */
+	provider: ToolType;
+	/** Default lookback period in days (1-90) */
+	defaultLookbackDays: number;
+	/** Custom path to the agent binary */
+	customPath?: string;
+	/** Custom arguments for the agent */
+	customArgs?: string;
+	/** Custom environment variables for the agent */
+	customEnvVars?: Record<string, string>;
+}
+
 // Context management settings for merge and transfer operations
 export interface ContextManagementSettings {
 	autoGroomContexts: boolean; // Automatically groom contexts during transfer (default: true)
@@ -1047,7 +1106,7 @@ export interface ContextManagementSettings {
 	groomingTimeout: number; // Timeout for grooming operations in ms (default: 60000)
 	preferredGroomingAgent: ToolType | 'fastest'; // Which agent to use for grooming (default: 'fastest')
 	// Context window warning settings (Phase 6)
-	contextWarningsEnabled: boolean; // Enable context consumption warnings (default: true)
+	contextWarningsEnabled: boolean; // Enable context consumption warnings (default: false)
 	contextWarningYellowThreshold: number; // Yellow warning threshold percentage (default: 60)
 	contextWarningRedThreshold: number; // Red warning threshold percentage (default: 80)
 }

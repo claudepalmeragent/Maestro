@@ -18,6 +18,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { Theme } from '../../types';
 import { getConfidenceColor } from '../Wizard/services/wizardPrompts';
+import { formatAgentName } from '../Wizard/shared/wizardHelpers';
 
 /**
  * Message structure for wizard conversations
@@ -31,6 +32,8 @@ export interface WizardMessageBubbleMessage {
 	confidence?: number;
 	/** Parsed ready flag from assistant responses */
 	ready?: boolean;
+	/** Base64-encoded image data URLs attached to this message */
+	images?: string[];
 }
 
 export interface WizardMessageBubbleProps {
@@ -42,23 +45,12 @@ export interface WizardMessageBubbleProps {
 	agentName?: string;
 	/** Provider name (e.g., "Claude", "OpenCode") for assistant messages */
 	providerName?: string;
-}
-
-/**
- * Check if a string contains an emoji
- */
-function containsEmoji(str: string): boolean {
-	const emojiRegex =
-		/[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]|[\u{1F600}-\u{1F64F}]|[\u{1F680}-\u{1F6FF}]|[\u{1F1E0}-\u{1F1FF}]/u;
-	return emojiRegex.test(str);
-}
-
-/**
- * Format agent name with robot emoji prefix if no emoji present
- */
-function formatAgentName(name: string): string {
-	if (!name) return '🤖 Agent';
-	return containsEmoji(name) ? name : `🤖 ${name}`;
+	/** Callback to open the lightbox for an image */
+	setLightboxImage?: (
+		image: string | null,
+		contextImages?: string[],
+		source?: 'staged' | 'history'
+	) => void;
 }
 
 /**
@@ -81,6 +73,7 @@ export const WizardMessageBubble = React.memo(function WizardMessageBubble({
 	theme,
 	agentName = 'Agent',
 	providerName,
+	setLightboxImage,
 }: WizardMessageBubbleProps): JSX.Element {
 	const isUser = message.role === 'user';
 	const isSystem = message.role === 'system';
@@ -205,6 +198,29 @@ export const WizardMessageBubble = React.memo(function WizardMessageBubble({
 						</ReactMarkdown>
 					)}
 				</div>
+
+				{/* Attached images */}
+				{message.images && message.images.length > 0 && (
+					<div
+						className="flex gap-2 mt-2 overflow-x-auto scrollbar-thin"
+						style={{ overscrollBehavior: 'contain' }}
+						data-testid="message-images"
+					>
+						{message.images.map((img, imgIdx) => (
+							<img
+								key={imgIdx}
+								src={img}
+								className="h-20 rounded border cursor-zoom-in shrink-0"
+								style={{
+									objectFit: 'contain',
+									maxWidth: '200px',
+									borderColor: isUser ? `${theme.colors.accentForeground}30` : theme.colors.border,
+								}}
+								onClick={() => setLightboxImage?.(img, message.images, 'history')}
+							/>
+						))}
+					</div>
+				)}
 
 				{/* Timestamp */}
 				<div

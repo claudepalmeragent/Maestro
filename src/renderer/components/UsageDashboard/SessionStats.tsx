@@ -12,7 +12,7 @@
  * - Remote (SSH) vs local breakdown
  */
 
-import React, { useMemo } from 'react';
+import React, { memo, useMemo } from 'react';
 import { Monitor, GitBranch, Folder, Laptop, Clock, Timer, Hash, Zap } from 'lucide-react';
 import type { Theme, Session, ToolType } from '../../types';
 import { COLORBLIND_AGENT_PALETTE } from '../../constants/colorblindPalettes';
@@ -94,9 +94,10 @@ function formatAgentName(toolType: ToolType): string {
 		'claude-code': 'Claude Code',
 		opencode: 'OpenCode',
 		'openai-codex': 'OpenAI Codex',
+		codex: 'Codex',
 		'gemini-cli': 'Gemini CLI',
 		'qwen3-coder': 'Qwen3 Coder',
-		aider: 'Aider',
+		'factory-droid': 'Factory Droid',
 		terminal: 'Terminal',
 	};
 	return names[toolType] || toolType;
@@ -140,7 +141,12 @@ function formatTokenCount(tokens: number): string {
 	return tokens.toString();
 }
 
-export function SessionStats({ sessions, theme, colorBlindMode = false, data }: SessionStatsProps) {
+export const SessionStats = memo(function SessionStats({
+	sessions,
+	theme,
+	colorBlindMode = false,
+	data,
+}: SessionStatsProps) {
 	// Filter out terminal-only sessions for meaningful stats
 	const agentSessions = useMemo(
 		() => sessions.filter((s) => s.toolType !== 'terminal'),
@@ -384,6 +390,6 @@ export function SessionStats({ sessions, theme, colorBlindMode = false, data }: 
 			</div>
 		</div>
 	);
-}
+});
 
 export default SessionStats;

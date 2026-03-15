@@ -1,186 +1,183 @@
-# CONSTITUTION.md - Maestro's Guiding Philosophy
+# Maestro Constitution
 
-> **Regenerated**: 2026-02-17
-> **Archived version**: `__MD_ARCHIVE/CONSTITUTION_20260217_182050.md`
-> **Cross-reference**: [`Codebase_Context_20260217_180422.md`](./Codebase_Context_20260217_180422.md)
+The guiding principles that shape every decision in Maestro's development.
 
 ---
 
-## 1. Core Philosophy
+## Core Philosophy
 
-> **"Transform fractured attention into focused productivity."**
+**Maestro exists to transform fractured attention into focused productivity.**
 
-Maestro exists to solve a specific problem: developers running multiple AI
-coding agents lose context, miss outputs, and waste time switching between
-terminal windows. Maestro is the unified control surface that brings order to
-this chaos.
+In a world where AI agents multiply and conversations splinter, Maestro is the conductor's podium—the single point of control from which you orchestrate an entire symphony of autonomous work.
 
 ---
 
-## 2. Two Modes
+## The Two Modes
 
-Maestro operates in two complementary modes:
+Maestro serves two distinct modes of work, and we must excel at both:
 
-### Solo Mode
+- **Solo Mode:** Agents run unattended, executing tasks autonomously while you're away
+- **Interactive Mode:** You're at the podium, conducting your fleet in real-time
 
-Individual agent work. One developer, one agent session, full focus. Solo mode
-optimizes for deep interaction with a single AI assistant: reviewing output,
-queueing messages, managing context. This is the default starting experience.
-
-### Interactive Mode (Fleet Management)
-
-Fleet management at scale. Multiple agent sessions running simultaneously
-across projects, coordinated from a single interface. Interactive mode
-introduces Group Chat for multi-agent coordination, enabling developers to
-orchestrate parallel workstreams, compare agent outputs, and delegate tasks
-across their fleet.
+The first two tenets address these modes directly. The remaining tenets apply to both.
 
 ---
 
-## 3. Six Tenets
+## The Six Tenets
 
-Every feature, design decision, and line of code must serve these tenets:
+### 1. Unattended Excellence _(Solo Mode)_
 
-### I. Unattended Excellence
+The measure of Maestro's success is how long agents run without intervention.
 
-Maximize autonomous agent runtime. The ideal Maestro session is one where
-agents work independently for extended periods while the developer focuses
-elsewhere. Features that increase unattended runtime (auto-run, playbooks,
-message queueing, speakable notifications) are always prioritized over
-features that demand attention.
+**What this means in practice:**
 
-### II. The Conductor's Perspective
+- Auto Run is a first-class citizen, not an afterthought
+- Error recovery should be automatic where possible
+- Agents should be self-healing and self-continuing
+- The leaderboard celebrates autonomy, not activity
+- Interruptions are failures to be minimized
 
-Think fleet management, not single-agent chat. Maestro is a conductor's
-podium, not a musician's chair. The interface must always surface fleet-wide
-status at a glance. Delegation is the primary interaction pattern. Group Chat
-enables multi-agent coordination where agents can be directed collaboratively
-toward shared goals.
+**The Autonomy Principle:**
+Every feature we build should extend the runway of unattended operation. If a feature requires more babysitting, it's moving backwards.
 
-### III. Keyboard Sovereignty
+### 2. The Conductor's Perspective _(Interactive Mode)_
 
-Hands never leave the keyboard. Every action in Maestro must be accessible
-via keyboard shortcut. Mouse interactions are supplementary, never required.
-The command palette, shortcut system, and navigation model are all designed
-around the assumption that the user's hands are on the keyboard at all times.
+You are the maestro. The agents are your orchestra. The interface is your podium. Fleet management is critical for optimal interactive experience.
 
-### IV. Instant Response
+**What this means in practice:**
 
-The UI must be faster than thought. Perceived latency kills focus. Every
-interaction must feel instantaneous: panel switches, session creation, input
-submission, theme changes. Use optimistic updates, virtualized lists, and
-aggressive caching. If an operation takes time, show progress immediately
-and never block the UI thread.
+- Overview and control trump granular details
+- Point at an agent, give direction, move on
+- Status should be glanceable, not readable
+- Batch operations over individual ones
+- Trust the agents to execute; focus on directing
+- Switching between agents must be frictionless
+- Context should persist as you move through your fleet
 
-### V. Delightful Focus
+**The Orchestra Model:**
+A conductor doesn't play every instrument—they ensure each section knows its part and plays in harmony. Maestro should make you feel powerful through delegation, not through micromanagement. The best conductors move fluidly between sections, never losing the thread of the whole performance.
 
-Solve fleet management brilliantly. Do not succumb to feature creep. Maestro
-is not an IDE, not a code editor, not a general-purpose chat application.
-Every proposed feature must pass the Maestro Test (see Section 6). Features
-that dilute the core mission are rejected, no matter how individually
-compelling.
+### 3. Keyboard Sovereignty
 
-### VI. Transparent Complexity
+Your hands never leave the keyboard. Every action, every navigation, every command flows through deliberate keystrokes.
 
-Progressive disclosure as the governing principle. New users see a clean,
-simple interface. Power users discover depth through exploration: keyboard
-shortcuts, slash commands, advanced settings, batch operations. Complexity
-exists but is never forced upon the user. Layers reveal themselves naturally.
+**What this means in practice:**
+
+- Focus must always be predictable and intentional
+- Escape always returns you to a known, useful state
+- Every modal, every panel, every input has a keyboard path
+- Tab order follows visual hierarchy and user intent
+- No mouse-only features ever
+
+**The Focus Contract:**
+When you press a key, you must know where focus will land. When you press Escape, you must return to productivity, not limbo. Focus is sacred—we never steal it, lose it, or leave it ambiguous.
+
+### 4. Instant Response
+
+The interface must be faster than thought. Latency kills flow.
+
+**What this means in practice:**
+
+- UI interactions respond in milliseconds, not seconds
+- Switching sessions is instantaneous
+- Keyboard navigation has zero perceptible delay
+- Heavy operations happen in the background
+- Perceived performance matters as much as actual performance
+
+**The Speed Imperative:**
+If you can fly through the interface with your keyboard, but the interface can't keep up, keyboard-first is a lie. Speed is what makes sovereignty _feel_ sovereign.
+
+### 5. Delightful Focus
+
+We solve fleet management brilliantly. We don't solve everything.
+
+**What this means in practice:**
+
+- Say no to feature creep that dilutes the core experience
+- Polish what exists before adding what's new
+- Every interaction should feel responsive and intentional
+- Complexity lives under the hood, not in the interface
+- Latency is a bug
+
+**The Delight Standard:**
+Users should smile when they use Maestro. Not because it's cute, but because it's _satisfying_—like a perfectly weighted keyboard or a door that closes with a solid click.
+
+### 6. Transparent Complexity
+
+Power users deserve depth. New users deserve simplicity. Both get what they need.
+
+**What this means in practice:**
+
+- Progressive disclosure of advanced features
+- Sensible defaults that work out of the box
+- Power features accessible but not intrusive
+- Documentation embedded where needed, not hidden
+- Complexity is opt-in, never mandatory
+
+**The Iceberg Principle:**
+90% of Maestro's power should be invisible until needed. The surface is calm and simple; the depth is available to those who dive.
 
 ---
 
-## 4. Design Principles
+## Design Principles
 
 ### Visual Language
 
-- **Consistent spacing**: 8px grid system throughout.
-- **Color with purpose**: Color conveys state (agent status, message type,
-  error severity), never decoration.
-- **17 themes + custom**: Visual personalization respects accessibility
-  (colorblind palettes available).
-- **Typography hierarchy**: Clear distinction between headings, body,
-  code, and metadata.
+- **Status at a glance:** Colors indicate state (green=ready, yellow=thinking, red=error, orange=connecting)
+- **Hierarchy through space:** Important things get room to breathe
+- **Motion with purpose:** Animation conveys meaning, never decoration
+- **Dark by default:** Optimized for long sessions and focused work
 
 ### Interaction Patterns
 
-- **Command palette**: Central hub for all actions.
-- **Modal discipline**: Modals are rare, focused, and keyboard-dismissible.
-- **Drag-and-drop**: Supplementary, never the only path.
-- **Context menus**: Right-click enhances, never gates functionality.
-- **Notifications**: Non-blocking, dismissible, speakable.
+- **Escape is home:** Pressing Escape should always improve your situation
+- **Enter confirms:** The primary action is always Enter
+- **Modals are temporary:** Get in, do the thing, get out
+- **Context stays close:** Related controls live near related content
+- **Undo is expected:** Destructive actions are reversible or confirmed
 
 ### Information Architecture
 
-- **Project Folders**: First-class organizational surface above Groups.
-  Project Folders are the top-level container that organizes groups and
-  sessions by project context. They appear in the sidebar as the primary
-  navigation hierarchy.
-- **Groups**: Collections of related sessions within a Project Folder.
-- **Sessions**: Individual agent instances with their own history and state.
-- **Progressive depth**: Sidebar overview -> Session detail -> Full output.
+- **Left Bar:** Your fleet—sessions and groups at a glance
+- **Main Window:** The current focus—AI terminal or command terminal
+- **Right Bar:** Context—files, history, Auto Run
+- **Overlays:** Transient—modals, menus, confirmations
 
 ---
 
-## 5. What Maestro Is Not
+## What Maestro Is Not
 
-Clarity about boundaries is as important as clarity about purpose.
-
-### NOT an IDE
-
-Maestro does not edit code. It does not provide syntax highlighting for
-source files, code completion, or refactoring tools. Maestro manages agents
-that may perform these tasks, but Maestro itself is a management layer.
-
-### NOT a Code Editor
-
-Maestro includes a file explorer for context, but it is not a text editor.
-Files are viewable for reference; editing happens in the user's chosen editor
-or through the AI agents themselves.
-
-### NOT a Chat App
-
-While Maestro displays conversational output from AI agents, it is not a
-general-purpose chat application. There is no user-to-user messaging, no
-chat rooms, no social features. Group Chat is specifically multi-agent
-coordination, not human conversation.
+- **Not an IDE:** We complement your editor, not replace it
+- **Not a single-agent wrapper:** One agent is just a small orchestra
+- **Not a chat interface:** Conversations are work sessions, not dialogues
+- **Not a project manager:** We execute, not plan (that's what agents do)
+- **Not feature-complete:** We're laser-focused, not comprehensive
 
 ---
 
-## 6. The Maestro Test
+## The Maestro Test
 
-Before shipping any feature, it must answer YES to all six questions:
+Before shipping any feature, ask:
 
-1. **Does it reduce fractured attention?**
-   The feature must consolidate, not fragment, the developer's focus.
+1. **Does it extend unattended runtime?**
+2. **Does it make fleet management better?**
+3. **Can I use it without touching the mouse?**
+4. **Is it fast?**
+5. **Is the complexity justified?**
+6. **Will users smile?**
 
-2. **Does it increase unattended runtime?**
-   The feature should help agents work longer without human intervention,
-   or at minimum not reduce autonomous operation time.
-
-3. **Is it keyboard-accessible?**
-   Every interaction path must work without a mouse.
-
-4. **Does it feel instant?**
-   Perceived performance must be immediate. No spinners for local operations.
-
-5. **Does it serve fleet management?**
-   The feature must make sense in the context of managing multiple agents.
-   Single-agent-only features must have a compelling justification.
-
-6. **Can a new user ignore it?**
-   Progressive disclosure: the feature must not clutter the default
-   experience. Power features reveal themselves to power users.
+If the answer to any of these is "no," reconsider.
 
 ---
 
-## 7. Living Document
+## The Name
 
-This constitution evolves with Maestro. Changes require thoughtful
-consideration of downstream impact. When in doubt, return to the core
-philosophy: **transform fractured attention into focused productivity.**
+Yes, "Maestro" is overused. But when you're conducting a dozen agents across multiple projects, watching them work in concert while you simply point and direct—there's no other word for it.
+
+You're not managing. You're not supervising. You're not multitasking.
+
+You're conducting.
 
 ---
 
-*For architectural details, see [ARCHITECTURE.md](./ARCHITECTURE.md).
-For codebase context, see
-[Codebase_Context_20260217_180422.md](./Codebase_Context_20260217_180422.md).*
+_This Constitution is a living document. It evolves as Maestro evolves, but its core principles remain: keyboard-first, unattended-focused, delightfully simple, and always in service of the conductor._

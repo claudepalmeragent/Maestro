@@ -138,7 +138,7 @@ export interface SessionLifecycleEvent {
 /**
  * Time range for querying stats
  */
-export type StatsTimeRange = 'day' | 'week' | 'month' | 'year' | 'all';
+export type StatsTimeRange = 'day' | 'week' | 'month' | 'quarter' | 'year' | 'all';
 
 /**
  * Aggregated stats for dashboard display

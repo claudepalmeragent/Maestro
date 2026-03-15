@@ -164,7 +164,7 @@ export const SessionItem = memo(function SessionItem({
 						)}
 						<span
 							className={`font-medium truncate ${variant === 'worktree' ? 'text-xs' : 'text-sm'}`}
-							style={{ color: isActive ? theme.colors.textMain : theme.colors.textDim }}
+							style={{ color: theme.colors.textMain }}
 						>
 							{session.name}
 						</span>
@@ -334,7 +334,7 @@ export const SessionItem = memo(function SessionItem({
 					<div
 						className={`w-2 h-2 rounded-full ${session.state === 'connecting' ? 'animate-pulse' : session.state === 'busy' || isInBatch ? 'animate-pulse' : ''}`}
 						style={
-							session.toolType === 'claude' && !session.agentSessionId && !isInBatch
+							session.toolType === 'claude-code' && !session.agentSessionId && !isInBatch
 								? { border: `1.5px solid ${theme.colors.textDim}`, backgroundColor: 'transparent' }
 								: {
 										backgroundColor: isInBatch
@@ -343,7 +343,7 @@ export const SessionItem = memo(function SessionItem({
 									}
 						}
 						title={
-							session.toolType === 'claude' && !session.agentSessionId
+							session.toolType === 'claude-code' && !session.agentSessionId
 								? 'No active Claude session'
 								: session.state === 'idle'
 									? 'Ready and waiting'

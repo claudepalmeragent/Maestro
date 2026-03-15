@@ -1,4 +1,7 @@
 import type { AgentConfig } from '../agents';
+import { logger } from './logger';
+
+const LOG_CONTEXT = '[AgentArgs]';
 
 type BuildAgentArgsOptions = {
 	baseArgs: string[];
@@ -54,7 +57,13 @@ export function buildAgentArgs(
 	}
 
 	if (agent.batchModeArgs && options.prompt) {
-		finalArgs = [...finalArgs, ...agent.batchModeArgs];
+		// Skip batch mode args (e.g. -y, --dangerously-bypass-approvals-and-sandbox)
+		// when readOnlyMode is active. Batch mode args grant write/approval permissions
+		// that conflict with read-only intent, regardless of whether the agent has
+		// CLI-enforced read-only mode or prompt-only enforcement.
+		if (!options.readOnlyMode) {
+			finalArgs = [...finalArgs, ...agent.batchModeArgs];
+		}
 	}
 
 	if (agent.jsonOutputArgs && !finalArgs.some((arg) => agent.jsonOutputArgs!.includes(arg))) {
@@ -69,6 +78,14 @@ export function buildAgentArgs(
 		finalArgs = [...finalArgs, ...agent.readOnlyArgs];
 	}
 
+	if (options.readOnlyMode && agent.readOnlyCliEnforced === false) {
+		logger.warn(
+			`Agent ${agent.name}: read-only mode requested but no CLI-level enforcement available`,
+			LOG_CONTEXT,
+			{ agentId: agent.id }
+		);
+	}
+
 	if (options.modelId && agent.modelArgs) {
 		finalArgs = [...finalArgs, ...agent.modelArgs(options.modelId)];
 	}
@@ -81,7 +98,21 @@ export function buildAgentArgs(
 		finalArgs = [...finalArgs, ...agent.resumeArgs(options.agentSessionId)];
 	}
 
-	return finalArgs;
+	// Deduplicate repeated flag-style arguments while preserving order.
+	// Positional arguments (non-flags) are intentionally left untouched.
+	const seenFlags = new Set<string>();
+	const dedupedArgs: string[] = [];
+	for (const arg of finalArgs) {
+		if (arg.startsWith('-')) {
+			if (seenFlags.has(arg)) {
+				continue;
+			}
+			seenFlags.add(arg);
+		}
+		dedupedArgs.push(arg);
+	}
+
+	return dedupedArgs;
 }
 
 export function applyAgentConfigOverrides(

@@ -1,1259 +1,1152 @@
 # Contributing to Maestro
 
-> **Version:** 0.14.5
-> **Regenerated:** 2026-02-17
-> **Archived at:** `__MD_ARCHIVE/CONTRIBUTING_20260217_182050.md`
-> **Cross-reference:** `Codebase_Context_20260217_180422.md`
+NOTE: The project is currently changing rapidly, there's a high likelihood that PRs will be out of sync with latest code versions and may be hard to rebase.
 
-Thank you for your interest in contributing to Maestro! This guide covers everything
-you need to know to set up your development environment, understand the codebase,
-and submit high-quality contributions.
+Thank you for your interest in contributing to Maestro! This document provides guidelines, setup instructions, and practical guidance for developers.
 
----
+For architecture details, see [ARCHITECTURE.md](ARCHITECTURE.md). For quick reference while coding, see [CLAUDE.md](CLAUDE.md).
+
+## Core Goals
+
+**Snappy interface and reduced battery consumption are fundamental goals for Maestro.** Every contribution should consider:
+
+- **Responsiveness**: UI interactions should feel instant. Avoid blocking the main thread.
+- **Battery efficiency**: Minimize unnecessary timers, polling, and re-renders.
+- **Memory efficiency**: Clean up event listeners, timers, and subscriptions properly.
+
+See [Performance Guidelines](#performance-guidelines) for specific practices.
 
 ## Table of Contents
 
-1. [Development Setup](#1-development-setup)
-2. [Project Structure](#2-project-structure)
-3. [Development Scripts](#3-development-scripts)
-4. [Development Data Directories](#4-development-data-directories)
-5. [Testing](#5-testing)
-6. [Linting & Pre-commit](#6-linting--pre-commit)
-7. [Common Development Tasks](#7-common-development-tasks)
-8. [Adding a New AI Agent](#8-adding-a-new-ai-agent)
-9. [Code Style](#9-code-style)
-10. [Performance Guidelines](#10-performance-guidelines)
-11. [Debugging Guide](#11-debugging-guide)
-12. [Commit Messages](#12-commit-messages)
-13. [Pull Request Process](#13-pull-request-process)
-14. [Building for Release](#14-building-for-release)
-15. [Documentation](#15-documentation)
-16. [MCP Server](#16-mcp-server)
+- [Development Setup](#development-setup)
+- [Project Structure](#project-structure)
+- [Development Scripts](#development-scripts)
+- [Testing](#testing)
+- [Linting & Pre-commit Hooks](#linting--pre-commit-hooks)
+- [Common Development Tasks](#common-development-tasks)
+- [Encore Features (Feature Gating)](#encore-features-feature-gating)
+- [Adding a New AI Agent](#adding-a-new-ai-agent)
+- [Code Style](#code-style)
+- [Performance Guidelines](#performance-guidelines)
+- [Debugging Guide](#debugging-guide)
+- [Commit Messages](#commit-messages)
+- [Pull Request Process](#pull-request-process) (includes [automated code review](#automated-code-review))
+- [Building for Release](#building-for-release)
+- [Documentation](#documentation)
 
----
-
-## 1. Development Setup
+## Development Setup
 
 ### Prerequisites
 
-| Tool    | Minimum Version | Notes                                      |
-| ------- | --------------- | ------------------------------------------ |
-| Node.js | **>=22.0.0**    | Required. Earlier versions are unsupported. |
-| npm     | >=10.0.0        | Ships with Node.js 22+.                    |
-| Git     | >=2.30          | For cloning and version control.            |
+- Node.js 20+
+- npm or yarn
+- Git
 
-> **Important:** Maestro requires Node.js 22 or later. If you are using a version
-> manager such as `nvm`, `fnm`, or `volta`, make sure you switch to a 22.x release
-> before proceeding.
-
-### Clone and Install
+### Getting Started
 
 ```bash
-# Clone the repository
-git clone https://github.com/your-org/maestro.git
+# Fork and clone the repository
+git clone <your-fork-url>
 cd maestro
 
 # Install dependencies
 npm install
-```
 
-### Start the Development Server
-
-```bash
+# Run in development mode with hot reload
 npm run dev
 ```
 
-This launches the Electron main process and the Vite-powered renderer process
-concurrently with hot-module replacement enabled. Changes to either process are
-picked up automatically.
-
-### Verify Your Setup
-
-After `npm run dev` completes startup you should see the Maestro desktop window.
-Open the DevTools with `Ctrl+Shift+I` (or `Cmd+Option+I` on macOS) and confirm
-there are no console errors.
-
----
-
-## 2. Project Structure
-
-Below is the current directory tree showing the major source directories and their
-purposes. Files and folders omitted for brevity are indicated with `...`.
+## Project Structure
 
 ```
 maestro/
-├── .github/                    # GitHub Actions workflows and templates
-│   ├── workflows/
-│   └── PULL_REQUEST_TEMPLATE.md
-├── .husky/                     # Git hooks (pre-commit, commit-msg)
-├── build/                      # Electron-builder resources (icons, entitlements)
-├── docs/                       # Mintlify documentation source
-├── resources/                  # Static assets bundled into the app
-├── scripts/                    # Build and release helper scripts
-│   ├── set-version.mjs
-│   └── ...
 ├── src/
-│   ├── main/                   # Electron main process
-│   │   ├── agents/             # AI agent definitions and detection
-│   │   │   ├── capabilities.ts
-│   │   │   ├── definitions.ts
-│   │   │   └── detector.ts
-│   │   ├── ipc/
-│   │   │   └── handlers/       # IPC message handlers
-│   │   ├── parsers/            # Output parsers for agent responses
-│   │   │   ├── error-patterns.ts
-│   │   │   └── index.ts        # Parser registry (registerOutputParser)
-│   │   ├── preload/            # Preload scripts (context bridge)
-│   │   ├── process-manager/    # Child process lifecycle management
-│   │   ├── services/           # Backend services (updater, analytics, etc.)
-│   │   ├── stats/              # Statistics collection and aggregation
-│   │   ├── storage/            # Session and settings persistence
-│   │   ├── stores/             # Electron-side state stores
-│   │   └── ...
-│   ├── renderer/               # React frontend (Vite)
-│   │   ├── components/         # UI components
-│   │   ├── hooks/              # React hooks
-│   │   │   └── settings/       # Settings-related hooks
-│   │   ├── constants/          # App-wide constants
-│   │   │   └── app.ts          # CLAUDE_BUILTIN_COMMANDS, etc.
-│   │   ├── contexts/           # React contexts (ModalContext, etc.)
-│   │   ├── modals/             # Modal components
-│   │   ├── styles/             # Global styles and Tailwind config
-│   │   └── ...
-│   ├── shared/                 # Code shared between main and renderer
-│   │   ├── themes.ts           # Theme definitions (14 color properties)
-│   │   ├── types/              # Shared TypeScript types
-│   │   └── ...
-│   ├── web/                    # Web interface variant
-│   └── cli/                    # CLI entry point
-├── tests/
-│   ├── unit/                   # Vitest unit tests
-│   ├── integration/            # Vitest integration tests
-│   ├── performance/            # Vitest performance benchmarks
-│   └── e2e/                    # Playwright end-to-end tests
-├── prompts/                    # Markdown prompt templates (.md -> .ts)
-├── vitest.config.ts            # Default Vitest config (unit)
-├── vitest.integration.config.ts
-├── vitest.performance.config.ts
-├── playwright.config.ts        # Playwright E2E config
-├── tsconfig.json               # Base TypeScript config
-├── tsconfig.node.json          # Node/main process TS config
-├── tsconfig.web.json           # Web build TS config
-├── tailwind.config.ts          # Tailwind CSS config
-├── eslint.config.js            # ESLint flat config
-├── prettier.config.js          # Prettier config
-├── electron-builder.yml        # Electron-builder packaging config
-└── package.json
+│   ├── main/              # Electron main process (Node.js backend)
+│   │   ├── index.ts       # Entry point, IPC handlers
+│   │   ├── process-manager.ts
+│   │   ├── preload.ts     # Secure IPC bridge
+│   │   └── utils/         # Shared utilities
+│   ├── renderer/          # React frontend (Desktop UI)
+│   │   ├── App.tsx        # Main coordinator
+│   │   ├── components/    # React components
+│   │   ├── hooks/         # Custom React hooks
+│   │   ├── services/      # IPC wrappers (git, process)
+│   │   ├── contexts/      # React contexts
+│   │   ├── constants/     # Themes, shortcuts, priorities
+│   │   ├── types/         # TypeScript definitions
+│   │   └── utils/         # Frontend utilities
+│   ├── cli/               # CLI tool (maestro-cli)
+│   │   ├── index.ts       # CLI entry point
+│   │   ├── commands/      # Command implementations
+│   │   ├── services/      # CLI services (storage, batch processor)
+│   │   └── output/        # Output formatters (human, JSONL)
+│   ├── shared/            # Shared code across processes
+│   │   ├── theme-types.ts # Theme type definitions
+│   │   └── templateVariables.ts # Template variable system
+│   └── web/               # Web interface (Remote Control)
+│       └── ...            # Mobile-optimized React app
+├── docs/                  # Mintlify documentation (hosted at docs.runmaestro.ai)
+│   ├── docs.json          # Mintlify configuration and navigation
+│   ├── screenshots/       # All documentation screenshots
+│   ├── assets/            # Logos, icons, and static assets
+│   └── *.md               # Documentation pages
+├── build/                 # Application icons
+├── .github/workflows/     # CI/CD automation
+└── dist/                  # Build output (generated)
 ```
 
-### Key Directory Details
-
-- **`src/main/agents/`** -- Agent files live in this directory, NOT as flat files
-  in `src/main/`. The directory contains `detector.ts` (runtime discovery),
-  `definitions.ts` (agent metadata), and `capabilities.ts` (feature flags per
-  agent).
-
-- **`src/main/parsers/`** -- Output parsers use a **registry pattern**. New parsers
-  are added by calling `registerOutputParser()` in `src/main/parsers/index.ts`.
-  There is NO switch-case dispatch.
-
-- **`src/main/ipc/handlers/`** -- Each IPC channel gets its own handler file. Handlers
-  are registered in the main process bootstrap and exposed to the renderer through
-  the preload bridge.
-
----
-
-## 3. Development Scripts
-
-All scripts are defined in `package.json`. Run them with `npm run <script>`.
-
-### Development
-
-| Script               | Description                                            |
-| -------------------- | ------------------------------------------------------ |
-| `npm run dev`        | Concurrent main + renderer dev with HMR.               |
-| `npm run dev:prod-data` | Dev mode using production data directory.           |
-| `npm run dev:demo`   | Dev mode pointed at the demo data directory.           |
-| `npm run dev:web`    | Start the web interface dev server only.               |
-
-### Building
-
-| Script                | Description                                                        |
-| --------------------- | ------------------------------------------------------------------ |
-| `npm run build`       | Full build pipeline: prompts -> main -> preload -> renderer -> web -> CLI. |
-| `npm run build:prompts` | Compile `.md` prompt templates to TypeScript modules.            |
-| `npm run build:preload` | Build preload scripts for the Electron context bridge.           |
-| `npm run build:cli`   | Build the CLI entry point.                                         |
-
-### Testing
-
-| Script                    | Description                              |
-| ------------------------- | ---------------------------------------- |
-| `npm test`                | Run unit tests with Vitest.              |
-| `npm run test:integration`| Run integration tests with Vitest.       |
-| `npm run test:e2e`        | Run end-to-end tests with Playwright.    |
-| `npm run test:performance`| Run performance benchmarks with Vitest.  |
-
-### Code Quality
-
-| Script                 | Description                                           |
-| ---------------------- | ----------------------------------------------------- |
-| `npm run lint`         | TypeScript type checking across all 3 tsconfig files. |
-| `npm run lint:eslint`  | Run ESLint.                                           |
-| `npm run format`       | Format code with Prettier (write mode).               |
-| `npm run format:check` | Check formatting without writing changes.             |
-
-### Maintenance
-
-| Script             | Description                                    |
-| ------------------ | ---------------------------------------------- |
-| `npm run clean`    | Remove all build artifacts and output folders.  |
-| `npm run package`  | Package the app for all platforms (macOS, Windows, Linux). |
-
----
-
-## 4. Development Data Directories
-
-Maestro uses isolated data directories so that development work never interferes
-with your production sessions.
-
-### Directory Modes
-
-| Mode       | Directory Name   | How to Activate                              |
-| ---------- | ---------------- | -------------------------------------------- |
-| Development | `maestro-dev`   | Default when running `npm run dev`.          |
-| Demo       | Configured via `DEMO_DATA_PATH` | `npm run dev:demo` or set the env var manually. |
-| Production | Standard app data | `npm run dev:prod-data` or set `USE_PROD_DATA=1`. |
-
-### Using Production Data in Development
-
-If you need to test against real session history:
+## Development Scripts
 
 ```bash
-# Via the convenience script
-npm run dev:prod-data
-
-# Or manually
-USE_PROD_DATA=1 npm run dev
+npm run dev            # Start dev server with hot reload (isolated data directory)
+npm run dev:prod-data  # Start dev server using production data (requires closing production app)
+npm run dev:demo       # Start in demo mode (fresh settings, isolated data)
+npm run dev:web        # Start web interface dev server
+npm run build          # Full production build (main + renderer + web + CLI)
+npm run build:main     # Build main process only
+npm run build:renderer # Build renderer only
+npm run build:web      # Build web interface only
+npm run build:cli      # Build CLI tool only
+npm start              # Start built application
+npm run clean          # Clean build artifacts
+npm run lint           # Run TypeScript type checking
+npm run package        # Package for all platforms
+npm run package:mac    # Package for macOS
+npm run package:win    # Package for Windows
+npm run package:linux  # Package for Linux
 ```
 
-> **Warning:** Be careful when running development builds against production data.
-> Experimental migrations or schema changes could corrupt your sessions. Always back
-> up your data directory first.
+### Development Data Directories
 
-### Demo Data
+By default, `npm run dev` uses an isolated data directory (`~/Library/Application Support/maestro-dev/`) separate from production. This allows you to run both dev and production instances simultaneously—useful when using the production Maestro to work on the dev instance.
 
-The demo mode provides a curated set of sample sessions, agents, and conversations
-that exercise the major features of the application. This is useful for UI work,
-screenshots, and demos:
+| Command                 | Data Directory          | Can Run Alongside Production?  |
+| ----------------------- | ----------------------- | ------------------------------ |
+| `npm run dev`           | `maestro-dev/`          | ✅ Yes                         |
+| `npm run dev:prod-data` | `maestro/` (production) | ❌ No - close production first |
+| `npm run dev:demo`      | `/tmp/maestro-demo/`    | ✅ Yes                         |
+
+**When to use each:**
+
+- **`npm run dev`** — Default for most development. Start fresh or use dev-specific test data.
+- **`npm run dev:prod-data`** — Test with your real sessions and settings. Must close production app first to avoid database lock conflicts.
+- **`npm run dev:demo`** — Screenshots, demos, or testing with completely fresh state.
+
+### Demo Mode
+
+Use demo mode to run Maestro with a fresh, isolated data directory - useful for demos, testing, or screenshots without affecting your real settings:
 
 ```bash
 npm run dev:demo
 ```
 
----
-
-## 5. Testing
-
-Maestro uses **Vitest** as its test runner (NOT Jest). There are four test
-configurations, each tuned for a different scope.
-
-### Test Configurations
-
-| Config File                     | Scope        | Environment | Timeout | Flags          |
-| ------------------------------- | ------------ | ----------- | ------- | -------------- |
-| `vitest.config.ts`              | Unit         | jsdom       | 10 s    | --             |
-| `vitest.integration.config.ts`  | Integration  | jsdom       | 180 s   | `--sequence.sequential` |
-| `vitest.performance.config.ts`  | Performance  | jsdom       | 30 s    | --             |
-| `playwright.config.ts`          | E2E          | Electron    | 60 s    | Sequential, 2 retries in CI |
-
-### Running Tests
+Demo mode stores all data in `/tmp/maestro-demo`. For a completely fresh start each time:
 
 ```bash
-# Unit tests (default config)
-npx vitest run
-
-# Unit tests in watch mode
-npx vitest
-
-# Integration tests (sequential execution, longer timeout)
-npx vitest run --config vitest.integration.config.ts
-
-# Performance benchmarks
-npx vitest run --config vitest.performance.config.ts
-
-# End-to-end tests with Playwright
-npx playwright test
-
-# Run a specific test file
-npx vitest run src/main/parsers/__tests__/myParser.test.ts
-
-# Run tests matching a pattern
-npx vitest run -t "should parse streaming output"
+rm -rf /tmp/maestro-demo && npm run dev:demo
 ```
 
-### Vitest CLI Flags Reference
-
-Commonly used flags when working with Maestro tests:
+You can also specify a custom demo directory via environment variable:
 
 ```bash
-# Run once and exit (no watch mode)
-npx vitest run
-
-# Filter by test name pattern
-npx vitest run -t "pattern"
-
-# Filter by file path
-npx vitest run path/to/file.test.ts
-
-# Run sequentially (required for integration tests)
-npx vitest run --sequence.sequential
-
-# Generate coverage report
-npx vitest run --coverage
-
-# Use a specific config
-npx vitest run --config vitest.integration.config.ts
-
-# Verbose output
-npx vitest run --reporter=verbose
+MAESTRO_DEMO_DIR=~/Desktop/my-demo npm run dev
 ```
 
-### Playwright E2E Tests
+### Running Multiple Instances (Git Worktrees)
 
-End-to-end tests use Playwright to drive the full Electron application:
+When working with multiple git worktrees, you can run Maestro instances in parallel by specifying different ports using the `VITE_PORT` environment variable:
 
 ```bash
-# Run all E2E tests
-npx playwright test
+# In the main worktree (uses default port 5173)
+npm run dev
 
-# Run with headed browser (visible window)
-npx playwright test --headed
+# In worktree 2 (in another directory and terminal)
+VITE_PORT=5174 npm run dev
 
-# Run a specific test file
-npx playwright test tests/e2e/session.spec.ts
-
-# Debug mode (step through tests)
-npx playwright test --debug
+# In worktree 3
+VITE_PORT=5175 npm run dev
 ```
 
-In CI, Playwright is configured with:
-- Sequential execution (no parallel workers)
-- 60-second timeout per test
-- 2 retries on failure
+This allows you to develop and test different branches simultaneously without port conflicts.
 
-### Writing Tests
+**Note:** The web interface dev server (`npm run dev:web`) uses a separate port (default 5174) and can be configured with `VITE_WEB_PORT` if needed.
 
-- Place unit tests adjacent to source files or in `tests/unit/`.
-- Place integration tests in `tests/integration/`.
-- Place performance benchmarks in `tests/performance/`.
-- Place E2E tests in `tests/e2e/`.
-- Use descriptive `describe` / `it` blocks.
-- Prefer `vi.fn()` and `vi.mock()` for mocking (Vitest API, not Jest).
+## Testing
 
-```typescript
-import { describe, it, expect, vi } from 'vitest';
-import { parseOutput } from '../myParser';
-
-describe('MyParser', () => {
-  it('should extract the response text from raw output', () => {
-    const raw = '...<output>hello</output>...';
-    const result = parseOutput(raw);
-    expect(result.text).toBe('hello');
-  });
-});
-```
-
----
-
-## 6. Linting & Pre-commit
-
-### Tool Chain
-
-Maestro enforces code quality through the following tools, run automatically on
-every commit via Husky and lint-staged:
-
-| Tool         | Purpose                                | Config File          |
-| ------------ | -------------------------------------- | -------------------- |
-| **Husky**    | Git hook management                    | `.husky/`            |
-| **lint-staged** | Run linters on staged files only    | `package.json`       |
-| **Prettier** | Code formatting                        | `prettier.config.js` |
-| **ESLint**   | Static analysis and style enforcement  | `eslint.config.js`   |
-| **TypeScript** | Type checking                        | `tsconfig*.json`     |
-
-### Pre-commit Flow
-
-When you run `git commit`, the following happens automatically:
-
-1. **Husky** triggers the `pre-commit` hook.
-2. **lint-staged** identifies staged files and runs:
-   - **Prettier** on all supported file types.
-   - **ESLint** on `.ts` and `.tsx` files.
-3. If any check fails, the commit is aborted with an error message.
-
-### Manual Checks
-
-You can run these checks manually at any time:
+Run the test suite with Jest:
 
 ```bash
-# TypeScript type checking (all 3 configs)
-npm run lint
-
-# This internally runs:
-#   npx tsc --noEmit --project tsconfig.json
-#   npx tsc --noEmit --project tsconfig.node.json
-#   npx tsc --noEmit --project tsconfig.web.json
-
-# ESLint
-npm run lint:eslint
-
-# Prettier (format in-place)
-npm run format
-
-# Prettier (check only, no writes)
-npm run format:check
+npm test                              # Run all tests
+npm test -- --watch                   # Watch mode (re-runs on file changes)
+npm test -- --testPathPattern="name"  # Run tests matching a pattern
+npm test -- --coverage                # Run with coverage report
 ```
 
-### TypeScript Configurations
+### Watch Mode
 
-Maestro uses three separate `tsconfig` files to handle the different build targets:
+Watch mode keeps Jest running and automatically re-runs tests when you save changes:
 
-| Config              | Scope                                    |
-| ------------------- | ---------------------------------------- |
-| `tsconfig.json`     | Base config and renderer (React/Vite)    |
-| `tsconfig.node.json`| Main process and preload scripts (Node)  |
-| `tsconfig.web.json` | Web interface build                      |
+- Watches source and test files for changes
+- Re-runs only tests affected by changed files
+- Provides instant feedback during development
 
-All three are checked during `npm run lint`. If you add a new directory or change
-module resolution, verify that the appropriate tsconfig includes it.
+**Interactive options in watch mode:**
 
----
+- `a` - Run all tests
+- `f` - Run only failing tests
+- `p` - Filter by filename pattern
+- `t` - Filter by test name pattern
+- `q` - Quit watch mode
 
-## 7. Common Development Tasks
+### Test Organization
 
-### Adding a UI Feature
+Tests are located in `src/__tests__/` and organized by area:
 
-1. **Create the component** in `src/renderer/components/`. Use functional components
-   wrapped with `React.memo`.
-2. **Create a hook** in `src/renderer/hooks/` if the feature has non-trivial state
-   or side effects.
-3. **Add a modal** (if the feature needs one) -- see the next section.
-4. **Wire it up** in the parent component or layout.
-
-```typescript
-// src/renderer/components/MyFeature.tsx
-import React, { useCallback } from 'react';
-import { useMyFeature } from '../hooks/useMyFeature';
-
-export const MyFeature = React.memo(function MyFeature() {
-  const { data, handleAction } = useMyFeature();
-
-  const onClick = useCallback(() => {
-    handleAction();
-  }, [handleAction]);
-
-  return (
-    <div className="flex items-center gap-2">
-      <span>{data.label}</span>
-      <button onClick={onClick}>Action</button>
-    </div>
-  );
-});
+```
+src/__tests__/
+├── cli/           # CLI tool tests
+├── main/          # Electron main process tests
+├── renderer/      # React component and hook tests
+├── shared/        # Shared utility tests
+└── web/           # Web interface tests
 ```
 
-### Adding a Modal
+## Linting & Pre-commit Hooks
 
-Modals in Maestro follow a registration pattern across several files:
+### Pre-commit Hooks
 
-1. **Create the modal component** in `src/renderer/modals/`.
+This project uses [Husky](https://typicode.github.io/husky/) and [lint-staged](https://github.com/lint-staged/lint-staged) to automatically format and lint staged files before each commit.
 
-2. **Register its priority** in `modalPriorities.ts`:
+**How it works:**
+
+1. When you run `git commit`, Husky triggers the pre-commit hook
+2. lint-staged runs Prettier and ESLint only on your staged files
+3. If there are unfixable errors, the commit is blocked
+4. Fixed files are automatically re-staged
+
+**Setup is automatic** — hooks are installed when you run `npm install` (via the `prepare` script).
+
+**Bypassing hooks (emergency only):**
+
+```bash
+git commit --no-verify -m "emergency fix"
+```
+
+**Running lint-staged manually:**
+
+```bash
+npx lint-staged
+```
+
+**Troubleshooting:**
+
+- **Hooks not running** — Check if `.husky/pre-commit` has executable permissions: `chmod +x .husky/pre-commit`
+- **Wrong tool version** — Ensure `npx` is using local `node_modules`: delete `node_modules` and run `npm install`
+- **Hook fails in CI/Docker** — The `prepare` script uses `husky || true` to gracefully skip in environments without `.git`
+
+### Manual Linting
+
+Run TypeScript type checking and ESLint to catch errors before building:
+
+```bash
+npm run lint           # TypeScript type checking (all configs: renderer, main, cli)
+npm run lint:eslint    # ESLint code quality checks (React hooks, unused vars, etc.)
+npm run lint:eslint -- --fix  # Auto-fix ESLint issues where possible
+```
+
+### TypeScript Linting
+
+The TypeScript linter checks all three build configurations:
+
+- `tsconfig.lint.json` - Renderer, web, and shared code
+- `tsconfig.main.json` - Main process code
+- `tsconfig.cli.json` - CLI tooling
+
+### ESLint
+
+ESLint is configured with TypeScript and React plugins (`eslint.config.mjs`):
+
+- `react-hooks/rules-of-hooks` - Enforces React hooks rules
+- `react-hooks/exhaustive-deps` - Enforces correct hook dependencies
+- `@typescript-eslint/no-unused-vars` - Warns about unused variables
+- `prefer-const` - Suggests const for never-reassigned variables
+
+**When to run manual linting:**
+
+- Pre-commit hooks handle staged files automatically
+- Run full lint after significant refactors: `npm run lint && npm run lint:eslint`
+- When CI fails with type errors
+
+**Common lint issues:**
+
+- Unused imports or variables
+- Type mismatches in function calls
+- Missing required properties on interfaces
+- React hooks called conditionally (must be called in same order every render)
+- Missing dependencies in useEffect/useCallback/useMemo
+
+## Common Development Tasks
+
+### Adding a New UI Feature
+
+1. **Plan the state** - Determine if it's per-agent or global
+2. **Add state management** - In `useSettings.ts` (global) or agent state
+3. **Create persistence** - Use wrapper function pattern for global settings
+4. **Implement UI** - Follow Tailwind + theme color pattern
+5. **Add keyboard shortcuts** - In `shortcuts.ts` and `App.tsx`
+6. **Test focus flow** - Ensure Escape key navigation works
+
+### Adding a New Modal
+
+1. Create component in `src/renderer/components/`
+2. Add priority in `src/renderer/constants/modalPriorities.ts`:
    ```typescript
-   export const MODAL_PRIORITIES = {
-     // ... existing entries
-     myNewModal: 150,
-   };
+   MY_MODAL: 600,
    ```
-
-3. **Add it to `ModalContext.tsx`**:
+3. Register with layer stack (see [ARCHITECTURE.md](ARCHITECTURE.md#layer-stack-system))
+4. Use proper ARIA attributes:
    ```typescript
-   // Add state and open/close handlers for the new modal.
-   const [isMyNewModalOpen, setIsMyNewModalOpen] = useState(false);
+   <div role="dialog" aria-modal="true" aria-label="My Modal">
    ```
-
-4. **Register it in the `LayerStack`** so it renders in the correct z-order.
 
 ### Adding Keyboard Shortcuts
 
-1. **Define the shortcut** in `shortcuts.ts`:
+1. Add definition in `src/renderer/constants/shortcuts.ts`:
+
    ```typescript
-   export const SHORTCUTS = {
-     // ... existing shortcuts
-     myAction: { key: 'k', modifiers: ['ctrl'] },
+   myShortcut: { id: 'myShortcut', label: 'My Action', keys: ['Meta', 'k'] },
+   ```
+
+2. Add handler in `App.tsx` keyboard event listener:
+   ```typescript
+   else if (isShortcut(e, 'myShortcut')) {
+     e.preventDefault();
+     // Handler code
+   }
+   ```
+
+**Supported modifiers:** `Meta` (Cmd/Win), `Ctrl`, `Alt`, `Shift`
+**Arrow keys:** `ArrowLeft`, `ArrowRight`, `ArrowUp`, `ArrowDown`
+
+### Adding a New Setting
+
+1. Add state in `useSettings.ts`:
+
+   ```typescript
+   const [mySetting, setMySettingState] = useState(defaultValue);
+   ```
+
+2. Create wrapper function:
+
+   ```typescript
+   const setMySetting = (value) => {
+   	setMySettingState(value);
+   	window.maestro.settings.set('mySetting', value);
    };
    ```
 
-2. **Handle it** in `useMainKeyboardHandler.ts`:
+3. Load in useEffect:
+
    ```typescript
-   if (matchesShortcut(event, SHORTCUTS.myAction)) {
-     event.preventDefault();
-     handleMyAction();
-   }
+   const saved = await window.maestro.settings.get('mySetting');
+   if (saved !== undefined) setMySettingState(saved);
    ```
 
-### Adding Settings
+4. Add to return object and export.
 
-1. **Define the type** in `src/main/stores/types.ts`:
-   ```typescript
-   export interface AppSettings {
-     // ... existing fields
-     myNewSetting: boolean;
-   }
-   ```
+### Adding a Slash Command
 
-2. **Create or update the hook** in `src/renderer/hooks/settings/`:
-   ```typescript
-   // src/renderer/hooks/settings/useSettings.ts
-   export function useMyNewSetting() {
-     return useSetting('myNewSetting', false);
-   }
-   ```
+Slash commands are now **Custom AI Commands** defined in Settings, not in code. They are prompt macros that get substituted and sent to the AI agent.
 
-### Adding Slash Commands
-
-Built-in slash commands are defined in the `CLAUDE_BUILTIN_COMMANDS` constant:
+To add a built-in slash command that users see by default, add it to the Custom AI Commands default list in `useSettings.ts`. Each command needs:
 
 ```typescript
-// src/renderer/constants/app.ts
-export const CLAUDE_BUILTIN_COMMANDS = [
-  // ... existing commands
-  {
-    name: '/my-command',
-    description: 'Does something useful',
-    // ...
-  },
-];
-```
-
-### Adding Bundled AI Command Sets (Spec-Kit / OpenSpec)
-
-Maestro supports bundled AI command sets through the Spec-Kit and OpenSpec formats.
-To add a new bundled command set:
-
-1. Create the command set definition following the Spec-Kit or OpenSpec schema.
-2. Place it in the appropriate resources directory.
-3. Register it in the command set loader so it is available at runtime.
-4. Add tests to verify the commands parse and execute correctly.
-
-### Adding Themes
-
-Themes are defined in `src/shared/themes.ts`. Each theme specifies **14 color
-properties**:
-
-```typescript
-// src/shared/themes.ts
-export const myTheme: Theme = {
-  name: 'My Theme',
-  background: '#1a1b26',
-  foreground: '#c0caf5',
-  cursor: '#c0caf5',
-  selectionBackground: '#33467c',
-  selectionForeground: '#c0caf5',
-  black: '#15161e',
-  red: '#f7768e',
-  green: '#9ece6a',
-  yellow: '#e0af68',
-  blue: '#7aa2f7',
-  magenta: '#bb9af7',
-  cyan: '#7dcfff',
-  white: '#a9b1d6',
-};
-```
-
-Add your theme object to the themes array and it will appear in the theme selector
-automatically.
-
-### Adding IPC Handlers
-
-IPC (Inter-Process Communication) handlers bridge the Electron main process and the
-renderer:
-
-1. **Create the handler** in `src/main/ipc/handlers/`:
-   ```typescript
-   // src/main/ipc/handlers/myHandler.ts
-   import { ipcMain } from 'electron';
-
-   export function registerMyHandler(): void {
-     ipcMain.handle('my-channel', async (_event, arg: string) => {
-       // Process the request
-       return { success: true, data: arg.toUpperCase() };
-     });
-   }
-   ```
-
-2. **Expose it in preload** in `src/main/preload/`:
-   ```typescript
-   // Add to the contextBridge.exposeInMainWorld call
-   myChannel: (arg: string) => ipcRenderer.invoke('my-channel', arg),
-   ```
-
-3. **Register the handler** in the main process bootstrap so it is initialized
-   before the renderer window loads.
-
-4. **Call from the renderer**:
-   ```typescript
-   const result = await window.api.myChannel('hello');
-   ```
-
----
-
-## 8. Adding a New AI Agent
-
-Adding support for a new AI agent involves six steps. Each step corresponds to a
-specific file or directory in the codebase.
-
-### Step 1: Agent Discovery
-
-**File:** `src/main/agents/detector.ts`
-
-The detector is responsible for finding installed agents on the user's system. Add
-a detection function for your agent:
-
-```typescript
-// src/main/agents/detector.ts
-
-async function detectMyAgent(): Promise<AgentInstallation | null> {
-  // Check common installation paths
-  const paths = [
-    '/usr/local/bin/my-agent',
-    `${homeDir}/.local/bin/my-agent`,
-  ];
-
-  for (const p of paths) {
-    if (await fileExists(p)) {
-      const version = await getVersion(p);
-      return { path: p, version };
-    }
-  }
-
-  return null;
+{
+  command: '/mycommand',
+  description: 'Does something useful',
+  prompt: 'The prompt text with {{TEMPLATE_VARIABLES}}',
 }
 ```
 
-Register your detection function in the detector's agent list so it runs during
-the startup scan.
+For commands that need programmatic behavior (not just prompts), handle them in `App.tsx` where slash commands are processed before being sent to the agent.
 
-### Step 2: Agent Definition
+### Adding Bundled AI Command Sets (Spec-Kit / OpenSpec Pattern)
 
-**File:** `src/main/agents/definitions.ts`
+Maestro bundles two spec-driven workflow systems. To add a similar bundled command set:
 
-Define the agent's metadata, including its display name, identifier, executable
-command, and default arguments:
+1. **Create prompts directory**: `src/prompts/my-workflow/`
+2. **Add command markdown files**: `my-workflow.command1.md`, `my-workflow.command2.md`
+3. **Create index.ts**: Export command definitions with IDs, slash commands, descriptions, and prompts
+4. **Create metadata.json**: Track source version, commit SHA, and last refreshed date
+5. **Create manager**: `src/main/my-workflow-manager.ts` (handles loading, saving, refreshing)
+6. **Add IPC handlers**: In `src/main/index.ts` for get/set/refresh operations
+7. **Add preload API**: In `src/main/preload.ts` to expose to renderer
+8. **Create UI panel**: Similar to `OpenSpecCommandsPanel.tsx` or `SpecKitCommandsPanel.tsx`
+9. **Add to extraResources**: In `package.json` build config for all platforms
+10. **Create refresh script**: `scripts/refresh-my-workflow.mjs`
+
+Reference the existing Spec-Kit (`src/prompts/speckit/`, `src/main/speckit-manager.ts`) and OpenSpec (`src/prompts/openspec/`, `src/main/openspec-manager.ts`) implementations.
+
+### Adding a New Theme
+
+Maestro has 16 themes across 3 modes: dark, light, and vibe.
+
+Add to `src/renderer/constants/themes.ts`:
 
 ```typescript
-// src/main/agents/definitions.ts
+'my-theme': {
+  id: 'my-theme',
+  name: 'My Theme',
+  mode: 'dark',  // 'dark', 'light', or 'vibe'
+  colors: {
+    bgMain: '#...',           // Main background
+    bgSidebar: '#...',        // Sidebar background
+    bgActivity: '#...',       // Activity/hover background
+    border: '#...',           // Border color
+    textMain: '#...',         // Primary text
+    textDim: '#...',          // Secondary/dimmed text
+    accent: '#...',           // Accent color
+    accentDim: 'rgba(...)',   // Dimmed accent (with alpha)
+    accentText: '#...',       // Text in accent contexts
+    accentForeground: '#...', // Text ON accent backgrounds (contrast)
+    success: '#...',          // Success state (green)
+    warning: '#...',          // Warning state (yellow/orange)
+    error: '#...',            // Error state (red)
+  }
+}
+```
 
-export const MY_AGENT: AgentDefinition = {
+Then add the ID to `ThemeId` type in `src/shared/theme-types.ts` and to the `isValidThemeId` function.
+
+### Adding an IPC Handler
+
+1. Add handler in `src/main/index.ts`:
+
+   ```typescript
+   ipcMain.handle('myNamespace:myAction', async (_, arg1, arg2) => {
+   	// Implementation
+   	return result;
+   });
+   ```
+
+2. Expose in `src/main/preload.ts`:
+
+   ```typescript
+   myNamespace: {
+     myAction: (arg1, arg2) => ipcRenderer.invoke('myNamespace:myAction', arg1, arg2),
+   },
+   ```
+
+3. Add types to `MaestroAPI` interface in preload.ts.
+
+## Encore Features (Feature Gating)
+
+Encore Features is Maestro's system for optional, user-toggled features. It serves as a precursor to a full plugin marketplace — features that are powerful but not essential for every user can be shipped as Encore Features, disabled by default.
+
+### When to Use Encore Features
+
+Consider making your feature an Encore Feature when:
+
+- It adds significant UI surface area (new modals, panels, shortcuts) that not all users need
+- It integrates with external services or has resource overhead
+- It's experimental or targeting a niche workflow
+- It would clutter the interface for users who don't want it
+
+**When disabled, an Encore Feature must be completely invisible** — no keyboard shortcuts, no menu items, no command palette entries.
+
+### Architecture
+
+Encore Features are managed through a single settings object:
+
+```typescript
+// src/renderer/types/index.ts
+export interface EncoreFeatureFlags {
+	directorNotes: boolean;
+	// Add new features here
+}
+```
+
+The flags live in `useSettings.ts` and persist via `window.maestro.settings`. The Encore Features panel in Settings (`SettingsModal.tsx`) provides toggle UI for each feature.
+
+### Adding a New Encore Feature
+
+1. **Add the flag** to `EncoreFeatureFlags` in `src/renderer/types/index.ts`:
+
+   ```typescript
+   export interface EncoreFeatureFlags {
+   	directorNotes: boolean;
+   	myFeature: boolean; // Add here
+   }
+   ```
+
+2. **Set the default** in `useSettings.ts` — always default to `false`:
+
+   ```typescript
+   const DEFAULT_ENCORE_FEATURES: EncoreFeatureFlags = {
+   	directorNotes: false,
+   	myFeature: false,
+   };
+   ```
+
+3. **Add toggle UI** in `SettingsModal.tsx` under the Encore Features tab. Follow the existing Director's Notes pattern — a clickable section with a toggle switch and feature-specific settings that only render when enabled.
+
+4. **Gate all access points** — the feature must be invisible when disabled:
+   - **Keyboard shortcuts** (`useMainKeyboardHandler.ts`): Guard with `ctx.encoreFeatures?.myFeature`
+   - **App.tsx**: Conditionally pass callbacks and render modals based on `encoreFeatures.myFeature`
+   - **SessionList hamburger menu**: Make the setter optional and conditionally render the menu item
+   - **Quick Actions** (`QuickActionsModal.tsx`): Pass `undefined` for the handler when disabled
+
+5. **Update tests** in `SettingsModal.test.tsx` — add toggle and settings tests within the Encore Features describe block.
+
+### Existing Encore Features
+
+| Feature          | Flag            | Description                                   |
+| ---------------- | --------------- | --------------------------------------------- |
+| Director's Notes | `directorNotes` | AI-generated synopsis of work across sessions |
+
+## Adding a New AI Agent
+
+Maestro supports multiple AI coding agents. Each agent has different capabilities that determine which UI features are available. For detailed architecture, see [AGENT_SUPPORT.md](AGENT_SUPPORT.md).
+
+### Agent Capability Checklist
+
+Before implementing, investigate the agent's CLI to determine which capabilities it supports:
+
+| Capability          | Question to Answer                               | Example                                      |
+| ------------------- | ------------------------------------------------ | -------------------------------------------- |
+| **Session Resume**  | Can the provider resume a previous conversation? | `--resume <id>`, `--session <id>`            |
+| **Read-Only Mode**  | Is there a plan/analysis-only mode?              | `--permission-mode plan`, `--agent plan`     |
+| **JSON Output**     | Does it emit structured JSON?                    | `--output-format json`, `--format json`      |
+| **Session ID**      | Does output include a session identifier?        | `session_id`, `sessionID` in JSON            |
+| **Image Input**     | Can you send images to the agent?                | `--input-format stream-json`, `-f image.png` |
+| **Slash Commands**  | Are there discoverable commands?                 | Emitted in init message                      |
+| **Session Storage** | Does the provider persist sessions to disk?      | `~/.agent/sessions/`                         |
+| **Cost Tracking**   | Is it API-based with costs?                      | Cloud API vs local model                     |
+| **Usage Stats**     | Does it report token counts?                     | `tokens`, `usage` in output                  |
+| **Batch Mode**      | Does it run per-message or persistently?         | `--print` vs interactive                     |
+
+### Implementation Steps
+
+#### 1. Add Agent Definition
+
+In `src/main/agent-detector.ts`, add to `AGENT_DEFINITIONS`:
+
+```typescript
+{
   id: 'my-agent',
   name: 'My Agent',
-  command: 'my-agent',
-  defaultArgs: ['--interactive', '--json-output'],
-  description: 'Description of what the agent does.',
-  website: 'https://example.com/my-agent',
-  icon: 'my-agent-icon',
-};
+  binaryName: 'myagent',
+  command: 'myagent',
+  args: ['--json'],  // Base args for batch mode
+},
 ```
 
-### Step 3: Capability Definition
+#### 2. Define Capabilities
 
-**File:** `src/main/agents/capabilities.ts`
-
-Declare what features the agent supports. Capabilities drive UI decisions (e.g.,
-whether to show a file-attach button or a streaming indicator):
+In `src/main/agent-capabilities.ts` (create if needed):
 
 ```typescript
-// src/main/agents/capabilities.ts
-
-export const MY_AGENT_CAPABILITIES: AgentCapabilities = {
-  streaming: true,
-  fileAttachment: false,
-  imageInput: true,
-  codeExecution: true,
-  webSearch: false,
-  toolUse: true,
-  maxContextTokens: 200000,
-};
+'my-agent': {
+  supportsResume: true,              // Set based on investigation
+  supportsReadOnlyMode: false,       // Set based on investigation
+  supportsJsonOutput: true,
+  supportsSessionId: true,
+  supportsImageInput: false,
+  supportsSlashCommands: false,
+  supportsSessionStorage: false,
+  supportsCostTracking: false,       // true for API-based agents
+  supportsUsageStats: true,
+  supportsBatchMode: true,
+  supportsStreaming: true,
+},
 ```
 
-### Step 4: Output Parser
+#### 3. Implement Output Parser
 
-**Directory:** `src/main/parsers/`
-**Registry:** `src/main/parsers/index.ts`
-
-Create a parser that transforms the agent's raw output into Maestro's internal
-format. Parsers use the **registry pattern** -- you register them with
-`registerOutputParser()`, NOT via a switch-case.
+In `src/main/agent-output-parser.ts`, add a parser for the agent's JSON format:
 
 ```typescript
-// src/main/parsers/myAgentParser.ts
-
-import { OutputParser, ParsedOutput } from './types';
-
-export class MyAgentParser implements OutputParser {
-  readonly agentId = 'my-agent';
-
-  parse(raw: string): ParsedOutput {
-    // Transform raw agent output into the standard format
-    const parsed = JSON.parse(raw);
-    return {
-      text: parsed.response,
-      thinking: parsed.reasoning ?? null,
-      toolCalls: parsed.actions ?? [],
-      metadata: {
-        model: parsed.model,
-        tokens: parsed.usage,
-      },
-    };
-  }
-
-  parseStreaming(chunk: string): Partial<ParsedOutput> {
-    // Handle incremental streaming chunks
-    return { text: chunk };
-  }
+class MyAgentOutputParser implements AgentOutputParser {
+	parseJsonLine(line: string): ParsedEvent {
+		const msg = JSON.parse(line);
+		return {
+			type: msg.type,
+			sessionId: msg.session_id, // Agent-specific field name
+			text: msg.content, // Agent-specific field name
+			tokens: msg.usage, // Agent-specific field name
+		};
+	}
 }
 ```
 
-Then register it:
+#### 4. Configure CLI Arguments
+
+Add argument builders for capability-driven flags:
 
 ```typescript
-// src/main/parsers/index.ts
-
-import { MyAgentParser } from './myAgentParser';
-
-// Register using the registry pattern
-registerOutputParser(new MyAgentParser());
+// In agent definition
+resumeArgs: (sessionId) => ['--resume', sessionId],
+readOnlyArgs: ['--read-only'],  // If supported
+jsonOutputArgs: ['--format', 'json'],
+batchModePrefix: ['run'],  // If needed (e.g., 'myagent run "prompt"')
 ```
 
-> **Important:** Do NOT add a case to a switch statement. The parser registry
-> handles dispatch automatically based on the `agentId` property.
+#### 5. Implement Session Storage (Optional)
 
-### Step 5: Error Patterns
-
-**File:** `src/main/parsers/error-patterns.ts`
-
-Define regex patterns for common errors the agent produces so Maestro can display
-user-friendly messages:
+If the agent persists sessions to disk:
 
 ```typescript
-// src/main/parsers/error-patterns.ts
+class MyAgentSessionStorage implements AgentSessionStorage {
+	async listSessions(projectPath: string): Promise<AgentSession[]> {
+		// Read from agent's session directory
+	}
 
-export const MY_AGENT_ERROR_PATTERNS: ErrorPattern[] = [
-  {
-    pattern: /API key invalid or expired/i,
-    code: 'AUTH_ERROR',
-    message: 'Your My Agent API key is invalid or has expired. Please update it in Settings.',
-    recoverable: true,
-  },
-  {
-    pattern: /rate limit exceeded/i,
-    code: 'RATE_LIMIT',
-    message: 'My Agent rate limit reached. Maestro will retry automatically.',
-    recoverable: true,
-  },
-  {
-    pattern: /context length exceeded/i,
-    code: 'CONTEXT_OVERFLOW',
-    message: 'The conversation exceeds My Agent\'s context window. Consider starting a new session.',
-    recoverable: false,
-  },
-];
-```
-
-### Step 6: Session Storage
-
-**Directory:** `src/main/storage/`
-
-If the agent requires custom session persistence (beyond what the default storage
-handler provides), create a storage adapter:
-
-```typescript
-// src/main/storage/myAgentStorage.ts
-
-import { SessionStorage } from './types';
-
-export class MyAgentStorage implements SessionStorage {
-  async save(sessionId: string, data: SessionData): Promise<void> {
-    // Custom persistence logic
-  }
-
-  async load(sessionId: string): Promise<SessionData | null> {
-    // Custom loading logic
-  }
-
-  async delete(sessionId: string): Promise<void> {
-    // Cleanup logic
-  }
+	async readSession(projectPath: string, sessionId: string): Promise<Message[]> {
+		// Parse session file format
+	}
 }
 ```
 
-### Agent Checklist
+#### 6. Test the Integration
 
-Before submitting your PR, verify:
+```bash
+# 1. Verify agent detection
+npm run dev
+# Check Settings → AI Agents shows your agent
 
-- [ ] Detection works on macOS, Linux, and Windows.
-- [ ] The agent appears in the agent selector when installed.
-- [ ] Output parsing handles both streaming and non-streaming modes.
-- [ ] Error patterns cover authentication, rate limiting, and context overflow.
-- [ ] Unit tests cover the parser with representative output samples.
-- [ ] Integration tests verify the full session lifecycle.
+# 2. Test new session
+# Create session with your agent, send a message
 
----
+# 3. Test JSON parsing
+# Verify response appears correctly in UI
 
-## 9. Code Style
+# 4. Test resume (if supported)
+# Close and reopen tab, send follow-up message
+
+# 5. Test read-only mode (if supported)
+# Toggle read-only, verify agent refuses writes
+```
+
+### UI Feature Availability
+
+Based on capabilities, these UI features are automatically enabled/disabled:
+
+| Feature            | Required Capability      | Component            |
+| ------------------ | ------------------------ | -------------------- |
+| Read-only toggle   | `supportsReadOnlyMode`   | InputArea            |
+| Image attachment   | `supportsImageInput`     | InputArea            |
+| Session browser    | `supportsSessionStorage` | RightPanel           |
+| Resume button      | `supportsResume`         | AgentSessionsBrowser |
+| Cost widget        | `supportsCostTracking`   | MainPanel            |
+| Token display      | `supportsUsageStats`     | MainPanel, TabBar    |
+| Session ID pill    | `supportsSessionId`      | MainPanel            |
+| Slash autocomplete | `supportsSlashCommands`  | InputArea            |
+
+### Supported Agents Reference
+
+| Agent         | Resume                | Read-Only                   | JSON | Images | Sessions                      | Cost             | Status      |
+| ------------- | --------------------- | --------------------------- | ---- | ------ | ----------------------------- | ---------------- | ----------- |
+| Claude Code   | ✅ `--resume`         | ✅ `--permission-mode plan` | ✅   | ✅     | ✅ `~/.claude/`               | ✅               | ✅ Complete |
+| Codex         | ✅ `exec resume`      | ✅ `--sandbox read-only`    | ✅   | ✅     | ✅ `~/.codex/`                | ❌ (tokens only) | ✅ Complete |
+| OpenCode      | ✅ `--session`        | ✅ `--agent plan`           | ✅   | ✅     | ✅ `~/.local/share/opencode/` | ✅               | ✅ Complete |
+| Factory Droid | ✅ `-s, --session-id` | ✅ (default mode)           | ✅   | ✅     | ✅ `~/.factory/`              | ❌ (tokens only) | ✅ Complete |
+| Gemini CLI    | TBD                   | TBD                         | TBD  | TBD    | TBD                           | ✅               | 📋 Planned  |
+
+For detailed implementation guide, see [AGENT_SUPPORT.md](AGENT_SUPPORT.md).
+
+## Code Style
 
 ### TypeScript
 
-- **Strict mode** is enabled across all tsconfig files. Do not use `any` without a
-  documented reason.
-- Prefer `interface` for object shapes and `type` for unions and intersections.
-- Use `const` assertions and `satisfies` where appropriate.
-- Avoid enums; prefer `as const` objects.
+- Strict mode enabled
+- Interface definitions for all data structures
+- Export types via `preload.ts` for renderer
 
-### React
+### React Components
 
-- **Functional components only**, wrapped with `React.memo`:
-  ```typescript
-  export const MyComponent = React.memo(function MyComponent(props: Props) {
-    // ...
-  });
-  ```
-- **No HOCs or render props.** Use hooks and composition instead.
-- **`useCallback` for all returned functions** -- every function returned from a
-  hook or passed as a prop must be wrapped in `useCallback` to prevent unnecessary
-  re-renders.
-- **Ref mirror pattern** for stale closure prevention:
-  ```typescript
-  const callbackRef = useRef(callback);
-  callbackRef.current = callback;
+- Functional components with hooks
+- Keep components focused and small
+- Use Tailwind for layout, inline styles for theme colors
+- Maintain keyboard accessibility
+- Use `tabIndex={-1}` + `outline-none` for programmatic focus
 
-  const stableCallback = useCallback((...args: any[]) => {
-    return callbackRef.current(...args);
-  }, []);
-  ```
+### Security
 
-### Styling
+- **Always use `execFileNoThrow`** for external commands (never shell-based execution)
+- Keep context isolation enabled
+- Use preload script for all IPC
+- Sanitize all user inputs
+- Use `spawn()` with `shell: false`
 
-- **Tailwind CSS** is the primary styling approach. Use utility classes directly
-  on elements.
-- **Inline styles** are acceptable for dynamic values that depend on runtime state
-  (e.g., calculated positions, theme-dependent colors).
-- Do NOT use CSS modules, styled-components, or external CSS files for new code.
+## Performance Guidelines
 
-### Naming Conventions
-
-| Entity           | Convention           | Example                    |
-| ---------------- | -------------------- | -------------------------- |
-| Components       | PascalCase           | `SessionPanel.tsx`         |
-| Hooks            | camelCase, `use` prefix | `useSessionState.ts`    |
-| Utilities        | camelCase            | `formatTimestamp.ts`       |
-| Constants        | UPPER_SNAKE_CASE     | `MAX_RETRY_COUNT`          |
-| Types/Interfaces | PascalCase           | `SessionState`             |
-| Files            | camelCase or PascalCase (components) | --            |
-
-### Imports
-
-- Use path aliases defined in tsconfig (`@/`, `@main/`, `@renderer/`, etc.) rather
-  than deep relative paths.
-- Group imports: external libraries first, then internal modules, then relative
-  imports. Separate each group with a blank line.
-
----
-
-## 10. Performance Guidelines
-
-Maestro sessions can contain thousands of messages and dozens of concurrent agent
-processes. Performance is critical.
+Maestro prioritizes a snappy interface and minimal battery consumption. Follow these guidelines:
 
 ### React Rendering
 
-- **`React.memo`** on all components that appear in lists or are re-rendered
-  frequently.
-- **`useMemo`** for expensive derivations (filtering, sorting, transforming large
-  arrays).
-- **`useCallback`** for all event handlers and functions passed as props.
-
-### Persistence
-
-- **Debounced writes** -- settings and session state are persisted with a **2-second
-  debounce** to avoid excessive disk I/O.
-- **Batched updates** -- UI state changes are batched in **150ms windows** to reduce
-  React reconciliation passes.
-
-### Scrolling
-
-- **Virtual scrolling** via `@tanstack/react-virtual` for long message lists. Never
-  render thousands of DOM nodes.
+- **Memoize expensive computations** with `useMemo` - especially sorting, filtering, and transformations
+- **Use Maps for lookups** instead of `Array.find()` in loops (O(1) vs O(n))
+- **Batch state updates** - use the `useBatchedSessionUpdates` hook for high-frequency IPC updates
+- **Avoid creating objects/arrays in render** - move static objects outside components or memoize them
 
 ```typescript
-import { useVirtualizer } from '@tanstack/react-virtual';
+// Bad: O(n) lookup in every iteration
+agents.filter((a) => {
+	const group = groups.find((g) => g.id === a.groupId); // O(n) per agent
+	return group && !group.collapsed;
+});
 
-const virtualizer = useVirtualizer({
-  count: messages.length,
-  getScrollElement: () => scrollRef.current,
-  estimateSize: () => 80,
-  overscan: 5,
+// Good: O(1) lookup with memoized Map
+const groupsById = useMemo(() => new Map(groups.map((g) => [g.id, g])), [groups]);
+agents.filter((a) => {
+	const group = groupsById.get(a.groupId); // O(1)
+	return group && !group.collapsed;
 });
 ```
 
-### IPC
+### Timers & Intervals
 
-- **Parallelize** independent IPC calls with `Promise.all` rather than awaiting
-  them sequentially.
-- **Minimize payload size** -- send only the data the renderer needs, not entire
-  objects.
+- **Prefer longer intervals** - 3 seconds instead of 1 second for non-critical updates
+- **Use `setTimeout` sparingly** - consider if the delay is truly necessary
+- **Clean up all timers** in `useEffect` cleanup functions
+- **Avoid polling** - use event-driven updates via IPC when possible
 
-### General
+```typescript
+// RightPanel.tsx uses 3-second intervals for elapsed time updates
+intervalRef.current = setInterval(updateElapsed, 3000); // Not 1000ms
+```
 
-- Avoid synchronous file I/O in the main process -- it blocks the event loop.
-- Use `worker_threads` for CPU-intensive operations (parsing large outputs,
-  computing statistics).
-- Profile before optimizing. Use the React Profiler and Electron DevTools
-  Performance tab to identify actual bottlenecks.
+### Memory & Cleanup
 
----
+- **Remove event listeners** in cleanup functions
+- **Clear Maps and Sets** when no longer needed
+- **Use WeakMap/WeakSet** for caches that should allow garbage collection
+- **Limit log buffer sizes** - truncate old entries when buffers grow large
 
-## 11. Debugging Guide
+### IPC & Data Transfer
 
-### Electron DevTools
+- **Batch IPC calls** - combine multiple small calls into fewer larger ones
+- **Debounce persistence** - use `useDebouncedPersistence` for settings that change frequently
+- **Stream large data** - don't load entire files into memory when streaming is possible
 
-Open the Chromium DevTools in the renderer process:
+### Profiling
 
-- **Keyboard:** `Ctrl+Shift+I` (Windows/Linux) or `Cmd+Option+I` (macOS).
-- **Menu:** View -> Toggle Developer Tools.
-
-### Logger Levels
-
-Maestro uses a structured logger with the following levels:
-
-| Level   | When to Use                                    |
-| ------- | ---------------------------------------------- |
-| `error` | Unrecoverable failures, crashes.               |
-| `warn`  | Recoverable issues, deprecations.              |
-| `info`  | Significant lifecycle events (start, stop).    |
-| `debug` | Detailed operational information.              |
-| `trace` | Very verbose, per-message or per-frame output. |
-
-Set the log level via the `LOG_LEVEL` environment variable:
+**React DevTools (Standalone):** For profiling React renders and inspecting component trees:
 
 ```bash
-LOG_LEVEL=debug npm run dev
+# Install globally (once)
+npm install -g react-devtools
+
+# Launch the standalone app
+npx react-devtools
 ```
 
-### React Profiler
+Then run `npm run dev` — the app auto-connects (connection script in `src/renderer/index.html`).
 
-1. Open DevTools.
-2. Switch to the **Profiler** tab.
-3. Click **Record**, perform the action you want to profile, then stop.
-4. Look for components with high render times or excessive re-renders.
+**Tabs:**
 
-### Process Monitor
+- **Components** — Inspect React component tree, props, state, hooks
+- **Profiler** — Record and analyze render performance, identify unnecessary re-renders
 
-Maestro includes a built-in process monitor that displays:
+**Profiler workflow:**
 
-- Active agent child processes and their resource usage.
-- IPC message rates and latencies.
-- Memory usage of the main and renderer processes.
+1. Click the record button (blue circle)
+2. Interact with the app (navigate, type, scroll)
+3. Stop recording
+4. Analyze the flame graph for:
+   - Components that render too often
+   - Render times per component
+   - Why a component rendered (props/state/hooks changed)
 
-Access it via the application menu or the keyboard shortcut defined in your
-settings.
+**Chrome DevTools Performance tab** (`Cmd+Option+I` → Performance):
 
-### Common Issues
+1. Record during the slow operation
+2. Look for long tasks (>50ms) blocking the main thread
+3. Identify expensive JavaScript execution or layout thrashing
 
-| Symptom                          | Likely Cause                       | Fix                                      |
-| -------------------------------- | ---------------------------------- | ---------------------------------------- |
-| Blank white window on startup    | Renderer build failed              | Run `npm run build` and check for errors. |
-| Agent not detected               | Binary not in PATH                 | Verify installation path in detector.ts. |
-| IPC timeout                      | Handler not registered             | Check handler registration in bootstrap. |
-| Stale data after settings change | Debounce delay                     | Wait 2 seconds or trigger a manual flush. |
-| High memory usage                | Non-virtualized list               | Enable virtual scrolling.                |
+## Debugging Guide
 
----
+### Focus Not Working
 
-## 12. Commit Messages
+1. Add `tabIndex={0}` or `tabIndex={-1}` to element
+2. Add `outline-none` class to hide focus ring
+3. Use `ref={(el) => el?.focus()}` for auto-focus
+4. Check for `e.stopPropagation()` blocking events
 
-Maestro follows the **Conventional Commits** specification.
+### Settings Not Persisting
 
-### Format
+1. Ensure wrapper function calls `window.maestro.settings.set()`
+2. Check loading code in `useSettings.ts` useEffect
+3. Verify the key name matches in both save and load
 
-```
-<type>(<scope>): <short description>
+### Modal Escape Not Working
 
-[optional body]
-
-[optional footer(s)]
-```
-
-### Types
-
-| Type       | Description                                          |
-| ---------- | ---------------------------------------------------- |
-| `feat`     | A new feature.                                       |
-| `fix`      | A bug fix.                                           |
-| `docs`     | Documentation-only changes.                          |
-| `style`    | Formatting, missing semicolons, etc. (no code change). |
-| `refactor` | Code change that neither fixes a bug nor adds a feature. |
-| `perf`     | Performance improvement.                             |
-| `test`     | Adding or updating tests.                            |
-| `build`    | Changes to the build system or dependencies.         |
-| `ci`       | Changes to CI configuration.                         |
-| `chore`    | Maintenance tasks.                                   |
-
-### Examples
-
-```
-feat(agents): add support for My Agent v2
-
-fix(parser): handle empty streaming chunks without crashing
-
-refactor(ipc): migrate handlers to new registry pattern
-
-test(parsers): add coverage for edge cases in Claude parser
-
-docs: update CONTRIBUTING.md with Vitest instructions
-```
-
-### Scope
-
-Use a scope that identifies the subsystem being changed. Common scopes include:
-`agents`, `parsers`, `ipc`, `renderer`, `main`, `storage`, `settings`, `themes`,
-`cli`, `web`, `e2e`, `ci`.
-
----
-
-## 13. Pull Request Process
-
-### Branch Naming
-
-Use the following convention:
-
-```
-<type>/<short-description>
-```
-
-Examples:
-
-```
-feat/add-gemini-agent
-fix/parser-streaming-crash
-refactor/ipc-handler-registry
-docs/update-contributing
-```
-
-### Before Submitting
-
-1. **Rebase** on the latest `main`:
-   ```bash
-   git fetch origin
-   git rebase origin/main
+1. Register modal with layer stack (don't handle Escape locally)
+2. Check priority in `modalPriorities.ts`
+3. Use ref pattern to avoid re-registration:
+   ```typescript
+   const onCloseRef = useRef(onClose);
+   onCloseRef.current = onClose;
    ```
 
-2. **Run all checks** locally:
+### Theme Colors Not Applying
+
+1. Use `style={{ color: theme.colors.textMain }}` instead of Tailwind color classes
+2. Check theme prop is passed to component
+3. Never use hardcoded hex colors for themed elements
+
+### Process Output Not Showing
+
+1. Check agent ID matches (with `-ai` or `-terminal` suffix)
+2. Verify `onData` listener is registered
+3. Check process spawned successfully (check pid > 0)
+4. Look for errors in DevTools console
+
+### DevTools
+
+**Electron DevTools:** Open via Quick Actions (`Cmd+K` → "Toggle DevTools") or set `DEBUG=true` env var.
+
+## Commit Messages
+
+Use conventional commits:
+
+```
+feat: new feature
+fix: bug fix
+docs: documentation changes
+refactor: code refactoring
+test: test additions/changes
+chore: build process or tooling changes
+```
+
+Example: `feat: add context usage visualization`
+
+## Pull Request Process
+
+### Automated Code Review
+
+PRs are automatically reviewed by two AI-powered tools:
+
+**[CodeRabbit](https://coderabbit.ai)** — Line-level code review. When you open or update a PR, CodeRabbit will:
+
+- Post a **PR summary** with a walkthrough of changes
+- Leave **inline review comments** on potential issues
+- Provide a **sequence diagram** for complex changes
+
+| Command                       | Effect                                          |
+| ----------------------------- | ----------------------------------------------- |
+| `@coderabbitai review`        | Trigger a full review (useful for existing PRs) |
+| `@coderabbitai summary`       | Regenerate the PR summary                       |
+| `@coderabbitai resolve`       | Resolve all CodeRabbit review comments          |
+| `@coderabbitai configuration` | Show current repo settings                      |
+
+You can reply to any CodeRabbit comment to ask follow-up questions — it responds conversationally.
+
+**[Greptile](https://greptile.com)** — Codebase-aware review with deeper architectural context. Greptile indexes the full repo and reviews PRs with understanding of how changes relate to the broader codebase.
+
+| Command     | Effect                                                        |
+| ----------- | ------------------------------------------------------------- |
+| `@greptile` | Ask Greptile a question or request a review in any PR comment |
+
+Reply to Greptile comments the same way you would CodeRabbit.
+
+### Before Opening a PR
+
+All PRs must pass these checks before review:
+
+1. **Linting passes** — Run both TypeScript and ESLint checks:
+
    ```bash
-   npm run lint
-   npm run lint:eslint
-   npm run format:check
+   npm run lint           # TypeScript type checking
+   npm run lint:eslint    # ESLint code quality
+   ```
+
+2. **Tests pass** — Run the full test suite:
+
+   ```bash
    npm test
-   npm run test:integration
    ```
 
-3. **Verify the build** completes:
+3. **Manual testing** — Test affected features in the running app:
+
    ```bash
-   npm run build
+   npm run dev
    ```
 
-### PR Template
+   Verify that:
+   - Your feature works as expected
+   - Related features still work (keyboard shortcuts, focus flow, themes)
+   - No console errors in DevTools (`Cmd+Option+I`)
+   - UI renders correctly across different themes (try at least one dark and one light)
 
-When you open a PR, fill in the template (located at
-`.github/PULL_REQUEST_TEMPLATE.md`). At minimum, include:
+### PR Checklist
 
-- **What** the PR does (summary).
-- **Why** the change is needed (motivation or linked issue).
-- **How** to test the change (manual steps or automated test pointers).
-- **Screenshots** for UI changes.
+- [ ] Linting passes (`npm run lint && npm run lint:eslint`)
+- [ ] Tests pass (`npm test`)
+- [ ] Manually tested affected features
+- [ ] No new console warnings or errors
+- [ ] Documentation updated if needed (code comments, README, or `docs/`)
+- [ ] Commit messages follow [conventional format](#commit-messages)
 
-### Review Process
+### Opening the PR
 
-1. Open a draft PR if the work is still in progress.
-2. Request review from at least one maintainer.
-3. Address all review comments. Use the "Resolve conversation" button after each
-   fix.
-4. Ensure CI passes (lint, tests, build).
-5. A maintainer will merge the PR using squash-and-merge.
+1. Create a feature branch from `main`
+2. Make your changes following the code style
+3. Complete the checklist above
+4. Push and open a PR with a clear description:
+   - What the change does
+   - Why it's needed
+   - How to test it
+   - Screenshots for UI changes
+5. CodeRabbit will automatically review your PR
+6. Address any CodeRabbit and maintainer feedback
 
-### CI Checks
+## Building for Release
 
-The following checks run automatically on every PR:
+### 0. Refresh AI Command Prompts (Optional)
 
-- TypeScript type checking (all 3 configs).
-- ESLint.
-- Prettier format check.
-- Vitest unit tests.
-- Vitest integration tests.
-- Playwright E2E tests (with 2 retries).
-- Build verification.
-
-All checks must pass before merging.
-
----
-
-## 14. Building for Release
-
-### Icon Preparation
-
-Application icons must be provided in the correct formats for each platform:
-
-| Platform | Format             | Location                |
-| -------- | ------------------ | ----------------------- |
-| macOS    | `.icns`            | `build/icon.icns`       |
-| Windows  | `.ico`             | `build/icon.ico`        |
-| Linux    | `.png` (512x512)   | `build/icon.png`        |
-
-### Version Update
-
-Use the version script to update the version number across all relevant files:
+Before releasing, check if the upstream spec-kit and OpenSpec repositories have updates:
 
 ```bash
-node scripts/set-version.mjs 0.14.6
+# Refresh GitHub's spec-kit prompts
+npm run refresh-speckit
+
+# Refresh Fission-AI's OpenSpec prompts
+npm run refresh-openspec
 ```
 
-This updates `package.json`, `package-lock.json`, and any other files that
-reference the version string.
+These scripts fetch the latest prompts from their respective repositories:
 
-### Packaging
+- **Spec-Kit**: [github/spec-kit](https://github.com/github/spec-kit) → `src/prompts/speckit/`
+- **OpenSpec**: [Fission-AI/OpenSpec](https://github.com/Fission-AI/OpenSpec) → `src/prompts/openspec/`
+
+Custom Maestro-specific prompts (`/speckit.implement`, `/openspec.implement`, `/openspec.help`) are never overwritten by the refresh scripts.
+
+Review any changes with `git diff` before committing.
+
+### 1. Prepare Icons
+
+Place icons in `build/` directory:
+
+- `icon.icns` - macOS (512x512 or 1024x1024)
+- `icon.ico` - Windows (256x256)
+- `icon.png` - Linux (512x512)
+
+### 2. Update Version
+
+Update in `package.json`:
+
+```json
+{
+	"version": "0.1.0"
+}
+```
+
+### 3. Build Distributables
 
 ```bash
-# Build the application first
-npm run build
-
-# Package for all platforms
-npm run package
+npm run package           # All platforms
+npm run package:mac       # macOS (.dmg, .zip)
+npm run package:win       # Windows (.exe)
+npm run package:linux     # Linux (.AppImage, .deb, .rpm)
 ```
 
-The packaged applications are placed in the `dist/` directory. Platform-specific
-outputs:
-
-- macOS: `.dmg` and `.zip`
-- Windows: `.exe` (NSIS installer) and `.zip`
-- Linux: `.AppImage`, `.deb`, and `.rpm`
+Output in `release/` directory.
 
 ### GitHub Actions
 
-Release builds are automated via GitHub Actions. The workflow:
-
-1. Triggers on version tags (`v*`).
-2. Builds on macOS, Windows, and Linux runners.
-3. Signs and notarizes the macOS build.
-4. Signs the Windows build.
-5. Uploads artifacts to the GitHub release.
-6. Publishes update manifests for the auto-updater.
-
-To trigger a release:
+Create a release tag to trigger automated builds:
 
 ```bash
-# After updating the version
-git tag v0.14.6
-git push origin v0.14.6
+git tag v0.1.0
+git push origin v0.1.0
 ```
 
----
+GitHub Actions will build for all platforms and create a release.
 
-## 15. Documentation
+## Documentation
 
-### Mintlify
+User documentation is hosted on [Mintlify](https://mintlify.com) at **[docs.runmaestro.ai](https://docs.runmaestro.ai)**. The source files live in the `docs/` directory.
 
-Maestro's public documentation is built with [Mintlify](https://mintlify.com) and
-hosted at **docs.runmaestro.ai**.
+### Documentation Structure
 
-Documentation source files live in the `docs/` directory at the repository root.
+```
+docs/
+├── docs.json              # Mintlify configuration (navigation, theme, links)
+├── index.md               # Homepage
+├── screenshots/           # All documentation screenshots (PNG format)
+├── assets/                # Logos, icons, favicons
+├── about/                 # Overview and background pages
+│   └── overview.md
+└── *.md                   # Feature and reference pages
+```
+
+### Page Organization
+
+Pages are organized by topic in `docs.json` under `navigation.dropdowns`:
+
+| Group               | Pages                                                                                                                                                    | Purpose                                      |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| **Overview**        | index, about/overview, features, screenshots                                                                                                             | Introduction and feature highlights          |
+| **Getting Started** | installation, getting-started                                                                                                                            | Onboarding new users                         |
+| **Usage**           | general-usage, history, context-management, autorun-playbooks, git-worktrees, group-chat, remote-access, slash-commands, speckit-commands, configuration | Feature documentation                        |
+| **Providers & CLI** | provider-notes, cli                                                                                                                                      | Provider configuration and command line docs |
+| **Reference**       | achievements, keyboard-shortcuts, troubleshooting                                                                                                        | Quick reference guides                       |
+
+### Adding a New Documentation Page
+
+1. **Create the markdown file** in `docs/`:
+
+   ```markdown
+   ---
+   title: My Feature
+   description: A brief description for SEO and navigation.
+   icon: star
+   ---
+
+   Content goes here...
+   ```
+
+2. **Add to navigation** in `docs/docs.json`:
+
+   ```json
+   {
+   	"group": "Usage",
+   	"pages": ["existing-page", "my-feature"]
+   }
+   ```
+
+3. **Reference from other pages** using relative links:
+   ```markdown
+   See [My Feature](./my-feature) for details.
+   ```
+
+### Frontmatter Fields
+
+Every documentation page needs YAML frontmatter:
+
+| Field         | Required | Description                                                                        |
+| ------------- | -------- | ---------------------------------------------------------------------------------- |
+| `title`       | Yes      | Page title (appears in navigation and browser tab)                                 |
+| `description` | Yes      | Brief description for SEO and page previews                                        |
+| `icon`        | No       | [Mintlify icon](https://mintlify.com/docs/content/components/icons) for navigation |
+
+### Screenshots
+
+All screenshots are stored in `docs/screenshots/` and referenced with relative paths.
+
+**Adding a new screenshot:**
+
+1. **Capture the screenshot** using Maestro's demo mode for clean, consistent visuals:
+
+   ```bash
+   rm -rf /tmp/maestro-demo && npm run dev:demo
+   ```
+
+2. **Save as PNG** in `docs/screenshots/` with a descriptive kebab-case name:
+
+   ```
+   docs/screenshots/my-feature-overview.png
+   docs/screenshots/my-feature-settings.png
+   ```
+
+3. **Reference in markdown** using relative paths:
+   ```markdown
+   ![My Feature](./screenshots/my-feature-overview.png)
+   ```
+
+**Screenshot guidelines:**
+
+- Use **PNG format** for UI screenshots (better quality for text)
+- Capture at **standard resolution** (avoid Retina 2x for smaller file sizes, or use 2x for crisp details)
+- Use a **consistent theme** (Pedurple is used in most existing screenshots)
+- **Crop to relevant area** — don't include unnecessary whitespace or system UI
+- Keep file sizes reasonable (compress if over 1MB)
+
+### Assets
+
+Static assets like logos and icons live in `docs/assets/`:
+
+| File                    | Usage                                   |
+| ----------------------- | --------------------------------------- |
+| `icon.png`              | Main logo (used in light and dark mode) |
+| `icon.ico`              | Favicon                                 |
+| `made-with-maestro.svg` | Badge for README                        |
+| `maestro-app-icon.png`  | High-res app icon                       |
+
+Reference assets with `/assets/` paths in `docs.json` configuration.
+
+### Mintlify Features
+
+Documentation supports Mintlify components:
+
+```markdown
+<Note>
+This is an informational note.
+</Note>
+
+<Warning>
+This is a warning message.
+</Warning>
+
+<Tip>
+This is a helpful tip.
+</Tip>
+```
+
+**Embed videos:**
+
+```markdown
+<iframe width="560" height="315"
+  src="https://www.youtube.com/embed/VIDEO_ID"
+  title="Video Title"
+  frameborder="0"
+  allowfullscreen>
+</iframe>
+```
+
+**Tables, code blocks, and standard markdown** all work as expected.
 
 ### Local Preview
 
-To preview documentation changes locally:
+Mintlify provides a CLI for local preview. Install and run:
 
 ```bash
-# Install the Mintlify CLI (one-time)
-npm install -g mintlify
-
-# Start the local preview server
+npm i -g mintlify
 cd docs
 mintlify dev
 ```
 
-The preview server runs at `http://localhost:3000` by default.
+This starts a local server at `http://localhost:3000` with hot reload.
 
-### Writing Documentation
+### MCP Server
 
-- Use MDX format (Markdown + JSX components).
-- Follow the existing structure in `docs/mint.json` for navigation.
-- Include code examples for all API references.
-- Add screenshots for UI-related documentation.
-- Test all code examples to ensure they work.
+Maestro provides a hosted MCP (Model Context Protocol) server that allows AI applications to search the documentation:
 
-### Deployment
+**Server URL:** `https://docs.runmaestro.ai/mcp`
 
-Documentation is deployed automatically when changes to the `docs/` directory are
-merged to `main`. The Mintlify GitHub integration handles the build and deployment.
+**Available Tools:**
 
----
+- `SearchMaestro` - Search the Maestro knowledge base for documentation, code examples, and guides
 
-## 16. MCP Server
-
-Maestro exposes a **Model Context Protocol (MCP)** server that allows external
-tools and agents to search and interact with Maestro data.
-
-### SearchMaestro Tool
-
-The primary MCP tool is `SearchMaestro`, which provides full-text search across
-sessions, messages, and agent outputs:
+To connect from Claude Desktop or Claude Code, add to your MCP configuration:
 
 ```json
 {
-  "name": "SearchMaestro",
-  "description": "Search across Maestro sessions and conversations",
-  "parameters": {
-    "query": {
-      "type": "string",
-      "description": "The search query"
-    },
-    "filters": {
-      "type": "object",
-      "properties": {
-        "agent": { "type": "string" },
-        "dateRange": { "type": "object" },
-        "sessionId": { "type": "string" }
-      }
-    }
-  }
+	"mcpServers": {
+		"maestro": {
+			"url": "https://docs.runmaestro.ai/mcp"
+		}
+	}
 }
 ```
 
-### Developing MCP Extensions
+See [MCP Server documentation](https://docs.runmaestro.ai/mcp-server) for full details.
 
-When adding new MCP tools:
+### Deployment
 
-1. Define the tool schema following the MCP specification.
-2. Implement the handler in the MCP server module.
-3. Register the tool in the server's tool manifest.
-4. Add integration tests that exercise the tool via the MCP protocol.
-5. Document the tool in the public documentation.
+Documentation is automatically deployed when changes to `docs/` are pushed to `main`. Mintlify handles the build and hosting.
 
----
+## Questions?
 
-## Getting Help
-
-- **Issues:** Open an issue on GitHub for bug reports and feature requests.
-- **Discussions:** Use GitHub Discussions for questions and general conversation.
-- **Documentation:** See [docs.runmaestro.ai](https://docs.runmaestro.ai) for
-  user-facing documentation.
-
-Thank you for contributing to Maestro!
+Open a GitHub Discussion or create an Issue.

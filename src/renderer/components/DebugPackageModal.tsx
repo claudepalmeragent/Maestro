@@ -8,7 +8,7 @@
  * - Generate the package with a progress indicator
  */
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Package, Check, Loader2, FolderOpen, AlertCircle, Copy } from 'lucide-react';
 import type { Theme } from '../types';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
@@ -31,7 +31,6 @@ interface PreviewCategory {
 type GenerationState = 'idle' | 'generating' | 'success' | 'error';
 
 export function DebugPackageModal({ theme, isOpen, onClose }: DebugPackageModalProps) {
-	const addToast = notifyToast;
 	const generateButtonRef = useRef<HTMLButtonElement>(null);
 
 	// Category selection state
@@ -112,7 +111,7 @@ export function DebugPackageModal({ theme, isOpen, onClose }: DebugPackageModalP
 			if (result.success && result.path) {
 				setGenerationState('success');
 				setResultPath(result.path);
-				addToast({
+				notifyToast({
 					type: 'success',
 					title: 'Debug Package Created',
 					message: `Package saved to ${result.path}`,
@@ -120,7 +119,7 @@ export function DebugPackageModal({ theme, isOpen, onClose }: DebugPackageModalP
 			} else {
 				setGenerationState('error');
 				setErrorMessage(result.error || 'Unknown error occurred');
-				addToast({
+				notifyToast({
 					type: 'error',
 					title: 'Debug Package Failed',
 					message: result.error || 'Failed to create debug package',
@@ -130,13 +129,13 @@ export function DebugPackageModal({ theme, isOpen, onClose }: DebugPackageModalP
 			console.error('[DebugPackageModal] Generation failed:', err);
 			setGenerationState('error');
 			setErrorMessage(err instanceof Error ? err.message : 'Unknown error');
-			addToast({
+			notifyToast({
 				type: 'error',
 				title: 'Debug Package Failed',
 				message: err instanceof Error ? err.message : 'Failed to create debug package',
 			});
 		}
-	}, [categories, addToast]);
+	}, [categories]);
 
 	// Reveal the generated file in Finder
 	const handleRevealInFinder = useCallback(() => {
@@ -159,7 +158,7 @@ export function DebugPackageModal({ theme, isOpen, onClose }: DebugPackageModalP
 			navigator.clipboard
 				.writeText(resultPath)
 				.then(() => {
-					addToast({
+					notifyToast({
 						type: 'success',
 						title: 'Copied',
 						message: 'File path copied to clipboard',
@@ -167,7 +166,7 @@ export function DebugPackageModal({ theme, isOpen, onClose }: DebugPackageModalP
 				})
 				.catch(console.error);
 		}
-	}, [resultPath, addToast]);
+	}, [resultPath]);
 
 	if (!isOpen) return null;
 
@@ -362,7 +361,7 @@ export function DebugPackageModal({ theme, isOpen, onClose }: DebugPackageModalP
 							<strong style={{ color: theme.colors.textMain }}>To submit:</strong>
 						</p>
 						<ol className="list-decimal list-inside space-y-1">
-							<li>Open a GitHub issue at github.com/pedramamini/Maestro/issues</li>
+							<li>Open a GitHub issue at github.com/RunMaestro/Maestro/issues</li>
 							<li>Describe the problem you encountered</li>
 							<li>Attach the generated zip file</li>
 						</ol>

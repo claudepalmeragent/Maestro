@@ -16,6 +16,7 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { AutoRunSetupModal } from '../../../renderer/components/AutoRunSetupModal';
 import { LayerStackProvider } from '../../../renderer/contexts/LayerStackContext';
 import type { Theme } from '../../../renderer/types';
+import { formatShortcutKeys } from '../../../renderer/utils/shortcutFormatter';
 
 // Create a test theme
 const createTestTheme = (overrides: Partial<Theme['colors']> = {}): Theme => ({
@@ -1491,7 +1492,10 @@ describe('AutoRunSetupModal', () => {
 			});
 
 			const browseButton = screen.getByTestId('folder-icon').closest('button');
-			expect(browseButton).toHaveAttribute('title', 'Browse folders (Cmd+O)');
+			expect(browseButton).toHaveAttribute(
+				'title',
+				`Browse folders (${formatShortcutKeys(['Meta', 'o'])})`
+			);
 		});
 	});
 });

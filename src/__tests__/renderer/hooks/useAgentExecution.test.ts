@@ -190,6 +190,96 @@ describe('useAgentExecution', () => {
 		expect(updatedSession.aiTabs[0].state).toBe('idle');
 	});
 
+	it('uses raw stdin prompt delivery for local Windows batch runs when stream-json input is unsupported', async () => {
+		const originalPlatform = (window as any).maestro?.platform;
+		(window as any).maestro = { ...((window as any).maestro || {}), platform: 'win32' };
+		const session = createMockSession({ toolType: 'codex' });
+		const sessionsRef = { current: [session] };
+		const setSessions = vi.fn();
+		const processQueuedItemRef = { current: null };
+
+		vi.mocked(window.maestro.agents.get).mockResolvedValueOnce({
+			id: 'codex',
+			command: 'codex',
+			args: ['exec', '--json'],
+			capabilities: { supportsStreamJsonInput: false },
+		});
+
+		const { result } = renderHook(() =>
+			useAgentExecution({
+				activeSession: session,
+				sessionsRef,
+				setSessions,
+				processQueuedItemRef,
+				setFlashNotification: vi.fn(),
+				setSuccessFlashNotification: vi.fn(),
+			})
+		);
+
+		const spawnPromise = result.current.spawnAgentForSession(session.id, 'Test prompt');
+
+		await waitFor(() => {
+			expect(mockProcess.spawn).toHaveBeenCalledTimes(1);
+		});
+
+		const spawnConfig = mockProcess.spawn.mock.calls[0][0];
+		expect(spawnConfig.sendPromptViaStdin).toBe(false);
+		expect(spawnConfig.sendPromptViaStdinRaw).toBe(true);
+
+		const targetSessionId = spawnConfig.sessionId as string;
+		act(() => {
+			onExitHandler?.(targetSessionId);
+		});
+		await spawnPromise;
+		(window as any).maestro.platform = originalPlatform;
+	});
+
+	it('does not enable local stdin flags for SSH batch runs', async () => {
+		const platformSpy = vi.spyOn(window.navigator, 'platform', 'get').mockReturnValue('Win32');
+		const session = createMockSession({
+			toolType: 'codex',
+			sessionSshRemoteConfig: { enabled: true, remoteId: 'remote-1' },
+		});
+		const sessionsRef = { current: [session] };
+		const setSessions = vi.fn();
+		const processQueuedItemRef = { current: null };
+
+		vi.mocked(window.maestro.agents.get).mockResolvedValueOnce({
+			id: 'codex',
+			command: 'codex',
+			args: ['exec', '--json'],
+			capabilities: { supportsStreamJsonInput: false },
+		});
+
+		const { result } = renderHook(() =>
+			useAgentExecution({
+				activeSession: session,
+				sessionsRef,
+				setSessions,
+				processQueuedItemRef,
+				setFlashNotification: vi.fn(),
+				setSuccessFlashNotification: vi.fn(),
+			})
+		);
+
+		const spawnPromise = result.current.spawnAgentForSession(session.id, 'Test prompt');
+
+		await waitFor(() => {
+			expect(mockProcess.spawn).toHaveBeenCalledTimes(1);
+		});
+
+		const spawnConfig = mockProcess.spawn.mock.calls[0][0];
+		expect(spawnConfig.sendPromptViaStdin).toBe(false);
+		expect(spawnConfig.sendPromptViaStdinRaw).toBe(false);
+
+		const targetSessionId = spawnConfig.sessionId as string;
+		act(() => {
+			onExitHandler?.(targetSessionId);
+		});
+		await spawnPromise;
+		platformSpy.mockRestore();
+	});
+
 	it('queues the next item and logs queued messages', async () => {
 		const queuedItem: QueuedItem = {
 			id: 'queued-1',
@@ -343,5 +433,83 @@ describe('useAgentExecution', () => {
 
 		expect(setFlashNotification).toHaveBeenCalledWith(null);
 		expect(setSuccessFlashNotification).toHaveBeenCalledWith(null);
+	});
+
+	it('cancels pending synopsis sessions when cancelPendingSynopsis is called', async () => {
+		const mockKill = vi.fn().mockResolvedValue(true);
+		window.maestro.process.kill = mockKill;
+
+		const session = createMockSession();
+		const sessionsRef = { current: [session] };
+		const setSessions = vi.fn();
+
+		const { result } = renderHook(() =>
+			useAgentExecution({
+				activeSession: session,
+				sessionsRef,
+				setSessions,
+				processQueuedItemRef: { current: null },
+				setFlashNotification: vi.fn(),
+				setSuccessFlashNotification: vi.fn(),
+			})
+		);
+
+		// Spawn a synopsis session (don't wait for it to complete)
+		const spawnPromise = result.current.spawnBackgroundSynopsis(
+			session.id,
+			session.cwd,
+			'resume-123',
+			'Summarize session',
+			'claude-code'
+		);
+
+		await waitFor(() => {
+			expect(mockProcess.spawn).toHaveBeenCalledTimes(1);
+		});
+
+		// Cancel the pending synopsis
+		await act(async () => {
+			await result.current.cancelPendingSynopsis(session.id);
+		});
+
+		// Should have called kill on the synopsis session
+		expect(mockKill).toHaveBeenCalledTimes(1);
+		expect(mockKill.mock.calls[0][0]).toMatch(new RegExp(`^${session.id}-synopsis-\\d+$`));
+
+		// Clean up: trigger exit so the promise resolves
+		const spawnConfig = mockProcess.spawn.mock.calls[0][0];
+		const targetSessionId = spawnConfig.sessionId as string;
+		act(() => {
+			onExitHandler?.(targetSessionId);
+		});
+
+		await spawnPromise;
+	});
+
+	it('does nothing when cancelPendingSynopsis is called with no pending synopses', async () => {
+		const mockKill = vi.fn().mockResolvedValue(true);
+		window.maestro.process.kill = mockKill;
+
+		const session = createMockSession();
+		const sessionsRef = { current: [session] };
+
+		const { result } = renderHook(() =>
+			useAgentExecution({
+				activeSession: session,
+				sessionsRef,
+				setSessions: vi.fn(),
+				processQueuedItemRef: { current: null },
+				setFlashNotification: vi.fn(),
+				setSuccessFlashNotification: vi.fn(),
+			})
+		);
+
+		// Cancel with no pending synopses
+		await act(async () => {
+			await result.current.cancelPendingSynopsis(session.id);
+		});
+
+		// Should not have called kill
+		expect(mockKill).not.toHaveBeenCalled();
 	});
 });

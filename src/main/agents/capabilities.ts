@@ -71,16 +71,16 @@ export interface AgentCapabilities {
 	supportsContextExport: boolean;
 
 	/** Agent supports inline wizard structured output conversations */
-	supportsWizard?: boolean;
+	supportsWizard: boolean;
 
 	/** Agent can serve as a group chat moderator */
-	supportsGroupChatModeration?: boolean;
+	supportsGroupChatModeration: boolean;
 
 	/** Agent uses JSON line (JSONL) output format in CLI batch mode */
-	usesJsonLineOutput?: boolean;
+	usesJsonLineOutput: boolean;
 
 	/** Agent uses a combined input+output context window (vs separate limits) */
-	usesCombinedContextWindow?: boolean;
+	usesCombinedContextWindow: boolean;
 
 	/** How images should be handled on resume when -i flag is not available.
 	 * 'prompt-embed': Save images to temp files and embed file paths in the prompt text.
@@ -203,7 +203,7 @@ export const AGENT_CAPABILITIES: Record<string, AgentCapabilities> = {
 		supportsJsonOutput: true, // --json flag - Verified
 		supportsSessionId: true, // thread_id in thread.started event - Verified
 		supportsImageInput: true, // -i, --image flag - Documented
-		supportsImageInputOnResume: false, // Codex resume subcommand doesn't support -i flag - Verified
+		supportsImageInputOnResume: true, // Images are written to disk and paths embedded in prompt text (codex exec resume doesn't support -i flag)
 		supportsSlashCommands: false, // None - Verified
 		supportsSessionStorage: true, // ~/.codex/sessions/YYYY/MM/DD/*.jsonl - Verified
 		supportsCostTracking: false, // Token counts only - Codex doesn't provide cost, pricing varies by model
@@ -289,6 +289,39 @@ export const AGENT_CAPABILITIES: Record<string, AgentCapabilities> = {
 	},
 
 	/**
+	 * OpenCode - Open source coding assistant
+	 * https://github.com/opencode-ai/opencode
+	 *
+	 * Verified capabilities based on CLI testing and documentation review.
+	 * See Auto Run Docs/OpenCode-Support.md for investigation details.
+	 */
+	opencode: {
+		supportsResume: true, // --session flag (sessionID in output) - Verified
+		supportsReadOnlyMode: true, // --agent plan (plan mode) - Verified
+		supportsJsonOutput: true, // --format json - Verified
+		supportsSessionId: true, // sessionID in JSON output (camelCase) - Verified
+		supportsImageInput: true, // -f, --file flag documented - Documented
+		supportsImageInputOnResume: true, // -f flag works with --session flag - Documented
+		supportsSlashCommands: false, // Not investigated
+		supportsSessionStorage: true, // ~/.local/share/opencode/storage/ (JSON files) - Verified
+		supportsCostTracking: true, // part.cost in step_finish events - Verified
+		supportsUsageStats: true, // part.tokens in step_finish events - Verified
+		supportsBatchMode: true, // run subcommand (auto-approves all permissions) - Verified
+		requiresPromptToStart: true, // OpenCode requires 'run' subcommand with prompt, no interactive mode via PTY
+		supportsStreaming: true, // Streams JSONL events - Verified
+		supportsResultMessages: true, // step_finish with part.reason:"stop" - Verified
+		supportsModelSelection: true, // --model provider/model (e.g., 'ollama/qwen3:8b') - Verified
+		supportsStreamJsonInput: false, // Uses positional arguments for prompt
+		supportsThinkingDisplay: true, // Emits streaming text chunks
+		supportsContextMerge: true, // Can receive merged context via prompts
+		supportsContextExport: true, // Session storage supports context export
+		supportsWizard: true, // Supports inline wizard structured output
+		supportsGroupChatModeration: true, // Can serve as group chat moderator
+		usesJsonLineOutput: true, // Uses JSONL output format
+		usesCombinedContextWindow: false, // Depends on model provider
+	},
+
+	/**
 	 * Factory Droid - Enterprise AI coding assistant from Factory
 	 * https://docs.factory.ai/cli
 	 *
@@ -351,39 +384,6 @@ export const AGENT_CAPABILITIES: Record<string, AgentCapabilities> = {
 		supportsGroupChatModeration: false, // PLACEHOLDER
 		usesJsonLineOutput: false, // PLACEHOLDER
 		usesCombinedContextWindow: false, // PLACEHOLDER
-	},
-
-	/**
-	 * OpenCode - Open source coding assistant
-	 * https://github.com/opencode-ai/opencode
-	 *
-	 * Verified capabilities based on CLI testing and documentation review.
-	 * See Auto Run Docs/OpenCode-Support.md for investigation details.
-	 */
-	opencode: {
-		supportsResume: true, // --session flag (sessionID in output) - Verified
-		supportsReadOnlyMode: true, // --agent plan (plan mode) - Verified
-		supportsJsonOutput: true, // --format json - Verified
-		supportsSessionId: true, // sessionID in JSON output (camelCase) - Verified
-		supportsImageInput: true, // -f, --file flag documented - Documented
-		supportsImageInputOnResume: true, // -f flag works with --session flag - Documented
-		supportsSlashCommands: false, // Not investigated
-		supportsSessionStorage: true, // ~/.local/share/opencode/storage/ (JSON files) - Verified
-		supportsCostTracking: true, // part.cost in step_finish events - Verified
-		supportsUsageStats: true, // part.tokens in step_finish events - Verified
-		supportsBatchMode: true, // run subcommand (auto-approves all permissions) - Verified
-		requiresPromptToStart: true, // OpenCode requires 'run' subcommand with prompt, no interactive mode via PTY
-		supportsStreaming: true, // Streams JSONL events - Verified
-		supportsResultMessages: true, // step_finish with part.reason:"stop" - Verified
-		supportsModelSelection: true, // --model provider/model (e.g., 'ollama/qwen3:8b') - Verified
-		supportsStreamJsonInput: false, // Uses -f, --file flag instead
-		supportsThinkingDisplay: true, // Emits streaming text chunks
-		supportsContextMerge: true, // Can receive merged context via prompts
-		supportsContextExport: true, // Session storage supports context export
-		supportsWizard: true, // Supports inline wizard structured output
-		supportsGroupChatModeration: true, // Can serve as group chat moderator
-		usesJsonLineOutput: true, // Uses JSONL output format
-		usesCombinedContextWindow: false, // Depends on model provider
 	},
 };
 

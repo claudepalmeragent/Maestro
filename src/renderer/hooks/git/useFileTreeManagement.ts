@@ -8,9 +8,12 @@ import {
 	type FileTreeChanges,
 	type SshContext,
 	type FileTreeProgress,
+	type LocalFileTreeOptions,
 } from '../../utils/fileExplorer';
 import { fuzzyMatch } from '../../utils/search';
 import { gitService } from '../../services/git';
+import { logger } from '../../utils/logger';
+import { useFileExplorerStore } from '../../stores/fileExplorerStore';
 
 /**
  * Retry delay for file tree errors (20 seconds).
@@ -19,21 +22,60 @@ import { gitService } from '../../services/git';
 const FILE_TREE_RETRY_DELAY_MS = 20000;
 
 /**
+ * Options for building SSH context
+ */
+interface SshContextOptions {
+	/** Glob patterns to ignore when indexing remote files */
+	ignorePatterns?: string[];
+	/** Whether to honor .gitignore files on remote hosts */
+	honorGitignore?: boolean;
+}
+
+/**
  * Extract SSH context from session for remote file operations.
  * Returns undefined if no SSH remote is configured.
  *
  * Note: sshRemoteId is only set after AI agent spawns. For terminal-only SSH sessions,
  * we must fall back to sessionSshRemoteConfig.remoteId. See CLAUDE.md "SSH Remote Sessions".
  */
-function getSshContext(session: Session): SshContext | undefined {
-	const sshRemoteId = session.sshRemoteId || session.sessionSshRemoteConfig?.remoteId || undefined;
+function getSshContext(session: Session, options?: SshContextOptions): SshContext | undefined {
+	// First check if there's a spawned sshRemoteId (set by agent spawn)
+	let sshRemoteId: string | undefined = session.sshRemoteId;
+
+	// Fall back to sessionSshRemoteConfig if enabled and has a valid remoteId
+	// Note: remoteId can be `null` per the type definition, so we explicitly check for truthiness
+	if (
+		!sshRemoteId &&
+		session.sessionSshRemoteConfig?.enabled &&
+		session.sessionSshRemoteConfig?.remoteId
+	) {
+		sshRemoteId = session.sessionSshRemoteConfig.remoteId;
+	}
+
+	logger.debug('getSshContext: session.sshRemoteId', 'FileTreeManagement', {
+		sshRemoteId: session.sshRemoteId,
+	});
+	logger.debug('getSshContext: session.sessionSshRemoteConfig', 'FileTreeManagement', {
+		sessionSshRemoteConfig: session.sessionSshRemoteConfig,
+	});
+	logger.debug('getSshContext: resolved sshRemoteId', 'FileTreeManagement', { sshRemoteId });
+
 	if (!sshRemoteId) {
+		logger.debug(
+			'getSshContext: No SSH remote ID found, returning undefined',
+			'FileTreeManagement'
+		);
 		return undefined;
 	}
-	return {
+
+	const context: SshContext = {
 		sshRemoteId,
 		remoteCwd: session.remoteCwd || session.sessionSshRemoteConfig?.workingDirOverride,
+		ignorePatterns: options?.ignorePatterns,
+		honorGitignore: options?.honorGitignore,
 	};
+	logger.debug('getSshContext: Returning context', 'FileTreeManagement', context);
+	return context;
 }
 
 export type { RightPanelHandle } from '../../components/RightPanel';
@@ -53,10 +95,16 @@ export interface UseFileTreeManagementDeps {
 	activeSessionId: string | null;
 	/** Currently active session (derived from sessions) */
 	activeSession: Session | null;
-	/** File tree filter string */
-	fileTreeFilter: string;
 	/** Ref to RightPanel for refreshing history */
 	rightPanelRef: React.RefObject<RightPanelHandle | null>;
+	/** SSH remote ignore patterns (glob patterns) */
+	sshRemoteIgnorePatterns?: string[];
+	/** Whether to honor .gitignore files on remote hosts */
+	sshRemoteHonorGitignore?: boolean;
+	/** Local file indexing ignore patterns (glob patterns) */
+	localIgnorePatterns?: string[];
+	/** Whether to honor local .gitignore files */
+	localHonorGitignore?: boolean;
 }
 
 /**
@@ -92,9 +140,50 @@ export function useFileTreeManagement(
 		setSessions,
 		activeSessionId,
 		activeSession,
-		fileTreeFilter,
 		rightPanelRef,
+		sshRemoteIgnorePatterns,
+		sshRemoteHonorGitignore,
+		localIgnorePatterns,
+		localHonorGitignore,
 	} = deps;
+
+	const fileTreeFilter = useFileExplorerStore((s) => s.fileTreeFilter);
+
+	// Per-session sequence counters to discard stale file tree loads.
+	// Keyed by sessionId so loads for different sessions don't cancel each other.
+	// When a newer load starts for the same session, any in-flight load with an
+	// older sequence number will discard its result instead of calling setSessions.
+	const loadSeqMapRef = useRef<Map<string, number>>(new Map());
+
+	/** Increment and return the next sequence number for a session. */
+	const nextSeq = useCallback((sessionId: string): number => {
+		const seq = (loadSeqMapRef.current.get(sessionId) || 0) + 1;
+		loadSeqMapRef.current.set(sessionId, seq);
+		return seq;
+	}, []);
+
+	/** Check if a sequence number is stale (a newer load has started for this session). */
+	const isStale = useCallback((sessionId: string, seq: number): boolean => {
+		return seq !== loadSeqMapRef.current.get(sessionId);
+	}, []);
+
+	// Build SSH context options from settings
+	const sshContextOptions: SshContextOptions = useMemo(
+		() => ({
+			ignorePatterns: sshRemoteIgnorePatterns,
+			honorGitignore: sshRemoteHonorGitignore,
+		}),
+		[sshRemoteIgnorePatterns, sshRemoteHonorGitignore]
+	);
+
+	// Build local file tree options from settings
+	const localOptions: LocalFileTreeOptions | undefined = useMemo(
+		() =>
+			localIgnorePatterns || localHonorGitignore !== undefined
+				? { ignorePatterns: localIgnorePatterns, honorGitignore: localHonorGitignore }
+				: undefined,
+		[localIgnorePatterns, localHonorGitignore]
+	);
 
 	/**
 	 * Refresh file tree for a session and return the changes detected.
@@ -103,24 +192,40 @@ export function useFileTreeManagement(
 	 */
 	const refreshFileTree = useCallback(
 		async (sessionId: string): Promise<FileTreeChanges | undefined> => {
+			const seq = nextSeq(sessionId);
 			// Use sessionsRef to avoid dependency on sessions state (prevents timer reset on every session change)
 			const session = sessionsRef.current.find((s) => s.id === sessionId);
 			if (!session) return undefined;
 
-			// Extract SSH context for remote file operations
-			const sshContext = getSshContext(session);
+			// Extract SSH context for remote file operations (with ignore patterns)
+			const sshContext = getSshContext(session, sshContextOptions);
 
 			// Use projectRoot for file tree (consistent with Files tab header)
 			// This ensures the file tree always shows the agent's working directory, not wherever cd'd to
 			const treeRoot = session.projectRoot || session.cwd;
 
 			try {
-				// Fetch tree and stats in parallel
-				// Pass SSH context for remote file operations
-				const [newTree, stats] = await Promise.all([
-					loadFileTree(treeRoot, 10, 0, sshContext),
-					window.maestro.fs.directorySize(treeRoot, sshContext?.sshRemoteId),
-				]);
+				// Fetch stats independently — a directorySize failure should not
+				// prevent the file tree from refreshing (same as initial load).
+				const statsPromise = window.maestro.fs
+					.directorySize(treeRoot, sshContext?.sshRemoteId)
+					.catch((err) => {
+						logger.warn('directorySize failed during refresh (non-fatal)', 'FileTreeManagement', {
+							error: err?.message || 'Unknown error',
+						});
+						return undefined;
+					});
+
+				const newTree = await loadFileTree(treeRoot, 10, 0, sshContext, undefined, localOptions);
+
+				// Discard if a newer load started for this session while we were awaiting
+				if (isStale(sessionId, seq)) return undefined;
+
+				const stats = await statsPromise;
+
+				// Re-check after stats await — another load may have started during directorySize
+				if (isStale(sessionId, seq)) return undefined;
+
 				const oldTree = session.fileTree || [];
 				const changes = compareFileTrees(oldTree, newTree);
 
@@ -131,11 +236,13 @@ export function useFileTreeManagement(
 									...s,
 									fileTree: newTree,
 									fileTreeError: undefined,
-									fileTreeStats: {
-										fileCount: stats.fileCount,
-										folderCount: stats.folderCount,
-										totalSize: stats.totalSize,
-									},
+									fileTreeStats: stats
+										? {
+												fileCount: stats.fileCount,
+												folderCount: stats.folderCount,
+												totalSize: stats.totalSize,
+											}
+										: s.fileTreeStats, // Keep existing stats if refresh stats failed
 								}
 							: s
 					)
@@ -143,25 +250,15 @@ export function useFileTreeManagement(
 
 				return changes;
 			} catch (error) {
-				console.error('File tree refresh error:', error);
-				const errorMsg = (error as Error)?.message || 'Unknown error';
-				setSessions((prev) =>
-					prev.map((s) =>
-						s.id === sessionId
-							? {
-									...s,
-									fileTree: [],
-									fileTreeError: `Cannot access directory: ${treeRoot}\n${errorMsg}`,
-									fileTreeRetryAt: Date.now() + FILE_TREE_RETRY_DELAY_MS,
-									fileTreeStats: undefined,
-								}
-							: s
-					)
-				);
+				// Refresh failed — log it but preserve the existing file tree.
+				// A transient SSH failure shouldn't wipe out a working tree.
+				logger.error('File tree refresh error', 'FileTreeManagement', {
+					error: (error as Error)?.message || 'Unknown error',
+				});
 				return undefined;
 			}
 		},
-		[sessionsRef, setSessions]
+		[sessionsRef, setSessions, sshContextOptions, localOptions, nextSeq, isStale]
 	);
 
 	/**
@@ -171,6 +268,7 @@ export function useFileTreeManagement(
 	 */
 	const refreshGitFileState = useCallback(
 		async (sessionId: string) => {
+			const seq = nextSeq(sessionId);
 			const session = sessions.find((s) => s.id === sessionId);
 			if (!session) return;
 
@@ -181,17 +279,38 @@ export function useFileTreeManagement(
 				session.gitRoot ||
 				(session.inputMode === 'terminal' ? session.shellCwd || session.cwd : session.cwd);
 
-			// Extract SSH context for remote file/git operations
-			const sshContext = getSshContext(session);
+			// Extract SSH context for remote file/git operations (with ignore patterns)
+			const sshContext = getSshContext(session, sshContextOptions);
 
 			try {
-				// Refresh file tree, stats, git repo status, branches, and tags in parallel
-				// Pass SSH context for remote file operations
-				const [tree, stats, isGitRepo] = await Promise.all([
-					loadFileTree(treeRoot, 10, 0, sshContext),
-					window.maestro.fs.directorySize(treeRoot, sshContext?.sshRemoteId),
+				// Fetch stats independently — directorySize failure should not
+				// prevent the file tree or git state from refreshing.
+				const statsPromise = window.maestro.fs
+					.directorySize(treeRoot, sshContext?.sshRemoteId)
+					.catch((err) => {
+						logger.warn(
+							'directorySize failed during git refresh (non-fatal)',
+							'FileTreeManagement',
+							{
+								error: err?.message || 'Unknown error',
+							}
+						);
+						return undefined;
+					});
+
+				// Refresh file tree and git repo status in parallel
+				const [tree, isGitRepo] = await Promise.all([
+					loadFileTree(treeRoot, 10, 0, sshContext, undefined, localOptions),
 					gitService.isRepo(gitRoot, sshContext?.sshRemoteId),
 				]);
+
+				// Discard if a newer load started for this session while we were awaiting
+				if (isStale(sessionId, seq)) return;
+
+				const stats = await statsPromise;
+
+				// Re-check after stats await
+				if (isStale(sessionId, seq)) return;
 
 				let gitBranches: string[] | undefined;
 				let gitTags: string[] | undefined;
@@ -205,6 +324,9 @@ export function useFileTreeManagement(
 					gitRefsCacheTime = Date.now();
 				}
 
+				// Re-check after additional awaits (branches/tags fetch)
+				if (isStale(sessionId, seq)) return;
+
 				setSessions((prev) =>
 					prev.map((s) =>
 						s.id === sessionId
@@ -212,11 +334,13 @@ export function useFileTreeManagement(
 									...s,
 									fileTree: tree,
 									fileTreeError: undefined,
-									fileTreeStats: {
-										fileCount: stats.fileCount,
-										folderCount: stats.folderCount,
-										totalSize: stats.totalSize,
-									},
+									fileTreeStats: stats
+										? {
+												fileCount: stats.fileCount,
+												folderCount: stats.folderCount,
+												totalSize: stats.totalSize,
+											}
+										: s.fileTreeStats, // Keep existing stats if refresh stats failed
 									isGitRepo,
 									gitBranches,
 									gitTags,
@@ -230,24 +354,14 @@ export function useFileTreeManagement(
 				await window.maestro.history.reload();
 				rightPanelRef.current?.refreshHistoryPanel();
 			} catch (error) {
-				console.error('Git/file state refresh error:', error);
-				const errorMsg = (error as Error)?.message || 'Unknown error';
-				setSessions((prev) =>
-					prev.map((s) =>
-						s.id === sessionId
-							? {
-									...s,
-									fileTree: [],
-									fileTreeError: `Cannot access directory: ${treeRoot}\n${errorMsg}`,
-									fileTreeRetryAt: Date.now() + FILE_TREE_RETRY_DELAY_MS,
-									fileTreeStats: undefined,
-								}
-							: s
-					)
-				);
+				// Refresh failed — log it but preserve the existing file tree.
+				// A transient SSH failure shouldn't wipe out a working tree.
+				logger.error('Git/file state refresh error', 'FileTreeManagement', {
+					error: (error as Error)?.message || 'Unknown error',
+				});
 			}
 		},
-		[sessions, setSessions, rightPanelRef]
+		[sessions, setSessions, rightPanelRef, sshContextOptions, localOptions, nextSeq, isStale]
 	);
 
 	// Ref to track pending retry timers per session
@@ -289,16 +403,21 @@ export function useFileTreeManagement(
 				return; // Don't load now, wait for retry timer
 			}
 
-			// Extract SSH context for remote file operations
-			const sshContext = getSshContext(session);
+			// Extract SSH context for remote file operations (with ignore patterns)
+			const sshContext = getSshContext(session, sshContextOptions);
 
 			// Use projectRoot for file tree (consistent with Files tab header)
 			const treeRoot = session.projectRoot || session.cwd;
 
+			// Capture session.id for use in async callbacks to avoid stale closure.
+			// activeSessionId may change if the user switches sessions while loading,
+			// but session.id is stable and always refers to the session we started loading for.
+			const sessionId = session.id;
+
 			// Mark as loading before starting
 			setSessions((prev) =>
 				prev.map((s) =>
-					s.id === activeSessionId
+					s.id === sessionId
 						? {
 								...s,
 								fileTreeLoading: true,
@@ -312,7 +431,7 @@ export function useFileTreeManagement(
 			const onProgress = (progress: FileTreeProgress) => {
 				setSessions((prev) =>
 					prev.map((s) =>
-						s.id === activeSessionId
+						s.id === sessionId
 							? {
 									...s,
 									fileTreeLoadingProgress: {
@@ -326,16 +445,57 @@ export function useFileTreeManagement(
 				);
 			};
 
+			// Increment per-session load sequence so concurrent loads can detect staleness
+			const seq = nextSeq(sessionId);
+
 			// Load tree with progress callback for SSH sessions
 			const treePromise = sshContext
-				? loadFileTree(treeRoot, 10, 0, sshContext, onProgress)
-				: loadFileTree(treeRoot, 10, 0, sshContext);
+				? loadFileTree(treeRoot, 10, 0, sshContext, onProgress, localOptions)
+				: loadFileTree(treeRoot, 10, 0, sshContext, undefined, localOptions);
 
-			Promise.all([treePromise, window.maestro.fs.directorySize(treeRoot, sshContext?.sshRemoteId)])
-				.then(([tree, stats]) => {
+			// Fetch stats independently — a directorySize failure (e.g., `du` timeout
+			// on large repos over SSH) should not prevent the file tree from loading.
+			const statsPromise = window.maestro.fs
+				.directorySize(treeRoot, sshContext?.sshRemoteId)
+				.catch((err) => {
+					logger.warn('directorySize failed (non-fatal)', 'FileTreeManagement', {
+						error: err?.message || 'Unknown error',
+					});
+					return undefined;
+				});
+
+			treePromise
+				.then(async (tree) => {
+					// Discard if a newer load started for this session while we were awaiting
+					if (isStale(sessionId, seq)) {
+						// Reset loading state so this session can retry later
+						setSessions((prev) =>
+							prev.map((s) =>
+								s.id === sessionId
+									? { ...s, fileTreeLoading: false, fileTreeLoadingProgress: undefined }
+									: s
+							)
+						);
+						return;
+					}
+
+					const stats = await statsPromise;
+
+					// Re-check after stats await — another load may have started during directorySize
+					if (isStale(sessionId, seq)) {
+						setSessions((prev) =>
+							prev.map((s) =>
+								s.id === sessionId
+									? { ...s, fileTreeLoading: false, fileTreeLoadingProgress: undefined }
+									: s
+							)
+						);
+						return;
+					}
+
 					setSessions((prev) =>
 						prev.map((s) =>
-							s.id === activeSessionId
+							s.id === sessionId
 								? {
 										...s,
 										fileTree: tree,
@@ -343,22 +503,38 @@ export function useFileTreeManagement(
 										fileTreeRetryAt: undefined,
 										fileTreeLoading: false,
 										fileTreeLoadingProgress: undefined,
-										fileTreeStats: {
-											fileCount: stats.fileCount,
-											folderCount: stats.folderCount,
-											totalSize: stats.totalSize,
-										},
+										fileTreeStats: stats
+											? {
+													fileCount: stats.fileCount,
+													folderCount: stats.folderCount,
+													totalSize: stats.totalSize,
+												}
+											: undefined,
 									}
 								: s
 						)
 					);
 				})
 				.catch((error) => {
-					console.error('File tree error:', error);
+					// Ignore errors from stale loads — a newer load is in progress
+					if (isStale(sessionId, seq)) {
+						setSessions((prev) =>
+							prev.map((s) =>
+								s.id === sessionId
+									? { ...s, fileTreeLoading: false, fileTreeLoadingProgress: undefined }
+									: s
+							)
+						);
+						return;
+					}
+
+					logger.error('File tree error', 'FileTreeManagement', {
+						error: error?.message || 'Unknown error',
+					});
 					const errorMsg = error?.message || 'Unknown error';
 					setSessions((prev) =>
 						prev.map((s) =>
-							s.id === activeSessionId
+							s.id === sessionId
 								? {
 										...s,
 										fileTree: [],
@@ -373,7 +549,7 @@ export function useFileTreeManagement(
 					);
 				});
 		}
-	}, [activeSessionId, sessions, setSessions]);
+	}, [activeSessionId, sessions, setSessions, sshContextOptions, localOptions, nextSeq, isStale]);
 
 	// Cleanup retry timers on unmount
 	useEffect(() => {
@@ -382,6 +558,75 @@ export function useFileTreeManagement(
 			retryTimersRef.current.clear();
 		};
 	}, []);
+
+	// Re-scan file tree when local ignore patterns or honor-gitignore setting changes
+	// for sessions that have already loaded their tree (the initial-load effect won't re-run
+	// because hasLoadedOnce short-circuits it).
+	const prevLocalOptionsRef = useRef(localOptions);
+	useEffect(() => {
+		if (prevLocalOptionsRef.current === localOptions) return;
+		prevLocalOptionsRef.current = localOptions;
+
+		if (!activeSessionId) return;
+		const session = sessions.find((s) => s.id === activeSessionId);
+		if (!session || !session.fileTreeStats) return; // only re-scan already-loaded sessions
+
+		refreshFileTree(activeSessionId);
+	}, [activeSessionId, sessions, localOptions, refreshFileTree]);
+
+	/**
+	 * Migration: Fetch stats for sessions that have a file tree but no stats.
+	 * This handles sessions restored from before the stats feature was added (Dec 2025).
+	 * Only fetches stats - doesn't re-fetch the file tree since it's already loaded.
+	 */
+	useEffect(() => {
+		const session = sessions.find((s) => s.id === activeSessionId);
+		if (!session) return;
+
+		// Only migrate if: has file tree, no stats, no error, not loading
+		const needsStatsMigration =
+			session.fileTree &&
+			session.fileTree.length > 0 &&
+			session.fileTreeStats === undefined &&
+			!session.fileTreeError &&
+			!session.fileTreeLoading;
+
+		if (!needsStatsMigration) return;
+
+		// Capture stable session ID for async callback (same stale closure fix as initial load)
+		const sessionId = session.id;
+
+		// No ignore patterns needed for stats-only fetch
+		const sshContext = getSshContext(session);
+		const treeRoot = session.projectRoot || session.cwd;
+
+		// Fetch stats only (don't re-fetch tree)
+		window.maestro.fs
+			.directorySize(treeRoot, sshContext?.sshRemoteId)
+			.then((stats) => {
+				setSessions((prev) =>
+					prev.map((s) =>
+						s.id === sessionId
+							? {
+									...s,
+									fileTreeStats: {
+										fileCount: stats.fileCount,
+										folderCount: stats.folderCount,
+										totalSize: stats.totalSize,
+									},
+								}
+							: s
+					)
+				);
+			})
+			.catch((error) => {
+				// Stats fetch failed - log but don't set error state (tree is still valid)
+				logger.warn('Stats migration failed', 'FileTreeManagement', {
+					error: error?.message || 'Unknown error',
+					sessionId,
+				});
+			});
+	}, [activeSessionId, sessions, setSessions]);
 
 	/**
 	 * Filter file tree based on search query.

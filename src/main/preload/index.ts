@@ -54,6 +54,10 @@ import { createKnowledgeGraphApi } from './knowledgeGraph';
 import { createFeedbackApi } from './feedback';
 import { createGpuMonitorApi } from './gpuMonitor';
 import { createHoneycombAPI } from './honeycomb';
+import { createSymphonyApi } from './symphony';
+import { createTabNamingApi } from './tabNaming';
+import { createDirectorNotesApi } from './directorNotes';
+import { createWakatimeApi } from './wakatime';
 
 // Expose protected methods that allow the renderer process to use
 // the ipcRenderer without exposing the entire object
@@ -175,6 +179,9 @@ contextBridge.exposeInMainWorld('maestro', {
 	// App lifecycle API
 	app: createAppApi(),
 
+	// Synchronous platform string — process.platform never changes at runtime
+	platform: process.platform,
+
 	// Stats API
 	stats: createStatsApi(),
 
@@ -204,6 +211,18 @@ contextBridge.exposeInMainWorld('maestro', {
 
 	// Honeycomb API
 	honeycomb: createHoneycombAPI(),
+
+	// Symphony API (token donations / open source contributions)
+	symphony: createSymphonyApi(),
+
+	// Tab Naming API (automatic tab name generation)
+	tabNaming: createTabNamingApi(),
+
+	// Director's Notes API (unified history + synopsis)
+	directorNotes: createDirectorNotesApi(),
+
+	// WakaTime API (CLI check, API key validation)
+	wakatime: createWakatimeApi(),
 });
 
 // Re-export factory functions for external consumers (e.g., tests)
@@ -285,6 +304,14 @@ export {
 	createGpuMonitorApi,
 	// Honeycomb
 	createHoneycombAPI,
+	// Symphony
+	createSymphonyApi,
+	// Tab Naming
+	createTabNamingApi,
+	// Director's Notes
+	createDirectorNotesApi,
+	// WakaTime
+	createWakatimeApi,
 };
 
 // Re-export types for TypeScript consumers
@@ -411,7 +438,7 @@ export type {
 	// From notifications
 	NotificationApi,
 	NotificationShowResponse,
-	TtsResponse,
+	NotificationCommandResponse,
 } from './notifications';
 export type {
 	// From leaderboard
@@ -497,3 +524,43 @@ export type {
 	// From honeycomb
 	HoneycombPreloadAPI,
 } from './honeycomb';
+export type {
+	// From symphony
+	SymphonyApi,
+	SymphonyRegistry,
+	SymphonyRepository,
+	SymphonyIssue,
+	DocumentReference,
+	ClaimedByPR,
+	ActiveContribution,
+	CompletedContribution,
+	ContributorStats,
+	ContributionProgress,
+	ContributionTokenUsage,
+	SymphonyState,
+	GetRegistryResponse,
+	GetIssuesResponse,
+	GetStateResponse,
+	StartContributionParams,
+	StartContributionResponse,
+	CreateDraftPRResponse,
+	CompleteContributionResponse,
+} from './symphony';
+export type {
+	// From tabNaming
+	TabNamingApi,
+	TabNamingConfig,
+} from './tabNaming';
+export type {
+	// From directorNotes
+	DirectorNotesApi,
+	UnifiedHistoryOptions,
+	UnifiedHistoryEntry,
+	SynopsisOptions,
+	SynopsisResult,
+	SynopsisStats,
+} from './directorNotes';
+export type {
+	// From wakatime
+	WakatimeApi,
+} from './wakatime';

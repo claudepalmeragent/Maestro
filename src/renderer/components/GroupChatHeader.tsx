@@ -2,10 +2,10 @@
  * GroupChatHeader.tsx
  *
  * Header bar for the Group Chat view. Displays the chat name with participant count
- * and provides actions for rename, info, and close.
+ * and provides actions for rename and info.
  */
 
-import { X, Info, Edit2, Columns, DollarSign } from 'lucide-react';
+import { Info, Edit2, Columns, DollarSign } from 'lucide-react';
 import type { Theme, Shortcut } from '../types';
 import { formatShortcutKeys } from '../utils/shortcutFormatter';
 import { formatCost, getCostTooltip } from '../utils/costCalculation';
@@ -19,7 +19,6 @@ interface GroupChatHeaderProps {
 	totalCost?: number;
 	/** True if one or more participants don't have cost data (makes total incomplete) */
 	costIncomplete?: boolean;
-	onClose: () => void;
 	onRename: () => void;
 	onShowInfo: () => void;
 	rightPanelOpen: boolean;
@@ -33,7 +32,6 @@ export function GroupChatHeader({
 	participantCount,
 	totalCost,
 	costIncomplete,
-	onClose,
 	onRename,
 	onShowInfo,
 	rightPanelOpen,
@@ -56,6 +54,14 @@ export function GroupChatHeader({
 					className="text-lg font-semibold cursor-pointer hover:opacity-80"
 					style={{ color: theme.colors.textMain }}
 					onClick={onRename}
+					onKeyDown={(e) => {
+						if (e.key === 'Enter' || e.key === ' ') {
+							e.preventDefault();
+							onRename();
+						}
+					}}
+					tabIndex={0}
+					role="button"
 					title="Click to rename"
 				>
 					Group Chat: {name}
@@ -106,14 +112,6 @@ export function GroupChatHeader({
 					title="Info"
 				>
 					<Info className="w-5 h-5" />
-				</button>
-				<button
-					onClick={onClose}
-					className="p-2 rounded hover:opacity-80"
-					style={{ color: theme.colors.textDim }}
-					title="Close"
-				>
-					<X className="w-5 h-5" />
 				</button>
 				{!rightPanelOpen && (
 					<button

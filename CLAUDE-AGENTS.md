@@ -1,120 +1,107 @@
-# CLAUDE-AGENTS.md - Agent Support Quick Reference
+# CLAUDE-AGENTS.md
 
-> **Regenerated**: 2026-02-17
-> **Archived version**: `__MD_ARCHIVE/CLAUDE-AGENTS_20260217_182050.md`
-> **Cross-reference**: [`Codebase_Context_20260217_180422.md`](./Codebase_Context_20260217_180422.md)
+Agent support documentation for the Maestro codebase. For the main guide, see [[CLAUDE.md]]. For detailed integration instructions, see [AGENT_SUPPORT.md](AGENT_SUPPORT.md).
 
-Agent support quick reference for **Maestro v0.14.5**. For full implementation
-details, see [AGENT_SUPPORT.md](./AGENT_SUPPORT.md).
+## Supported Agents
 
----
+| ID              | Name          | Status     | Notes                                                            |
+| --------------- | ------------- | ---------- | ---------------------------------------------------------------- |
+| `claude-code`   | Claude Code   | **Active** | Primary agent, `--print --verbose --output-format stream-json`   |
+| `codex`         | Codex         | **Active** | Full support, `--json`, YOLO mode default                        |
+| `opencode`      | OpenCode      | **Active** | Multi-provider support (75+ LLMs), stub provider session storage |
+| `factory-droid` | Factory Droid | **Active** | Factory's AI coding assistant, `-o stream-json`                  |
+| `terminal`      | Terminal      | Internal   | Hidden from UI, used for shell sessions                          |
 
-## 1. Supported Agents
+## Agent Capabilities
 
-| # | Binary Name    | Display Name  | Status           |
-|---|----------------|---------------|------------------|
-| 1 | `claude`       | Claude Code   | Fully Implemented|
-| 2 | `codex`        | Codex         | Fully Implemented|
-| 3 | `opencode`     | OpenCode      | Implemented      |
-| 4 | (built-in)     | Terminal       | Built-in         |
-| 5 | `gemini`       | Gemini CLI    | Placeholder      |
-| 6 | `qwen3-coder`  | Qwen3 Coder   | Placeholder      |
-| 7 | `aider`        | Aider         | Placeholder      |
+Each agent declares capabilities that control UI feature availability. See `src/main/agents/capabilities.ts` for the full interface (23 boolean flags + 1 optional). The table below shows key capabilities; see [AGENT_SUPPORT.md](AGENT_SUPPORT.md) for the complete list.
 
-**Fully Implemented**: Complete JSON output parsing, resume support, and all
-mode flags. **Implemented**: Working output parsing and core flags.
-**Placeholder**: Agent definition exists but parser/integration is stubbed.
-**Built-in**: Native terminal session, not an external AI agent.
+| Capability                    | Description                              | UI Feature Controlled      |
+| ----------------------------- | ---------------------------------------- | -------------------------- |
+| `supportsResume`              | Can resume previous conversations        | Resume button              |
+| `supportsReadOnlyMode`        | Has plan/read-only mode                  | Read-only toggle           |
+| `supportsJsonOutput`          | Emits structured JSON                    | Output parsing             |
+| `supportsSessionId`           | Emits provider session ID                | Session ID pill            |
+| `supportsImageInput`          | Accepts image attachments                | Attach image button        |
+| `supportsImageInputOnResume`  | Accepts images when resuming             | Attach button on resume    |
+| `supportsSlashCommands`       | Has discoverable commands                | Slash autocomplete         |
+| `supportsSessionStorage`      | Persists browsable provider sessions     | Sessions browser           |
+| `supportsCostTracking`        | Reports token costs                      | Cost widget                |
+| `supportsUsageStats`          | Reports token counts                     | Context window widget      |
+| `supportsBatchMode`           | Runs per-message                         | Batch processing           |
+| `requiresPromptToStart`       | No eager spawn — needs prompt            | Deferred spawn             |
+| `supportsStreaming`           | Streams output                           | Real-time display          |
+| `supportsModelSelection`      | Supports --model flag                    | Model dropdown             |
+| `supportsResultMessages`      | Distinguishes final result               | Message classification     |
+| `supportsThinkingDisplay`     | Emits thinking/reasoning content         | Thinking panel             |
+| `supportsContextMerge`        | Can receive merged context               | Merge option               |
+| `supportsContextExport`       | Can export context                       | Export option              |
+| `supportsWizard`              | Supports inline wizard structured output | Wizard agent selection     |
+| `supportsGroupChatModeration` | Can serve as group chat moderator        | Moderator dropdown         |
+| `usesJsonLineOutput`          | Uses JSONL output in batch mode          | CLI batch parsing strategy |
+| `usesCombinedContextWindow`   | Uses combined input+output context       | Context bar display mode   |
+| `supportsStreamJsonInput`     | Accepts stream-json input via stdin      | Image input method         |
+| `imageResumeMode?`            | Image handling on resume (optional)      | Resume image strategy      |
 
----
+### Accessing Capabilities
 
-## 2. Agent Capabilities
+| Context             | Function                                   | Import                                             |
+| ------------------- | ------------------------------------------ | -------------------------------------------------- |
+| Main process        | `hasCapability(agentId, 'flagName')`       | `src/main/agents/capabilities.ts`                  |
+| Renderer callbacks  | `hasCapabilityCached(agentId, 'flagName')` | `src/renderer/hooks/agent/useAgentCapabilities.ts` |
+| Renderer components | `useAgentCapabilities(toolType)` hook      | Same file                                          |
 
-All 19 capability flags and the UI features they gate:
+### Display Names & Beta Classification
 
-| Capability Flag                    | UI Feature Gated                                      |
-|------------------------------------|-------------------------------------------------------|
-| `supportsInput`                    | Text input field in session panel                     |
-| `supportsStreamJsonInput`          | Streaming JSON input mode for structured messaging    |
-| `supportsImageInput`               | Image attachment button in input bar                  |
-| `supportsApiKeyAuth`               | API key configuration in agent settings               |
-| `supportsMaxAuth`                  | Max authentication flow (OAuth/token-based)           |
-| `supportsModelOverride`            | Model selector dropdown in session config             |
-| `supportsContextWindowOverride`    | Context window size slider in session config          |
-| `supportsReadOnlyMode`             | Read-only toggle in session toolbar                   |
-| `supportsYoloMode`                 | YOLO mode toggle (auto-approve all tool use)          |
-| `supportsResume`                   | Resume button for interrupted sessions                |
-| `supportsSlashCommands`            | Slash command palette in input bar                    |
-| `supportsPrintMode`                | Print/non-interactive output mode flag                |
-| `supportsCustomPath`               | Custom binary path override in agent settings         |
-| `supportsCustomArgs`               | Custom CLI arguments field in agent settings          |
-| `supportsCustomEnvVars`            | Environment variable editor in agent settings         |
-| `supportsStatusBar`                | Agent status bar with live metrics                    |
-| `supportsRemoteExecution`          | SSH remote execution target selector                  |
-| `supportsBatch`                    | Batch/multi-prompt execution mode                     |
-| `supportsAttachments`              | File attachment support in message input              |
+Centralized in `src/shared/agentMetadata.ts` (importable from any process):
 
----
+- `getAgentDisplayName(agentId)` — human-readable name with fallback
+- `isBetaAgent(agentId)` — beta badge check
+- `AGENT_DISPLAY_NAMES` — full `Record<AgentId, string>` map
+- `BETA_AGENTS` — `ReadonlySet<AgentId>`
 
-## 3. Agent-Specific Details
+## Agent-Specific Details
 
 ### Claude Code
 
-- **Binary**: `claude`
-- **JSON output**: `--output-format stream-json`
-- **Resume args**: `--resume --session-id <id>`
-- **Read-only mode**: `--permission-mode bypassPermissions` with read-only flag
-- **YOLO mode**: `--dangerously-skip-permissions`
+- **Binary:** `claude`
+- **JSON Output:** `--output-format stream-json`
+- **Resume:** `--resume <session-id>`
+- **Read-only:** `--permission-mode plan`
+- **Session Storage:** `~/.claude/projects/<encoded-path>/`
 
 ### Codex
 
-- **Binary**: `codex`
-- **JSON output**: `--full-json`
-- **Resume args**: `--resume <session-id>`
-- **Read-only mode**: `--read-only`
-- **YOLO mode**: `--full-auto`
+- **Binary:** `codex`
+- **JSON Output:** `--json`
+- **Batch Mode:** `exec` subcommand
+- **Resume:** `resume <thread_id>` (v0.30.0+)
+- **Read-only:** `--sandbox read-only`
+- **YOLO Mode:** `--dangerously-bypass-approvals-and-sandbox` (enabled by default)
+- **Session Storage:** `~/.codex/sessions/YYYY/MM/DD/*.jsonl`
 
 ### OpenCode
 
-- **Binary**: `opencode`
-- **JSON output**: `--json`
-- **Resume args**: `--resume <session-id>`
-- **Read-only mode**: Not supported
-- **YOLO mode**: `--yolo`
+- **Binary:** `opencode`
+- **JSON Output:** `--format json`
+- **Batch Mode:** `run` subcommand
+- **Resume:** `--session <session-id>`
+- **Read-only:** `--agent plan`
+- **YOLO Mode:** Auto-enabled in batch mode (no flag needed)
+- **Multi-Provider:** Supports 75+ LLMs including Ollama, LM Studio, llama.cpp
 
----
+## Adding New Agents
 
-## 4. Adding New Agents
+To add support for a new agent:
 
-To add a new agent to Maestro, follow these steps in order. All files reside
-under `src/main/agents/`:
+1. Add agent ID to `src/shared/agentIds.ts` → `AGENT_IDS` tuple
+2. Add agent definition to `src/main/agents/definitions.ts` → `AGENT_DEFINITIONS`
+3. Define capabilities in `src/main/agents/capabilities.ts` → `AGENT_CAPABILITIES` (23 boolean flags)
+4. Add display name and beta status to `src/shared/agentMetadata.ts` → `AGENT_DISPLAY_NAMES`, `BETA_AGENTS`
+5. Add context window default to `src/shared/agentConstants.ts` → `DEFAULT_CONTEXT_WINDOWS`
+6. Sync `AgentCapabilities` interface in renderer: `useAgentCapabilities.ts`, `types/index.ts`, `global.d.ts`
+7. (If `supportsJsonOutput`) Create output parser in `src/main/parsers/{agent}-output-parser.ts`, register in `src/main/parsers/index.ts`
+8. (If `supportsSessionStorage`) Create session storage extending `BaseSessionStorage` in `src/main/storage/`
+9. (Optional) Add error patterns to `src/main/parsers/error-patterns.ts`
 
-1. **`definitions.ts`** - Add agent metadata (binary name, display name, icon,
-   description) to the agent definitions registry.
-
-2. **`capabilities.ts`** - Define the capability flags for the new agent.
-   Set each of the 19 flags to `true` or `false` based on what the agent
-   supports.
-
-3. **`detector.ts`** - Add binary detection logic so Maestro can discover
-   whether the agent is installed and resolve its path.
-
-4. **Parser (`registerOutputParser`)** - Implement an output parser that
-   converts the agent's stdout/stderr into Maestro's normalized message
-   format. Register it via `registerOutputParser`.
-
-5. **Storage** - Ensure session persistence handles the new agent type
-   (session creation, resume, history).
-
-6. **Test** - Add unit tests for the parser and integration tests for
-   session lifecycle (start, message, resume, stop).
-
----
-
-## 5. Further Reading
-
-- [AGENT_SUPPORT.md](./AGENT_SUPPORT.md) - Full implementation details,
-  parser internals, and capability matrix deep dive.
-- [ARCHITECTURE.md](./ARCHITECTURE.md) - System architecture overview.
-- [Codebase_Context_20260217_180422.md](./Codebase_Context_20260217_180422.md) -
-  Full codebase context snapshot.
+The `agent-completeness.test.ts` CI test will fail if required steps are missed. See [AGENT_SUPPORT.md](AGENT_SUPPORT.md) for comprehensive integration documentation.

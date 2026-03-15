@@ -1,124 +1,109 @@
-# Security Policy — Maestro v0.14.5
+# Security Policy
 
-> Regenerated 2026-02-17, archived at `__MD_ARCHIVE/SECURITY_20260217_182050.md`.
-> Cross-ref `Codebase_Context_20260217_180422.md`.
+Thank you for your interest in the security of Maestro. We welcome contributions from security researchers and the broader community to help keep this project safe.
 
----
+## Reporting a Vulnerability
 
-## 1. Reporting Security Vulnerabilities
+### For Most Issues
 
-For most security issues, please open a GitHub issue with the `security` label.
+Please open a [GitHub issue](https://github.com/RunMaestro/Maestro/issues) with the `security` label. Include:
 
-For **critical vulnerabilities** that could affect users before a fix is available,
-contact the maintainer directly via email: **pedram@runmaestro.ai**
+- A clear description of the vulnerability
+- Steps to reproduce
+- Potential impact
+- Suggested fix (if you have one)
 
-## 2. Scope
+### For Serious/Critical Issues
 
-### In-Scope
+If you discover a vulnerability that could cause significant harm if disclosed publicly before a fix is available, please contact us directly:
 
-- Application code
-- IPC communication
-- Process spawning
-- File system operations
-- Web server authentication
-- SSH remote execution
-- Preload bridge security
+**Email:** pedram@runmaestro.ai
 
-### Out-of-Scope
+This allows us to develop and release a patch before public disclosure.
 
-- AI agent vulnerabilities — Claude Code, Codex, and OpenCode are external tools
-  and not maintained by this project
-- Upstream Electron/Node.js dependencies
-- Social engineering
-- Denial-of-service (DoS) attacks
-- Physical access attacks
+## Scope
 
-> **Note:** Gemini CLI, Qwen3 Coder, and Aider are placeholder agents not yet fully
-> implemented and are therefore also out-of-scope.
+### In Scope
 
-## 3. Response Timeline
+- Maestro application code (Electron main process, renderer, preload scripts)
+- IPC handler security
+- Process spawning and command execution
+- Local file system access
+- Web server and tunnel functionality
+- Authentication and session management
 
-Maestro is a **volunteer-maintained open source project**. There are no guaranteed
-response timelines for security reports. Critical issues will be prioritized as
-maintainer availability allows.
+### Out of Scope
 
-## 4. Recognition
+The following are **not** in scope for Maestro security reports:
 
-Contributors who responsibly disclose security vulnerabilities will receive credit
-in the release notes of the version containing the fix.
+- **AI agent vulnerabilities** - Security issues within Claude Code, OpenAI Codex, Gemini CLI, Qwen3 Coder, or other integrated agents are the responsibility of their respective maintainers
+- **Upstream dependencies** - Vulnerabilities in Electron, Node.js, or npm packages should be reported to those projects (though please let us know if Maestro is using a vulnerable version)
+- **Social engineering attacks**
+- **Denial of service on local application**
+- **Issues requiring physical access to the user's machine**
 
-## 5. Bug Bounty
+## Response Timeline
 
-**None.** Maestro is an open source project and does not operate a bug bounty program.
+We aim to respond to security reports as soon as possible. However, please understand that Maestro is an open source side project maintained by volunteers. Until there is a larger developer community behind it, we cannot commit to specific response timelines.
 
-## 6. Known Security Considerations
+What you can expect:
+
+- Acknowledgment of your report
+- Assessment of severity and impact
+- A fix prioritized based on severity
+- Credit in our release notes (unless you prefer to remain anonymous)
+
+## Recognition
+
+We appreciate security researchers who help improve Maestro. Contributors who report valid security issues will be:
+
+- Credited in release notes and this document (with permission)
+- Thanked publicly (unless anonymity is preferred)
+
+**Security Contributors:**
+
+- _Your name could be here!_
+
+## Bug Bounty
+
+There is no bug bounty program at this time. Maestro is an open source project without funding for monetary rewards. We hope the satisfaction of contributing to open source security and public recognition is sufficient motivation.
+
+We also welcome pull requests! If you find a vulnerability and know how to fix it, PRs are greatly appreciated.
+
+## Known Security Considerations
+
+The following are known aspects of Maestro's design that users should be aware of:
 
 ### Process Execution
 
-Agents run with user-level privileges via `child_process` and PTY. External commands
-are invoked using `execFileNoThrow`, which avoids shell execution and the associated
-injection risks.
+Maestro spawns AI agents and terminal processes with the same privileges as the user running the application. This is by design—the agents need filesystem and command access to function. Users should:
+
+- Only run Maestro on projects they trust
+- Be aware that AI agents can execute commands on your system
+- Review agent actions, especially on sensitive repositories
 
 ### Local Web Server
 
-The web interface is served via Fastify bound to `localhost`. Authentication uses a
-random UUID token that is regenerated on every restart. Requests with invalid tokens
-are redirected to `runmaestro.ai`. Rate limiting is applied on all endpoints.
+When the web/mobile interface is enabled, Maestro runs a local web server. The Cloudflare tunnel feature can expose this externally. Users should:
 
-### Tunnel Exposure
-
-An optional tunnel feature can expose the web interface externally. When enabled,
-the same token-based authentication protects the exposed endpoint.
+- Only enable tunnels when needed
+- Be aware of who has access to tunnel URLs
 
 ### IPC Security
 
-Electron is configured with hardened defaults:
-
-- `contextIsolation = true`
-- `nodeIntegration = false`
-- Hardened runtime enabled on macOS
-
-There are currently 27 preload modules exposed via `contextBridge`. The deprecated
-`window.maestro.claude.*` namespace still exists for backward compatibility — it
-emits console warnings on use and is planned for removal in a future release.
+Maestro uses Electron's IPC for communication between the main process and renderer. We follow Electron security best practices including context isolation and a minimal preload API surface.
 
 ### Sentry DSN
 
-The Sentry DSN included in the source is **public by design** (standard practice for
-client-side error reporting). Crash reporting is opt-in.
+The Sentry DSN in the codebase is a **public secret by design**. This is standard practice for client-side error reporting—the DSN is intentionally exposed to allow error telemetry. Reporting this as a vulnerability is not necessary. We monitor for abuse and will rotate keys if needed.
 
-### SSH Remote Execution
+## Security Best Practices in Codebase
 
-SSH connections use `ControlMaster` socket pooling with the following settings:
+For contributors, Maestro enforces these security patterns:
 
-- `BatchMode=yes`
-- `StrictHostKeyChecking=accept-new`
+- **Always use `execFileNoThrow`** for external commands—never shell-based execution
+- **Validate all IPC inputs** in main process handlers
+- **Minimize preload API surface**—only expose what's necessary
+- **Sanitize file paths** before filesystem operations
 
-Socket cleanup is performed at both startup and shutdown.
-
-### Settings Sync
-
-Path values are validated to ensure they are:
-
-- Absolute paths
-- Free of null bytes
-- Free of directory traversal sequences
-- Not pointing to system directories
-
-## 7. Security Best Practices for Contributors
-
-- **Use `execFileNoThrow` for external commands** — never use `exec` or `execSync`
-  with shell interpolation.
-- **Validate IPC inputs** via the `createIpcHandler()` envelope pattern.
-- **Minimize the preload API surface** — avoid exposing new APIs through the bridge
-  unless strictly necessary.
-- **Sanitize file paths** — reject any input containing traversal sequences.
-- **Web server input validation** — sanitize `sessionId` and `tabId` parameters
-  with the `[a-zA-Z0-9_-]+` regex pattern.
-- **No secrets in debug packages** — API keys and conversation content must be
-  excluded from any debug or diagnostic output.
-
----
-
-*This document covers the security posture of Maestro as of v0.14.5. For questions
-or clarifications, reach out via GitHub issues or the maintainer email above.*
+See [CLAUDE.md](CLAUDE.md) and [CONTRIBUTING.md](CONTRIBUTING.md) for more details.

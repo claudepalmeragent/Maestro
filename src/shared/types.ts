@@ -1,23 +1,21 @@
 // Shared type definitions for Maestro CLI and Electron app
 // These types are used by both the CLI tool and the renderer process
 
+// Re-export agent ID constants and types from the single source of truth
 export { AGENT_IDS, isValidAgentId } from './agentIds';
 export type { AgentId } from './agentIds';
 
-import type { AgentId } from './agentIds';
-
 /**
- * ToolType is the legacy name for AgentId.
- * Includes 'claude' for backward compatibility with existing sessions/data
- * that predate the 'claude-code' rename.
+ * Union type of all valid agent IDs.
+ * Derived from AGENT_IDS — the single source of truth in agentIds.ts.
  */
-export type ToolType = AgentId | 'claude';
+export type ToolType = import('./agentIds').AgentId;
 
 /**
  * ThinkingMode controls how AI reasoning/thinking content is displayed.
- * - 'off': No thinking content shown (default)
- * - 'on': Show thinking for the current message only (temporary)
- * - 'sticky': Show thinking persistently until explicitly toggled off
+ * - 'off': Thinking is suppressed (not shown)
+ * - 'on': Thinking is shown while streaming, cleared when final response arrives
+ * - 'sticky': Thinking is shown and remains visible after the final response
  */
 export type ThinkingMode = 'off' | 'on' | 'sticky';
 
@@ -177,6 +175,16 @@ export interface WorktreeConfig {
 	prTargetBranch: string;
 }
 
+// Target specification for dispatching Auto Run to a worktree agent
+export interface WorktreeRunTarget {
+	mode: 'existing-open' | 'existing-closed' | 'create-new';
+	sessionId?: string;
+	worktreePath?: string;
+	baseBranch?: string;
+	newBranchName?: string;
+	createPROnCompletion: boolean;
+}
+
 // Configuration for starting a batch run
 export interface BatchRunConfig {
 	documents: BatchDocumentEntry[];
@@ -184,6 +192,7 @@ export interface BatchRunConfig {
 	loopEnabled: boolean;
 	maxLoops?: number | null;
 	worktree?: WorktreeConfig;
+	worktreeTarget?: WorktreeRunTarget;
 }
 
 // Agent configuration

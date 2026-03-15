@@ -46,6 +46,7 @@ export function AboutModal({
 }: AboutModalProps) {
 	const [globalStats, setGlobalStats] = useState<GlobalAgentStats | null>(null);
 	const [loading, setLoading] = useState(true);
+	const [isStatsComplete, setIsStatsComplete] = useState(false);
 	const [showRemoteBreakdown, setShowRemoteBreakdown] = useState(false);
 	const [isRefreshing, setIsRefreshing] = useState(false);
 	const badgeEscapeHandlerRef = useRef<(() => boolean) | null>(null);
@@ -73,6 +74,9 @@ export function AboutModal({
 		const unsubscribe = window.maestro.agentSessions.onGlobalStatsUpdate((stats) => {
 			setGlobalStats(stats);
 			setLoading(false);
+			if (stats.isComplete) {
+				setIsStatsComplete(true);
+			}
 		});
 
 		// Trigger the stats calculation (which will send streaming updates)
@@ -83,6 +87,9 @@ export function AboutModal({
 				// Use returned stats as fallback if streaming updates didn't arrive
 				setGlobalStats((current) => current ?? stats);
 				setLoading(false);
+				if (stats.isComplete) {
+					setIsStatsComplete(true);
+				}
 			})
 			.catch((error) => {
 				console.error('Failed to load global agent stats:', error);
@@ -354,9 +361,26 @@ export function AboutModal({
 										className="flex justify-between col-span-2 pt-2 border-t relative"
 										style={{ borderColor: theme.colors.border }}
 									>
-										<span style={{ color: theme.colors.textDim }}>
-											Hands-on Time: {formatDuration(handsOnTimeMs)}
-										</span>
+										{handsOnTimeMs > 0 && (
+											<span style={{ color: theme.colors.textDim }}>
+												Hands-on Time: {formatDuration(handsOnTimeMs)}
+											</span>
+										)}
+										{!handsOnTimeMs && globalStats.hasCostData && (
+											<span style={{ color: theme.colors.textDim }}>Total Cost</span>
+										)}
+										{globalStats.hasCostData && (
+											<span
+												className={`font-mono font-bold ${!isStatsComplete ? 'animate-pulse' : ''}`}
+												style={{ color: theme.colors.success }}
+											>
+												$
+												{(globalStats.totalCostUsd ?? 0).toLocaleString('en-US', {
+													minimumFractionDigits: 2,
+													maximumFractionDigits: 2,
+												})}
+											</span>
+										)}
 									</div>
 								)}
 
@@ -522,7 +546,7 @@ export function AboutModal({
 					{/* Project Link */}
 					<button
 						onClick={() =>
-							window.maestro.shell.openExternal('https://github.com/pedramamini/Maestro')
+							window.maestro.shell.openExternal('https://github.com/RunMaestro/Maestro')
 						}
 						className="flex-1 flex items-center justify-between p-3 rounded border hover:bg-white/5 transition-colors"
 						style={{ borderColor: theme.colors.border }}

@@ -53,6 +53,7 @@ import { registerAttachmentsHandlers, AttachmentsHandlerDependencies } from './a
 import { registerWebHandlers, WebHandlerDependencies } from './web';
 import { registerLeaderboardHandlers, LeaderboardHandlerDependencies } from './leaderboard';
 import { registerNotificationsHandlers } from './notifications';
+import { registerSymphonyHandlers, SymphonyHandlerDependencies } from './symphony';
 import { registerAgentErrorHandlers } from './agent-error';
 import { registerProjectFoldersHandlers } from './projectFolders';
 import { registerPromptLibraryHandlers } from './prompt-library';
@@ -61,6 +62,9 @@ import { registerFeedbackHandlers } from './feedback';
 import { registerGpuMonitorHandlers } from './gpu-monitor';
 import { registerHoneycombHandlers } from './honeycomb';
 import { registerHoneycombCapacityHandlers } from './honeycomb-capacity-handler';
+import { registerTabNamingHandlers, TabNamingHandlerDependencies } from './tabNaming';
+import { registerDirectorNotesHandlers, DirectorNotesHandlerDependencies } from './director-notes';
+import { registerWakatimeHandlers } from './wakatime';
 import { AgentDetector } from '../../agents';
 import { ProcessManager } from '../../process-manager';
 import { WebServer } from '../../web-server';
@@ -102,6 +106,7 @@ export type { WebHandlerDependencies };
 export { registerLeaderboardHandlers };
 export type { LeaderboardHandlerDependencies };
 export { registerNotificationsHandlers };
+export { registerSymphonyHandlers };
 export { registerAgentErrorHandlers };
 export { registerProjectFoldersHandlers };
 export { registerPromptLibraryHandlers };
@@ -110,6 +115,11 @@ export { registerFeedbackHandlers };
 export { registerGpuMonitorHandlers };
 export { registerHoneycombHandlers };
 export { registerHoneycombCapacityHandlers };
+export { registerTabNamingHandlers };
+export type { TabNamingHandlerDependencies };
+export { registerDirectorNotesHandlers };
+export type { DirectorNotesHandlerDependencies };
+export { registerWakatimeHandlers };
 export type { AgentsHandlerDependencies };
 export type { ProcessHandlerDependencies };
 export type { PersistenceHandlerDependencies };
@@ -123,6 +133,7 @@ export type { StatsHandlerDependencies };
 export type { DocumentGraphHandlerDependencies };
 export type { SshRemoteHandlerDependencies };
 export type { GitHandlerDependencies };
+export type { SymphonyHandlerDependencies };
 export type { MaestroSettings, SessionsData, GroupsData };
 
 /**
@@ -196,6 +207,7 @@ export function registerAllHandlers(deps: HandlerDependencies): void {
 		agentConfigsStore: deps.agentConfigsStore,
 		settingsStore: deps.settingsStore,
 		getMainWindow: deps.getMainWindow,
+		sessionsStore: deps.sessionsStore,
 	});
 	registerPersistenceHandlers({
 		settingsStore: deps.settingsStore,
@@ -239,6 +251,7 @@ export function registerAllHandlers(deps: HandlerDependencies): void {
 		getMainWindow: deps.getMainWindow,
 		getProcessManager: deps.getProcessManager,
 		getAgentDetector: deps.getAgentDetector,
+		agentConfigsStore: deps.agentConfigsStore,
 	});
 	// Register marketplace handlers
 	registerMarketplaceHandlers({
@@ -271,6 +284,12 @@ export function registerAllHandlers(deps: HandlerDependencies): void {
 	});
 	// Register notification handlers (OS notifications and TTS)
 	registerNotificationsHandlers();
+	// Register Symphony handlers for token donation / open source contributions
+	registerSymphonyHandlers({
+		app: deps.app,
+		getMainWindow: deps.getMainWindow,
+		sessionsStore: deps.sessionsStore,
+	});
 	// Register agent error handlers (error state management)
 	registerAgentErrorHandlers();
 	// Register project folders handlers (no dependencies - uses stores directly)
@@ -287,6 +306,21 @@ export function registerAllHandlers(deps: HandlerDependencies): void {
 	registerHoneycombHandlers();
 	// Register Honeycomb capacity check handlers
 	registerHoneycombCapacityHandlers();
+	// Register tab naming handlers for automatic tab naming
+	registerTabNamingHandlers({
+		getProcessManager: deps.getProcessManager,
+		getAgentDetector: deps.getAgentDetector,
+		agentConfigsStore: deps.agentConfigsStore,
+		settingsStore: deps.settingsStore,
+	});
+	// Register Director's Notes handlers (unified history + synopsis)
+	registerDirectorNotesHandlers({
+		getProcessManager: deps.getProcessManager,
+		getAgentDetector: deps.getAgentDetector,
+		agentConfigsStore: deps.agentConfigsStore,
+	});
+	// Register Wakatime handlers
+	registerWakatimeHandlers();
 	// Setup logger event forwarding to renderer
 	setupLoggerEventForwarding(deps.getMainWindow);
 }

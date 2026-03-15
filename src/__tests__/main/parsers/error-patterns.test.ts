@@ -13,12 +13,14 @@ import {
 	getSshErrorPatterns,
 	registerErrorPatterns,
 	clearPatternRegistry,
-	CLAUDE_ERROR_PATTERNS,
-	OPENCODE_ERROR_PATTERNS,
-	CODEX_ERROR_PATTERNS,
 	SSH_ERROR_PATTERNS,
 	type AgentErrorPatterns,
 } from '../../../main/parsers/error-patterns';
+
+// Access per-agent patterns via the registry (single public API)
+const CLAUDE_ERROR_PATTERNS = getErrorPatterns('claude-code');
+const OPENCODE_ERROR_PATTERNS = getErrorPatterns('opencode');
+const CODEX_ERROR_PATTERNS = getErrorPatterns('codex');
 
 describe('error-patterns', () => {
 	describe('CLAUDE_ERROR_PATTERNS', () => {
@@ -326,11 +328,11 @@ describe('error-patterns', () => {
 				expect(result?.type).toBe('rate_limited');
 			});
 
-			it('should mark quota exceeded as not recoverable', () => {
+			it('should mark quota exceeded as recoverable', () => {
 				const result = matchErrorPattern(CLAUDE_ERROR_PATTERNS, 'quota exceeded');
 				expect(result).not.toBeNull();
 				expect(result?.type).toBe('rate_limited');
-				expect(result?.recoverable).toBe(false);
+				expect(result?.recoverable).toBe(true);
 			});
 		});
 
@@ -467,7 +469,7 @@ describe('error-patterns', () => {
 					const result = matchErrorPattern(CODEX_ERROR_PATTERNS, 'quota exceeded');
 					expect(result).not.toBeNull();
 					expect(result?.type).toBe('rate_limited');
-					expect(result?.recoverable).toBe(false);
+					expect(result?.recoverable).toBe(true);
 				});
 			});
 
@@ -864,8 +866,8 @@ describe('error-patterns', () => {
 				],
 			};
 
-			registerErrorPatterns('aider', customPatterns);
-			const patterns = getErrorPatterns('aider');
+			registerErrorPatterns('factory-droid', customPatterns);
+			const patterns = getErrorPatterns('factory-droid');
 			expect(patterns).toBe(customPatterns);
 		});
 

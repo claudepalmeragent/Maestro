@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import type { Session, Theme } from '../../types';
 import { getStatusColor } from '../../utils/theme';
 import { SessionTooltipContent } from './SessionTooltipContent';
@@ -9,24 +9,24 @@ interface CollapsedSessionPillProps {
 	theme: Theme;
 	activeBatchSessionIds: string[];
 	leftSidebarWidth: number;
+	contextWarningYellowThreshold: number;
+	contextWarningRedThreshold: number;
 	getFileCount: (sessionId: string) => number;
 	getWorktreeChildren: (parentId: string) => Session[];
 	setActiveSessionId: (id: string) => void;
-	resolvedBillingMode?: 'api' | 'max';
-	isMaxSubscriber?: boolean;
 }
 
-export function CollapsedSessionPill({
+export const CollapsedSessionPill = memo(function CollapsedSessionPill({
 	session,
 	keyPrefix,
 	theme,
 	activeBatchSessionIds,
 	leftSidebarWidth,
+	contextWarningYellowThreshold,
+	contextWarningRedThreshold,
 	getFileCount,
 	getWorktreeChildren,
 	setActiveSessionId,
-	resolvedBillingMode,
-	isMaxSubscriber = false,
 }: CollapsedSessionPillProps) {
 	const [tooltipPosition, setTooltipPosition] = useState<{ x: number; y: number } | null>(null);
 
@@ -34,7 +34,6 @@ export function CollapsedSessionPill({
 	const allSessions = [session, ...worktreeChildren];
 	const hasWorktrees = worktreeChildren.length > 0;
 
-	// Single pill container that takes flex-1 space
 	return (
 		<div
 			key={`${keyPrefix}-${session.id}`}
@@ -50,35 +49,49 @@ export function CollapsedSessionPill({
 				return (
 					<div
 						key={`${keyPrefix}-part-${s.id}`}
+						role="button"
+						tabIndex={0}
+						aria-label={`Switch to ${s.name}`}
 						className={`group/segment relative flex-1 h-full ${isInBatch ? 'animate-pulse' : ''}`}
 						style={{
-							...(s.toolType === 'claude' && !s.agentSessionId && !isInBatch
+							...(s.toolType === 'claude-code' && !s.agentSessionId && !isInBatch
 								? { border: `1px solid ${theme.colors.textDim}`, backgroundColor: 'transparent' }
 								: {
 										backgroundColor: isInBatch
 											? theme.colors.warning
 											: getStatusColor(s.state, theme),
 									}),
-							// Rounded ends only on first/last
 							borderRadius: hasWorktrees
 								? `${isFirst ? '9999px' : '0'} ${isLast ? '9999px' : '0'} ${isLast ? '9999px' : '0'} ${isFirst ? '9999px' : '0'}`
 								: '9999px',
 						}}
 						onMouseEnter={(e) => setTooltipPosition({ x: e.clientX, y: e.clientY })}
 						onMouseLeave={() => setTooltipPosition(null)}
+						onFocus={(e) =>
+							setTooltipPosition({
+								x: e.currentTarget.getBoundingClientRect().x,
+								y: e.currentTarget.getBoundingClientRect().y,
+							})
+						}
+						onBlur={() => setTooltipPosition(null)}
 						onClick={(e) => {
 							e.stopPropagation();
 							setActiveSessionId(s.id);
 						}}
+						onKeyDown={(e) => {
+							if (e.key === 'Enter' || e.key === ' ') {
+								e.preventDefault();
+								e.stopPropagation();
+								setActiveSessionId(s.id);
+							}
+						}}
 					>
-						{/* Unread indicator - only on last segment */}
 						{hasUnreadTabs && isLast && (
 							<div
 								className="absolute -right-0.5 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full"
 								style={{ backgroundColor: theme.colors.error }}
 							/>
 						)}
-						{/* Hover Tooltip - per segment */}
 						<div
 							className="fixed rounded px-3 py-2 z-[100] opacity-0 group-hover/segment:opacity-100 pointer-events-none transition-opacity shadow-xl"
 							style={{
@@ -94,14 +107,8 @@ export function CollapsedSessionPill({
 								theme={theme}
 								gitFileCount={getFileCount(s.id)}
 								isInBatch={isInBatch}
-								resolvedBillingMode={
-									s.toolType === 'claude-code' || s.toolType === 'claude'
-										? resolvedBillingMode
-										: 'api'
-								}
-								isMaxSubscriber={
-									(s.toolType === 'claude-code' || s.toolType === 'claude') && isMaxSubscriber
-								}
+								contextWarningYellowThreshold={contextWarningYellowThreshold}
+								contextWarningRedThreshold={contextWarningRedThreshold}
 							/>
 						</div>
 					</div>
@@ -109,4 +116,4 @@ export function CollapsedSessionPill({
 			})}
 		</div>
 	);
-}
+});

@@ -73,6 +73,21 @@ export * from './gpu';
 export * from './utils';
 
 // ============================================================================
+// Tabs Module - Tab management handlers
+// ============================================================================
+export * from './tabs';
+
+// ============================================================================
+// Group Chat Module - Group chat handlers and effects
+// ============================================================================
+export * from './groupChat';
+
+// ============================================================================
+// Modal Module - Modal lifecycle handlers
+// ============================================================================
+export * from './modal';
+
+// ============================================================================
 // Props Module - Memoized props hooks for major components
 // ============================================================================
 export * from './props';
@@ -80,8 +95,17 @@ export * from './props';
 // ============================================================================
 // Stats Module - Usage statistics and dashboard data
 // ============================================================================
-export { useStats, useComputedStats } from './useStats';
-export type { StatsTimeRange, StatsAggregation, UseStatsReturn, ComputedStats } from './useStats';
+export * from './stats';
+
+// ============================================================================
+// Worktree Module - Worktree management handlers
+// ============================================================================
+export * from './worktree';
+
+// ============================================================================
+// Wizard Module - Wizard lifecycle and command handlers
+// ============================================================================
+export * from './wizard';
 
 // ============================================================================
 // Project Folders Module - Project folder management

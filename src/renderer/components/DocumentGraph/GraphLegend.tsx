@@ -6,14 +6,15 @@
  * - External link nodes: Smaller pill-shaped nodes with domain
  * - Internal edges: Solid lines connecting markdown documents
  * - External edges: Dashed lines connecting to external domains
- * - Keyboard shortcuts: Arrow keys to navigate, Enter to recenter, O to open
+ * - Keyboard shortcuts: Arrow keys to navigate, Enter to preview, O to open
  *
  * The legend is theme-aware and uses the same colors as the actual mind map elements.
  */
 
-import React, { memo } from 'react';
+import { memo } from 'react';
 import { X, AlertTriangle, ExternalLink } from 'lucide-react';
 import type { Theme } from '../../types';
+import { formatShortcutKeys } from '../../utils/shortcutFormatter';
 
 /**
  * Props for the GraphLegend component
@@ -85,20 +86,24 @@ const KEYBOARD_SHORTCUTS: KeyboardShortcutItem[] = [
 		description: 'Navigate between nodes',
 	},
 	{
+		keys: 'Space',
+		description: 'Focus node in graph',
+	},
+	{
 		keys: 'Enter',
-		description: 'Recenter on focused node',
+		description: 'Preview document in-graph',
 	},
 	{
 		keys: 'O',
-		description: 'Open file in preview',
-	},
-	{
-		keys: '⌘F',
-		description: 'Focus search',
+		description: 'Open in main preview',
 	},
 	{
 		keys: 'Esc',
-		description: 'Close panel / modal',
+		description: 'Close preview / modal',
+	},
+	{
+		keys: formatShortcutKeys(['Meta', 'f']),
+		description: 'Focus search',
 	},
 ];
 

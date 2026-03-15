@@ -7,6 +7,14 @@
  */
 
 import type { ToolType } from '../../shared/types';
+import {
+	DEFAULT_CONTEXT_WINDOWS,
+	COMBINED_CONTEXT_AGENTS,
+	FALLBACK_CONTEXT_WINDOW,
+} from '../../shared/agentConstants';
+
+// Re-export for consumers that import from this module
+export { DEFAULT_CONTEXT_WINDOWS } from '../../shared/agentConstants';
 
 /**
  * Model statistics from Claude Code modelUsage response
@@ -42,34 +50,18 @@ export interface UsageStats {
 }
 
 /**
- * Default context window sizes for different agents.
- * Used as fallback when the agent doesn't report its context window size.
- */
-export const DEFAULT_CONTEXT_WINDOWS: Partial<Record<ToolType, number>> = {
-	'claude-code': 200000, // Claude 3.5 Sonnet/Claude 4 default context
-	claude: 200000, // Legacy Claude
-	codex: 200000, // OpenAI o3/o4-mini context window
-	opencode: 128000, // OpenCode (depends on model, 128k is conservative default)
-	aider: 128000, // Aider (varies by model, 128k is conservative default)
-	terminal: 0, // Terminal has no context window
-};
-
-/**
- * Agents that use combined input+output context windows.
- * OpenAI models (Codex, o3, o4-mini) have a single context window that includes
- * both input and output tokens, unlike Claude which has separate limits.
- */
-const COMBINED_CONTEXT_AGENTS: Set<ToolType> = new Set(['codex']);
-
-/**
  * Calculate total context tokens based on agent-specific semantics.
  *
- * IMPORTANT: Claude Code reports CUMULATIVE session tokens, not per-request tokens.
- * The cacheReadInputTokens can exceed the context window because they accumulate
- * across all turns in the conversation. For context pressure display, we should
- * only count tokens that represent NEW context being added:
+ * For a single Anthropic API call, the total input context is the sum of:
+ *   inputTokens + cacheReadInputTokens + cacheCreationInputTokens
+ * These three fields partition the input into uncached, cache-hit, and newly-cached segments.
  *
- * Claude models: Context = input + cacheCreation (excludes cacheRead - already cached)
+ * CAVEAT: When Claude Code performs multi-tool turns (many internal API calls),
+ * the reported values may be accumulated across all internal calls within the turn.
+ * In that case the total can exceed the context window. Callers should check for
+ * this and skip the update (see estimateContextUsage).
+ *
+ * Claude models: Context = input + cacheRead + cacheCreation
  * OpenAI models: Context = input + output (combined limit)
  *
  * @param stats - The usage statistics containing token counts
@@ -83,34 +75,31 @@ export function calculateContextTokens(
 	>,
 	agentId?: ToolType
 ): number {
-	// For Claude: inputTokens = uncached new tokens, cacheCreationInputTokens = newly cached tokens
-	// cacheReadInputTokens are EXCLUDED because they represent already-cached context
-	// that Claude Code reports cumulatively across the session, not per-request.
-	// Including them would cause context % to exceed 100% impossibly.
-	const baseTokens = stats.inputTokens + (stats.cacheCreationInputTokens || 0);
-
 	// OpenAI models have combined input+output context limits
 	if (agentId && COMBINED_CONTEXT_AGENTS.has(agentId)) {
-		return baseTokens + stats.outputTokens;
+		return stats.inputTokens + (stats.cacheCreationInputTokens || 0) + stats.outputTokens;
 	}
 
-	// Claude models: output tokens don't consume context window
-	return baseTokens;
+	// Claude models: total input = uncached + cache-hit + newly-cached
+	// Output tokens don't consume the input context window
+	return (
+		stats.inputTokens + (stats.cacheReadInputTokens || 0) + (stats.cacheCreationInputTokens || 0)
+	);
 }
 
 /**
  * Estimate context usage percentage when the agent doesn't provide it directly.
  * Uses agent-specific default context window sizes for accurate estimation.
  *
- * IMPORTANT: Context calculation varies by agent:
- * - Claude models: inputTokens + cacheCreationInputTokens
- *   (cacheRead excluded - cumulative, output excluded - separate limit)
- * - OpenAI models (Codex): inputTokens + outputTokens
- *   (combined context window includes both input and output)
+ * Context calculation varies by agent:
+ * - Claude models: inputTokens + cacheReadInputTokens + cacheCreationInputTokens
+ * - OpenAI models (Codex): inputTokens + outputTokens (combined limit)
  *
- * Note: cacheReadInputTokens are NOT included because Claude Code reports them
- * as cumulative session totals, not per-request values. Including them would
- * cause context percentage to exceed 100% impossibly.
+ * Returns null when the calculated total exceeds the context window, which indicates
+ * accumulated values from multi-tool turns (many internal API calls within one turn).
+ * A single API call's total input can never exceed the context window, so values
+ * above it are definitely accumulated. Callers should preserve the previous valid
+ * percentage when this returns null.
  *
  * @param stats - The usage statistics containing token counts
  * @param agentId - The agent identifier for agent-specific context window size
@@ -130,19 +119,23 @@ export function estimateContextUsage(
 	// Calculate total context using agent-specific semantics
 	const totalContextTokens = calculateContextTokens(stats, agentId);
 
-	// If context window is provided and valid, use it
-	if (stats.contextWindow && stats.contextWindow > 0) {
-		return Math.min(100, Math.round((totalContextTokens / stats.contextWindow) * 100));
-	}
+	// Determine effective context window
+	const effectiveContextWindow =
+		stats.contextWindow && stats.contextWindow > 0
+			? stats.contextWindow
+			: agentId && agentId !== 'terminal'
+				? (DEFAULT_CONTEXT_WINDOWS[agentId] ?? 0)
+				: 0;
 
-	// If no agent specified or terminal, cannot estimate
-	if (!agentId || agentId === 'terminal') {
+	if (!effectiveContextWindow || effectiveContextWindow <= 0) {
 		return null;
 	}
 
-	// Use agent-specific default context window
-	const defaultContextWindow = DEFAULT_CONTEXT_WINDOWS[agentId];
-	if (!defaultContextWindow || defaultContextWindow <= 0) {
+	// If total exceeds context window, the values are accumulated across multiple
+	// internal API calls within a complex turn (tool use chains). A single API call's
+	// total input cannot exceed the context window. Return null to signal callers
+	// should keep the previous valid percentage.
+	if (totalContextTokens > effectiveContextWindow) {
 		return null;
 	}
 
@@ -150,7 +143,7 @@ export function estimateContextUsage(
 		return 0;
 	}
 
-	return Math.min(100, Math.round((totalContextTokens / defaultContextWindow) * 100));
+	return Math.round((totalContextTokens / effectiveContextWindow) * 100);
 }
 
 /**
@@ -182,7 +175,7 @@ export function aggregateModelUsage(
 	let maxOutputTokens = 0;
 	let maxCacheReadTokens = 0;
 	let maxCacheCreationTokens = 0;
-	let contextWindow = 200000; // Default for Claude
+	let contextWindow = FALLBACK_CONTEXT_WINDOW; // Default for Claude
 
 	if (modelUsage) {
 		for (const modelStats of Object.values(modelUsage)) {

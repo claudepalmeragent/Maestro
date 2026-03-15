@@ -188,7 +188,7 @@ export function createStatsApi() {
 
 		// Get query events with time range and optional filters
 		getStats: (
-			range: 'day' | 'week' | 'month' | 'year' | 'all',
+			range: 'day' | 'week' | 'month' | 'quarter' | 'year' | 'all',
 			filters?: {
 				agentType?: string;
 				source?: 'user' | 'auto';
@@ -210,7 +210,7 @@ export function createStatsApi() {
 
 		// Get Auto Run sessions within a time range
 		getAutoRunSessions: (
-			range: 'day' | 'week' | 'month' | 'year' | 'all'
+			range: 'day' | 'week' | 'month' | 'quarter' | 'year' | 'all'
 		): Promise<
 			Array<{
 				id: string;
@@ -243,11 +243,12 @@ export function createStatsApi() {
 		> => ipcRenderer.invoke('stats:get-autorun-tasks', autoRunSessionId),
 
 		// Get aggregated stats for dashboard display
-		getAggregation: (range: 'day' | 'week' | 'month' | 'year' | 'all'): Promise<StatsAggregation> =>
-			ipcRenderer.invoke('stats:get-aggregation', range),
+		getAggregation: (
+			range: 'day' | 'week' | 'month' | 'quarter' | 'year' | 'all'
+		): Promise<StatsAggregation> => ipcRenderer.invoke('stats:get-aggregation', range),
 
 		// Export query events to CSV
-		exportCsv: (range: 'day' | 'week' | 'month' | 'year' | 'all'): Promise<string> =>
+		exportCsv: (range: 'day' | 'week' | 'month' | 'quarter' | 'year' | 'all'): Promise<string> =>
 			ipcRenderer.invoke('stats:export-csv', range),
 
 		// Subscribe to stats updates (for real-time dashboard refresh)
@@ -271,6 +272,10 @@ export function createStatsApi() {
 		// Get database size in bytes
 		getDatabaseSize: (): Promise<number> => ipcRenderer.invoke('stats:get-database-size'),
 
+		// Get earliest stat timestamp (null if no entries)
+		getEarliestTimestamp: (): Promise<number | null> =>
+			ipcRenderer.invoke('stats:get-earliest-timestamp'),
+
 		// Record session creation (for lifecycle tracking)
 		recordSessionCreated: (event: SessionCreatedEvent): Promise<string | null> =>
 			ipcRenderer.invoke('stats:record-session-created', event),
@@ -281,7 +286,7 @@ export function createStatsApi() {
 
 		// Get session lifecycle events within a time range
 		getSessionLifecycle: (
-			range: 'day' | 'week' | 'month' | 'year' | 'all'
+			range: 'day' | 'week' | 'month' | 'quarter' | 'year' | 'all'
 		): Promise<
 			Array<{
 				id: string;
@@ -344,6 +349,20 @@ export function createStatsApi() {
 			queryCount: number;
 			models: string[];
 		}> => ipcRenderer.invoke('stats:get-free-token-stats', range),
+
+		// Get initialization result (for showing database reset notification)
+		// Returns info about whether the database was reset due to corruption
+		getInitializationResult: (): Promise<{
+			success: boolean;
+			wasReset: boolean;
+			backupPath?: string;
+			error?: string;
+			userMessage?: string;
+		} | null> => ipcRenderer.invoke('stats:get-initialization-result'),
+
+		// Clear initialization result (after user has acknowledged the notification)
+		clearInitializationResult: (): Promise<boolean> =>
+			ipcRenderer.invoke('stats:clear-initialization-result'),
 	};
 }
 

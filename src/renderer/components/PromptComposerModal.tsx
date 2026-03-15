@@ -10,13 +10,21 @@ import {
 	Brain,
 	Library,
 	Save,
+	Pin,
 } from 'lucide-react';
-import type { Theme, PromptLibraryEntry } from '../types';
+import type { Theme, PromptLibraryEntry, ThinkingMode } from '../types';
 import { useLayerStack } from '../contexts/LayerStackContext';
 import { notifyToast } from '../stores/notificationStore';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 import { estimateTokenCount } from '../../shared/formatters';
 import { PromptLibrarySearchBar } from './PromptLibrarySearchBar';
+import {
+	formatShortcutKeys,
+	formatEnterToSend,
+	formatEnterToSendTooltip,
+} from '../utils/shortcutFormatter';
+
+const EMPTY_STAGED_IMAGES: string[] = [];
 
 interface PromptComposerModalProps {
 	isOpen: boolean;
@@ -36,7 +44,7 @@ interface PromptComposerModalProps {
 	onToggleTabSaveToHistory?: () => void;
 	tabReadOnlyMode?: boolean;
 	onToggleTabReadOnlyMode?: () => void;
-	tabShowThinking?: boolean;
+	tabShowThinking?: ThinkingMode;
 	onToggleTabShowThinking?: () => void;
 	supportsThinking?: boolean;
 	enterToSend?: boolean;
@@ -63,7 +71,7 @@ export function PromptComposerModal({
 	onSubmit,
 	onSend,
 	sessionName = 'Claude',
-	stagedImages = [],
+	stagedImages = EMPTY_STAGED_IMAGES,
 	setStagedImages,
 	onImageAttachBlocked,
 	onOpenLightbox,
@@ -71,7 +79,7 @@ export function PromptComposerModal({
 	onToggleTabSaveToHistory,
 	tabReadOnlyMode = false,
 	onToggleTabReadOnlyMode,
-	tabShowThinking = false,
+	tabShowThinking = 'off',
 	onToggleTabShowThinking,
 	supportsThinking = false,
 	enterToSend = false,
@@ -279,10 +287,34 @@ export function PromptComposerModal({
 		}
 	};
 
-	// Handle paste for images
+	// Handle paste for images and text (with whitespace trimming)
 	const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
 		const items = e.clipboardData.items;
 		const hasImage = Array.from(items).some((item) => item.type.startsWith('image/'));
+
+		// Handle text paste with whitespace trimming (when no images)
+		if (!hasImage) {
+			const text = e.clipboardData.getData('text/plain');
+			if (text) {
+				const trimmedText = text.trim();
+				// Only intercept if trimming actually changed the text
+				if (trimmedText !== text) {
+					e.preventDefault();
+					const target = e.target as HTMLTextAreaElement;
+					const start = target.selectionStart ?? 0;
+					const end = target.selectionEnd ?? 0;
+					const currentValue = target.value;
+					const newValue = currentValue.slice(0, start) + trimmedText + currentValue.slice(end);
+					setValue(newValue);
+					// Set cursor position after the pasted text
+					requestAnimationFrame(() => {
+						target.selectionStart = target.selectionEnd = start + trimmedText.length;
+					});
+				}
+			}
+			return;
+		}
+
 		if (!setStagedImages) {
 			if (hasImage) {
 				e.preventDefault();
@@ -331,15 +363,25 @@ export function PromptComposerModal({
 		<div
 			className="fixed inset-0 z-50 flex items-center justify-center"
 			style={{ backgroundColor: 'rgba(0,0,0,0.7)' }}
-			onClick={(e) => {
-				if (e.target === e.currentTarget) {
-					onSubmit(value);
-					onClose();
-				}
+			onClick={() => {
+				onSubmit(value);
+				onClose();
 			}}
 		>
+			<button
+				type="button"
+				className="absolute inset-0"
+				tabIndex={-1}
+				onClick={(e) => {
+					e.stopPropagation();
+					onSubmit(value);
+					onClose();
+				}}
+				aria-label="Close prompt composer"
+			/>
 			<div
-				className="w-[90vw] h-[80vh] max-w-5xl rounded-xl border shadow-2xl flex flex-col overflow-hidden"
+				className="relative z-10 w-[90vw] h-[80vh] max-w-5xl rounded-xl border shadow-2xl flex flex-col overflow-hidden"
+				onClick={(e) => e.stopPropagation()}
 				style={{
 					backgroundColor: theme.colors.bgMain,
 					borderColor: theme.colors.border,
@@ -409,17 +451,26 @@ export function PromptComposerModal({
 						style={{ borderColor: theme.colors.border, backgroundColor: theme.colors.bgSidebar }}
 					>
 						{stagedImages.map((img, idx) => (
-							<div key={idx} className="relative group shrink-0">
+							<div key={img} className="relative group shrink-0">
 								<img
 									src={img}
+									alt={`Prompt composer staged image ${idx + 1}`}
 									className="h-16 rounded border cursor-pointer hover:opacity-80 transition-opacity"
 									style={{
 										borderColor: theme.colors.border,
 										objectFit: 'contain',
 										maxWidth: '200px',
 									}}
+									role="button"
+									tabIndex={0}
 									onClick={() => onOpenLightbox?.(img, stagedImages, 'staged')}
-									title="Click to view (⌘+Shift+L)"
+									onKeyDown={(e) => {
+										if (e.key === 'Enter' || e.key === ' ') {
+											e.preventDefault();
+											onOpenLightbox?.(img, stagedImages, 'staged');
+										}
+									}}
+									title={`Click to view (${formatShortcutKeys(['Meta', 'Shift', 'l'])})`}
 								/>
 								{setStagedImages && (
 									<button
@@ -495,7 +546,7 @@ export function PromptComposerModal({
 							style={{ color: theme.colors.textDim }}
 						>
 							<span>{value.length} characters</span>
-							<span>~{tokenCount.toLocaleString()} tokens</span>
+							<span>~{tokenCount.toLocaleString('en-US')} tokens</span>
 						</div>
 					</div>
 
@@ -535,7 +586,7 @@ export function PromptComposerModal({
 										? `1px solid ${theme.colors.accent}50`
 										: '1px solid transparent',
 								}}
-								title="Save to History (Cmd+S) - Synopsis added after each completion"
+								title={`Save to History (${formatShortcutKeys(['Meta', 's'])}) - Synopsis added after each completion`}
 							>
 								<History className="w-3 h-3" />
 								<span>History</span>
@@ -563,24 +614,44 @@ export function PromptComposerModal({
 							</button>
 						)}
 
-						{/* Show Thinking toggle - for agents that support it */}
+						{/* Show Thinking toggle - three states: 'off' | 'on' | 'sticky' */}
 						{supportsThinking && onToggleTabShowThinking && (
 							<button
 								onClick={onToggleTabShowThinking}
 								className={`flex items-center gap-1.5 text-[10px] px-2 py-1 rounded-full cursor-pointer transition-all ${
-									tabShowThinking ? '' : 'opacity-40 hover:opacity-70'
+									tabShowThinking !== 'off' ? '' : 'opacity-40 hover:opacity-70'
 								}`}
 								style={{
-									backgroundColor: tabShowThinking ? `${theme.colors.accentText}25` : 'transparent',
-									color: tabShowThinking ? theme.colors.accentText : theme.colors.textDim,
-									border: tabShowThinking
-										? `1px solid ${theme.colors.accentText}50`
-										: '1px solid transparent',
+									backgroundColor:
+										tabShowThinking === 'sticky'
+											? `${theme.colors.warning}30`
+											: tabShowThinking === 'on'
+												? `${theme.colors.accentText}25`
+												: 'transparent',
+									color:
+										tabShowThinking === 'sticky'
+											? theme.colors.warning
+											: tabShowThinking === 'on'
+												? theme.colors.accentText
+												: theme.colors.textDim,
+									border:
+										tabShowThinking === 'sticky'
+											? `1px solid ${theme.colors.warning}50`
+											: tabShowThinking === 'on'
+												? `1px solid ${theme.colors.accentText}50`
+												: '1px solid transparent',
 								}}
-								title="Show Thinking - Stream AI reasoning in real-time"
+								title={
+									tabShowThinking === 'off'
+										? 'Show Thinking - Click to stream AI reasoning'
+										: tabShowThinking === 'on'
+											? 'Thinking (temporary) - Click for sticky mode'
+											: 'Thinking (sticky) - Click to turn off'
+								}
 							>
 								<Brain className="w-3 h-3" />
 								<span>Thinking</span>
+								{tabShowThinking === 'sticky' && <Pin className="w-2.5 h-2.5" />}
 							</button>
 						)}
 
@@ -589,11 +660,11 @@ export function PromptComposerModal({
 							<button
 								onClick={onToggleEnterToSend}
 								className="flex items-center gap-1 text-[10px] opacity-50 hover:opacity-100 px-2 py-1 rounded hover:bg-white/5"
-								title={enterToSend ? 'Switch to Meta+Enter to send' : 'Switch to Enter to send'}
+								title={formatEnterToSendTooltip(enterToSend)}
 							>
 								<Keyboard className="w-3 h-3" style={{ color: theme.colors.textDim }} />
 								<span style={{ color: theme.colors.textDim }}>
-									{enterToSend ? 'Enter' : '⌘ + Enter'}
+									{formatEnterToSend(enterToSend)}
 								</span>
 							</button>
 						)}

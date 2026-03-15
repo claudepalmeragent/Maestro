@@ -32,10 +32,13 @@ import {
 	findNodeInTree,
 	countNodesInTree,
 } from '../utils/fileExplorer';
-import { getFileIcon } from '../utils/theme';
+import { getExplorerFileIcon, getExplorerFolderIcon } from '../utils/theme';
 import { useLayerStack } from '../contexts/LayerStackContext';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 import { useClickOutside } from '../hooks/ui/useClickOutside';
+import { useContextMenuPosition } from '../hooks/ui/useContextMenuPosition';
+import { getRevealLabel } from '../utils/platformUtils';
+import { safeClipboardWrite } from '../utils/clipboard';
 import { Modal, ModalFooter } from './ui/Modal';
 import { FormInput } from './ui/FormInput';
 
@@ -326,7 +329,6 @@ interface FileExplorerPanelProps {
 	setSelectedFileIndex: (index: number) => void;
 	activeFocus: FocusArea;
 	activeRightTab: string;
-	previewFile: { name: string; content: string; path: string } | null;
 	setActiveFocus: (focus: FocusArea) => void;
 	fileTreeContainerRef?: React.RefObject<HTMLDivElement>;
 	fileTreeFilterInputRef?: React.RefObject<HTMLInputElement>;
@@ -376,7 +378,6 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 		setSelectedFileIndex,
 		activeFocus,
 		activeRightTab,
-		previewFile,
 		setActiveFocus,
 		fileTreeFilterInputRef,
 		toggleFolder,
@@ -408,6 +409,8 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 	const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const isOverOverlayRef = useRef(false);
 	const autoRefreshTimerRef = useRef<NodeJS.Timeout | null>(null);
+	const autoRefreshSpinTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const autoRefreshInFlightRef = useRef(false);
 
 	// Context menu state for file tree items
 	const [contextMenu, setContextMenu] = useState<{
@@ -417,6 +420,11 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 		path: string;
 	} | null>(null);
 	const contextMenuRef = useRef<HTMLDivElement>(null);
+	const contextMenuPos = useContextMenuPosition(
+		contextMenuRef,
+		contextMenu?.x ?? 0,
+		contextMenu?.y ?? 0
+	);
 
 	// Rename modal state
 	const [renameModal, setRenameModal] = useState<{
@@ -458,8 +466,8 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 		sessionIdRef.current = session.id;
 	}, [session.id]);
 
-	// Get current auto-refresh interval from session
-	const autoRefreshInterval = session.fileTreeAutoRefreshInterval || 0;
+	// Get current auto-refresh interval from session (180s default as defense-in-depth for unmigrated sessions)
+	const autoRefreshInterval = session.fileTreeAutoRefreshInterval ?? 180;
 
 	// Handle refresh with animation and flash notification
 	const handleRefresh = useCallback(async () => {
@@ -492,9 +500,23 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 
 		// Start new timer if interval is set
 		if (autoRefreshInterval > 0) {
-			autoRefreshTimerRef.current = setInterval(() => {
-				// Use refs to get latest values without causing effect re-runs
-				refreshFileTreeRef.current(sessionIdRef.current);
+			autoRefreshTimerRef.current = setInterval(async () => {
+				// Skip if a previous auto-refresh is still in flight
+				if (autoRefreshInFlightRef.current) return;
+				autoRefreshInFlightRef.current = true;
+
+				// Brief spin animation so user can see auto-refresh is active
+				setIsRefreshing(true);
+				try {
+					await refreshFileTreeRef.current(sessionIdRef.current);
+				} catch (error) {
+					console.error('[FileExplorer] Auto-refresh failed:', error);
+				} finally {
+					autoRefreshSpinTimeoutRef.current = setTimeout(() => {
+						setIsRefreshing(false);
+						autoRefreshInFlightRef.current = false;
+					}, 500);
+				}
 			}, autoRefreshInterval * 1000);
 		}
 
@@ -504,6 +526,11 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 				clearInterval(autoRefreshTimerRef.current);
 				autoRefreshTimerRef.current = null;
 			}
+			if (autoRefreshSpinTimeoutRef.current) {
+				clearTimeout(autoRefreshSpinTimeoutRef.current);
+				autoRefreshSpinTimeoutRef.current = null;
+			}
+			autoRefreshInFlightRef.current = false;
 		};
 	}, [autoRefreshInterval]); // Only depends on the interval now
 
@@ -586,7 +613,15 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 	const handleCopyPath = useCallback(() => {
 		if (contextMenu) {
 			const absolutePath = `${session.fullPath}/${contextMenu.path}`;
-			navigator.clipboard.writeText(absolutePath);
+			safeClipboardWrite(absolutePath);
+		}
+		setContextMenu(null);
+	}, [contextMenu, session.fullPath]);
+
+	const handleOpenInDefaultApp = useCallback(() => {
+		if (contextMenu) {
+			const absolutePath = `${session.fullPath}/${contextMenu.path}`;
+			window.maestro?.shell?.openPath(absolutePath);
 		}
 		setContextMenu(null);
 	}, [contextMenu, session.fullPath]);
@@ -594,10 +629,7 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 	const handleOpenInExplorer = useCallback(() => {
 		if (contextMenu) {
 			const absolutePath = `${session.fullPath}/${contextMenu.path}`;
-			// Extract the directory path to reveal in file manager
-			const isFolder = contextMenu.node.type === 'folder';
-			const pathToOpen = isFolder ? absolutePath : absolutePath.split('/').slice(0, -1).join('/');
-			window.maestro?.shell?.openExternal(`file://${pathToOpen}`);
+			window.maestro?.shell?.showItemInFolder(absolutePath);
 		}
 		setContextMenu(null);
 	}, [contextMenu, session.fullPath]);
@@ -823,7 +855,7 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 			if (!nodes) return [];
 			if (showHiddenFiles) return nodes;
 			return nodes
-				.filter((node) => !node.name.startsWith('.'))
+				.filter((node) => !node.name.startsWith('.') || node.name === '.maestro')
 				.map((node) => ({
 					...node,
 					children: node.children ? filterHiddenFiles(node.children) : undefined,
@@ -843,11 +875,29 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 		const expandedSet = new Set(session.fileExplorerExpanded || []);
 		const isFiltering = fileTreeFilter.length > 0;
 		const result: FlattenedNode[] = [];
+		const seenPaths = new Set<string>();
 		let globalIndex = 0;
 
 		const flatten = (nodes: FileNode[], currentPath = '', depth = 0) => {
+			// Guard: deduplicate sibling nodes by name within the same parent
+			const seenNames = new Set<string>();
 			for (const node of nodes) {
+				const normalizedName = node.name.normalize('NFC');
+				if (seenNames.has(normalizedName)) {
+					console.warn('[FileExplorer] Duplicate sibling skipped:', currentPath, node.name);
+					continue;
+				}
+				seenNames.add(normalizedName);
+
 				const fullPath = currentPath ? `${currentPath}/${node.name}` : node.name;
+
+				// Guard: skip duplicate paths to prevent React key collisions
+				if (seenPaths.has(fullPath)) {
+					console.warn('[FileExplorer] Duplicate path skipped:', fullPath);
+					continue;
+				}
+				seenPaths.add(fullPath);
+
 				result.push({ node, path: fullPath, depth, globalIndex });
 				globalIndex++;
 
@@ -892,7 +942,11 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 			const isFolder = node.type === 'folder';
 			const expandedSet = new Set(session.fileExplorerExpanded || []);
 			const isExpanded = expandedSet.has(fullPath);
-			const isSelected = previewFile?.path === absolutePath;
+			// Check active file tab for selection highlighting
+			const activeFileTabPath = session.activeFileTabId
+				? session.filePreviewTabs?.find((t) => t.id === session.activeFileTabId)?.path
+				: undefined;
+			const isSelected = activeFileTabPath === absolutePath;
 			const isKeyboardSelected =
 				activeFocus === 'right' && activeRightTab === 'files' && globalIndex === selectedFileIndex;
 
@@ -918,14 +972,14 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 					style={{
 						height: `${virtualRow.size}px`,
 						transform: `translateY(${virtualRow.start}px)`,
-						paddingLeft: `${8 + depth * 16}px`,
+						paddingLeft: `${8 + (isFolder ? depth : Math.max(0, depth - 1)) * 16}px`,
 						color: change ? theme.colors.textMain : theme.colors.textDim,
 						borderLeftColor: isKeyboardSelected ? theme.colors.accent : 'transparent',
 						backgroundColor: isKeyboardSelected
 							? theme.colors.bgActivity
 							: isSelected
 								? 'rgba(255,255,255,0.1)'
-								: 'transparent',
+								: undefined,
 					}}
 					onMouseDown={(e) => {
 						// Prevent focus from leaving the filter input when filtering
@@ -952,18 +1006,19 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 					onContextMenu={(e) => handleContextMenu(e, node, fullPath, globalIndex)}
 				>
 					{indentGuides}
-					{isFolder &&
-						(isExpanded ? (
+					{isFolder ? (
+						isExpanded ? (
 							<ChevronDown className="w-3 h-3 flex-shrink-0" />
 						) : (
 							<ChevronRight className="w-3 h-3 flex-shrink-0" />
-						))}
+						)
+					) : (
+						<span className="w-3 h-3 flex-shrink-0" />
+					)}
 					<span className="flex-shrink-0">
-						{isFolder ? (
-							<Folder className="w-3.5 h-3.5" style={{ color: theme.colors.accent }} />
-						) : (
-							getFileIcon(change?.type, theme)
-						)}
+						{isFolder
+							? getExplorerFolderIcon(node.name, isExpanded, theme)
+							: getExplorerFileIcon(node.name, theme, change?.type)}
 					</span>
 					<span
 						className={`truncate min-w-0 flex-1 ${change ? 'font-medium' : ''}`}
@@ -1000,7 +1055,8 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 			session.changedFiles,
 			session.fileExplorerExpanded,
 			session.id,
-			previewFile?.path,
+			session.activeFileTabId,
+			session.filePreviewTabs,
 			activeFocus,
 			activeRightTab,
 			selectedFileIndex,
@@ -1064,7 +1120,7 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 								: session.projectRoot
 						}
 						onDoubleClick={() => {
-							navigator.clipboard.writeText(session.projectRoot);
+							safeClipboardWrite(session.projectRoot);
 							onShowFlash?.('Path copied to clipboard');
 						}}
 					>
@@ -1352,9 +1408,9 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 							backgroundColor: theme.colors.bgSidebar,
 							borderColor: theme.colors.border,
 							minWidth: '180px',
-							// Position menu, adjusting if it would go off-screen
-							top: Math.min(contextMenu.y, window.innerHeight - 200),
-							left: Math.min(contextMenu.x, window.innerWidth - 200),
+							top: contextMenuPos.top,
+							left: contextMenuPos.left,
+							opacity: contextMenuPos.ready ? 1 : 0,
 						}}
 					>
 						<div className="p-1">
@@ -1385,6 +1441,18 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 									</button>
 								)}
 
+							{/* Open in Default App option - for files only, not available over SSH */}
+							{contextMenu.node.type === 'file' && !sshRemoteId && (
+								<button
+									onClick={handleOpenInDefaultApp}
+									className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-white/10 transition-colors"
+									style={{ color: theme.colors.textMain }}
+								>
+									<ExternalLink className="w-3.5 h-3.5" style={{ color: theme.colors.accent }} />
+									<span>Open in Default App</span>
+								</button>
+							)}
+
 							{/* Divider after preview/graph options if any were shown */}
 							{contextMenu.node.type === 'file' && (
 								<div className="my-1 border-t" style={{ borderColor: theme.colors.border }} />
@@ -1400,14 +1468,14 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 								<span>Copy Path</span>
 							</button>
 
-							{/* Reveal in Finder option */}
+							{/* Reveal in Finder / Explorer option */}
 							<button
 								onClick={handleOpenInExplorer}
 								className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-white/10 transition-colors"
 								style={{ color: theme.colors.textMain }}
 							>
 								<ExternalLink className="w-3.5 h-3.5" style={{ color: theme.colors.textDim }} />
-								<span>Reveal in Finder</span>
+								<span>{getRevealLabel(window.maestro.platform)}</span>
 							</button>
 
 							{/* Divider before destructive actions */}

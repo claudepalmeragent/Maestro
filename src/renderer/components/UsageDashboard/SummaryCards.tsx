@@ -17,7 +17,7 @@
  * - Formatted values for readability
  */
 
-import React, { useMemo } from 'react';
+import React, { memo, useMemo } from 'react';
 import {
 	MessageSquare,
 	Clock,
@@ -25,12 +25,15 @@ import {
 	Bot,
 	Users,
 	Layers,
+	Sunrise,
+	Globe,
 	Zap,
+	PanelTop,
 	FileText,
 	DollarSign,
 } from 'lucide-react';
-import type { Theme } from '../../types';
-import type { StatsAggregation } from '../../hooks/useStats';
+import type { Theme, Session } from '../../types';
+import type { StatsAggregation } from '../../hooks/stats/useStats';
 import { formatTokensCompact } from '../../utils/formatters';
 
 interface SummaryCardsProps {
@@ -40,6 +43,8 @@ interface SummaryCardsProps {
 	theme: Theme;
 	/** Number of columns for responsive layout (default: 4 for 2 rows × 4 cols) */
 	columns?: number;
+	/** Sessions array for accurate agent count (filters terminal sessions) */
+	sessions?: Session[];
 }
 
 /**
@@ -93,7 +98,7 @@ interface MetricCardProps {
 	tooltip?: string;
 }
 
-function MetricCard({
+const MetricCard = memo(function MetricCard({
 	icon,
 	label,
 	value,
@@ -141,13 +146,50 @@ function MetricCard({
 			</div>
 		</div>
 	);
+});
+
+/**
+ * Format hour number (0-23) to human-readable time
+ * Examples: 0 → "12 AM", 13 → "1 PM", 9 → "9 AM"
+ */
+function formatHour(hour: number): string {
+	const suffix = hour >= 12 ? 'PM' : 'AM';
+	const displayHour = hour % 12 || 12;
+	return `${displayHour} ${suffix}`;
 }
 
-export function SummaryCards({ data, theme, columns = 4 }: SummaryCardsProps) {
+export const SummaryCards = memo(function SummaryCards({
+	data,
+	theme,
+	columns = 4,
+	sessions,
+}: SummaryCardsProps) {
+	// Count agent sessions (exclude terminal-only sessions) for accurate total
+	const agentCount = useMemo(() => {
+		if (sessions) {
+			return sessions.filter((s) => s.toolType !== 'terminal').length;
+		}
+		// Fallback to stats-based count if sessions not provided
+		return data.totalSessions;
+	}, [sessions, data.totalSessions]);
+
+	// Count open tabs across all sessions (AI + file preview)
+	const openTabCount = useMemo(() => {
+		if (!sessions) return 0;
+		return sessions.reduce((total, s) => {
+			const aiCount = s.aiTabs?.length ?? 0;
+			const fileCount = s.filePreviewTabs?.length ?? 0;
+			return total + aiCount + fileCount;
+		}, 0);
+	}, [sessions]);
+
 	// Calculate derived metrics
 	const {
 		mostActiveAgent,
 		interactiveRatio,
+		peakHour,
+		localVsRemote,
+		queriesPerSession,
 		throughputDisplay,
 		totalTokensDisplay,
 		totalTokensSubtitle,
@@ -164,6 +206,23 @@ export function SummaryCards({ data, theme, columns = 4 }: SummaryCardsProps) {
 		const totalBySource = data.bySource.user + data.bySource.auto;
 		const ratio =
 			totalBySource > 0 ? `${Math.round((data.bySource.user / totalBySource) * 100)}%` : 'N/A';
+
+		// Find peak usage hour (hour with most queries)
+		const hourWithMostQueries = data.byHour.reduce(
+			(max, curr) => (curr.count > max.count ? curr : max),
+			{ hour: 0, count: 0, duration: 0 }
+		);
+		const peak = hourWithMostQueries.count > 0 ? formatHour(hourWithMostQueries.hour) : 'N/A';
+
+		// Calculate local vs remote percentage
+		const totalByLocation = data.byLocation.local + data.byLocation.remote;
+		const localPercent =
+			totalByLocation > 0
+				? `${Math.round((data.byLocation.local / totalByLocation) * 100)}%`
+				: 'N/A';
+
+		// Calculate queries per session using agent count for consistency
+		const qps = agentCount > 0 ? (data.totalQueries / agentCount).toFixed(1) : 'N/A';
 
 		// Format throughput (tokens per second)
 		const throughput =
@@ -214,6 +273,9 @@ export function SummaryCards({ data, theme, columns = 4 }: SummaryCardsProps) {
 		return {
 			mostActiveAgent: topAgent ? topAgent[0] : 'N/A',
 			interactiveRatio: ratio,
+			peakHour: peak,
+			localVsRemote: localPercent,
+			queriesPerSession: qps,
 			throughputDisplay: throughput,
 			totalTokensDisplay: totalTokens,
 			totalTokensSubtitle: tokenSubtitle,
@@ -225,6 +287,10 @@ export function SummaryCards({ data, theme, columns = 4 }: SummaryCardsProps) {
 	}, [
 		data.byAgent,
 		data.bySource,
+		data.byHour,
+		data.byLocation,
+		agentCount,
+		data.totalQueries,
 		data.avgTokensPerSecond,
 		data.totalOutputTokens,
 		data.totalInputTokens,
@@ -238,13 +304,23 @@ export function SummaryCards({ data, theme, columns = 4 }: SummaryCardsProps) {
 	const metrics = [
 		{
 			icon: <Layers className="w-4 h-4" />,
-			label: 'Sessions',
-			value: formatNumber(data.totalSessions),
+			label: 'Agents',
+			value: formatNumber(agentCount),
+		},
+		{
+			icon: <PanelTop className="w-4 h-4" />,
+			label: 'Open Tabs',
+			value: formatNumber(openTabCount),
 		},
 		{
 			icon: <MessageSquare className="w-4 h-4" />,
 			label: 'Total Queries',
 			value: formatNumber(data.totalQueries),
+		},
+		{
+			icon: <Zap className="w-4 h-4" />,
+			label: 'Queries/Session',
+			value: queriesPerSession,
 		},
 		{
 			icon: <Clock className="w-4 h-4" />,
@@ -255,6 +331,26 @@ export function SummaryCards({ data, theme, columns = 4 }: SummaryCardsProps) {
 			icon: <Timer className="w-4 h-4" />,
 			label: 'Avg Duration',
 			value: formatDuration(data.avgDuration),
+		},
+		{
+			icon: <Sunrise className="w-4 h-4" />,
+			label: 'Peak Hour',
+			value: peakHour,
+		},
+		{
+			icon: <Bot className="w-4 h-4" />,
+			label: 'Top Agent',
+			value: mostActiveAgent,
+		},
+		{
+			icon: <Users className="w-4 h-4" />,
+			label: 'Interactive %',
+			value: interactiveRatio,
+		},
+		{
+			icon: <Globe className="w-4 h-4" />,
+			label: 'Local %',
+			value: localVsRemote,
 		},
 		{
 			icon: <Zap className="w-4 h-4" />,
@@ -274,16 +370,6 @@ export function SummaryCards({ data, theme, columns = 4 }: SummaryCardsProps) {
 			value: totalCostDisplay,
 			subtitle: totalCostSubtitle,
 			tooltip: totalCostTooltip,
-		},
-		{
-			icon: <Bot className="w-4 h-4" />,
-			label: 'Top Agent',
-			value: mostActiveAgent,
-		},
-		{
-			icon: <Users className="w-4 h-4" />,
-			label: 'Interactive %',
-			value: interactiveRatio,
 		},
 	];
 
@@ -311,6 +397,6 @@ export function SummaryCards({ data, theme, columns = 4 }: SummaryCardsProps) {
 			))}
 		</div>
 	);
-}
+});
 
 export default SummaryCards;

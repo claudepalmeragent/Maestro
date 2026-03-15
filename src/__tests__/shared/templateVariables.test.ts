@@ -58,6 +58,11 @@ describe('TEMPLATE_VARIABLES constant', () => {
 		});
 	});
 
+	it('should include conductor variables', () => {
+		const variables = TEMPLATE_VARIABLES.map((v) => v.variable);
+		expect(variables).toContain('{{CONDUCTOR_PROFILE}}');
+	});
+
 	it('should include key agent variables', () => {
 		const variables = TEMPLATE_VARIABLES.map((v) => v.variable);
 		expect(variables).toContain('{{AGENT_NAME}}');
@@ -138,6 +143,24 @@ describe('substituteTemplateVariables', () => {
 		vi.useRealTimers();
 	});
 
+	describe('Conductor Variables', () => {
+		it('should replace {{CONDUCTOR_PROFILE}} with conductorProfile', () => {
+			const context = createTestContext({
+				conductorProfile: 'Senior developer specializing in TypeScript and React',
+			});
+			const result = substituteTemplateVariables('Profile: {{CONDUCTOR_PROFILE}}', context);
+			expect(result).toBe('Profile: Senior developer specializing in TypeScript and React');
+		});
+
+		it('should replace {{CONDUCTOR_PROFILE}} with empty string when conductorProfile is undefined', () => {
+			const context = createTestContext({
+				conductorProfile: undefined,
+			});
+			const result = substituteTemplateVariables('Profile: {{CONDUCTOR_PROFILE}}', context);
+			expect(result).toBe('Profile: ');
+		});
+	});
+
 	describe('Agent Variables', () => {
 		it('should replace {{AGENT_NAME}} with session.name', () => {
 			const context = createTestContext({
@@ -183,10 +206,10 @@ describe('substituteTemplateVariables', () => {
 
 		it('should replace {{TOOL_TYPE}} with session.toolType', () => {
 			const context = createTestContext({
-				session: createTestSession({ toolType: 'aider' }),
+				session: createTestSession({ toolType: 'factory-droid' }),
 			});
 			const result = substituteTemplateVariables('Tool: {{TOOL_TYPE}}', context);
-			expect(result).toBe('Tool: aider');
+			expect(result).toBe('Tool: factory-droid');
 		});
 
 		it('should replace {{TAB_NAME}} with session.name', () => {

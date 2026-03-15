@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, memo } from 'react';
-import { GitBranch, Plus, Minus, FileEdit, FileDiff } from 'lucide-react';
+import { GitBranch, Plus, Minus, FileEdit, FileDiff, History } from 'lucide-react';
 import type { Theme } from '../types';
 import { useGitFileStatus, useGitDetail, type GitFileChange } from '../contexts/GitStatusContext';
 
@@ -10,8 +10,7 @@ interface GitStatusWidgetProps {
 	isGitRepo: boolean;
 	theme: Theme;
 	onViewDiff: () => void;
-	/** Use compact mode - just show file count without breakdown */
-	compact?: boolean;
+	onViewLog?: () => void;
 }
 
 /**
@@ -31,7 +30,7 @@ export const GitStatusWidget = memo(function GitStatusWidget({
 	isGitRepo,
 	theme,
 	onViewDiff,
-	compact = false,
+	onViewLog,
 }: GitStatusWidgetProps) {
 	// Tooltip hover state with timeout for smooth UX
 	const [tooltipOpen, setTooltipOpen] = useState(false);
@@ -67,7 +66,7 @@ export const GitStatusWidget = memo(function GitStatusWidget({
 
 	return (
 		<div
-			className="relative"
+			className="relative shrink-0"
 			onMouseEnter={() => {
 				// Clear any pending close timeout
 				if (tooltipTimeout.current) {
@@ -87,41 +86,39 @@ export const GitStatusWidget = memo(function GitStatusWidget({
 				onClick={onViewDiff}
 				className="flex items-center gap-2 px-2 py-1 rounded text-xs transition-colors hover:bg-white/5"
 				style={{ color: theme.colors.textMain }}
-				title={compact ? `+${additions} −${deletions} ~${modified}` : undefined}
+				title={`+${additions} −${deletions} ~${modified}`}
 			>
-				{compact ? (
-					// Compact mode: just show file count
-					<span className="flex items-center gap-1">
-						<FileDiff className="w-3 h-3" style={{ color: theme.colors.textDim }} />
-						<span style={{ color: theme.colors.textDim }}>{fileCount}</span>
-					</span>
-				) : (
-					// Full mode: show breakdown by type
-					<>
-						<GitBranch className="w-3 h-3" />
+				{/* Compact mode: just show file count - shown at narrow widths via CSS */}
+				<span className="header-git-status-compact flex items-center gap-1" aria-hidden="true">
+					<FileDiff className="w-3 h-3" style={{ color: theme.colors.textDim }} />
+					<span style={{ color: theme.colors.textDim }}>{fileCount}</span>
+				</span>
 
-						{additions > 0 && (
-							<span className="flex items-center gap-0.5 text-green-500">
-								<Plus className="w-3 h-3" />
-								{additions}
-							</span>
-						)}
+				{/* Full mode: show breakdown by type - shown at wider widths via CSS */}
+				<span className="header-git-status-full flex items-center gap-2">
+					<GitBranch className="w-3 h-3" />
 
-						{deletions > 0 && (
-							<span className="flex items-center gap-0.5 text-red-500">
-								<Minus className="w-3 h-3" />
-								{deletions}
-							</span>
-						)}
+					{additions > 0 && (
+						<span className="flex items-center gap-0.5 text-green-500">
+							<Plus className="w-3 h-3" />
+							{additions}
+						</span>
+					)}
 
-						{modified > 0 && (
-							<span className="flex items-center gap-0.5 text-orange-500">
-								<FileEdit className="w-3 h-3" />
-								{modified}
-							</span>
-						)}
-					</>
-				)}
+					{deletions > 0 && (
+						<span className="flex items-center gap-0.5 text-red-500">
+							<Minus className="w-3 h-3" />
+							{deletions}
+						</span>
+					)}
+
+					{modified > 0 && (
+						<span className="flex items-center gap-0.5 text-orange-500">
+							<FileEdit className="w-3 h-3" />
+							{modified}
+						</span>
+					)}
+				</span>
 			</button>
 
 			{/* Hover tooltip showing file list with GitHub-style diff bars */}
@@ -228,6 +225,19 @@ export const GitStatusWidget = memo(function GitStatusWidget({
 							<FileDiff className="w-3.5 h-3.5" style={{ color: theme.colors.textDim }} />
 							View Full Diff
 						</button>
+						{onViewLog && (
+							<button
+								onClick={onViewLog}
+								className="flex items-center justify-center gap-2 text-xs p-2 border-t w-full hover:bg-white/10 transition-colors cursor-pointer"
+								style={{
+									color: theme.colors.textDim,
+									borderColor: theme.colors.border,
+								}}
+							>
+								<History className="w-3.5 h-3.5" style={{ color: theme.colors.textDim }} />
+								View Git Log
+							</button>
+						)}
 					</div>
 				</>
 			)}

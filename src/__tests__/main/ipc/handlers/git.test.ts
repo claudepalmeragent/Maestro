@@ -10,6 +10,7 @@ import { ipcMain } from 'electron';
 import { registerGitHandlers } from '../../../../main/ipc/handlers/git';
 import * as execFile from '../../../../main/utils/execFile';
 import * as remoteGit from '../../../../main/utils/remote-git';
+import path from 'path';
 
 // Mock electron's ipcMain
 vi.mock('electron', () => ({
@@ -74,6 +75,19 @@ vi.mock('chokidar', () => ({
 	},
 }));
 
+// Mock gitSettingsStore
+vi.mock('../../../../main/services/gitSettingsStore', () => ({
+	gitSettingsStore: {
+		get: vi.fn(),
+	},
+}));
+
+// Mock remote-git
+vi.mock('../../../../main/utils/remote-git', () => ({
+	execGitRemote: vi.fn(),
+	execGit: vi.fn(),
+}));
+
 // Mock child_process for spawnSync (used in git:showFile for images)
 // The handler uses require('child_process') at runtime - need vi.hoisted for proper hoisting
 const { mockSpawnSync } = vi.hoisted(() => ({
@@ -96,6 +110,7 @@ vi.mock('child_process', () => {
 
 describe('Git IPC handlers', () => {
 	let handlers: Map<string, Function>;
+	let mockSettingsStore: any;
 
 	const mockSshRemoteConfig = {
 		id: 'ssh-remote-1',
@@ -107,9 +122,13 @@ describe('Git IPC handlers', () => {
 		workingDirectory: '/remote/project',
 	};
 
-	beforeEach(() => {
+	beforeEach(async () => {
 		// Clear mocks
 		vi.resetAllMocks();
+
+		mockSettingsStore = {
+			get: vi.fn().mockReturnValue([]),
+		};
 
 		// Capture all registered handlers
 		handlers = new Map();
@@ -119,9 +138,17 @@ describe('Git IPC handlers', () => {
 
 		// Register handlers with mock settings store
 		registerGitHandlers({
-			settingsStore: {
-				get: vi.fn().mockReturnValue([]),
-			},
+			settingsStore: mockSettingsStore,
+		});
+
+		// Set up execGit mock to dispatch to local or remote
+		const remoteGit = await import('../../../../main/utils/remote-git');
+		vi.mocked(remoteGit.execGit).mockImplementation(async (args, localCwd, sshRemote) => {
+			if (sshRemote) {
+				return remoteGit.execGitRemote(args, { sshRemote, remoteCwd: localCwd });
+			} else {
+				return execFile.execFileNoThrow('git', args, localCwd);
+			}
 		});
 	});
 
@@ -1183,6 +1210,58 @@ COMMIT_STARTdef987654321|Jane Smith|2024-01-14T09:00:00+00:00||Add feature`;
 			);
 		});
 
+		it('should use SSH remote execution when sshRemoteId is provided', async () => {
+			// Mock the remote config
+			mockSettingsStore.get.mockReturnValue([
+				{
+					id: 'ssh-remote-123',
+					enabled: true,
+					host: 'example.com',
+					user: 'testuser',
+					privateKeyPath: '/path/to/key',
+					knownHostsPath: '/path/to/known_hosts',
+				},
+			]);
+
+			const remoteGit = await import('../../../../main/utils/remote-git');
+			vi.mocked(remoteGit.execGitRemote).mockResolvedValue({
+				stdout: `COMMIT_STARTabc123|John Doe|2024-01-15T10:30:00+00:00|HEAD -> main|Initial commit
+
+  2 files changed, 50 insertions(+), 10 deletions(-)
+COMMIT_STARTdef987654321|Jane Smith|2024-01-14T09:00:00+00:00||Add feature
+
+  1 file changed, 25 insertions(+)`,
+				stderr: '',
+				exitCode: 0,
+			});
+
+			const handler = handlers.get('git:log');
+			const result = await handler!({} as any, '/test/repo', undefined, 'ssh-remote-123');
+
+			expect(remoteGit.execGitRemote).toHaveBeenCalledWith(
+				[
+					'log',
+					'--max-count=100',
+					'--pretty=format:COMMIT_START%H|%an|%ad|%D|%s',
+					'--date=iso-strict',
+					'--shortstat',
+				],
+				{
+					sshRemote: {
+						id: 'ssh-remote-123',
+						enabled: true,
+						host: 'example.com',
+						user: 'testuser',
+						privateKeyPath: '/path/to/key',
+						knownHostsPath: '/path/to/known_hosts',
+					},
+					remoteCwd: '/test/repo',
+				}
+			);
+			expect(result.entries).toHaveLength(2);
+			expect(result.entries[0].subject).toBe('Initial commit');
+		});
+
 		it('should route through SSH when sshRemoteId is provided', async () => {
 			// Re-register handlers with SSH-aware settings store
 			handlers.clear();
@@ -1280,6 +1359,46 @@ COMMIT_STARTdef987654321|Jane Smith|2024-01-14T09:00:00+00:00||Add feature`;
 			expect(result).toEqual({
 				count: 0,
 				error: 'fatal: not a git repository',
+			});
+		});
+
+		it('should use SSH remote execution when sshRemoteId is provided for git:commitCount', async () => {
+			// Mock the remote config
+			mockSettingsStore.get.mockReturnValue([
+				{
+					id: 'ssh-remote-123',
+					enabled: true,
+					host: 'example.com',
+					user: 'testuser',
+					privateKeyPath: '/path/to/key',
+					knownHostsPath: '/path/to/known_hosts',
+				},
+			]);
+
+			const remoteGit = await import('../../../../main/utils/remote-git');
+			vi.mocked(remoteGit.execGitRemote).mockResolvedValue({
+				stdout: '250\n',
+				stderr: '',
+				exitCode: 0,
+			});
+
+			const handler = handlers.get('git:commitCount');
+			const result = await handler!({} as any, '/test/repo', 'ssh-remote-123');
+
+			expect(remoteGit.execGitRemote).toHaveBeenCalledWith(['rev-list', '--count', 'HEAD'], {
+				sshRemote: {
+					id: 'ssh-remote-123',
+					enabled: true,
+					host: 'example.com',
+					user: 'testuser',
+					privateKeyPath: '/path/to/key',
+					knownHostsPath: '/path/to/known_hosts',
+				},
+				remoteCwd: '/test/repo',
+			});
+			expect(result).toEqual({
+				count: 250,
+				error: null,
 			});
 		});
 
@@ -1462,6 +1581,61 @@ Date:   Tue Jan 16 14:00:00 2024 +0000
 			expect(result).toEqual({
 				stdout: '',
 				stderr: 'fatal: not a git repository',
+			});
+		});
+
+		it('should use SSH remote execution when sshRemoteId is provided for git:show', async () => {
+			// Mock the remote config
+			mockSettingsStore.get.mockReturnValue([
+				{
+					id: 'ssh-remote-123',
+					enabled: true,
+					host: 'example.com',
+					user: 'testuser',
+					privateKeyPath: '/path/to/key',
+					knownHostsPath: '/path/to/known_hosts',
+				},
+			]);
+
+			const remoteGit = await import('../../../../main/utils/remote-git');
+			vi.mocked(remoteGit.execGitRemote).mockResolvedValue({
+				stdout: `commit abc123456789
+Author: Test Author <test@example.com>
+Date:   Mon Jan 15 10:30:00 2024 +0000
+
+    Test commit
+
+diff --git a/test.txt b/test.txt
+new file mode 100644
+index 0000000..abc1234
+--- /dev/null
++++ b/test.txt
+@@ -0,0 +1 @@
++test content`,
+				stderr: '',
+				exitCode: 0,
+			});
+
+			const handler = handlers.get('git:show');
+			const result = await handler!({} as any, '/test/repo', 'abc123456789', 'ssh-remote-123');
+
+			expect(remoteGit.execGitRemote).toHaveBeenCalledWith(
+				['show', '--stat', '--patch', 'abc123456789'],
+				{
+					sshRemote: {
+						id: 'ssh-remote-123',
+						enabled: true,
+						host: 'example.com',
+						user: 'testuser',
+						privateKeyPath: '/path/to/key',
+						knownHostsPath: '/path/to/known_hosts',
+					},
+					remoteCwd: '/test/repo',
+				}
+			);
+			expect(result).toEqual({
+				stdout: expect.stringContaining('Test commit'),
+				stderr: '',
 			});
 		});
 
@@ -3545,6 +3719,22 @@ branch refs/heads/bugfix-123
 					if (args?.includes('--is-inside-work-tree')) {
 						return { stdout: 'true\n', stderr: '', exitCode: 0 };
 					}
+					if (args?.includes('--show-toplevel')) {
+						return { stdout: '/parent/worktree-feature', stderr: '', exitCode: 0 };
+					}
+					if (args?.includes('--git-dir')) {
+						return {
+							stdout: '/parent/main-repo/.git/worktrees/worktree-feature',
+							stderr: '',
+							exitCode: 0,
+						};
+					}
+					if (args?.includes('--git-common-dir')) {
+						return { stdout: '/parent/main-repo/.git', stderr: '', exitCode: 0 };
+					}
+					if (args?.includes('--abbrev-ref')) {
+						return { stdout: 'feature-branch\n', stderr: '', exitCode: 0 };
+					}
 				}
 
 				// regular-folder: not a git repo
@@ -3566,12 +3756,18 @@ branch refs/heads/bugfix-123
 				success: true,
 				gitSubdirs: [
 					{
-						path: '/parent/main-repo',
+						path: path.join('/parent', 'main-repo'),
 						name: 'main-repo',
 						isWorktree: false,
-						branch: null,
-						repoRoot: null,
-						isBare: false,
+						branch: 'main',
+						repoRoot: '/parent/main-repo',
+					},
+					{
+						path: path.join('/parent', 'worktree-feature'),
+						name: 'worktree-feature',
+						isWorktree: true,
+						branch: 'feature-branch',
+						repoRoot: '/parent/main-repo',
 					},
 				],
 			});
@@ -3694,7 +3890,7 @@ branch refs/heads/bugfix-123
 				success: true,
 				gitSubdirs: [
 					{
-						path: '/parent/repo-dir',
+						path: path.join('/parent', 'repo-dir'),
 						name: 'repo-dir',
 						isWorktree: false,
 						branch: null,
@@ -3775,7 +3971,7 @@ branch refs/heads/bugfix-123
 				success: true,
 				gitSubdirs: [
 					{
-						path: '/parent/detached-repo',
+						path: path.join('/parent', 'detached-repo'),
 						name: 'detached-repo',
 						isWorktree: false,
 						branch: null,
@@ -3797,6 +3993,20 @@ branch refs/heads/bugfix-123
 				if (args?.includes('--is-inside-work-tree')) {
 					return { stdout: 'true\n', stderr: '', exitCode: 0 };
 				}
+				if (args?.includes('--show-toplevel')) {
+					return { stdout: '/parent/my-worktree', stderr: '', exitCode: 0 };
+				}
+				if (args?.includes('--git-dir')) {
+					// Worktree has a different git-dir
+					return { stdout: '../main-repo/.git/worktrees/my-worktree', stderr: '', exitCode: 0 };
+				}
+				if (args?.includes('--git-common-dir')) {
+					// Relative path to main repo's .git
+					return { stdout: '../main-repo/.git', stderr: '', exitCode: 0 };
+				}
+				if (args?.includes('--abbrev-ref')) {
+					return { stdout: 'feature-xyz\n', stderr: '', exitCode: 0 };
+				}
 
 				return { stdout: '', stderr: '', exitCode: 0 };
 			});
@@ -3810,6 +4020,109 @@ branch refs/heads/bugfix-123
 			expect(result.gitSubdirs[0].isWorktree).toBe(false);
 			expect(result.gitSubdirs[0].branch).toBeNull();
 			expect(result.gitSubdirs[0].repoRoot).toBeNull();
+		});
+
+		it('should exclude subdirectories that are inside a repo but not worktree roots', async () => {
+			// Simulates a directory like "build/" inside a worktree that passes --is-inside-work-tree
+			// but whose --show-toplevel points to the parent worktree, not itself
+			vi.mocked(mockFs.readdir).mockResolvedValue([
+				{ name: 'actual-worktree', isDirectory: () => true },
+				{ name: 'build', isDirectory: () => true },
+				{ name: 'src', isDirectory: () => true },
+			] as any);
+
+			vi.mocked(execFile.execFileNoThrow).mockImplementation(async (cmd, args, cwd) => {
+				const cwdStr = String(cwd);
+
+				if (cwdStr.endsWith('actual-worktree')) {
+					if (args?.includes('--is-inside-work-tree')) {
+						return { stdout: 'true\n', stderr: '', exitCode: 0 };
+					}
+					if (args?.includes('--show-toplevel')) {
+						return { stdout: '/parent/actual-worktree', stderr: '', exitCode: 0 };
+					}
+					if (args?.includes('--git-dir')) {
+						return { stdout: '.git', stderr: '', exitCode: 0 };
+					}
+					if (args?.includes('--git-common-dir')) {
+						return { stdout: '.git', stderr: '', exitCode: 0 };
+					}
+					if (args?.includes('--abbrev-ref')) {
+						return { stdout: 'feature-branch\n', stderr: '', exitCode: 0 };
+					}
+				}
+
+				// build/ and src/ are subdirectories inside actual-worktree's repo
+				if (cwdStr.endsWith('/build') || cwdStr.endsWith('/src')) {
+					if (args?.includes('--is-inside-work-tree')) {
+						return { stdout: 'true\n', stderr: '', exitCode: 0 };
+					}
+					if (args?.includes('--show-toplevel')) {
+						// Toplevel points to the worktree root, NOT to build/ or src/
+						return { stdout: '/parent/actual-worktree', stderr: '', exitCode: 0 };
+					}
+				}
+
+				return { stdout: '', stderr: 'fatal: not a git repository', exitCode: 128 };
+			});
+
+			const handler = handlers.get('git:scanWorktreeDirectory');
+			const result = await handler!({} as any, '/parent');
+
+			// Only actual-worktree should be included; build/ and src/ should be filtered out
+			expect(result.gitSubdirs).toHaveLength(1);
+			expect(result.gitSubdirs[0].name).toBe('actual-worktree');
+			expect(result.gitSubdirs[0].branch).toBe('feature-branch');
+		});
+
+		it('should exclude subdirectories where --show-toplevel fails', async () => {
+			// Simulates a directory where git rev-parse --show-toplevel returns a non-zero exit code
+			// (e.g., corrupted repo, permission denied). Should be treated as invalid worktree.
+			vi.mocked(mockFs.readdir).mockResolvedValue([
+				{ name: 'good-worktree', isDirectory: () => true },
+				{ name: 'broken-repo', isDirectory: () => true },
+			] as any);
+
+			vi.mocked(execFile.execFileNoThrow).mockImplementation(async (cmd, args, cwd) => {
+				const cwdStr = String(cwd);
+
+				if (cwdStr.endsWith('good-worktree')) {
+					if (args?.includes('--is-inside-work-tree')) {
+						return { stdout: 'true\n', stderr: '', exitCode: 0 };
+					}
+					if (args?.includes('--show-toplevel')) {
+						return { stdout: '/parent/good-worktree', stderr: '', exitCode: 0 };
+					}
+					if (args?.includes('--git-dir')) {
+						return { stdout: '.git', stderr: '', exitCode: 0 };
+					}
+					if (args?.includes('--git-common-dir')) {
+						return { stdout: '.git', stderr: '', exitCode: 0 };
+					}
+					if (args?.includes('--abbrev-ref')) {
+						return { stdout: 'main\n', stderr: '', exitCode: 0 };
+					}
+				}
+
+				if (cwdStr.endsWith('/broken-repo')) {
+					if (args?.includes('--is-inside-work-tree')) {
+						return { stdout: 'true\n', stderr: '', exitCode: 0 };
+					}
+					if (args?.includes('--show-toplevel')) {
+						// Simulate failure (e.g., permission denied, corrupted .git)
+						return { stdout: '', stderr: 'fatal: unable to read tree', exitCode: 128 };
+					}
+				}
+
+				return { stdout: '', stderr: 'fatal: not a git repository', exitCode: 128 };
+			});
+
+			const handler = handlers.get('git:scanWorktreeDirectory');
+			const result = await handler!({} as any, '/parent');
+
+			// Only good-worktree should be included; broken-repo should be filtered out
+			expect(result.gitSubdirs).toHaveLength(1);
+			expect(result.gitSubdirs[0].name).toBe('good-worktree');
 		});
 	});
 
@@ -3927,8 +4240,10 @@ branch refs/heads/bugfix-123
 
 			// Mock window for event emission
 			const mockWindow = {
+				isDestroyed: vi.fn().mockReturnValue(false),
 				webContents: {
 					send: vi.fn(),
+					isDestroyed: vi.fn().mockReturnValue(false),
 				},
 			};
 			const { BrowserWindow } = await import('electron');
@@ -3938,6 +4253,9 @@ branch refs/heads/bugfix-123
 			vi.mocked(execFile.execFileNoThrow).mockImplementation(async (cmd, args, cwd) => {
 				if (args?.includes('--is-inside-work-tree')) {
 					return { stdout: 'true\n', stderr: '', exitCode: 0 };
+				}
+				if (args?.includes('--show-toplevel')) {
+					return { stdout: '/parent/worktrees/new-worktree', stderr: '', exitCode: 0 };
 				}
 				if (args?.includes('--abbrev-ref')) {
 					return { stdout: 'feature-branch\n', stderr: '', exitCode: 0 };
@@ -3988,8 +4306,10 @@ branch refs/heads/bugfix-123
 			vi.mocked(mockChokidar.watch).mockReturnValue(mockWatcher as any);
 
 			const mockWindow = {
+				isDestroyed: vi.fn().mockReturnValue(false),
 				webContents: {
 					send: vi.fn(),
+					isDestroyed: vi.fn().mockReturnValue(false),
 				},
 			};
 			const { BrowserWindow } = await import('electron');
@@ -4027,17 +4347,22 @@ branch refs/heads/bugfix-123
 			vi.mocked(mockChokidar.watch).mockReturnValue(mockWatcher as any);
 
 			const mockWindow = {
+				isDestroyed: vi.fn().mockReturnValue(false),
 				webContents: {
 					send: vi.fn(),
+					isDestroyed: vi.fn().mockReturnValue(false),
 				},
 			};
 			const { BrowserWindow } = await import('electron');
 			vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([mockWindow] as any);
 
 			// Mock git commands - return main branch
-			vi.mocked(execFile.execFileNoThrow).mockImplementation(async (cmd, args) => {
+			vi.mocked(execFile.execFileNoThrow).mockImplementation(async (cmd, args, cwd) => {
 				if (args?.includes('--is-inside-work-tree')) {
 					return { stdout: 'true\n', stderr: '', exitCode: 0 };
+				}
+				if (args?.includes('--show-toplevel')) {
+					return { stdout: String(cwd), stderr: '', exitCode: 0 };
 				}
 				if (args?.includes('--abbrev-ref')) {
 					return { stdout: 'main\n', stderr: '', exitCode: 0 };
@@ -4077,8 +4402,10 @@ branch refs/heads/bugfix-123
 			vi.mocked(mockChokidar.watch).mockReturnValue(mockWatcher as any);
 
 			const mockWindow = {
+				isDestroyed: vi.fn().mockReturnValue(false),
 				webContents: {
 					send: vi.fn(),
+					isDestroyed: vi.fn().mockReturnValue(false),
 				},
 			};
 			const { BrowserWindow } = await import('electron');
@@ -4124,8 +4451,10 @@ branch refs/heads/bugfix-123
 			vi.mocked(mockChokidar.watch).mockReturnValue(mockWatcher as any);
 
 			const mockWindow = {
+				isDestroyed: vi.fn().mockReturnValue(false),
 				webContents: {
 					send: vi.fn(),
+					isDestroyed: vi.fn().mockReturnValue(false),
 				},
 			};
 			const { BrowserWindow } = await import('electron');
@@ -4137,6 +4466,9 @@ branch refs/heads/bugfix-123
 				if (args?.includes('--is-inside-work-tree')) {
 					checkedPaths.push(cwd as string);
 					return { stdout: 'true\n', stderr: '', exitCode: 0 };
+				}
+				if (args?.includes('--show-toplevel')) {
+					return { stdout: String(cwd), stderr: '', exitCode: 0 };
 				}
 				if (args?.includes('--abbrev-ref')) {
 					return { stdout: 'feature\n', stderr: '', exitCode: 0 };
@@ -4219,16 +4551,21 @@ branch refs/heads/bugfix-123
 			vi.mocked(mockChokidar.watch).mockReturnValue(mockWatcher as any);
 
 			const mockWindow = {
+				isDestroyed: vi.fn().mockReturnValue(false),
 				webContents: {
 					send: vi.fn(),
+					isDestroyed: vi.fn().mockReturnValue(false),
 				},
 			};
 			const { BrowserWindow } = await import('electron');
 			vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([mockWindow] as any);
 
-			vi.mocked(execFile.execFileNoThrow).mockImplementation(async (cmd, args) => {
+			vi.mocked(execFile.execFileNoThrow).mockImplementation(async (cmd, args, cwd) => {
 				if (args?.includes('--is-inside-work-tree')) {
 					return { stdout: 'true\n', stderr: '', exitCode: 0 };
+				}
+				if (args?.includes('--show-toplevel')) {
+					return { stdout: String(cwd), stderr: '', exitCode: 0 };
 				}
 				if (args?.includes('--abbrev-ref')) {
 					return { stdout: 'feature\n', stderr: '', exitCode: 0 };

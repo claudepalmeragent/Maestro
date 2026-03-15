@@ -13,6 +13,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ipcMain, App } from 'electron';
 import fs from 'fs/promises';
 import crypto from 'crypto';
+import path from 'path';
 import Store from 'electron-store';
 import {
 	registerMarketplaceHandlers,
@@ -39,6 +40,8 @@ vi.mock('fs/promises', () => ({
 		readFile: vi.fn(),
 		writeFile: vi.fn(),
 		mkdir: vi.fn(),
+		readdir: vi.fn(),
+		stat: vi.fn(),
 	},
 }));
 
@@ -188,6 +191,9 @@ describe('marketplace IPC handlers', () => {
 		// Reset remote-fs mocks
 		mockWriteFileRemote.mockReset();
 		mockMkdirRemote.mockReset();
+		vi.mocked(fs.readdir).mockReset();
+		vi.mocked(fs.stat).mockReset();
+		vi.mocked(fs.readdir).mockRejectedValue({ code: 'ENOENT' });
 
 		// Register handlers
 		registerMarketplaceHandlers(mockDeps);
@@ -230,7 +236,7 @@ describe('marketplace IPC handlers', () => {
 
 			// Verify cache was written
 			expect(fs.writeFile).toHaveBeenCalledWith(
-				'/mock/userData/marketplace-cache.json',
+				path.join('/mock/userData', 'marketplace-cache.json'),
 				expect.any(String),
 				'utf-8'
 			);
@@ -330,7 +336,7 @@ describe('marketplace IPC handlers', () => {
 			expect(result.fromCache).toBe(false);
 		});
 
-		it('should handle network errors gracefully by returning empty merged manifest', async () => {
+		it('should handle network errors gracefully when no cache exists', async () => {
 			// No cache, no local manifest
 			vi.mocked(fs.readFile).mockRejectedValue({ code: 'ENOENT' });
 
@@ -339,14 +345,37 @@ describe('marketplace IPC handlers', () => {
 			const handler = handlers.get('marketplace:getManifest');
 			const result = await handler!({} as any);
 
-			// With local manifest support, network errors are now handled gracefully
-			// Returns empty manifest (merged result of null official + null local)
+			// With no cache to fall back to, returns empty manifest
 			expect(result.manifest).toBeDefined();
 			expect(result.manifest.playbooks).toEqual([]);
 			expect(result.fromCache).toBe(false);
 		});
 
-		it('should handle HTTP error responses gracefully by returning empty merged manifest', async () => {
+		it('should fallback to expired cache when network fetch fails', async () => {
+			const cacheAge = 1000 * 60 * 60 * 7; // 7 hours ago (past 6 hour TTL)
+			const expiredCache: MarketplaceCache = {
+				fetchedAt: Date.now() - cacheAge,
+				manifest: sampleManifest,
+			};
+
+			// First read returns expired cache, second read (local manifest) returns ENOENT
+			vi.mocked(fs.readFile)
+				.mockResolvedValueOnce(JSON.stringify(expiredCache))
+				.mockRejectedValueOnce({ code: 'ENOENT' });
+
+			// Network fetch fails
+			mockFetch.mockRejectedValue(new Error('Network error'));
+
+			const handler = handlers.get('marketplace:getManifest');
+			const result = await handler!({} as any);
+
+			// Should fallback to expired cache data
+			expect(result.manifest.playbooks.length).toBe(sampleManifest.playbooks.length);
+			expect(result.fromCache).toBe(true);
+			expect(result.cacheAge).toBeGreaterThanOrEqual(cacheAge);
+		});
+
+		it('should handle HTTP error responses gracefully when no cache exists', async () => {
 			// No cache, no local manifest
 			vi.mocked(fs.readFile).mockRejectedValue({ code: 'ENOENT' });
 
@@ -359,8 +388,7 @@ describe('marketplace IPC handlers', () => {
 			const handler = handlers.get('marketplace:getManifest');
 			const result = await handler!({} as any);
 
-			// With local manifest support, HTTP errors are now handled gracefully
-			// Returns empty manifest (merged result of null official + null local)
+			// With no cache to fall back to, returns empty manifest
 			expect(result.manifest).toBeDefined();
 			expect(result.manifest.playbooks).toEqual([]);
 			expect(result.fromCache).toBe(false);
@@ -405,6 +433,48 @@ describe('marketplace IPC handlers', () => {
 
 			// Should have updated cache
 			expect(fs.writeFile).toHaveBeenCalled();
+		});
+
+		it('should fallback to existing cache when refresh fails', async () => {
+			const existingCache: MarketplaceCache = {
+				fetchedAt: Date.now() - 1000 * 60 * 60, // 1 hour ago
+				manifest: sampleManifest,
+			};
+
+			// Order of reads in refreshManifest:
+			// 1. Cache read (fallback after fetch failure)
+			// 2. Local manifest read
+			vi.mocked(fs.readFile)
+				.mockResolvedValueOnce(JSON.stringify(existingCache)) // cache fallback
+				.mockRejectedValueOnce({ code: 'ENOENT' }); // local manifest
+
+			// Network fetch fails
+			mockFetch.mockRejectedValue(new Error('Network error'));
+
+			const handler = handlers.get('marketplace:refreshManifest');
+			const result = await handler!({} as any);
+
+			// Should have attempted to fetch
+			expect(mockFetch).toHaveBeenCalled();
+
+			// Should fallback to existing cache
+			expect(result.manifest.playbooks.length).toBe(sampleManifest.playbooks.length);
+			expect(result.fromCache).toBe(true);
+		});
+
+		it('should return empty manifest when refresh fails and no cache exists', async () => {
+			// No cache, no local manifest
+			vi.mocked(fs.readFile).mockRejectedValue({ code: 'ENOENT' });
+
+			// Network fetch fails
+			mockFetch.mockRejectedValue(new Error('Network error'));
+
+			const handler = handlers.get('marketplace:refreshManifest');
+			const result = await handler!({} as any);
+
+			// Should return empty manifest
+			expect(result.manifest.playbooks).toEqual([]);
+			expect(result.fromCache).toBe(false);
 		});
 	});
 
@@ -508,18 +578,18 @@ describe('marketplace IPC handlers', () => {
 			);
 
 			// Verify target folder was created
-			expect(fs.mkdir).toHaveBeenCalledWith('/autorun/folder/My Test Playbook', {
+			expect(fs.mkdir).toHaveBeenCalledWith(path.join('/autorun/folder', 'My Test Playbook'), {
 				recursive: true,
 			});
 
 			// Verify documents were written
 			expect(fs.writeFile).toHaveBeenCalledWith(
-				'/autorun/folder/My Test Playbook/phase-1.md',
+				path.join('/autorun/folder', 'My Test Playbook', 'phase-1.md'),
 				'# Phase 1 Content',
 				'utf-8'
 			);
 			expect(fs.writeFile).toHaveBeenCalledWith(
-				'/autorun/folder/My Test Playbook/phase-2.md',
+				path.join('/autorun/folder', 'My Test Playbook', 'phase-2.md'),
 				'# Phase 2 Content',
 				'utf-8'
 			);
@@ -624,13 +694,13 @@ describe('marketplace IPC handlers', () => {
 			await handler!({} as any, 'test-playbook-2', 'Test', '/autorun', 'session-123');
 
 			// Verify playbooks directory was created
-			expect(fs.mkdir).toHaveBeenCalledWith('/mock/userData/playbooks', {
+			expect(fs.mkdir).toHaveBeenCalledWith(path.join('/mock/userData', 'playbooks'), {
 				recursive: true,
 			});
 
 			// Verify playbook was saved to session file
 			expect(fs.writeFile).toHaveBeenCalledWith(
-				'/mock/userData/playbooks/session-123.json',
+				path.join('/mock/userData', 'playbooks', 'session-123.json'),
 				expect.any(String),
 				'utf-8'
 			);
@@ -764,13 +834,13 @@ describe('marketplace IPC handlers', () => {
 			expect(result.importedDocs).toEqual(['local-phase-1']);
 
 			// Verify target folder was created
-			expect(fs.mkdir).toHaveBeenCalledWith('/autorun/folder/My Local Playbook', {
+			expect(fs.mkdir).toHaveBeenCalledWith(path.join('/autorun/folder', 'My Local Playbook'), {
 				recursive: true,
 			});
 
 			// Verify document was written
 			expect(fs.writeFile).toHaveBeenCalledWith(
-				'/autorun/folder/My Local Playbook/local-phase-1.md',
+				path.join('/autorun/folder', 'My Local Playbook', 'local-phase-1.md'),
 				'# Local Phase 1 Content',
 				'utf-8'
 			);
@@ -844,11 +914,11 @@ describe('marketplace IPC handlers', () => {
 			// Verify documents were READ FROM LOCAL FILESYSTEM (not fetched from GitHub)
 			// The fs.readFile mock should have been called for the document paths
 			expect(fs.readFile).toHaveBeenCalledWith(
-				'/Users/test/custom-playbooks/my-playbook/phase-1.md',
+				path.normalize('/Users/test/custom-playbooks/my-playbook/phase-1.md'),
 				'utf-8'
 			);
 			expect(fs.readFile).toHaveBeenCalledWith(
-				'/Users/test/custom-playbooks/my-playbook/phase-2.md',
+				path.normalize('/Users/test/custom-playbooks/my-playbook/phase-2.md'),
 				'utf-8'
 			);
 
@@ -858,13 +928,18 @@ describe('marketplace IPC handlers', () => {
 
 			// Verify documents were written to the target folder
 			expect(fs.writeFile).toHaveBeenCalledWith(
-				'/autorun/folder/Imported Filesystem Playbook/phase-1.md',
+				path.join('/autorun/folder', 'Imported Filesystem Playbook', 'phase-1.md'),
 				'# Phase 1 from filesystem\n\n- [ ] Task 1',
 				'utf-8'
 			);
 			expect(fs.writeFile).toHaveBeenCalledWith(
-				'/autorun/folder/Imported Filesystem Playbook/phase-2.md',
+				path.join('/autorun/folder', 'Imported Filesystem Playbook', 'phase-2.md'),
 				'# Phase 2 from filesystem\n\n- [ ] Task 2',
+				'utf-8'
+			);
+			expect(fs.writeFile).toHaveBeenCalledWith(
+				path.join('/mock/userData', 'playbooks', 'session-123.json'),
+				expect.stringContaining('"playbooks":'),
 				'utf-8'
 			);
 
@@ -1234,17 +1309,20 @@ describe('marketplace IPC handlers', () => {
 				);
 
 				// Verify assets directory was created
-				expect(fs.mkdir).toHaveBeenCalledWith('/autorun/folder/With Assets/assets', {
-					recursive: true,
-				});
+				expect(fs.mkdir).toHaveBeenCalledWith(
+					path.join('/autorun/folder', 'With Assets', 'assets'),
+					{
+						recursive: true,
+					}
+				);
 
 				// Verify assets were written
 				expect(fs.writeFile).toHaveBeenCalledWith(
-					'/autorun/folder/With Assets/assets/config.yaml',
+					path.join('/autorun/folder', 'With Assets', 'assets', 'config.yaml'),
 					expect.any(Buffer)
 				);
 				expect(fs.writeFile).toHaveBeenCalledWith(
-					'/autorun/folder/With Assets/assets/logo.png',
+					path.join('/autorun/folder', 'With Assets', 'assets', 'logo.png'),
 					expect.any(Buffer)
 				);
 
@@ -1394,6 +1472,263 @@ describe('marketplace IPC handlers', () => {
 				// importedAssets should be empty or undefined
 				expect(result.importedAssets || []).toEqual([]);
 			});
+
+			it('should auto-discover local assets from assets/ directory when manifest assets are absent', async () => {
+				const localPlaybookNoManifestAssets = {
+					id: 'local-assets-no-manifest',
+					title: 'Local Assets Without Manifest',
+					description: 'Assets should be discovered from disk',
+					category: 'Custom',
+					author: 'Local Author',
+					lastUpdated: '2024-01-20',
+					path: '/Users/test/local-playbooks/no-manifest-assets',
+					documents: [{ filename: 'main-doc', resetOnCompletion: false }],
+					loopEnabled: false,
+					maxLoops: null,
+					prompt: null,
+				};
+
+				const localManifest: MarketplaceManifest = {
+					lastUpdated: '2024-01-20',
+					playbooks: [localPlaybookNoManifestAssets],
+				};
+
+				const validCache: MarketplaceCache = {
+					fetchedAt: Date.now(),
+					manifest: sampleManifest,
+				};
+
+				vi.mocked(fs.readFile)
+					.mockResolvedValueOnce(JSON.stringify(validCache))
+					.mockResolvedValueOnce(JSON.stringify(localManifest))
+					.mockResolvedValueOnce('# Main local doc')
+					.mockResolvedValueOnce(Buffer.from('asset-one'))
+					.mockResolvedValueOnce(Buffer.from('asset-two'))
+					.mockRejectedValueOnce({ code: 'ENOENT' });
+				vi.mocked(fs.mkdir).mockResolvedValue(undefined);
+				vi.mocked(fs.writeFile).mockResolvedValue(undefined);
+				vi.mocked(fs.readdir).mockResolvedValue(['settings.yaml', 'logo.png']);
+				vi.mocked(fs.stat).mockResolvedValue({ isFile: () => true } as any);
+
+				const handler = handlers.get('marketplace:importPlaybook');
+				const result = await handler!(
+					{} as any,
+					'local-assets-no-manifest',
+					'Imported Local Assets',
+					'/autorun/folder',
+					'session-123'
+				);
+
+				expect(result.success).toBe(true);
+				expect(fs.readdir).toHaveBeenCalledWith(
+					path.normalize('/Users/test/local-playbooks/no-manifest-assets/assets')
+				);
+				expect(fs.writeFile).toHaveBeenCalledWith(
+					path.join('/autorun/folder', 'Imported Local Assets', 'assets', 'settings.yaml'),
+					expect.any(Buffer)
+				);
+				expect(fs.writeFile).toHaveBeenCalledWith(
+					path.join('/autorun/folder', 'Imported Local Assets', 'assets', 'logo.png'),
+					expect.any(Buffer)
+				);
+				expect(result.importedAssets).toEqual(['settings.yaml', 'logo.png']);
+				expect(mockFetch).not.toHaveBeenCalled();
+			});
+
+			it('should merge local discovered assets with manifest assets without duplicates', async () => {
+				const localPlaybookWithManifestAssets = {
+					id: 'local-assets-with-manifest',
+					title: 'Local Assets With Manifest',
+					description: 'Manifest and discovered assets should be merged',
+					category: 'Custom',
+					author: 'Local Author',
+					lastUpdated: '2024-01-20',
+					path: '/Users/test/local-playbooks/with-manifest-assets',
+					documents: [{ filename: 'main-doc', resetOnCompletion: false }],
+					loopEnabled: false,
+					maxLoops: null,
+					prompt: null,
+					assets: ['config.yaml', 'logo.png'],
+				};
+
+				const localManifest: MarketplaceManifest = {
+					lastUpdated: '2024-01-20',
+					playbooks: [localPlaybookWithManifestAssets],
+				};
+
+				const validCache: MarketplaceCache = {
+					fetchedAt: Date.now(),
+					manifest: sampleManifest,
+				};
+
+				vi.mocked(fs.readFile)
+					.mockResolvedValueOnce(JSON.stringify(validCache))
+					.mockResolvedValueOnce(JSON.stringify(localManifest))
+					.mockResolvedValueOnce('# Main local doc')
+					.mockResolvedValueOnce(Buffer.from('config'))
+					.mockResolvedValueOnce(Buffer.from('logo'))
+					.mockResolvedValueOnce(Buffer.from('dockerignore'))
+					.mockRejectedValueOnce({ code: 'ENOENT' });
+				vi.mocked(fs.mkdir).mockResolvedValue(undefined);
+				vi.mocked(fs.writeFile).mockResolvedValue(undefined);
+				vi.mocked(fs.readdir).mockResolvedValue(['logo.png', '.dockerignore']);
+				vi.mocked(fs.stat).mockResolvedValue({ isFile: () => true } as any);
+
+				const handler = handlers.get('marketplace:importPlaybook');
+				const result = await handler!(
+					{} as any,
+					'local-assets-with-manifest',
+					'Merged Assets',
+					'/autorun/folder',
+					'session-123'
+				);
+
+				expect(result.success).toBe(true);
+				expect(result.importedAssets).toEqual(['config.yaml', 'logo.png', '.dockerignore']);
+				expect(fs.writeFile).toHaveBeenCalledWith(
+					path.join('/autorun/folder', 'Merged Assets', 'assets', 'config.yaml'),
+					expect.any(Buffer)
+				);
+				expect(fs.writeFile).toHaveBeenCalledWith(
+					path.join('/autorun/folder', 'Merged Assets', 'assets', 'logo.png'),
+					expect.any(Buffer)
+				);
+				expect(fs.writeFile).toHaveBeenCalledWith(
+					path.join('/autorun/folder', 'Merged Assets', 'assets', '.dockerignore'),
+					expect.any(Buffer)
+				);
+				expect(mockFetch).not.toHaveBeenCalled();
+			});
+		});
+	});
+
+	describe('path traversal protection', () => {
+		it('should resolve a normal local document filename correctly', async () => {
+			// Setup a local playbook with a normal filename
+			const localPlaybook = {
+				id: 'local-safe-path',
+				title: 'Safe Path Playbook',
+				description: 'Test',
+				category: 'Custom',
+				author: 'Test',
+				lastUpdated: '2024-01-20',
+				path: '/Users/test/playbooks/safe',
+				documents: [{ filename: 'phase-1', resetOnCompletion: false }],
+				loopEnabled: false,
+				maxLoops: null,
+				prompt: null,
+			};
+
+			const localManifest: MarketplaceManifest = {
+				lastUpdated: '2024-01-20',
+				playbooks: [localPlaybook],
+			};
+
+			const validCache: MarketplaceCache = {
+				fetchedAt: Date.now(),
+				manifest: sampleManifest,
+			};
+
+			vi.mocked(fs.readFile)
+				.mockResolvedValueOnce(JSON.stringify(validCache))
+				.mockResolvedValueOnce(JSON.stringify(localManifest))
+				.mockResolvedValueOnce('# Phase 1 Content') // The document read
+				.mockRejectedValueOnce({ code: 'ENOENT' }); // No existing playbooks
+			vi.mocked(fs.mkdir).mockResolvedValue(undefined);
+			vi.mocked(fs.writeFile).mockResolvedValue(undefined);
+
+			const handler = handlers.get('marketplace:importPlaybook');
+			const result = await handler!(
+				{} as any,
+				'local-safe-path',
+				'Safe Import',
+				'/autorun/folder',
+				'session-123'
+			);
+
+			expect(result.success).toBe(true);
+			expect(result.importedDocs).toEqual(['phase-1']);
+			// Document should have been read from the correct path
+			expect(fs.readFile).toHaveBeenCalledWith(
+				path.resolve('/Users/test/playbooks/safe', 'phase-1.md'),
+				'utf-8'
+			);
+		});
+
+		it('should reject document filename containing ../', async () => {
+			const handler = handlers.get('marketplace:getDocument');
+			const result = await handler!({} as any, '/Users/test/playbooks/safe', '../../../etc/passwd');
+
+			expect(result.success).toBe(false);
+			expect(result.error).toContain('Invalid filename');
+		});
+
+		it('should reject document filename with absolute path', async () => {
+			const handler = handlers.get('marketplace:getDocument');
+			const result = await handler!({} as any, '/Users/test/playbooks/safe', '/etc/passwd');
+
+			// path.resolve('/Users/test/playbooks/safe', '/etc/passwd.md') resolves to /etc/passwd.md
+			// which is outside the base, so validateSafePath blocks it
+			expect(result.success).toBe(false);
+			expect(result.error).toContain('Path traversal blocked');
+		});
+
+		it('should reject asset filename containing ../../', async () => {
+			// Create a local playbook with an asset that has traversal
+			const localPlaybook = {
+				id: 'local-traversal-asset',
+				title: 'Traversal Asset Playbook',
+				description: 'Test',
+				category: 'Custom',
+				author: 'Test',
+				lastUpdated: '2024-01-20',
+				path: '/Users/test/playbooks/safe',
+				documents: [{ filename: 'doc', resetOnCompletion: false }],
+				loopEnabled: false,
+				maxLoops: null,
+				prompt: null,
+				assets: ['../../etc/shadow'],
+			};
+
+			const localManifest: MarketplaceManifest = {
+				lastUpdated: '2024-01-20',
+				playbooks: [localPlaybook],
+			};
+
+			const validCache: MarketplaceCache = {
+				fetchedAt: Date.now(),
+				manifest: sampleManifest,
+			};
+
+			vi.mocked(fs.readFile)
+				.mockResolvedValueOnce(JSON.stringify(validCache))
+				.mockResolvedValueOnce(JSON.stringify(localManifest))
+				.mockResolvedValueOnce('# Doc content') // Document read
+				.mockRejectedValueOnce({ code: 'ENOENT' }); // No existing playbooks
+			vi.mocked(fs.mkdir).mockResolvedValue(undefined);
+			vi.mocked(fs.writeFile).mockResolvedValue(undefined);
+
+			const handler = handlers.get('marketplace:importPlaybook');
+			const result = await handler!(
+				{} as any,
+				'local-traversal-asset',
+				'Traversal Test',
+				'/autorun/folder',
+				'session-123'
+			);
+
+			// The import should succeed overall but skip the bad asset
+			// because the asset fetch throws and the loop continues
+			expect(result.success).toBe(true);
+			expect(result.importedAssets).toEqual([]);
+		});
+
+		it('should reject document filename with embedded .. segments', async () => {
+			const handler = handlers.get('marketplace:getDocument');
+			const result = await handler!({} as any, '/Users/test/playbooks/safe', 'subdir/../../secret');
+
+			expect(result.success).toBe(false);
+			expect(result.error).toContain('Invalid filename');
 		});
 	});
 

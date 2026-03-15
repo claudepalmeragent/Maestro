@@ -37,22 +37,23 @@ export {
 	clearParserRegistry,
 } from './agent-output-parser';
 
-// Re-export error pattern utilities
+// Re-export error pattern utilities (access patterns via getErrorPatterns(agentId))
 export type { ErrorPattern, AgentErrorPatterns } from './error-patterns';
 export {
 	getErrorPatterns,
 	matchErrorPattern,
 	registerErrorPatterns,
 	clearPatternRegistry,
-	CLAUDE_ERROR_PATTERNS,
-	OPENCODE_ERROR_PATTERNS,
-	CODEX_ERROR_PATTERNS,
+	getSshErrorPatterns,
+	matchSshErrorPattern,
+	SSH_ERROR_PATTERNS,
 } from './error-patterns';
 
 // Import parser implementations
 import { ClaudeOutputParser } from './claude-output-parser';
 import { OpenCodeOutputParser } from './opencode-output-parser';
 import { CodexOutputParser } from './codex-output-parser';
+import { FactoryDroidOutputParser } from './factory-droid-output-parser';
 import {
 	registerOutputParser,
 	clearParserRegistry,
@@ -64,6 +65,7 @@ import { logger } from '../utils/logger';
 export { ClaudeOutputParser } from './claude-output-parser';
 export { OpenCodeOutputParser } from './opencode-output-parser';
 export { CodexOutputParser } from './codex-output-parser';
+export { FactoryDroidOutputParser } from './factory-droid-output-parser';
 
 const LOG_CONTEXT = '[OutputParsers]';
 
@@ -79,6 +81,7 @@ export function initializeOutputParsers(): void {
 	registerOutputParser(new ClaudeOutputParser());
 	registerOutputParser(new OpenCodeOutputParser());
 	registerOutputParser(new CodexOutputParser());
+	registerOutputParser(new FactoryDroidOutputParser());
 
 	// Log registered parsers for debugging
 	const registeredParsers = getAllOutputParsers().map((p) => p.agentId);

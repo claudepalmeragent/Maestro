@@ -116,6 +116,40 @@ export interface SshContext {
 	sshRemoteId?: string;
 	/** Remote working directory */
 	remoteCwd?: string;
+	/** Glob patterns to ignore when indexing (for SSH remotes) */
+	ignorePatterns?: string[];
+	/** Whether to honor .gitignore files on remote */
+	honorGitignore?: boolean;
+}
+
+/**
+ * Simple glob pattern matcher for ignore patterns.
+ * Supports basic glob patterns: *, ?, and character classes.
+ * @param pattern - The glob pattern to match against
+ * @param name - The file/folder name to test
+ * @returns true if the name matches the pattern
+ */
+export function matchGlobPattern(pattern: string, name: string): boolean {
+	// Convert glob pattern to regex
+	// Escape special regex chars except * and ?
+	const regexStr = pattern
+		.replace(/[.+^${}()|[\]\\]/g, '\\$&') // Escape special chars
+		.replace(/\*/g, '.*') // * matches any chars
+		.replace(/\?/g, '.'); // ? matches single char
+
+	// Make it case-insensitive and match full string
+	const regex = new RegExp(`^${regexStr}$`, 'i');
+	return regex.test(name);
+}
+
+/**
+ * Check if a file/folder name should be ignored based on patterns.
+ * @param name - The file/folder name to check
+ * @param patterns - Array of glob patterns to match against
+ * @returns true if the name matches any ignore pattern
+ */
+export function shouldIgnore(name: string, patterns: string[]): boolean {
+	return patterns.some((pattern) => matchGlobPattern(pattern, name));
 }
 
 /**
@@ -142,6 +176,21 @@ interface LoadingState {
 	directoriesScanned: number;
 	filesFound: number;
 	onProgress?: FileTreeProgressCallback;
+	/** Effective ignore patterns (user patterns + gitignore if enabled) */
+	ignorePatterns: string[];
+	/** Whether this is an SSH remote context */
+	isRemote: boolean;
+}
+
+/** Default local ignore patterns (used when no user-configured patterns are provided) */
+export const LOCAL_IGNORE_DEFAULTS = ['node_modules', '__pycache__'];
+
+/** Options for local (non-SSH) file tree loading */
+export interface LocalFileTreeOptions {
+	/** Glob patterns to ignore. When provided, replaces LOCAL_IGNORE_DEFAULTS. */
+	ignorePatterns?: string[];
+	/** Whether to parse and honor the root .gitignore file (default: false). */
+	honorGitignore?: boolean;
 }
 
 /**
@@ -151,22 +200,115 @@ interface LoadingState {
  * @param currentDepth - Current recursion depth (internal use)
  * @param sshContext - Optional SSH context for remote file operations
  * @param onProgress - Optional callback for progress updates (useful for SSH)
+ * @param localOptions - Optional configuration for local (non-SSH) scans
  */
 export async function loadFileTree(
 	dirPath: string,
 	maxDepth = 10,
 	currentDepth = 0,
 	sshContext?: SshContext,
-	onProgress?: FileTreeProgressCallback
+	onProgress?: FileTreeProgressCallback,
+	localOptions?: LocalFileTreeOptions
 ): Promise<FileTreeNode[]> {
+	const isRemote = Boolean(sshContext?.sshRemoteId);
+
+	// Build effective ignore patterns
+	let ignorePatterns: string[] = [];
+
+	if (isRemote) {
+		// For remote: use configurable patterns from settings
+		ignorePatterns = sshContext?.ignorePatterns || [];
+
+		// If honor gitignore is enabled, try to fetch and parse the remote .gitignore
+		if (sshContext?.honorGitignore && sshContext?.sshRemoteId) {
+			try {
+				const gitignorePatterns = await fetchRemoteGitignorePatterns(
+					dirPath,
+					sshContext.sshRemoteId
+				);
+				ignorePatterns = [...ignorePatterns, ...gitignorePatterns];
+			} catch {
+				// Silently ignore - .gitignore may not exist or be readable
+			}
+		}
+	} else {
+		// For local: use configurable patterns from settings, falling back to hardcoded defaults
+		ignorePatterns = localOptions?.ignorePatterns ?? LOCAL_IGNORE_DEFAULTS;
+
+		// If honor gitignore is enabled, try to parse the local .gitignore
+		if (localOptions?.honorGitignore) {
+			try {
+				const content = await window.maestro.fs.readFile(`${dirPath}/.gitignore`);
+				if (content) {
+					ignorePatterns = [...ignorePatterns, ...parseGitignoreContent(content)];
+				}
+			} catch {
+				// .gitignore may not exist or be readable — not an error
+			}
+		}
+	}
+
 	// Initialize loading state at the top level
 	const state: LoadingState = {
 		directoriesScanned: 0,
 		filesFound: 0,
 		onProgress,
+		ignorePatterns,
+		isRemote,
 	};
 
 	return loadFileTreeRecursive(dirPath, maxDepth, currentDepth, sshContext, state);
+}
+
+/**
+ * Parse raw .gitignore content into simplified name-based patterns.
+ * Shared between local and remote gitignore handling.
+ * Skips comments, empty lines, and negation patterns (!).
+ * Strips leading `/` and trailing `/` since we match against names, not paths.
+ */
+export function parseGitignoreContent(content: string): string[] {
+	const patterns: string[] = [];
+
+	for (const line of content.split('\n')) {
+		const trimmed = line.trim();
+
+		// Skip empty lines, comments, and negation patterns
+		if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('!')) {
+			continue;
+		}
+
+		// Remove leading slash (we match against names, not paths)
+		let pattern = trimmed.startsWith('/') ? trimmed.slice(1) : trimmed;
+
+		// Remove trailing slash (we match the folder name itself)
+		if (pattern.endsWith('/')) {
+			pattern = pattern.slice(0, -1);
+		}
+
+		if (pattern) {
+			patterns.push(pattern);
+		}
+	}
+
+	return patterns;
+}
+
+/**
+ * Fetch and parse .gitignore patterns from a remote directory.
+ * @param dirPath - The remote directory path
+ * @param sshRemoteId - The SSH remote config ID
+ * @returns Array of gitignore patterns (simplified name-based matching)
+ */
+async function fetchRemoteGitignorePatterns(
+	dirPath: string,
+	sshRemoteId: string
+): Promise<string[]> {
+	try {
+		const content = await window.maestro.fs.readFile(`${dirPath}/.gitignore`, sshRemoteId);
+		return content ? parseGitignoreContent(content) : [];
+	} catch {
+		return [];
+	}
 }
 
 /**
@@ -197,27 +339,39 @@ async function loadFileTreeRecursive(
 			});
 		}
 
+		// Track seen names to deduplicate entries (guards against edge cases
+		// where the OS or IPC layer returns the same entry more than once).
+		const seen = new Set<string>();
+
 		for (const entry of entries) {
-			// Skip common ignore patterns (but allow hidden files/directories starting with .)
-			// .git and .git-repo are excluded for SAFETY — accidental deletion would corrupt the repo.
-			// This is separate from the showHiddenFiles toggle which controls display of other dot-files.
-			if (
-				entry.name === 'node_modules' ||
-				entry.name === '__pycache__' ||
-				entry.name === '.git' ||
-				entry.name === '.git-repo'
-			) {
+			const normalizedName = entry.name.normalize('NFC');
+			if (seen.has(normalizedName)) {
+				console.warn('[loadFileTree] readDir returned duplicate entry:', entry.name, 'in', dirPath);
+				continue;
+			}
+			seen.add(normalizedName);
+
+			// Skip entries that match ignore patterns
+			if (shouldIgnore(entry.name, state.ignorePatterns)) {
 				continue;
 			}
 
 			if (entry.isDirectory) {
-				const children = await loadFileTreeRecursive(
-					`${dirPath}/${entry.name}`,
-					maxDepth,
-					currentDepth + 1,
-					sshContext,
-					state
-				);
+				// Wrap child directory reads in try/catch so a single failing
+				// subdirectory (permissions, spaces in name over SSH, broken
+				// symlinks, etc.) doesn't kill the entire tree walk.
+				let children: FileTreeNode[] = [];
+				try {
+					children = await loadFileTreeRecursive(
+						`${dirPath}/${entry.name}`,
+						maxDepth,
+						currentDepth + 1,
+						sshContext,
+						state
+					);
+				} catch {
+					// Skip unreadable child directories — show them as empty folders
+				}
 				tree.push({
 					name: entry.name,
 					type: 'folder',

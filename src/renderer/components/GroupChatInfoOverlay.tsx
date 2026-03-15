@@ -7,6 +7,7 @@
  */
 
 import { useCallback, useMemo, useState } from 'react';
+import { safeClipboardWrite } from '../utils/clipboard';
 import {
 	Copy,
 	FolderOpen,
@@ -107,14 +108,14 @@ export function GroupChatInfoOverlay({
 }: GroupChatInfoOverlayProps): JSX.Element | null {
 	const [isExporting, setIsExporting] = useState(false);
 
-	const copyToClipboard = useCallback((text: string) => {
-		navigator.clipboard.writeText(text);
+	const copyToClipboard = useCallback(async (text: string) => {
+		await safeClipboardWrite(text);
 	}, []);
 
 	const openInFinder = useCallback(() => {
 		// Get the parent directory (remove /images from path)
 		const chatDir = groupChat.imagesDir.replace(/\/images\/?$/, '');
-		window.maestro.shell.openExternal(`file://${chatDir}`);
+		window.maestro.shell.openPath(chatDir);
 	}, [groupChat.imagesDir]);
 
 	const handleExport = useCallback(async () => {

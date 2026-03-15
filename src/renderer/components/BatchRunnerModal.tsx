@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
 	X,
 	RotateCcw,
@@ -13,8 +13,9 @@ import {
 	Download,
 	Upload,
 	LayoutGrid,
+	Loader2,
 } from 'lucide-react';
-import type { Theme, BatchDocumentEntry, BatchRunConfig } from '../types';
+import type { Theme, BatchDocumentEntry, BatchRunConfig, WorktreeRunTarget } from '../types';
 import { useLayerStack } from '../contexts/LayerStackContext';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 import { TEMPLATE_VARIABLES } from '../utils/templateVariables';
@@ -22,26 +23,24 @@ import { PlaybookDeleteConfirmModal } from './PlaybookDeleteConfirmModal';
 import { PlaybookNameModal } from './PlaybookNameModal';
 import { AgentPromptComposerModal } from './AgentPromptComposerModal';
 import { DocumentsPanel } from './DocumentsPanel';
-import { usePlaybookManagement } from '../hooks';
-import { autorunDefaultPrompt } from '../../prompts';
+import { WorktreeRunSection } from './WorktreeRunSection';
+import { useSessionStore } from '../stores/sessionStore';
+import { getModalActions } from '../stores/modalStore';
+import {
+	usePlaybookManagement,
+	DEFAULT_BATCH_PROMPT,
+	validateAgentPromptHasTaskReference,
+} from '../hooks';
 import { generateId } from '../utils/ids';
+import { formatMetaKey } from '../utils/shortcutFormatter';
 
-// Platform detection helper (userAgentData is newer but not in all TS types yet)
-const isMacPlatform = (): boolean => {
-	const nav = navigator as Navigator & { userAgentData?: { platform?: string } };
-	return (
-		nav.userAgentData?.platform?.toLowerCase().includes('mac') ??
-		navigator.platform.toLowerCase().includes('mac')
-	);
-};
-
-// Default batch processing prompt
-export const DEFAULT_BATCH_PROMPT = autorunDefaultPrompt;
+// Re-export for external consumers
+export { DEFAULT_BATCH_PROMPT, validateAgentPromptHasTaskReference } from '../hooks';
 
 interface BatchRunnerModalProps {
 	theme: Theme;
 	onClose: () => void;
-	onGo: (config: BatchRunConfig) => void;
+	onGo: (config: BatchRunConfig) => void | Promise<void>;
 	onSave: (prompt: string) => void;
 	initialPrompt?: string;
 	lastModifiedAt?: number;
@@ -101,6 +100,22 @@ export function BatchRunnerModal(props: BatchRunnerModalProps) {
 		onOpenMarketplace,
 	} = props;
 
+	// Worktree run target state
+	const [worktreeTarget, setWorktreeTarget] = useState<WorktreeRunTarget | null>(null);
+	const [isPreparingWorktree, setIsPreparingWorktree] = useState(false);
+	const activeSession = useSessionStore((state) => state.sessions.find((s) => s.id === sessionId));
+	const sessions = useSessionStore((state) => state.sessions);
+	const worktreeChildren = useMemo(
+		() => sessions.filter((s) => s.parentSessionId === sessionId),
+		[sessions, sessionId]
+	);
+
+	const handleOpenWorktreeConfig = useCallback(() => {
+		// Open worktree config on top of the batch runner (WORKTREE_CONFIG priority 752 > BATCH_RUNNER 720).
+		// The batch runner stays open underneath so the user returns to it after configuring.
+		getModalActions().setWorktreeConfigModalOpen(true);
+	}, []);
+
 	// Document list state
 	const [documents, setDocuments] = useState<BatchDocumentEntry[]>(() => {
 		// Initialize with current document
@@ -117,6 +132,9 @@ export function BatchRunnerModal(props: BatchRunnerModalProps) {
 		return [];
 	});
 
+	// Track initial document state for dirty checking
+	const initialDocumentsRef = useRef<string[]>([currentDocument].filter(Boolean));
+
 	// Task counts per document (keyed by filename)
 	const [taskCounts, setTaskCounts] = useState<Record<string, number>>({});
 	const [loadingTaskCounts, setLoadingTaskCounts] = useState(true);
@@ -129,12 +147,53 @@ export function BatchRunnerModal(props: BatchRunnerModalProps) {
 	const [enablePolling, setEnablePolling] = useState(true); // Default to enabled
 	const [pollingIntervalMs, setPollingIntervalMs] = useState<number | undefined>(undefined); // undefined = use defaults
 
+	// Track initial loop settings for dirty checking
+	const initialLoopEnabledRef = useRef(false);
+	const initialMaxLoopsRef = useRef<number | null>(null);
+
 	// Prompt state
 	const [prompt, setPrompt] = useState(initialPrompt || DEFAULT_BATCH_PROMPT);
 	const [variablesExpanded, setVariablesExpanded] = useState(false);
 	const [savedPrompt, setSavedPrompt] = useState(initialPrompt || '');
 	const [promptComposerOpen, setPromptComposerOpen] = useState(false);
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+	// Track initial prompt for dirty checking
+	const initialPromptRef = useRef(initialPrompt || DEFAULT_BATCH_PROMPT);
+
+	// Compute if there are unsaved configuration changes
+	// This checks if documents, loop settings, or prompt have changed from initial values
+	const hasUnsavedConfigChanges = useCallback(() => {
+		// Check if documents have changed (compare filenames)
+		const currentDocFilenames = documents.map((d) => d.filename).sort();
+		const initialDocFilenames = [...initialDocumentsRef.current].sort();
+		const documentsChanged =
+			currentDocFilenames.length !== initialDocFilenames.length ||
+			currentDocFilenames.some((f, i) => f !== initialDocFilenames[i]);
+
+		// Check if loop settings have changed
+		const loopChanged =
+			loopEnabled !== initialLoopEnabledRef.current || maxLoops !== initialMaxLoopsRef.current;
+
+		// Check if prompt has changed
+		const promptChanged = prompt !== initialPromptRef.current;
+
+		return documentsChanged || loopChanged || promptChanged;
+	}, [documents, loopEnabled, maxLoops, prompt]);
+
+	// Handler for closing with unsaved changes check
+	const handleCloseWithConfirmation = useCallback(() => {
+		if (hasUnsavedConfigChanges()) {
+			showConfirmation(
+				'You have unsaved changes to your Auto Run configuration. Close without saving?',
+				() => {
+					onClose();
+				}
+			);
+		} else {
+			onClose();
+		}
+	}, [hasUnsavedConfigChanges, showConfirmation, onClose]);
 
 	// Playbook management callback to apply loaded playbook configuration
 	const handleApplyPlaybook = useCallback(
@@ -226,7 +285,10 @@ export function BatchRunnerModal(props: BatchRunnerModalProps) {
 
 	// Count missing documents for warning display
 	const missingDocCount = documents.filter((doc) => doc.isMissing).length;
-	const _hasMissingDocs = missingDocCount > 0;
+
+	// Validate agent prompt has task references
+	const hasValidPrompt = validateAgentPromptHasTaskReference(prompt);
+	const isPromptEmpty = !prompt || !prompt.trim();
 
 	// Register layer on mount
 	useEffect(() => {
@@ -242,7 +304,7 @@ export function BatchRunnerModal(props: BatchRunnerModalProps) {
 				} else if (showSavePlaybookModal) {
 					setShowSavePlaybookModal(false);
 				} else {
-					onClose();
+					handleCloseWithConfirmation();
 				}
 			},
 		});
@@ -259,6 +321,7 @@ export function BatchRunnerModal(props: BatchRunnerModalProps) {
 		showSavePlaybookModal,
 		showDeleteConfirmModal,
 		handleCancelDeletePlaybook,
+		handleCloseWithConfirmation,
 	]);
 
 	// Update handler when dependencies change
@@ -270,12 +333,12 @@ export function BatchRunnerModal(props: BatchRunnerModalProps) {
 				} else if (showSavePlaybookModal) {
 					setShowSavePlaybookModal(false);
 				} else {
-					onClose();
+					handleCloseWithConfirmation();
 				}
 			});
 		}
 	}, [
-		onClose,
+		handleCloseWithConfirmation,
 		updateLayerHandler,
 		showSavePlaybookModal,
 		showDeleteConfirmModal,
@@ -296,9 +359,11 @@ export function BatchRunnerModal(props: BatchRunnerModalProps) {
 	const handleSave = () => {
 		onSave(prompt);
 		setSavedPrompt(prompt);
+		// Update initial ref so hasUnsavedConfigChanges doesn't flag a saved prompt as dirty
+		initialPromptRef.current = prompt;
 	};
 
-	const handleGo = () => {
+	const handleGo = async () => {
 		// Also save when running
 		onSave(prompt);
 
@@ -313,6 +378,7 @@ export function BatchRunnerModal(props: BatchRunnerModalProps) {
 			maxLoops: loopEnabled ? maxLoops : null,
 			enablePolling,
 			pollingIntervalMs,
+			...(worktreeTarget && { worktreeTarget }),
 		};
 
 		console.log('[BatchRunnerModal] handleGo - calling onGo with config:', config);
@@ -320,8 +386,24 @@ export function BatchRunnerModal(props: BatchRunnerModalProps) {
 			documentsCount: validDocuments.length,
 		});
 
-		onGo(config);
-		onClose();
+		// Worktree creation/opening requires async work — show loading state
+		const needsWorktreePrep =
+			worktreeTarget?.mode === 'create-new' || worktreeTarget?.mode === 'existing-closed';
+
+		if (needsWorktreePrep) {
+			setIsPreparingWorktree(true);
+			try {
+				await onGo(config);
+				onClose();
+			} catch {
+				// Keep modal open so the user can adjust config and retry
+			} finally {
+				setIsPreparingWorktree(false);
+			}
+		} else {
+			onGo(config);
+			onClose();
+		}
 	};
 
 	const isModified = prompt !== DEFAULT_BATCH_PROMPT;
@@ -371,7 +453,7 @@ export function BatchRunnerModal(props: BatchRunnerModalProps) {
 								{totalTaskCount === 1 ? 'task' : 'tasks'}
 							</span>
 						</div>
-						<button onClick={onClose} style={{ color: theme.colors.textDim }}>
+						<button onClick={handleCloseWithConfirmation} style={{ color: theme.colors.textDim }}>
 							<X className="w-4 h-4" />
 						</button>
 					</div>
@@ -554,8 +636,17 @@ export function BatchRunnerModal(props: BatchRunnerModalProps) {
 						onRefreshDocuments={onRefreshDocuments}
 					/>
 
-					{/* Divider */}
-					<div className="border-t mb-6" style={{ borderColor: theme.colors.border }} />
+					{/* Run in Worktree Section — hidden for non-git repos since worktrees require git */}
+					{activeSession?.isGitRepo && (
+						<WorktreeRunSection
+							theme={theme}
+							activeSession={activeSession}
+							worktreeChildren={worktreeChildren}
+							worktreeTarget={worktreeTarget}
+							onWorktreeTargetChange={setWorktreeTarget}
+							onOpenWorktreeConfig={handleOpenWorktreeConfig}
+						/>
+					)}
 
 					{/* Agent Prompt Section */}
 					<div className="flex flex-col gap-2">
@@ -694,6 +785,30 @@ export function BatchRunnerModal(props: BatchRunnerModalProps) {
 								<Maximize2 className="w-4 h-4" />
 							</button>
 						</div>
+						{/* Prompt validation warning */}
+						{isPromptEmpty && (
+							<div
+								className="text-xs px-3 py-2 rounded"
+								style={{
+									backgroundColor: theme.colors.error + '15',
+									color: theme.colors.error,
+								}}
+							>
+								Agent prompt cannot be empty. Reset to default or provide a prompt.
+							</div>
+						)}
+						{!isPromptEmpty && !hasValidPrompt && (
+							<div
+								className="text-xs px-3 py-2 rounded"
+								style={{
+									backgroundColor: theme.colors.error + '15',
+									color: theme.colors.error,
+								}}
+							>
+								Agent prompt must reference Markdown tasks (e.g., include checkbox syntax like
+								&quot;- [ ]&quot; or the phrase &quot;markdown task&quot;).
+							</div>
+						)}
 					</div>
 				</div>
 
@@ -707,12 +822,9 @@ export function BatchRunnerModal(props: BatchRunnerModalProps) {
 						<div className="flex items-center gap-2">
 							<span
 								className="px-1.5 py-0.5 rounded border text-[10px] font-mono"
-								style={{
-									borderColor: theme.colors.border,
-									backgroundColor: theme.colors.bgActivity,
-								}}
+								style={{ borderColor: theme.colors.border, backgroundColor: theme.colors.bgActivity }}
 							>
-								{isMacPlatform() ? '⌘' : 'Ctrl'} + Drag
+								{formatMetaKey()} + Drag
 							</span>
 							<span>to copy document</span>
 						</div>
@@ -771,7 +883,7 @@ export function BatchRunnerModal(props: BatchRunnerModalProps) {
 					{/* Right side: Buttons */}
 					<div className="flex items-center gap-2">
 						<button
-							onClick={onClose}
+							onClick={handleCloseWithConfirmation}
 							className="px-4 py-2 rounded border hover:bg-white/5 transition-colors"
 							style={{ borderColor: theme.colors.border, color: theme.colors.textMain }}
 						>
@@ -790,27 +902,47 @@ export function BatchRunnerModal(props: BatchRunnerModalProps) {
 						<button
 							onClick={handleGo}
 							disabled={
-								hasNoTasks || documents.length === 0 || documents.length === missingDocCount
+								isPreparingWorktree ||
+								hasNoTasks ||
+								documents.length === 0 ||
+								documents.length === missingDocCount ||
+								isPromptEmpty ||
+								!hasValidPrompt
 							}
 							className="flex items-center gap-2 px-4 py-2 rounded text-white font-bold disabled:opacity-40 disabled:cursor-not-allowed"
 							style={{
 								backgroundColor:
-									hasNoTasks || documents.length === 0 || documents.length === missingDocCount
+									isPreparingWorktree ||
+									hasNoTasks ||
+									documents.length === 0 ||
+									documents.length === missingDocCount ||
+									isPromptEmpty ||
+									!hasValidPrompt
 										? theme.colors.textDim
 										: theme.colors.accent,
 							}}
 							title={
-								documents.length === 0
-									? 'No documents selected'
-									: documents.length === missingDocCount
-										? 'All selected documents are missing'
-										: hasNoTasks
-											? 'No unchecked tasks in documents'
-											: 'Start auto-run'
+								isPreparingWorktree
+									? 'Preparing worktree...'
+									: isPromptEmpty
+										? 'Agent prompt cannot be empty'
+										: !hasValidPrompt
+											? 'Agent prompt must reference Markdown tasks (e.g., checkbox syntax "- [ ]")'
+											: documents.length === 0
+												? 'No documents selected'
+												: documents.length === missingDocCount
+													? 'All selected documents are missing'
+													: hasNoTasks
+														? 'No unchecked tasks in documents'
+														: 'Start auto-run'
 							}
 						>
-							<Play className="w-4 h-4" />
-							Go
+							{isPreparingWorktree ? (
+								<Loader2 className="w-4 h-4 animate-spin" />
+							) : (
+								<Play className="w-4 h-4" />
+							)}
+							{isPreparingWorktree ? 'Preparing Worktree...' : 'Go'}
 						</button>
 					</div>
 				</div>

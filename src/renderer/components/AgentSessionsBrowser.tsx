@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { FALLBACK_CONTEXT_WINDOW } from '../../shared/agentConstants';
 import {
 	Search,
 	Clock,
@@ -49,6 +50,7 @@ import {
 	useBillingMode,
 	type ClaudeSession,
 } from '../hooks';
+import { formatShortcutKeys } from '../utils/shortcutFormatter';
 
 type SearchMode = 'title' | 'user' | 'assistant' | 'all';
 
@@ -227,6 +229,11 @@ export function AgentSessionsBrowser({
 	const autoJumpedRef = useRef<string | null>(null); // Track which session we've auto-jumped to
 
 	const { registerLayer, unregisterLayer, updateLayerHandler } = useLayerStack();
+
+	const handleSearchChange = useCallback((value: string) => {
+		setSearch(value);
+		setSelectedIndex(0);
+	}, []);
 
 	// Reset to list view on mount - ensures we always start with list view when opening
 	useEffect(() => {
@@ -645,11 +652,6 @@ export function AgentSessionsBrowser({
 		};
 	}, [aggregateStats]);
 
-	// Reset selected index when search changes
-	useEffect(() => {
-		setSelectedIndex(0);
-	}, [search]);
-
 	// Keyboard navigation
 	const handleKeyDown = (e: React.KeyboardEvent) => {
 		if (viewingSession) {
@@ -696,7 +698,7 @@ export function AgentSessionsBrowser({
 			cacheReadInputTokens: 0,
 			cacheCreationInputTokens: 0,
 			totalCostUsd: session.costUsd || 0,
-			contextWindow: 200000, // Default Claude context window
+			contextWindow: FALLBACK_CONTEXT_WINDOW, // Default Claude context window
 		};
 	}, []);
 
@@ -961,7 +963,6 @@ export function AgentSessionsBrowser({
 												borderColor: theme.colors.accent,
 												backgroundColor: theme.colors.bgActivity,
 											}}
-											autoFocus
 										/>
 									</div>
 								) : viewingSession.sessionName ? (
@@ -1294,7 +1295,8 @@ export function AgentSessionsBrowser({
 											style={{
 												color: (() => {
 													const usagePercent =
-														((viewingSession.inputTokens + viewingSession.outputTokens) / 200000) *
+														((viewingSession.inputTokens + viewingSession.outputTokens) /
+															FALLBACK_CONTEXT_WINDOW) *
 														100;
 													if (usagePercent >= 90) return theme.colors.error;
 													if (usagePercent >= 70) return theme.colors.warning;
@@ -1304,7 +1306,9 @@ export function AgentSessionsBrowser({
 										>
 											{Math.min(
 												100,
-												((viewingSession.inputTokens + viewingSession.outputTokens) / 200000) * 100
+												((viewingSession.inputTokens + viewingSession.outputTokens) /
+													FALLBACK_CONTEXT_WINDOW) *
+													100
 											).toFixed(1)}
 											%
 										</span>
@@ -1412,6 +1416,8 @@ export function AgentSessionsBrowser({
 						onScroll={handleMessagesScroll}
 						onKeyDown={handleKeyDown}
 						tabIndex={0}
+						role="region"
+						aria-label="Session messages"
 					>
 						{/* Load more indicator */}
 						{hasMoreMessages && (
@@ -1600,12 +1606,16 @@ export function AgentSessionsBrowser({
 										setTimeout(() => inputRef.current?.focus(), 50);
 									} else {
 										// Switching to graph - clear search
-										setSearch('');
+										handleSearchChange('');
 									}
 								}}
 								className="p-1.5 rounded hover:bg-white/10 transition-colors shrink-0"
 								style={{ color: theme.colors.textDim }}
-								title={showSearchPanel ? 'Show activity graph' : 'Search sessions (⌘F)'}
+								title={
+									showSearchPanel
+										? 'Show activity graph'
+										: `Search sessions (${formatShortcutKeys(['Meta', 'f'])})`
+								}
 							>
 								{showSearchPanel ? (
 									<BarChart3 className="w-4 h-4" />
@@ -1625,13 +1635,13 @@ export function AgentSessionsBrowser({
 											placeholder={`Search ${searchMode === 'title' ? 'titles' : searchMode === 'user' ? 'your messages' : searchMode === 'assistant' ? 'AI responses' : 'all content'}...`}
 											style={{ color: theme.colors.textMain }}
 											value={search}
-											onChange={(e) => setSearch(e.target.value)}
+											onChange={(e) => handleSearchChange(e.target.value)}
 											onKeyDown={(e) => {
 												if (e.key === 'Escape') {
 													e.preventDefault();
 													e.stopPropagation();
 													setShowSearchPanel(false);
-													setSearch('');
+													handleSearchChange('');
 												} else {
 													handleKeyDown(e);
 												}
@@ -1645,7 +1655,7 @@ export function AgentSessionsBrowser({
 										)}
 										{search && !isSearching && (
 											<button
-												onClick={() => setSearch('')}
+												onClick={() => handleSearchChange('')}
 												className="p-0.5 rounded hover:bg-white/10"
 												style={{ color: theme.colors.textDim }}
 											>

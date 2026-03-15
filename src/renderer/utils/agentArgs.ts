@@ -21,10 +21,10 @@ const KNOWN_YOLO_FLAGS = new Set([
  * Filters YOLO/permission-bypass flags from agent args for read-only mode.
  * Combines agent-specific yoloModeArgs with known static flags.
  */
-export function filterYoloArgs(args: string[], yoloModeArgs?: string[]): string[] {
+export function filterYoloArgs(args: string[], agent: { yoloModeArgs?: string[] }): string[] {
 	const yoloFlags = new Set(KNOWN_YOLO_FLAGS);
-	if (yoloModeArgs) {
-		for (const flag of yoloModeArgs) {
+	if (agent.yoloModeArgs) {
+		for (const flag of agent.yoloModeArgs) {
 			yoloFlags.add(flag);
 		}
 	}

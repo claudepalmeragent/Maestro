@@ -18,7 +18,7 @@ import '@testing-library/jest-dom';
 import { UsageDashboardModal } from '../../../../renderer/components/UsageDashboard/UsageDashboardModal';
 import { SummaryCards } from '../../../../renderer/components/UsageDashboard/SummaryCards';
 
-// Mock lucide-react icons
+// lucide-react icons are mocked globally via test setup
 
 // Store ResizeObserver callback for triggering resize events
 let resizeObserverCallback: ResizeObserverCallback | null = null;
@@ -74,6 +74,7 @@ class MockResizeObserver {
 const mockStats = {
 	getAggregation: vi.fn(),
 	getDatabaseSize: vi.fn(),
+	getAutoRunSessions: vi.fn().mockResolvedValue([]),
 	onStatsUpdate: vi.fn(() => () => {}),
 	exportCsv: vi.fn(),
 	getDailyCosts: vi.fn(() => Promise.resolve([])),
@@ -263,7 +264,7 @@ describe('Usage Dashboard State Transition Animations', () => {
 			render(<SummaryCards data={mockData} theme={mockTheme} />);
 
 			const cards = screen.getAllByTestId('metric-card');
-			expect(cards.length).toBe(9); // 9 metric cards (including Total Cost)
+			expect(cards.length).toBe(13); // 13 metric cards
 
 			// Verify each card has incrementing animation delay
 			cards.forEach((card, index) => {
@@ -279,11 +280,11 @@ describe('Usage Dashboard State Transition Animations', () => {
 			expect(cards[0]).toHaveStyle({ animationDelay: '0ms' });
 		});
 
-		it('last card has 400ms delay (8 * 50ms)', () => {
+		it('last card has 600ms delay (12 * 50ms)', () => {
 			render(<SummaryCards data={mockData} theme={mockTheme} />);
 
 			const cards = screen.getAllByTestId('metric-card');
-			expect(cards[8]).toHaveStyle({ animationDelay: '400ms' });
+			expect(cards[12]).toHaveStyle({ animationDelay: '600ms' });
 		});
 	});
 

@@ -16,6 +16,7 @@ import os from 'os';
 import fs from 'fs/promises';
 import Store from 'electron-store';
 import { logger } from '../utils/logger';
+import { captureException } from '../utils/sentry';
 import { CLAUDE_SESSION_PARSE_LIMITS } from '../constants';
 import { calculateClaudeCost } from '../utils/pricing';
 import { encodeClaudeProjectPath } from '../utils/statsCache';
@@ -32,12 +33,9 @@ import {
 	searchSessionFilesRemote,
 } from '../utils/remote-fs';
 import type {
-	AgentSessionStorage,
 	AgentSessionInfo,
 	PaginatedSessionsResult,
 	SessionMessagesResult,
-	SessionSearchResult,
-	SessionSearchMode,
 	SessionListOptions,
 	SessionReadOptions,
 	AgentSessionOrigin,
@@ -46,6 +44,8 @@ import type {
 	SubagentInfo,
 } from '../agents';
 import type { ToolType, SshRemoteConfig } from '../../shared/types';
+import { BaseSessionStorage } from './base-session-storage';
+import type { SearchableMessage } from './base-session-storage';
 
 const LOG_CONTEXT = '[ClaudeSessionStorage]';
 
@@ -209,6 +209,7 @@ function parseSessionContent(
 		};
 	} catch (error) {
 		logger.error(`Error parsing session content for session: ${sessionId}`, LOG_CONTEXT, error);
+		captureException(error, { operation: 'claudeStorage:parseSession', sessionId });
 		return null;
 	}
 }
@@ -227,6 +228,7 @@ async function parseSessionFile(
 		return parseSessionContent(content, sessionId, projectPath, stats);
 	} catch (error) {
 		logger.error(`Error reading session file: ${filePath}`, LOG_CONTEXT, error);
+		captureException(error, { operation: 'claudeStorage:readSessionFile', filePath });
 		return null;
 	}
 }
@@ -619,6 +621,7 @@ async function parseSessionFileRemote(
 		return parseSessionContent(result.data, sessionId, projectPath, stats);
 	} catch (error) {
 		logger.error(`Error reading remote session file: ${filePath}`, LOG_CONTEXT, error);
+		captureException(error, { operation: 'claudeStorage:readRemoteSessionFile', filePath });
 		return null;
 	}
 }
@@ -825,12 +828,13 @@ function parseSubagentContent(
  * Provides access to Claude Code's local session storage at ~/.claude/projects/
  * Supports both local filesystem access and remote access via SSH.
  */
-export class ClaudeSessionStorage implements AgentSessionStorage {
+export class ClaudeSessionStorage extends BaseSessionStorage {
 	readonly agentId: ToolType = 'claude-code';
 
 	private originsStore: Store<ClaudeSessionOriginsData>;
 
 	constructor(originsStore?: Store<ClaudeSessionOriginsData>) {
+		super();
 		// Use provided store or create a new one
 		this.originsStore =
 			originsStore ||
@@ -954,6 +958,7 @@ export class ClaudeSessionStorage implements AgentSessionStorage {
 					});
 				} catch (error) {
 					logger.error(`Error processing session file: ${filename}`, LOG_CONTEXT, error);
+					captureException(error, { operation: 'claudeStorage:processSessionFile', filename });
 					return null;
 				}
 			})
@@ -1029,6 +1034,10 @@ export class ClaudeSessionStorage implements AgentSessionStorage {
 					);
 				} catch (error) {
 					logger.error(`Error processing remote session file: ${entry.name}`, LOG_CONTEXT, error);
+					captureException(error, {
+						operation: 'claudeStorage:processRemoteSessionFile',
+						filename: entry.name,
+					});
 					return null;
 				}
 			})
@@ -1449,214 +1458,53 @@ export class ClaudeSessionStorage implements AgentSessionStorage {
 			}
 		}
 
-		// Apply offset and limit for lazy loading
-		const offset = options?.offset ?? 0;
-		const limit = options?.limit ?? 20;
-
-		const startIndex = Math.max(0, messages.length - offset - limit);
-		const endIndex = messages.length - offset;
-		const slice = messages.slice(startIndex, endIndex);
-
-		return {
-			messages: slice,
-			total: messages.length,
-			hasMore: startIndex > 0,
-		};
+		return BaseSessionStorage.applyMessagePagination(messages, options);
 	}
 
-	async searchSessions(
+	protected async getSearchableMessages(
+		sessionId: string,
 		projectPath: string,
-		query: string,
-		searchMode: SessionSearchMode,
 		sshConfig?: SshRemoteConfig
-	): Promise<SessionSearchResult[]> {
-		if (!query.trim()) {
-			return [];
-		}
+	): Promise<SearchableMessage[]> {
+		let content: string;
 
-		if (sshConfig) {
-			const projectDir = this.getRemoteEncodedProjectDir(projectPath);
-
-			// Use remote-side grep to find matching files (2 SSH commands instead of N)
-			const searchResult = await searchSessionFilesRemote(projectDir, query, sshConfig);
-			if (!searchResult.success || !searchResult.data) {
-				return [];
-			}
-
-			const matchingSessions: SessionSearchResult[] = [];
-
-			for (const match of searchResult.data) {
-				const sessionId = match.filename.replace('.jsonl', '');
-
-				let matches = false;
-				let matchType: 'title' | 'user' | 'assistant' = 'title';
-				let matchCount = 0;
-
-				switch (searchMode) {
-					case 'title':
-						// Title search matches first user message — approximate with hasUserMatch
-						matches = match.hasUserMatch;
-						matchType = 'title';
-						matchCount = matches ? 1 : 0;
-						break;
-					case 'user':
-						matches = match.hasUserMatch;
-						matchType = 'user';
-						matchCount = match.userMatchCount;
-						break;
-					case 'assistant':
-						matches = match.hasAssistantMatch;
-						matchType = 'assistant';
-						matchCount = match.assistantMatchCount;
-						break;
-					case 'all':
-						matches = match.hasUserMatch || match.hasAssistantMatch;
-						matchType = match.hasUserMatch ? 'user' : 'assistant';
-						matchCount = match.userMatchCount + match.assistantMatchCount;
-						break;
-				}
-
-				if (matches) {
-					matchingSessions.push({
-						sessionId,
-						matchType,
-						matchPreview: match.matchPreview,
-						matchCount,
-					});
-				}
-			}
-
-			return matchingSessions;
-		}
-
-		// Local search path
-		const localProjectDir = this.getEncodedProjectDir(projectPath);
 		try {
-			await fs.access(localProjectDir);
+			if (sshConfig) {
+				const projectDir = this.getRemoteEncodedProjectDir(projectPath);
+				const sessionFile = `${projectDir}/${sessionId}.jsonl`;
+				const result = await readFileRemote(sessionFile, sshConfig);
+				if (!result.success || !result.data) return [];
+				content = result.data;
+			} else {
+				const projectDir = this.getEncodedProjectDir(projectPath);
+				const sessionFile = path.join(projectDir, `${sessionId}.jsonl`);
+				content = await fs.readFile(sessionFile, 'utf-8');
+			}
 		} catch {
 			return [];
 		}
-		const files = await fs.readdir(localProjectDir);
-		const sessionFiles = files.filter((f) => f.endsWith('.jsonl'));
 
-		const searchLower = query.toLowerCase();
-		const matchingSessions: SessionSearchResult[] = [];
+		const lines = content.split('\n').filter((l) => l.trim());
+		const searchableMessages: SearchableMessage[] = [];
 
-		for (const filename of sessionFiles) {
-			const sessionId = filename.replace('.jsonl', '');
-			const filePath = path.join(localProjectDir, filename);
-
+		for (const line of lines) {
 			try {
-				const content = await fs.readFile(filePath, 'utf-8');
-				const lines = content.split('\n').filter((l) => l.trim());
-
-				let titleMatch = false;
-				let userMatches = 0;
-				let assistantMatches = 0;
-				let matchPreview = '';
-
-				for (const line of lines) {
-					try {
-						const entry = JSON.parse(line);
-
-						let textContent = '';
-						if (entry.message?.content) {
-							if (typeof entry.message.content === 'string') {
-								textContent = entry.message.content;
-							} else if (Array.isArray(entry.message.content)) {
-								textContent = entry.message.content
-									.filter((b: { type?: string }) => b.type === 'text')
-									.map((b: { text?: string }) => b.text)
-									.join('\n');
-							}
-						}
-
-						const textLower = textContent.toLowerCase();
-
-						if (entry.type === 'user' && !titleMatch && textLower.includes(searchLower)) {
-							titleMatch = true;
-							if (!matchPreview) {
-								const idx = textLower.indexOf(searchLower);
-								const start = Math.max(0, idx - 60);
-								const end = Math.min(textContent.length, idx + query.length + 60);
-								matchPreview =
-									(start > 0 ? '...' : '') +
-									textContent.slice(start, end) +
-									(end < textContent.length ? '...' : '');
-							}
-						}
-
-						if (entry.type === 'user' && textLower.includes(searchLower)) {
-							userMatches++;
-							if (!matchPreview && (searchMode === 'user' || searchMode === 'all')) {
-								const idx = textLower.indexOf(searchLower);
-								const start = Math.max(0, idx - 60);
-								const end = Math.min(textContent.length, idx + query.length + 60);
-								matchPreview =
-									(start > 0 ? '...' : '') +
-									textContent.slice(start, end) +
-									(end < textContent.length ? '...' : '');
-							}
-						}
-
-						if (entry.type === 'assistant' && textLower.includes(searchLower)) {
-							assistantMatches++;
-							if (!matchPreview && (searchMode === 'assistant' || searchMode === 'all')) {
-								const idx = textLower.indexOf(searchLower);
-								const start = Math.max(0, idx - 60);
-								const end = Math.min(textContent.length, idx + query.length + 60);
-								matchPreview =
-									(start > 0 ? '...' : '') +
-									textContent.slice(start, end) +
-									(end < textContent.length ? '...' : '');
-							}
-						}
-					} catch {
-						// Skip malformed lines
+				const entry = JSON.parse(line);
+				if (entry.type === 'user' || entry.type === 'assistant') {
+					const textContent = extractTextFromContent(entry.message?.content);
+					if (textContent.trim()) {
+						searchableMessages.push({
+							role: entry.type as 'user' | 'assistant',
+							textContent,
+						});
 					}
 				}
-
-				let matches = false;
-				let matchType: 'title' | 'user' | 'assistant' = 'title';
-				let matchCount = 0;
-
-				switch (searchMode) {
-					case 'title':
-						matches = titleMatch;
-						matchType = 'title';
-						matchCount = titleMatch ? 1 : 0;
-						break;
-					case 'user':
-						matches = userMatches > 0;
-						matchType = 'user';
-						matchCount = userMatches;
-						break;
-					case 'assistant':
-						matches = assistantMatches > 0;
-						matchType = 'assistant';
-						matchCount = assistantMatches;
-						break;
-					case 'all':
-						matches = titleMatch || userMatches > 0 || assistantMatches > 0;
-						matchType = titleMatch ? 'title' : userMatches > 0 ? 'user' : 'assistant';
-						matchCount = userMatches + assistantMatches;
-						break;
-				}
-
-				if (matches) {
-					matchingSessions.push({
-						sessionId,
-						matchType,
-						matchPreview,
-						matchCount,
-					});
-				}
 			} catch {
-				// Skip files that can't be read
+				// Skip malformed lines
 			}
 		}
 
-		return matchingSessions;
+		return searchableMessages;
 	}
 
 	/**
@@ -2134,6 +1982,7 @@ export class ClaudeSessionStorage implements AgentSessionStorage {
 			return { success: true, linesRemoved: endIndex - userMessageIndex };
 		} catch (error) {
 			logger.error(`Error deleting message pair: ${sessionId}`, LOG_CONTEXT, error);
+			captureException(error, { operation: 'claudeStorage:deleteMessagePair', sessionId });
 			return { success: false, error: String(error) };
 		}
 	}

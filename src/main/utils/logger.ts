@@ -16,6 +16,7 @@ import {
 	LOG_LEVEL_PRIORITY,
 	DEFAULT_MAX_LOGS,
 } from '../../shared/logger-types';
+import { isWindows, isMacOS } from '../../shared/platformDetection';
 
 // Re-export types for backwards compatibility
 export type { MainLogLevel as LogLevel, SystemLogEntry as LogEntry };
@@ -26,12 +27,11 @@ export type { MainLogLevel as LogLevel, SystemLogEntry as LogEntry };
  * On macOS/Linux: ~/Library/Application Support/Maestro/logs/maestro-debug.log (or ~/.config/Maestro/logs)
  */
 function getLogFilePath(): string {
-	const isWindows = process.platform === 'win32';
 	let appDataDir: string;
 
-	if (isWindows) {
+	if (isWindows()) {
 		appDataDir = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
-	} else if (process.platform === 'darwin') {
+	} else if (isMacOS()) {
 		appDataDir = path.join(os.homedir(), 'Library', 'Application Support');
 	} else {
 		appDataDir = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config');
@@ -56,7 +56,7 @@ class Logger extends EventEmitter {
 
 		// Enable file logging on Windows by default for debugging
 		// Users can also enable it on other platforms via enableFileLogging()
-		if (process.platform === 'win32') {
+		if (isWindows()) {
 			this.enableFileLogging();
 		}
 	}
@@ -167,27 +167,35 @@ class Logger extends EventEmitter {
 		}
 
 		// Also output to console for development
-		switch (entry.level) {
-			case 'error':
-				console.error(message, entry.data || '');
-				break;
-			case 'warn':
-				console.warn(message, entry.data || '');
-				break;
-			case 'info':
-				console.info(message, entry.data || '');
-				break;
-			case 'debug':
-				console.log(message, entry.data || '');
-				break;
-			case 'toast':
-				// Toast notifications logged with info styling (purple in LogViewer)
-				console.info(message, entry.data || '');
-				break;
-			case 'autorun':
-				// Auto Run logs for workflow tracking (orange in LogViewer)
-				console.info(message, entry.data || '');
-				break;
+		// Wrapped in try-catch to handle EPIPE errors when stdout/stderr is disconnected
+		// (e.g., when a parent process consuming output dies unexpectedly)
+		// Fixes MAESTRO-5C
+		try {
+			switch (entry.level) {
+				case 'error':
+					console.error(message, entry.data || '');
+					break;
+				case 'warn':
+					console.warn(message, entry.data || '');
+					break;
+				case 'info':
+					console.info(message, entry.data || '');
+					break;
+				case 'debug':
+					console.log(message, entry.data || '');
+					break;
+				case 'toast':
+					// Toast notifications logged with info styling (purple in LogViewer)
+					console.info(message, entry.data || '');
+					break;
+				case 'autorun':
+					// Auto Run logs for workflow tracking (orange in LogViewer)
+					console.info(message, entry.data || '');
+					break;
+			}
+		} catch {
+			// Silently ignore EPIPE errors - console is disconnected
+			// Other errors are also ignored to prevent infinite loops
 		}
 	}
 

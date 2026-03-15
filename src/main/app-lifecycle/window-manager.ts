@@ -1,13 +1,49 @@
 /**
  * Window manager for creating and managing the main BrowserWindow.
- * Handles window state persistence, DevTools, and auto-updater initialization.
+ * Handles window state persistence, DevTools, crash detection, and auto-updater initialization.
  */
 
+import * as path from 'path';
 import { BrowserWindow, ipcMain } from 'electron';
 import type Store from 'electron-store';
 import type { WindowState } from '../stores/types';
 import { logger } from '../utils/logger';
 import { initAutoUpdater } from '../auto-updater';
+
+/** Sentry severity levels */
+type SentrySeverityLevel = 'fatal' | 'error' | 'warning' | 'log' | 'info' | 'debug';
+
+/** Sentry module type for crash reporting */
+interface SentryModule {
+	captureMessage: (
+		message: string,
+		captureContext?: { level?: SentrySeverityLevel; extra?: Record<string, unknown> }
+	) => string;
+}
+
+/** Cached Sentry module reference */
+let sentryModule: SentryModule | null = null;
+
+/**
+ * Reports a crash event to Sentry from the main process.
+ * Lazily loads Sentry to avoid module initialization issues.
+ */
+async function reportCrashToSentry(
+	message: string,
+	level: SentrySeverityLevel,
+	extra?: Record<string, unknown>
+): Promise<void> {
+	try {
+		if (!sentryModule) {
+			const sentry = await import('@sentry/electron/main');
+			sentryModule = sentry;
+		}
+		sentryModule.captureMessage(message, { level, extra });
+	} catch {
+		// Sentry not available (development mode or initialization failed)
+		logger.debug('Sentry not available for crash reporting', 'Window');
+	}
+}
 
 /** Dependencies for window manager */
 export interface WindowManagerDependencies {
@@ -21,6 +57,10 @@ export interface WindowManagerDependencies {
 	rendererPath: string;
 	/** Development server URL */
 	devServerUrl: string;
+	/** Whether to use the native OS title bar instead of custom title bar */
+	useNativeTitleBar: boolean;
+	/** Whether to auto-hide the menu bar (Linux/Windows) */
+	autoHideMenuBar: boolean;
 }
 
 /** Window manager instance */
@@ -36,7 +76,15 @@ export interface WindowManager {
  * @returns WindowManager instance
  */
 export function createWindowManager(deps: WindowManagerDependencies): WindowManager {
-	const { windowStateStore, isDevelopment, preloadPath, rendererPath, devServerUrl } = deps;
+	const {
+		windowStateStore,
+		isDevelopment,
+		preloadPath,
+		rendererPath,
+		devServerUrl,
+		useNativeTitleBar,
+		autoHideMenuBar,
+	} = deps;
 
 	return {
 		createWindow: (): BrowserWindow => {
@@ -51,11 +99,13 @@ export function createWindowManager(deps: WindowManagerDependencies): WindowMana
 				minWidth: 1000,
 				minHeight: 600,
 				backgroundColor: '#0b0b0d',
-				titleBarStyle: 'hiddenInset',
+				...(useNativeTitleBar ? {} : { titleBarStyle: 'hiddenInset' as const }),
+				...(autoHideMenuBar ? { autoHideMenuBar: true } : {}),
 				webPreferences: {
 					preload: preloadPath,
 					contextIsolation: true,
 					nodeIntegration: false,
+					sandbox: true,
 				},
 			});
 
@@ -75,19 +125,23 @@ export function createWindowManager(deps: WindowManagerDependencies): WindowMana
 
 			// Save window state before closing
 			const saveWindowState = () => {
-				const isMaximized = mainWindow.isMaximized();
-				const isFullScreen = mainWindow.isFullScreen();
-				const bounds = mainWindow.getBounds();
+				try {
+					const isMaximized = mainWindow.isMaximized();
+					const isFullScreen = mainWindow.isFullScreen();
+					const bounds = mainWindow.getBounds();
 
-				// Only save bounds if not maximized/fullscreen (to restore proper size later)
-				if (!isMaximized && !isFullScreen) {
-					windowStateStore.set('x', bounds.x);
-					windowStateStore.set('y', bounds.y);
-					windowStateStore.set('width', bounds.width);
-					windowStateStore.set('height', bounds.height);
+					// Only save bounds if not maximized/fullscreen (to restore proper size later)
+					if (!isMaximized && !isFullScreen) {
+						windowStateStore.set('x', bounds.x);
+						windowStateStore.set('y', bounds.y);
+						windowStateStore.set('width', bounds.width);
+						windowStateStore.set('height', bounds.height);
+					}
+					windowStateStore.set('isMaximized', isMaximized);
+					windowStateStore.set('isFullScreen', isFullScreen);
+				} catch {
+					// Ignore ENFILE/ENOSPC errors during window close — non-critical
 				}
-				windowStateStore.set('isMaximized', isMaximized);
-				windowStateStore.set('isFullScreen', isFullScreen);
 			};
 
 			mainWindow.on('close', saveWindowState);
@@ -119,8 +173,161 @@ export function createWindowManager(deps: WindowManagerDependencies): WindowMana
 				}
 			}
 
+			// ================================================================
+			// Navigation & Window Security Hardening
+			// ================================================================
+
+			// Deny all popup/new-window requests — external links use IPC shell:openExternal
+			mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+				logger.warn(`Blocked window.open request: ${url}`, 'Window');
+				return { action: 'deny' };
+			});
+
+			// Restrict navigation to the app itself — prevent renderer from navigating away
+			mainWindow.webContents.on('will-navigate', (event, url) => {
+				const parsedUrl = new URL(url);
+				if (isDevelopment) {
+					// In dev mode, allow Vite dev server navigation
+					const devUrl = new URL(devServerUrl);
+					if (parsedUrl.origin === devUrl.origin) return;
+				} else {
+					// In production, only allow file:// URLs within the app's renderer directory
+					if (
+						parsedUrl.protocol === 'file:' &&
+						url.includes(path.dirname(rendererPath).replace(/\\/g, '/'))
+					)
+						return;
+				}
+				event.preventDefault();
+				logger.warn(`Blocked navigation to: ${url}`, 'Window');
+			});
+
+			// Deny most browser permission requests (camera, mic, geolocation, etc.)
+			// Allow clipboard access for copy-to-clipboard functionality
+			mainWindow.webContents.session.setPermissionRequestHandler(
+				(_webContents, permission, callback) => {
+					if (permission === 'clipboard-read' || permission === 'clipboard-sanitized-write') {
+						callback(true);
+					} else {
+						callback(false);
+					}
+				}
+			);
+
 			mainWindow.on('closed', () => {
 				logger.info('Browser window closed', 'Window');
+			});
+
+			// ================================================================
+			// Renderer Process Crash Detection
+			// ================================================================
+			// These handlers capture crashes that Sentry in the renderer cannot
+			// report (because the renderer process is dead or broken).
+
+			// Handle renderer process termination (crash, kill, OOM, etc.)
+			mainWindow.webContents.on('render-process-gone', (_event, details) => {
+				logger.error('Renderer process gone', 'Window', {
+					reason: details.reason,
+					exitCode: details.exitCode,
+				});
+
+				// Report to Sentry from main process (always available)
+				reportCrashToSentry(`Renderer process gone: ${details.reason}`, 'fatal', {
+					reason: details.reason,
+					exitCode: details.exitCode,
+				});
+
+				// Auto-reload unless the process was intentionally killed
+				if (details.reason !== 'killed' && details.reason !== 'clean-exit') {
+					logger.info('Attempting to reload renderer after crash', 'Window');
+					setTimeout(() => {
+						if (!mainWindow.isDestroyed()) {
+							mainWindow.webContents.reload();
+						}
+					}, 1000);
+				}
+			});
+
+			// Handle window becoming unresponsive (frozen renderer)
+			mainWindow.on('unresponsive', () => {
+				logger.warn('Window became unresponsive', 'Window');
+				reportCrashToSentry('Window unresponsive', 'warning', {
+					memoryUsage: process.memoryUsage(),
+				});
+			});
+
+			// Log when window recovers from unresponsive state
+			mainWindow.on('responsive', () => {
+				logger.info('Window became responsive again', 'Window');
+			});
+
+			// Handle page crashes (less severe than render-process-gone)
+			mainWindow.webContents.on('crashed', (_event, killed) => {
+				logger.error('WebContents crashed', 'Window', { killed });
+				reportCrashToSentry('WebContents crashed', killed ? 'warning' : 'error', { killed });
+			});
+
+			// Handle page load failures (network issues, invalid URLs, etc.)
+			mainWindow.webContents.on(
+				'did-fail-load',
+				(_event, errorCode, errorDescription, validatedURL) => {
+					// Ignore aborted loads (user navigated away)
+					if (errorCode === -3) return;
+
+					logger.error('Page failed to load', 'Window', {
+						errorCode,
+						errorDescription,
+						url: validatedURL,
+					});
+					reportCrashToSentry(`Page failed to load: ${errorDescription}`, 'error', {
+						errorCode,
+						errorDescription,
+						url: validatedURL,
+					});
+				}
+			);
+
+			// Handle preload script errors
+			mainWindow.webContents.on('preload-error', (_event, preloadPath, error) => {
+				logger.error('Preload script error', 'Window', {
+					preloadPath,
+					error: error.message,
+					stack: error.stack,
+				});
+				reportCrashToSentry('Preload script error', 'fatal', {
+					preloadPath,
+					error: error.message,
+					stack: error.stack,
+				});
+			});
+
+			// Forward renderer console errors to main process logger and Sentry
+			// This catches errors that happen before or outside React's error boundary
+			mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+				// Level 2 = error (0=verbose, 1=info, 2=warning, 3=error)
+				if (level === 3) {
+					logger.error(`Renderer console error: ${message}`, 'Window', {
+						line,
+						source: sourceId,
+					});
+
+					// Report critical errors to Sentry
+					// Filter out common noise (React dev warnings, etc.)
+					const isCritical =
+						message.includes('Uncaught') ||
+						message.includes('TypeError') ||
+						message.includes('ReferenceError') ||
+						message.includes('Cannot read') ||
+						message.includes('is not defined') ||
+						message.includes('is not a function');
+
+					if (isCritical) {
+						reportCrashToSentry(`Renderer error: ${message}`, 'error', {
+							line,
+							source: sourceId,
+						});
+					}
+				}
 			});
 
 			// Initialize auto-updater (only in production)

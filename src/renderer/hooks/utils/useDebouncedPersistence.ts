@@ -84,11 +84,14 @@ export const prepareSessionForPersistence = (session: Session): Session => {
 	// Return session without runtime-only fields
 
 	const {
-		agentError,
-		agentErrorPaused,
-		agentErrorTabId,
-		sshConnectionFailed,
-		synopsisInProgress, // Runtime-only, don't persist
+		closedTabHistory: _closedTabHistory,
+		unifiedClosedTabHistory: _unifiedClosedTabHistory,
+		agentError: _agentError,
+		agentErrorPaused: _agentErrorPaused,
+		agentErrorTabId: _agentErrorTabId,
+		sshConnectionFailed: _sshConnectionFailed,
+		filePreviewHistory: _filePreviewHistory,
+		synopsisInProgress: _synopsisInProgress, // Runtime-only, don't persist
 		...sessionWithoutRuntimeFields
 	} = session;
 
@@ -116,19 +119,24 @@ export const prepareSessionForPersistence = (session: Session): Session => {
 		sshRemote: undefined,
 		sshRemoteId: undefined,
 		remoteCwd: undefined,
-		// Clear git detection state - these are re-detected fresh on each app restart.
-		// For local sessions: detected synchronously during restoreSession.
-		// For remote sessions: detected via fetchGitInfoInBackground + onSshRemote.
-		// Persisting them causes stale isGitRepo=true to block re-detection on restart
-		// (race condition: fetchGitInfoInBackground fires before SSH connects, fails silently,
-		// then onSshRemote's !isGitRepo guard blocks detection).
+		// Clear git detection state
 		isGitRepo: false,
 		gitRoot: undefined,
 		gitBranches: undefined,
 		gitTags: undefined,
 		gitRefsCacheTime: undefined,
 		gitSubdirScanResults: undefined,
-	} as Session;
+		// Don't persist file tree
+		fileTree: [],
+		fileTreeStats: undefined,
+		fileTreeTruncated: undefined,
+		fileTreeLoading: undefined,
+		fileTreeLoadingProgress: undefined,
+		fileTreeLastScanTime: undefined,
+		// Don't persist file preview history
+		filePreviewHistory: undefined,
+		filePreviewHistoryIndex: undefined,
+	} as unknown as Session;
 };
 
 export interface UseDebouncedPersistenceReturn {

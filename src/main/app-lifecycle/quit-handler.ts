@@ -11,6 +11,7 @@ import { tunnelManager as tunnelManagerInstance } from '../tunnel-manager';
 import type { HistoryManager } from '../history-manager';
 import { closeSshConnections } from '../utils/ssh-socket-cleanup';
 import { sshHealthMonitor } from '../services/ssh-health-monitor';
+import { isWebContentsAvailable } from '../utils/safe-send';
 
 /** Dependencies for quit handler */
 export interface QuitHandlerDependencies {
@@ -167,7 +168,7 @@ export function createQuitHandler(deps: QuitHandlerDependencies): QuitHandler {
 					}
 
 					// Ask renderer to check for busy agents
-					if (mainWindow && !mainWindow.isDestroyed()) {
+					if (isWebContentsAvailable(mainWindow)) {
 						state.isRequestingConfirmation = true;
 						logger.info('Requesting quit confirmation from renderer', 'Window');
 						mainWindow.webContents.send('app:requestQuitConfirmation');

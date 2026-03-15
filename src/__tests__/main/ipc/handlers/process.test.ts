@@ -68,11 +68,25 @@ vi.mock('../../../../main/power-manager', () => ({
 	powerManager: { addBlockReason: vi.fn(), removeBlockReason: vi.fn() },
 }));
 
-// Mock ssh-command-builder to handle async buildSshCommand
+// Mock streamJsonBuilder for SSH image tests
+vi.mock('../../../../main/process-manager/utils/streamJsonBuilder', () => ({
+	buildStreamJsonMessage: vi.fn((prompt: string, images: string[]) => {
+		// Return a realistic stream-json message for assertion
+		const content: any[] = [];
+		for (const img of images) {
+			content.push({ type: 'image', source: { type: 'base64', data: img } });
+		}
+		content.push({ type: 'text', text: prompt });
+		return JSON.stringify({ type: 'user', message: { role: 'user', content } });
+	}),
+}));
+
+// Mock ssh-command-builder to handle async buildSshCommandWithStdin
 // This mock dynamically builds the SSH command based on input to support all test cases
+// The production code now uses buildSshCommandWithStdin (stdin-based execution) instead of buildSshCommand
 vi.mock('../../../../main/utils/ssh-command-builder', () => ({
-	buildSshCommand: vi.fn().mockImplementation(async (config, remoteOptions) => {
-		const args: string[] = ['-tt'];
+	buildSshCommandWithStdin: vi.fn().mockImplementation(async (config, remoteOptions) => {
+		const args: string[] = [];
 
 		// Add identity file if provided
 		if (config.privateKeyPath) {
@@ -83,39 +97,89 @@ vi.mock('../../../../main/utils/ssh-command-builder', () => ({
 		args.push('-o', 'BatchMode=yes');
 		args.push('-o', 'StrictHostKeyChecking=accept-new');
 		args.push('-o', 'ConnectTimeout=10');
+		args.push('-o', 'RequestTTY=no');
 
 		// Add port if not default
 		if (config.port !== 22) {
 			args.push('-p', config.port.toString());
 		}
 
-		// Build destination
-		args.push(`${config.username}@${config.host}`);
+		// Build destination - use user@host if username provided, otherwise just host
+		if (config.username && config.username.trim()) {
+			args.push(`${config.username}@${config.host}`);
+		} else {
+			args.push(config.host);
+		}
 
-		// Build the remote command parts
+		// For stdin-based execution, the remote command is just /bin/bash
+		args.push('/bin/bash');
+
+		// Build the stdin script that would be sent to bash
+		const scriptLines: string[] = [];
+		scriptLines.push(
+			'export PATH="$HOME/.local/bin:$HOME/.opencode/bin:$HOME/bin:/usr/local/bin:/opt/homebrew/bin:$HOME/.cargo/bin:$PATH"'
+		);
+
+		if (remoteOptions.cwd) {
+			scriptLines.push(`cd '${remoteOptions.cwd}' || exit 1`);
+		}
+
+		// Add env vars if present
+		const mergedEnv = { ...(config.remoteEnv || {}), ...(remoteOptions.env || {}) };
+		for (const [key, value] of Object.entries(mergedEnv)) {
+			scriptLines.push(`export ${key}='${value}'`);
+		}
+
+		// Build command with args
+		const cmdWithArgs =
+			`${remoteOptions.command} ${remoteOptions.args.map((a: string) => `'${a}'`).join(' ')}`.trim();
+		scriptLines.push(`exec ${cmdWithArgs}`);
+
+		let stdinScript = scriptLines.join('\n') + '\n';
+		if (remoteOptions.stdinInput) {
+			stdinScript += remoteOptions.stdinInput;
+		}
+
+		return { command: 'ssh', args, stdinScript };
+	}),
+	buildSshCommand: vi.fn().mockImplementation(async (config, remoteOptions) => {
+		// Legacy function - kept for backwards compatibility but tests primarily use buildSshCommandWithStdin
+		const args: string[] = ['-tt'];
+
+		if (config.privateKeyPath) {
+			args.push('-i', config.privateKeyPath.replace('~', '/Users/test'));
+		}
+
+		args.push('-o', 'BatchMode=yes');
+		args.push('-o', 'StrictHostKeyChecking=accept-new');
+		args.push('-o', 'ConnectTimeout=10');
+
+		if (config.port !== 22) {
+			args.push('-p', config.port.toString());
+		}
+
+		if (config.username && config.username.trim()) {
+			args.push(`${config.username}@${config.host}`);
+		} else {
+			args.push(config.host);
+		}
+
 		const commandParts: string[] = [];
-
-		// Add cd if cwd is set
 		if (remoteOptions.cwd) {
 			commandParts.push(`cd '${remoteOptions.cwd}'`);
 		}
 
-		// Add env vars if present
 		const mergedEnv = { ...(config.remoteEnv || {}), ...(remoteOptions.env || {}) };
 		const envParts: string[] = [];
 		for (const [key, value] of Object.entries(mergedEnv)) {
 			envParts.push(`${key}='${value}'`);
 		}
 
-		// Build command with args
 		const cmdWithArgs =
 			`'${remoteOptions.command}' ${remoteOptions.args.map((a: string) => `'${a}'`).join(' ')}`.trim();
-
-		// Combine env + command
 		const fullCmd = envParts.length > 0 ? `${envParts.join(' ')} ${cmdWithArgs}` : cmdWithArgs;
 		commandParts.push(fullCmd);
 
-		// Join with &&
 		const remoteCommand = commandParts.join(' && ');
 		args.push(`$SHELL -lc "${remoteCommand}"`);
 
@@ -210,6 +274,7 @@ describe('process IPC handlers', () => {
 			isDestroyed: vi.fn().mockReturnValue(false),
 			webContents: {
 				send: vi.fn(),
+				isDestroyed: vi.fn().mockReturnValue(false),
 			},
 		};
 
@@ -262,6 +327,9 @@ describe('process IPC handlers', () => {
 				name: 'Claude Code',
 				requiresPty: true,
 				path: '/usr/local/bin/claude',
+				capabilities: {
+					supportsStreamJsonInput: true,
+				},
 			};
 
 			mockAgentDetector.getAgent.mockResolvedValue(mockAgent);
@@ -347,6 +415,99 @@ describe('process IPC handlers', () => {
 			});
 
 			expect(mockProcessManager.spawn).toHaveBeenCalled();
+		});
+
+		it('should apply readOnlyEnvOverrides when readOnlyMode is true', async () => {
+			const { applyAgentConfigOverrides } = await import('../../../../main/utils/agent-args');
+			const mockApply = vi.mocked(applyAgentConfigOverrides);
+
+			// Simulate agent with YOLO env vars returned by applyAgentConfigOverrides
+			mockApply.mockReturnValueOnce({
+				args: [],
+				modelSource: 'default',
+				customArgsSource: 'none',
+				customEnvSource: 'none',
+				effectiveCustomEnvVars: {
+					OPENCODE_CONFIG_CONTENT:
+						'{"permission":{"*":"allow","question":"deny"},"tools":{"question":false}}',
+				},
+			});
+
+			const mockAgent = {
+				id: 'opencode',
+				requiresPty: false,
+				readOnlyEnvOverrides: {
+					OPENCODE_CONFIG_CONTENT: '{"permission":{"question":"deny"},"tools":{"question":false}}',
+				},
+			};
+
+			mockAgentDetector.getAgent.mockResolvedValue(mockAgent);
+			mockProcessManager.spawn.mockReturnValue({ pid: 2000, success: true });
+
+			const handler = handlers.get('process:spawn');
+			await handler!({} as any, {
+				sessionId: 'session-readonly-env',
+				toolType: 'opencode',
+				cwd: '/test',
+				command: 'opencode',
+				args: [],
+				readOnlyMode: true,
+			});
+
+			// The spawn call should receive the overridden env vars (without blanket permissions)
+			expect(mockProcessManager.spawn).toHaveBeenCalledWith(
+				expect.objectContaining({
+					customEnvVars: expect.objectContaining({
+						OPENCODE_CONFIG_CONTENT:
+							'{"permission":{"question":"deny"},"tools":{"question":false}}',
+					}),
+				})
+			);
+		});
+
+		it('should NOT apply readOnlyEnvOverrides when readOnlyMode is false', async () => {
+			const { applyAgentConfigOverrides } = await import('../../../../main/utils/agent-args');
+			const mockApply = vi.mocked(applyAgentConfigOverrides);
+
+			const yoloConfig =
+				'{"permission":{"*":"allow","question":"deny"},"tools":{"question":false}}';
+			mockApply.mockReturnValueOnce({
+				args: [],
+				modelSource: 'default',
+				customArgsSource: 'none',
+				customEnvSource: 'none',
+				effectiveCustomEnvVars: { OPENCODE_CONFIG_CONTENT: yoloConfig },
+			});
+
+			const mockAgent = {
+				id: 'opencode',
+				requiresPty: false,
+				readOnlyEnvOverrides: {
+					OPENCODE_CONFIG_CONTENT: '{"permission":{"question":"deny"},"tools":{"question":false}}',
+				},
+			};
+
+			mockAgentDetector.getAgent.mockResolvedValue(mockAgent);
+			mockProcessManager.spawn.mockReturnValue({ pid: 2001, success: true });
+
+			const handler = handlers.get('process:spawn');
+			await handler!({} as any, {
+				sessionId: 'session-not-readonly',
+				toolType: 'opencode',
+				cwd: '/test',
+				command: 'opencode',
+				args: [],
+				// readOnlyMode not set (defaults to undefined/false)
+			});
+
+			// The spawn call should keep the original YOLO env vars
+			expect(mockProcessManager.spawn).toHaveBeenCalledWith(
+				expect.objectContaining({
+					customEnvVars: expect.objectContaining({
+						OPENCODE_CONFIG_CONTENT: yoloConfig,
+					}),
+				})
+			);
 		});
 
 		it('should use sessionCustomPath for local execution when provided', async () => {
@@ -1100,6 +1261,9 @@ describe('process IPC handlers', () => {
 			const mockAgent = {
 				id: 'claude-code',
 				requiresPty: true, // Note: should be disabled when using SSH
+				capabilities: {
+					supportsStreamJsonInput: true,
+				},
 			};
 
 			mockAgentDetector.getAgent.mockResolvedValue(mockAgent);
@@ -1123,13 +1287,17 @@ describe('process IPC handlers', () => {
 				},
 			});
 
-			// Should use session SSH config
+			// Should use session SSH config with stdin-based execution
+			// The new approach uses buildSshCommandWithStdin which runs /bin/bash on remote
+			// and sends the command script via stdin
 			expect(mockProcessManager.spawn).toHaveBeenCalledWith(
 				expect.objectContaining({
 					command: 'ssh',
-					args: expect.arrayContaining(['devuser@dev.example.com']),
+					args: expect.arrayContaining(['devuser@dev.example.com', '/bin/bash']),
 					// PTY should be disabled for SSH
 					requiresPty: false,
+					// sshStdinScript should contain the command to execute
+					sshStdinScript: expect.stringContaining('claude'),
 				})
 			);
 		});
@@ -1180,6 +1348,9 @@ describe('process IPC handlers', () => {
 			const mockAgent = {
 				id: 'claude-code',
 				requiresPty: false,
+				capabilities: {
+					supportsStreamJsonInput: true,
+				},
 			};
 
 			// Mock applyAgentConfigOverrides to return custom env vars
@@ -1214,18 +1385,17 @@ describe('process IPC handlers', () => {
 				},
 			});
 
-			// When using SSH, customEnvVars should be undefined (passed via remote command)
+			// When using SSH, customEnvVars should be undefined (passed via stdin script)
 			expect(mockProcessManager.spawn).toHaveBeenCalledWith(
 				expect.objectContaining({
 					command: 'ssh',
-					customEnvVars: undefined, // Env vars passed in SSH command, not locally
+					customEnvVars: undefined, // Env vars passed in SSH stdin script, not locally
 				})
 			);
 
-			// The SSH args should contain the remote command with env vars
+			// The sshStdinScript should contain the env var export
 			const spawnCall = mockProcessManager.spawn.mock.calls[0][0];
-			const remoteCommandArg = spawnCall.args[spawnCall.args.length - 1];
-			expect(remoteCommandArg).toContain('CUSTOM_API_KEY=');
+			expect(spawnCall.sshStdinScript).toContain('CUSTOM_API_KEY=');
 		});
 
 		it('should run locally when session SSH is explicitly disabled', async () => {
@@ -1304,6 +1474,9 @@ describe('process IPC handlers', () => {
 			const mockAgent = {
 				id: 'claude-code',
 				requiresPty: false,
+				capabilities: {
+					supportsStreamJsonInput: true,
+				},
 			};
 
 			mockAgentDetector.getAgent.mockResolvedValue(mockAgent);
@@ -1334,8 +1507,8 @@ describe('process IPC handlers', () => {
 			// We can't easily test the exact value of os.homedir() in a mock,
 			// but we verify it's NOT the remote path
 			expect(spawnCall.cwd).not.toBe('/home/remoteuser/remote-project');
-			// The remote path should be embedded in the SSH command args instead
-			expect(spawnCall.args.join(' ')).toContain('claude');
+			// The remote path should be embedded in the SSH stdin script instead
+			expect(spawnCall.sshStdinScript).toContain('/home/remoteuser/remote-project');
 		});
 
 		it('should use agent binaryName for SSH remote instead of local path (fixes Codex/Claude remote path issue)', async () => {
@@ -1351,6 +1524,9 @@ describe('process IPC handlers', () => {
 				binaryName: 'codex', // Just the binary name, without path
 				path: '/opt/homebrew/bin/codex', // Local macOS path
 				requiresPty: false,
+				capabilities: {
+					supportsStreamJsonInput: false,
+				},
 			};
 
 			mockAgentDetector.getAgent.mockResolvedValue(mockAgent);
@@ -1373,14 +1549,13 @@ describe('process IPC handlers', () => {
 				},
 			});
 
-			// The SSH command args should contain 'codex' (binaryName), NOT '/opt/homebrew/bin/codex'
+			// The sshStdinScript should contain 'codex' (binaryName), NOT '/opt/homebrew/bin/codex'
 			const spawnCall = mockProcessManager.spawn.mock.calls[0][0];
 			expect(spawnCall.command).toBe('ssh');
 
-			// The remote command in SSH args should use just 'codex', not the full local path
-			const remoteCommandArg = spawnCall.args[spawnCall.args.length - 1];
-			expect(remoteCommandArg).toContain("'codex'");
-			expect(remoteCommandArg).not.toContain('/opt/homebrew/bin/codex');
+			// The stdin script should use just 'codex', not the full local path
+			expect(spawnCall.sshStdinScript).toContain('codex');
+			expect(spawnCall.sshStdinScript).not.toContain('/opt/homebrew/bin/codex');
 		});
 
 		it('should use sessionCustomPath for SSH remote when user specifies a custom path', async () => {
@@ -1392,6 +1567,9 @@ describe('process IPC handlers', () => {
 				binaryName: 'codex',
 				path: '/opt/homebrew/bin/codex', // Local path
 				requiresPty: false,
+				capabilities: {
+					supportsStreamJsonInput: false,
+				},
 			};
 
 			mockAgentDetector.getAgent.mockResolvedValue(mockAgent);
@@ -1418,10 +1596,310 @@ describe('process IPC handlers', () => {
 			const spawnCall = mockProcessManager.spawn.mock.calls[0][0];
 			expect(spawnCall.command).toBe('ssh');
 
-			// Should use the custom path, not binaryName or local path
-			const remoteCommandArg = spawnCall.args[spawnCall.args.length - 1];
-			expect(remoteCommandArg).toContain("'/usr/local/bin/codex'");
-			expect(remoteCommandArg).not.toContain('/opt/homebrew/bin/codex');
+			// Should use the custom path in the stdin script, not binaryName or local path
+			expect(spawnCall.sshStdinScript).toContain('/usr/local/bin/codex');
+			expect(spawnCall.sshStdinScript).not.toContain('/opt/homebrew/bin/codex');
+		});
+
+		it('should pass images via stream-json stdin for SSH with stream-json agents (regression: images dropped over SSH)', async () => {
+			// REGRESSION TEST: Commit ccabe752 refactored SSH to stdin passthrough but dropped image support.
+			// Images were silently ignored when spawning agents over SSH, causing the remote agent
+			// to receive text-only prompts even when images were attached.
+			const mockAgent = {
+				id: 'claude-code',
+				name: 'Claude Code',
+				binaryName: 'claude',
+				requiresPty: false,
+				capabilities: {
+					supportsStreamJsonInput: true,
+				},
+			};
+
+			mockAgentDetector.getAgent.mockResolvedValue(mockAgent);
+			mockSettingsStore.get.mockImplementation((key, defaultValue) => {
+				if (key === 'sshRemotes') return [mockSshRemote];
+				return defaultValue;
+			});
+			mockProcessManager.spawn.mockReturnValue({ pid: 12345, success: true });
+
+			const testImages = ['data:image/png;base64,iVBORw0KGgo=='];
+			const handler = handlers.get('process:spawn');
+			await handler!({} as any, {
+				sessionId: 'session-ssh-images',
+				toolType: 'claude-code',
+				cwd: '/home/devuser/project',
+				command: 'claude',
+				args: ['--print', '--verbose', '--output-format', 'stream-json'],
+				prompt: 'describe this image',
+				images: testImages,
+				sessionSshRemoteConfig: {
+					enabled: true,
+					remoteId: 'remote-1',
+				},
+			});
+
+			// Verify buildSshCommandWithStdin was called with stream-json stdinInput containing images
+			const { buildSshCommandWithStdin: mockBuildSsh } =
+				await import('../../../../main/utils/ssh-command-builder');
+			const sshCallArgs = vi.mocked(mockBuildSsh).mock.calls[0][1];
+
+			// stdinInput should be a stream-json message (not raw prompt text)
+			expect(sshCallArgs.stdinInput).toContain('"type":"user"');
+			expect(sshCallArgs.stdinInput).toContain('"type":"image"');
+			expect(sshCallArgs.stdinInput).toContain('iVBORw0KGgo==');
+
+			// --input-format stream-json should be in the args
+			expect(sshCallArgs.args).toContain('--input-format');
+			expect(sshCallArgs.args).toContain('stream-json');
+		});
+
+		it('should pass images and imageArgs to SSH builder for file-based agents (regression: images dropped over SSH)', async () => {
+			// REGRESSION TEST: File-based agents (Codex, OpenCode) use -i/-f flags for images.
+			// Over SSH, images must be decoded into remote temp files via the SSH script.
+			const mockImageArgs = (path: string) => ['-i', path];
+			const mockAgent = {
+				id: 'codex',
+				name: 'Codex',
+				binaryName: 'codex',
+				requiresPty: false,
+				imageArgs: mockImageArgs,
+				capabilities: {
+					supportsStreamJsonInput: false,
+				},
+			};
+
+			mockAgentDetector.getAgent.mockResolvedValue(mockAgent);
+			mockSettingsStore.get.mockImplementation((key, defaultValue) => {
+				if (key === 'sshRemotes') return [mockSshRemote];
+				return defaultValue;
+			});
+			mockProcessManager.spawn.mockReturnValue({ pid: 12345, success: true });
+
+			const testImages = ['data:image/png;base64,AAAA', 'data:image/jpeg;base64,BBBB'];
+			const handler = handlers.get('process:spawn');
+			await handler!({} as any, {
+				sessionId: 'session-ssh-codex-images',
+				toolType: 'codex',
+				cwd: '/home/devuser/project',
+				command: '/opt/homebrew/bin/codex',
+				args: ['exec', '--json'],
+				prompt: 'describe these screenshots',
+				images: testImages,
+				sessionSshRemoteConfig: {
+					enabled: true,
+					remoteId: 'remote-1',
+				},
+			});
+
+			// Verify buildSshCommandWithStdin was called with images and imageArgs
+			const { buildSshCommandWithStdin: mockBuildSsh } =
+				await import('../../../../main/utils/ssh-command-builder');
+			const sshCallArgs = vi.mocked(mockBuildSsh).mock.calls[0][1];
+
+			// images should be passed through to the SSH builder
+			expect(sshCallArgs.images).toEqual(testImages);
+			// imageArgs function should be passed through
+			expect(sshCallArgs.imageArgs).toBe(mockImageArgs);
+			// stdinInput should be the raw prompt (not stream-json) since Codex doesn't use stream-json
+			expect(sshCallArgs.stdinInput).toBe('describe these screenshots');
+		});
+
+		it('should not pass images to SSH builder when agent uses stream-json (images go in stdinInput instead)', async () => {
+			// For stream-json agents, images are embedded in the stdinInput JSON.
+			// They should NOT also be passed as images/imageArgs to avoid double-handling.
+			const mockAgent = {
+				id: 'claude-code',
+				name: 'Claude Code',
+				binaryName: 'claude',
+				requiresPty: false,
+				imageArgs: undefined, // Claude Code doesn't use file-based image args
+				capabilities: {
+					supportsStreamJsonInput: true,
+				},
+			};
+
+			mockAgentDetector.getAgent.mockResolvedValue(mockAgent);
+			mockSettingsStore.get.mockImplementation((key, defaultValue) => {
+				if (key === 'sshRemotes') return [mockSshRemote];
+				return defaultValue;
+			});
+			mockProcessManager.spawn.mockReturnValue({ pid: 12345, success: true });
+
+			const handler = handlers.get('process:spawn');
+			await handler!({} as any, {
+				sessionId: 'session-ssh-no-double-images',
+				toolType: 'claude-code',
+				cwd: '/home/devuser/project',
+				command: 'claude',
+				args: ['--print'],
+				prompt: 'test',
+				images: ['data:image/png;base64,TEST=='],
+				sessionSshRemoteConfig: {
+					enabled: true,
+					remoteId: 'remote-1',
+				},
+			});
+
+			const { buildSshCommandWithStdin: mockBuildSsh } =
+				await import('../../../../main/utils/ssh-command-builder');
+			const sshCallArgs = vi.mocked(mockBuildSsh).mock.calls[0][1];
+
+			// images and imageArgs should NOT be passed (they're in the stream-json stdinInput)
+			expect(sshCallArgs.images).toBeUndefined();
+			expect(sshCallArgs.imageArgs).toBeUndefined();
+		});
+
+		it('should not modify stdinInput when no images are present over SSH', async () => {
+			// When there are no images, SSH should behave exactly as before (raw prompt via stdin)
+			const mockAgent = {
+				id: 'claude-code',
+				name: 'Claude Code',
+				binaryName: 'claude',
+				requiresPty: false,
+				capabilities: {
+					supportsStreamJsonInput: true,
+				},
+			};
+
+			mockAgentDetector.getAgent.mockResolvedValue(mockAgent);
+			mockSettingsStore.get.mockImplementation((key, defaultValue) => {
+				if (key === 'sshRemotes') return [mockSshRemote];
+				return defaultValue;
+			});
+			mockProcessManager.spawn.mockReturnValue({ pid: 12345, success: true });
+
+			const handler = handlers.get('process:spawn');
+			await handler!({} as any, {
+				sessionId: 'session-ssh-no-images',
+				toolType: 'claude-code',
+				cwd: '/home/devuser/project',
+				command: 'claude',
+				args: ['--print'],
+				prompt: 'just a text prompt',
+				// No images
+				sessionSshRemoteConfig: {
+					enabled: true,
+					remoteId: 'remote-1',
+				},
+			});
+
+			const { buildSshCommandWithStdin: mockBuildSsh } =
+				await import('../../../../main/utils/ssh-command-builder');
+			const sshCallArgs = vi.mocked(mockBuildSsh).mock.calls[0][1];
+
+			// stdinInput should be the raw prompt, not stream-json
+			expect(sshCallArgs.stdinInput).toBe('just a text prompt');
+			// No --input-format should be added
+			expect(sshCallArgs.args).not.toContain('--input-format');
+			// No images or imageArgs
+			expect(sshCallArgs.images).toBeUndefined();
+			expect(sshCallArgs.imageArgs).toBeUndefined();
+		});
+
+		it('should merge globalShellEnvVars with effectiveCustomEnvVars when passing to SSH handler', async () => {
+			// PHASE 4 VERIFICATION: Ensure SSH handler merges global env vars with session custom env vars
+			// This test verifies that globalShellEnvVars are properly passed to buildSshCommandWithStdin
+			// where they are merged with effectiveCustomEnvVars
+			const mockAgent = {
+				id: 'claude-code',
+				name: 'Claude Code',
+				binaryName: 'claude',
+				requiresPty: false,
+				capabilities: {
+					supportsStreamJsonInput: true,
+				},
+			};
+
+			// Mock applyAgentConfigOverrides to return session-level custom env vars
+			const { applyAgentConfigOverrides } = await import('../../../../main/utils/agent-args');
+			vi.mocked(applyAgentConfigOverrides).mockReturnValue({
+				args: ['--print'],
+				modelSource: 'none',
+				customArgsSource: 'none',
+				customEnvSource: 'session',
+				effectiveCustomEnvVars: {
+					SESSION_API_KEY: 'session-key-placeholder',
+					DEBUG_MODE: 'debug_override_from_session', // DUPLICATE: also in global
+				},
+			});
+
+			mockAgentDetector.getAgent.mockResolvedValue(mockAgent);
+
+			// Mock settings to return both global and session SSH config
+			mockSettingsStore.get.mockImplementation((key, defaultValue) => {
+				if (key === 'sshRemotes') return [mockSshRemote];
+				if (key === 'shellEnvVars') {
+					// Global environment variables set by user in Settings
+					// Using non-secret placeholders instead of literal secrets
+					return {
+						GLOBAL_KEY_PLACEHOLDER: 'global_value_1',
+						PROXY_URL_PLACEHOLDER: 'proxy_value_default',
+						DEBUG_MODE: 'global_debug_setting', // DUPLICATE: also in session to test override
+					};
+				}
+				return defaultValue;
+			});
+
+			mockProcessManager.spawn.mockReturnValue({ pid: 12345, success: true });
+
+			const handler = handlers.get('process:spawn');
+			await handler!({} as any, {
+				sessionId: 'session-with-globals',
+				toolType: 'claude-code',
+				cwd: '/home/devuser/project',
+				command: 'claude',
+				args: ['--print'],
+				prompt: 'Hello from SSH',
+				// Session-level custom env vars - includes duplicate key to test override
+				sessionCustomEnvVars: {
+					SESSION_API_KEY: 'session-key-placeholder',
+					DEBUG_MODE: 'debug_override_from_session', // DUPLICATE: overrides global value
+				},
+				// Session-level SSH config
+				sessionSshRemoteConfig: {
+					enabled: true,
+					remoteId: 'remote-1',
+				},
+			});
+
+			// Verify buildSshCommandWithStdin was called with merged env vars
+			const { buildSshCommandWithStdin: mockBuildSsh } =
+				await import('../../../../main/utils/ssh-command-builder');
+			const buildSshCalls = vi.mocked(mockBuildSsh).mock.calls;
+			expect(buildSshCalls.length).toBeGreaterThan(0);
+
+			const lastCall = buildSshCalls[buildSshCalls.length - 1];
+			const remoteOptions = lastCall[1];
+
+			// 1. Verify env parameter contains both global and session vars
+			expect(remoteOptions.env).toBeDefined();
+			if (remoteOptions.env) {
+				expect(remoteOptions.env).toEqual(
+					expect.objectContaining({
+						GLOBAL_KEY_PLACEHOLDER: 'global_value_1',
+						PROXY_URL_PLACEHOLDER: 'proxy_value_default',
+						DEBUG_MODE: 'debug_override_from_session', // SESSION override of global
+						SESSION_API_KEY: 'session-key-placeholder',
+					})
+				);
+
+				// 2. Session vars should override global vars if same key exists
+				// DEBUG_MODE appears in both global and session - session should win
+				expect(remoteOptions.env.DEBUG_MODE).toBe('debug_override_from_session');
+				expect(remoteOptions.env.SESSION_API_KEY).toBe('session-key-placeholder');
+			}
+
+			// 3. Verify stdin script contains the merged env exports
+			const spawnCall = mockProcessManager.spawn.mock.calls[0][0];
+			expect(spawnCall.sshStdinScript).toContain('GLOBAL_KEY_PLACEHOLDER=');
+			expect(spawnCall.sshStdinScript).toContain('PROXY_URL_PLACEHOLDER=');
+			expect(spawnCall.sshStdinScript).toContain('DEBUG_MODE=');
+			expect(spawnCall.sshStdinScript).toContain('SESSION_API_KEY=');
+
+			// 4. Verify precedence: session vars are applied after global vars (last value wins)
+			// The stdinScript should have DEBUG_MODE with session override value and SESSION_API_KEY with session value
+			expect(spawnCall.sshStdinScript).toMatch(/export DEBUG_MODE=.*debug_override_from_session/);
+			expect(spawnCall.sshStdinScript).toMatch(/export SESSION_API_KEY=.*session-key-placeholder/);
 		});
 
 		it('should fall back to config.command when agent.binaryName is not available', async () => {
@@ -1450,8 +1928,8 @@ describe('process IPC handlers', () => {
 			expect(spawnCall.command).toBe('ssh');
 
 			// Should fall back to config.command when agent.binaryName is unavailable
-			const remoteCommandArg = spawnCall.args[spawnCall.args.length - 1];
-			expect(remoteCommandArg).toContain("'custom-agent'");
+			// The stdin script should contain the command
+			expect(spawnCall.sshStdinScript).toContain('custom-agent');
 		});
 	});
 });

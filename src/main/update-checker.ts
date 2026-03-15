@@ -4,9 +4,10 @@
  */
 
 import { compareVersions } from '../shared/pathUtils';
+import { logger } from './utils/logger';
 
 // GitHub repository information
-const GITHUB_OWNER = 'pedramamini';
+const GITHUB_OWNER = 'RunMaestro';
 const GITHUB_REPO = 'Maestro';
 const RELEASES_URL = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases`;
 
@@ -81,6 +82,11 @@ function hasAssetsForPlatform(release: Release): boolean {
  * @param includePrerelease - If true, include beta/rc/alpha releases. Default: false (stable only)
  */
 async function fetchReleases(includePrerelease: boolean = false): Promise<Release[]> {
+	logger.info(
+		`Fetching releases from GitHub (includePrerelease: ${includePrerelease})`,
+		'UpdateChecker'
+	);
+
 	const response = await fetch(RELEASES_URL, {
 		headers: {
 			Accept: 'application/vnd.github.v3+json',
@@ -89,15 +95,22 @@ async function fetchReleases(includePrerelease: boolean = false): Promise<Releas
 	});
 
 	if (!response.ok) {
-		throw new Error(`GitHub API error: ${response.status} ${response.statusText}`);
+		const errorMsg = `GitHub API error: ${response.status} ${response.statusText}`;
+		logger.error(errorMsg, 'UpdateChecker', {
+			url: RELEASES_URL,
+			status: response.status,
+			statusText: response.statusText,
+		});
+		throw new Error(errorMsg);
 	}
 
 	const releases = (await response.json()) as Release[];
+	logger.info(`Fetched ${releases.length} total releases from GitHub`, 'UpdateChecker');
 
 	// Filter out drafts (always excluded)
 	// Filter out prereleases and prerelease suffixes (-rc, -beta, -alpha) unless includePrerelease is true
 	const prereleasePattern = /-(rc|beta|alpha|dev|canary)/i;
-	return releases
+	const filtered = releases
 		.filter((r) => {
 			// Always filter out drafts
 			if (r.draft) return false;
@@ -109,6 +122,15 @@ async function fetchReleases(includePrerelease: boolean = false): Promise<Releas
 			return !r.prerelease && !prereleasePattern.test(r.tag_name);
 		})
 		.sort((a, b) => compareVersions(b.tag_name, a.tag_name));
+
+	const filteredOut = releases.length - filtered.length;
+	logger.info(
+		`After filtering: ${filtered.length} eligible releases (${filteredOut} excluded as drafts/prereleases)`,
+		'UpdateChecker',
+		{ versions: filtered.map((r) => r.tag_name) }
+	);
+
+	return filtered;
 }
 
 /**
@@ -144,10 +166,16 @@ export async function checkForUpdates(
 ): Promise<UpdateCheckResult> {
 	const releasesUrl = `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases`;
 
+	logger.info(
+		`Checking for updates (current: ${currentVersion}, includePrerelease: ${includePrerelease}, platform: ${process.platform})`,
+		'UpdateChecker'
+	);
+
 	try {
 		const allReleases = await fetchReleases(includePrerelease);
 
 		if (allReleases.length === 0) {
+			logger.info('No eligible releases found on GitHub', 'UpdateChecker');
 			return {
 				currentVersion,
 				latestVersion: currentVersion,
@@ -167,6 +195,19 @@ export async function checkForUpdates(
 		// Check if the latest release has assets ready for this platform
 		const assetsReady = allReleases.length > 0 && hasAssetsForPlatform(allReleases[0]);
 
+		if (updateAvailable) {
+			logger.info(
+				`Update available: ${currentVersion} → ${latestVersion} (${versionsBehind} version(s) behind, assets ready: ${assetsReady})`,
+				'UpdateChecker',
+				{ newerVersions: newerReleases.map((r) => r.tag_name) }
+			);
+		} else {
+			logger.info(
+				`Already up to date (current: ${currentVersion}, latest: ${latestVersion})`,
+				'UpdateChecker'
+			);
+		}
+
 		return {
 			currentVersion,
 			latestVersion,
@@ -178,6 +219,11 @@ export async function checkForUpdates(
 		};
 	} catch (error) {
 		const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+		logger.error(`Update check failed: ${errorMessage}`, 'UpdateChecker', {
+			currentVersion,
+			includePrerelease,
+			stack: error instanceof Error ? error.stack : undefined,
+		});
 		return {
 			currentVersion,
 			latestVersion: currentVersion,

@@ -10,7 +10,7 @@
  * - Force refresh bypasses cache and fetches fresh data
  */
 
-import { ipcMain, App } from 'electron';
+import { ipcMain, App, BrowserWindow } from 'electron';
 import fs from 'fs/promises';
 import fsSync from 'fs';
 import path from 'path';
@@ -18,6 +18,7 @@ import crypto from 'crypto';
 import Store from 'electron-store';
 import { logger } from '../../utils/logger';
 import { createIpcHandler, CreateHandlerOptions } from '../../utils/ipcHandler';
+import { isWebContentsAvailable } from '../../utils/safe-send';
 import type {
 	MarketplaceManifest,
 	MarketplaceCache,
@@ -32,7 +33,7 @@ import type { MaestroSettings } from './persistence';
 // Constants
 // ============================================================================
 
-const GITHUB_RAW_BASE = 'https://raw.githubusercontent.com/pedramamini/Maestro-Playbooks/main';
+const GITHUB_RAW_BASE = 'https://raw.githubusercontent.com/RunMaestro/Maestro-Playbooks/main';
 const MANIFEST_URL = `${GITHUB_RAW_BASE}/manifest.json`;
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
 const LOG_CONTEXT = '[Marketplace]';
@@ -343,15 +344,32 @@ function resolveTildePath(pathStr: string): string {
 }
 
 /**
+ * Validate that a resolved path stays within the expected base directory.
+ * Prevents path traversal attacks via crafted filenames like "../../etc/passwd".
+ */
+function validateSafePath(basePath: string, requestedFile: string): string {
+	const realBase = path.resolve(basePath);
+	const resolved = path.resolve(basePath, requestedFile);
+	if (!resolved.startsWith(realBase + path.sep) && resolved !== realBase) {
+		throw new MarketplaceFetchError(`Path traversal blocked: ${requestedFile}`);
+	}
+	return resolved;
+}
+
+/**
  * Fetch a document from GitHub or local filesystem.
  * If playbookPath is a local filesystem path, reads from disk.
  * Otherwise, fetches from GitHub.
  */
 async function fetchDocument(playbookPath: string, filename: string): Promise<string> {
+	if (filename.includes('..')) {
+		throw new MarketplaceFetchError('Invalid filename');
+	}
+
 	// Check if this is a local path
 	if (isLocalPath(playbookPath)) {
 		const resolvedPath = resolveTildePath(playbookPath);
-		const docPath = path.join(resolvedPath, `${filename}.md`);
+		const docPath = validateSafePath(resolvedPath, `${filename}.md`);
 		logger.debug(`Reading local document: ${docPath}`, LOG_CONTEXT);
 
 		try {
@@ -401,10 +419,14 @@ async function fetchDocument(playbookPath: string, filename: string): Promise<st
  * Returns the raw content as a Buffer for binary-safe handling.
  */
 async function fetchAsset(playbookPath: string, assetFilename: string): Promise<Buffer> {
+	if (assetFilename.includes('..')) {
+		throw new MarketplaceFetchError('Invalid filename');
+	}
+
 	// Check if this is a local path
 	if (isLocalPath(playbookPath)) {
 		const resolvedPath = resolveTildePath(playbookPath);
-		const assetPath = path.join(resolvedPath, 'assets', assetFilename);
+		const assetPath = validateSafePath(resolvedPath, path.join('assets', assetFilename));
 		logger.debug(`Reading local asset: ${assetPath}`, LOG_CONTEXT);
 
 		try {
@@ -457,7 +479,7 @@ async function fetchReadme(playbookPath: string): Promise<string | null> {
 	// Check if this is a local path
 	if (isLocalPath(playbookPath)) {
 		const resolvedPath = resolveTildePath(playbookPath);
-		const readmePath = path.join(resolvedPath, 'README.md');
+		const readmePath = validateSafePath(resolvedPath, 'README.md');
 		logger.debug(`Reading local README: ${readmePath}`, LOG_CONTEXT);
 
 		try {
@@ -532,10 +554,11 @@ function setupLocalManifestWatcher(app: App): void {
 				logger.info('Local manifest changed, broadcasting refresh event', LOG_CONTEXT);
 
 				// Send IPC event to all renderer windows
-				const { BrowserWindow } = require('electron');
 				const allWindows = BrowserWindow.getAllWindows();
 				for (const win of allWindows) {
-					win.webContents.send('marketplace:manifestChanged');
+					if (isWebContentsAvailable(win)) {
+						win.webContents.send('marketplace:manifestChanged');
+					}
 				}
 			}, WATCHER_DEBOUNCE_MS);
 		});
@@ -626,12 +649,20 @@ export function registerMarketplaceHandlers(deps: MarketplaceHandlerDependencies
 					officialManifest = await fetchManifest();
 					await writeCache(app, officialManifest);
 				} catch (error) {
-					logger.warn(
-						'Failed to fetch official manifest, continuing with local only',
-						LOG_CONTEXT,
-						{ error }
-					);
-					// Continue - we might still have local playbooks
+					logger.warn('Failed to fetch official manifest from GitHub', LOG_CONTEXT, { error });
+
+					// Fallback to expired cache if available (better than showing nothing)
+					if (cache) {
+						cacheAge = Date.now() - cache.fetchedAt;
+						logger.info(
+							`Using expired cache as fallback (age: ${Math.round(cacheAge / 1000)}s)`,
+							LOG_CONTEXT
+						);
+						officialManifest = cache.manifest;
+						fromCache = true;
+					} else {
+						logger.warn('No cache available, continuing with local only', LOG_CONTEXT);
+					}
 				}
 			}
 
@@ -666,15 +697,22 @@ export function registerMarketplaceHandlers(deps: MarketplaceHandlerDependencies
 			logger.info('Force refreshing manifest (bypass cache)', LOG_CONTEXT);
 
 			let officialManifest: MarketplaceManifest | null = null;
+			let fromCache = false;
 			try {
 				officialManifest = await fetchManifest();
 				await writeCache(app, officialManifest);
 			} catch (error) {
-				logger.warn(
-					'Failed to fetch official manifest during refresh, continuing with local only',
-					LOG_CONTEXT,
-					{ error }
-				);
+				logger.warn('Failed to fetch official manifest during refresh', LOG_CONTEXT, { error });
+
+				// Fallback to existing cache if available (better than showing nothing)
+				const cache = await readCache(app);
+				if (cache) {
+					logger.info('Using existing cache as fallback after refresh failure', LOG_CONTEXT);
+					officialManifest = cache.manifest;
+					fromCache = true;
+				} else {
+					logger.warn('No cache available, continuing with local only', LOG_CONTEXT);
+				}
 			}
 
 			// Read local manifest (always fresh, not cached)
@@ -685,7 +723,7 @@ export function registerMarketplaceHandlers(deps: MarketplaceHandlerDependencies
 
 			return {
 				manifest: mergedManifest,
-				fromCache: false,
+				fromCache,
 			};
 		})
 	);
@@ -813,9 +851,54 @@ export function registerMarketplaceHandlers(deps: MarketplaceHandlerDependencies
 					}
 				}
 
+				// Build effective asset list:
+				// - Local filesystem playbooks: auto-discover files in assets/ and union with manifest assets
+				// - Remote/GitHub playbooks: use manifest assets only
+				const manifestAssets = marketplacePlaybook.assets ?? [];
+				let effectiveAssets = manifestAssets;
+
+				if (isLocalPath(marketplacePlaybook.path)) {
+					const discoveredAssets: string[] = [];
+					const resolvedPlaybookPath = resolveTildePath(marketplacePlaybook.path);
+					const localAssetsPath = path.join(resolvedPlaybookPath, 'assets');
+
+					try {
+						const entries = await fs.readdir(localAssetsPath);
+						for (const entry of entries) {
+							const entryPath = path.join(localAssetsPath, entry);
+							try {
+								const stat = await fs.stat(entryPath);
+								if (stat.isFile()) {
+									discoveredAssets.push(entry);
+								}
+							} catch (error) {
+								logger.warn(`Failed to stat local asset candidate: ${entryPath}`, LOG_CONTEXT, {
+									error,
+								});
+							}
+						}
+					} catch (error) {
+						if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+							logger.warn(
+								`Failed to read local assets directory: ${localAssetsPath}`,
+								LOG_CONTEXT,
+								{
+									error,
+								}
+							);
+						}
+					}
+
+					effectiveAssets = Array.from(new Set([...manifestAssets, ...discoveredAssets]));
+					logger.info(
+						`Local asset discovery for "${marketplacePlaybook.id}": discovered=${discoveredAssets.length}, manifest=${manifestAssets.length}, effective=${effectiveAssets.length}`,
+						LOG_CONTEXT
+					);
+				}
+
 				// Fetch and write all assets from assets/ subfolder (if any)
 				const importedAssets: string[] = [];
-				if (marketplacePlaybook.assets && marketplacePlaybook.assets.length > 0) {
+				if (effectiveAssets.length > 0) {
 					// Create assets subdirectory
 					const assetsPath = isRemote ? `${targetPath}/assets` : path.join(targetPath, 'assets');
 
@@ -831,7 +914,7 @@ export function registerMarketplaceHandlers(deps: MarketplaceHandlerDependencies
 						await fs.mkdir(assetsPath, { recursive: true });
 					}
 
-					for (const assetFilename of marketplacePlaybook.assets) {
+					for (const assetFilename of effectiveAssets) {
 						try {
 							const content = await fetchAsset(marketplacePlaybook.path, assetFilename);
 							const assetPath = isRemote

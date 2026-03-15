@@ -158,6 +158,40 @@ describe('filesystem handlers', () => {
 				'SSH remote not found: invalid-remote'
 			);
 		});
+
+		it('should normalize local entry names to NFC Unicode form', async () => {
+			const nfdName = 'caf\u00e9'.normalize('NFD');
+			const nfcName = 'caf\u00e9'.normalize('NFC');
+			// Verify precondition: the names are different byte sequences
+			expect(nfdName).not.toBe(nfcName);
+
+			const mockEntries = [{ name: nfdName, isDirectory: () => false, isFile: () => true }];
+			vi.mocked(fs.readdir).mockResolvedValue(mockEntries as any);
+
+			const handler = registeredHandlers.get('fs:readDir');
+			const result = await handler!({}, '/test/path');
+
+			expect(result[0].name).toBe(nfcName);
+			expect(result[0].name.normalize('NFC')).toBe(result[0].name);
+		});
+
+		it('should normalize remote entry names to NFC Unicode form', async () => {
+			const nfdName = 'r\u00e9sum\u00e9.md'.normalize('NFD');
+			const nfcName = 'r\u00e9sum\u00e9.md'.normalize('NFC');
+
+			const mockSshConfig = { id: 'remote-1', host: 'server.com', username: 'user' };
+			vi.mocked(getSshRemoteById).mockReturnValue(mockSshConfig as any);
+			vi.mocked(readDirRemote).mockResolvedValue({
+				success: true,
+				data: [{ name: nfdName, isDirectory: false, isSymlink: false }],
+			});
+
+			const handler = registeredHandlers.get('fs:readDir');
+			const result = await handler!({}, '/remote/path', 'remote-1');
+
+			expect(result[0].name).toBe(nfcName);
+			expect(result[0].name.normalize('NFC')).toBe(result[0].name);
+		});
 	});
 
 	describe('fs:readFile', () => {
@@ -407,6 +441,118 @@ describe('filesystem handlers', () => {
 			const result = await handler!({}, 'https://example.com/notfound.jpg');
 
 			expect(result).toBeNull();
+		});
+
+		it('should return null for non-image content-type', async () => {
+			const mockArrayBuffer = new ArrayBuffer(8);
+			const mockResponse = {
+				ok: true,
+				arrayBuffer: () => Promise.resolve(mockArrayBuffer),
+				headers: { get: () => 'text/html' },
+			};
+			global.fetch = vi.fn().mockResolvedValue(mockResponse);
+
+			const handler = registeredHandlers.get('fs:fetchImageAsBase64');
+			const result = await handler!({}, 'https://example.com/page.html');
+
+			expect(result).toBeNull();
+		});
+
+		describe('SSRF protection', () => {
+			it('should block file:// protocol', async () => {
+				const handler = registeredHandlers.get('fs:fetchImageAsBase64');
+				const result = await handler!({}, 'file:///etc/passwd');
+
+				expect(result).toBeNull();
+				expect(global.fetch).not.toHaveBeenCalled();
+			});
+
+			it('should block ftp:// protocol', async () => {
+				const handler = registeredHandlers.get('fs:fetchImageAsBase64');
+				const result = await handler!({}, 'ftp://internal-server/data');
+
+				expect(result).toBeNull();
+				expect(global.fetch).not.toHaveBeenCalled();
+			});
+
+			it('should block localhost requests', async () => {
+				global.fetch = vi.fn();
+				const handler = registeredHandlers.get('fs:fetchImageAsBase64');
+
+				const result = await handler!({}, 'http://localhost:8080/secret');
+				expect(result).toBeNull();
+				expect(global.fetch).not.toHaveBeenCalled();
+			});
+
+			it('should block 127.0.0.1 requests', async () => {
+				global.fetch = vi.fn();
+				const handler = registeredHandlers.get('fs:fetchImageAsBase64');
+
+				const result = await handler!({}, 'http://127.0.0.1:9222/json');
+				expect(result).toBeNull();
+				expect(global.fetch).not.toHaveBeenCalled();
+			});
+
+			it('should block AWS metadata endpoint', async () => {
+				global.fetch = vi.fn();
+				const handler = registeredHandlers.get('fs:fetchImageAsBase64');
+
+				const result = await handler!({}, 'http://169.254.169.254/latest/meta-data/');
+				expect(result).toBeNull();
+				expect(global.fetch).not.toHaveBeenCalled();
+			});
+
+			it('should block private RFC1918 ranges (10.x.x.x)', async () => {
+				global.fetch = vi.fn();
+				const handler = registeredHandlers.get('fs:fetchImageAsBase64');
+
+				const result = await handler!({}, 'http://10.0.0.1/internal');
+				expect(result).toBeNull();
+				expect(global.fetch).not.toHaveBeenCalled();
+			});
+
+			it('should block private RFC1918 ranges (172.16.x.x)', async () => {
+				global.fetch = vi.fn();
+				const handler = registeredHandlers.get('fs:fetchImageAsBase64');
+
+				const result = await handler!({}, 'http://172.16.0.1/internal');
+				expect(result).toBeNull();
+				expect(global.fetch).not.toHaveBeenCalled();
+			});
+
+			it('should block private RFC1918 ranges (192.168.x.x)', async () => {
+				global.fetch = vi.fn();
+				const handler = registeredHandlers.get('fs:fetchImageAsBase64');
+
+				const result = await handler!({}, 'http://192.168.1.1/internal');
+				expect(result).toBeNull();
+				expect(global.fetch).not.toHaveBeenCalled();
+			});
+
+			it('should block 0.0.0.0', async () => {
+				global.fetch = vi.fn();
+				const handler = registeredHandlers.get('fs:fetchImageAsBase64');
+
+				const result = await handler!({}, 'http://0.0.0.0:3000/');
+				expect(result).toBeNull();
+				expect(global.fetch).not.toHaveBeenCalled();
+			});
+
+			it('should allow legitimate external HTTPS image URLs', async () => {
+				const mockArrayBuffer = new ArrayBuffer(8);
+				const mockResponse = {
+					ok: true,
+					arrayBuffer: () => Promise.resolve(mockArrayBuffer),
+					headers: { get: () => 'image/png' },
+				};
+				global.fetch = vi.fn().mockResolvedValue(mockResponse);
+
+				const handler = registeredHandlers.get('fs:fetchImageAsBase64');
+				const result = await handler!({}, 'https://cdn.example.com/image.png');
+
+				expect(global.fetch).toHaveBeenCalledWith('https://cdn.example.com/image.png');
+				expect(result).toMatch(/^data:image\/png;base64,/);
+			});
 		});
 	});
 });

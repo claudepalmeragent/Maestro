@@ -47,6 +47,9 @@ export const MODAL_PRIORITIES = {
 	/** Rename tab modal */
 	RENAME_TAB: 875,
 
+	/** Director's Notes modal - unified history and AI overview */
+	DIRECTOR_NOTES: 848,
+
 	/** Rename group modal */
 	RENAME_GROUP: 850,
 
@@ -104,6 +107,9 @@ export const MODAL_PRIORITIES = {
 	/** Batch runner modal for scratchpad auto mode */
 	BATCH_RUNNER: 720,
 
+	/** Document selector modal (opens from BatchRunner to add documents) */
+	DOCUMENT_SELECTOR: 725,
+
 	/** Tab switcher modal (Opt+Cmd+T) */
 	TAB_SWITCHER: 710,
 
@@ -125,8 +131,14 @@ export const MODAL_PRIORITIES = {
 	/** Auto Run search bar (within expanded modal) */
 	AUTORUN_SEARCH: 706,
 
-	/** Playbook Exchange modal - browse and import community playbooks */
-	MARKETPLACE: 708,
+	/** Playbook Exchange modal - browse and import community playbooks (opens from BatchRunner or AutoRunExpanded, so needs higher priority than both) */
+	MARKETPLACE: 735,
+
+	/** Symphony modal - browse and contribute to open source projects */
+	SYMPHONY: 710,
+
+	/** Symphony agent creation dialog - appears above Symphony modal for agent selection */
+	SYMPHONY_AGENT_CREATION: 711,
 
 	/** Auto Run lightbox (above expanded modal so Escape closes it first) */
 	AUTORUN_LIGHTBOX: 715,
@@ -173,6 +185,9 @@ export const MODAL_PRIORITIES = {
 	/** Debug package generation modal */
 	DEBUG_PACKAGE: 605,
 
+	/** Windows warning modal - shown on startup for Windows users */
+	WINDOWS_WARNING: 615,
+
 	/** About/info modal */
 	ABOUT: 600,
 
@@ -202,6 +217,9 @@ export const MODAL_PRIORITIES = {
 
 	/** Git log viewer overlay */
 	GIT_LOG: 190,
+
+	/** Save markdown modal */
+	SAVE_MARKDOWN: 160,
 
 	/** Image lightbox overlay */
 	LIGHTBOX: 150,

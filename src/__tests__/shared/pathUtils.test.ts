@@ -12,9 +12,15 @@
  * - update-checker.ts (version comparison)
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as os from 'os';
-import { expandTilde, parseVersion, compareVersions } from '../../shared/pathUtils';
+import {
+	expandTilde,
+	parseVersion,
+	compareVersions,
+	buildExpandedPath,
+	buildExpandedEnv,
+} from '../../shared/pathUtils';
 
 // Mock os.homedir for consistent test behavior
 vi.mock('os', async () => {
@@ -96,6 +102,12 @@ describe('parseVersion', () => {
 	it('should handle non-numeric parts as 0', () => {
 		expect(parseVersion('1.beta.3')).toEqual([1, 0, 3]);
 	});
+
+	it('should strip pre-release suffixes before parsing', () => {
+		expect(parseVersion('0.15.0-rc.1')).toEqual([0, 15, 0]);
+		expect(parseVersion('v1.2.0-beta.3')).toEqual([1, 2, 0]);
+		expect(parseVersion('0.15.0-alpha')).toEqual([0, 15, 0]);
+	});
 });
 
 describe('compareVersions', () => {
@@ -164,5 +176,230 @@ describe('compareVersions', () => {
 			expect(compareVersions('1.0', '1.0.0')).toBe(0);
 			expect(compareVersions('1.0.1', '1.0')).toBe(1);
 		});
+	});
+
+	describe('pre-release version comparison', () => {
+		it('should treat pre-release as less than the same stable version', () => {
+			expect(compareVersions('0.15.0-rc.1', '0.15.0')).toBe(-1);
+			expect(compareVersions('0.15.0', '0.15.0-rc.1')).toBe(1);
+		});
+
+		it('should treat pre-release as less than stable for various suffixes', () => {
+			expect(compareVersions('1.0.0-alpha', '1.0.0')).toBe(-1);
+			expect(compareVersions('1.0.0-beta.1', '1.0.0')).toBe(-1);
+			expect(compareVersions('1.0.0-dev', '1.0.0')).toBe(-1);
+			expect(compareVersions('1.0.0-canary', '1.0.0')).toBe(-1);
+		});
+
+		it('should compare pre-releases with different base versions normally', () => {
+			expect(compareVersions('0.16.0-rc.1', '0.15.0')).toBe(1);
+			expect(compareVersions('0.14.0-rc.1', '0.15.0')).toBe(-1);
+		});
+
+		it('should compare two pre-releases lexically when base is the same', () => {
+			expect(compareVersions('0.15.0-rc.1', '0.15.0-rc.2')).toBe(-1);
+			expect(compareVersions('0.15.0-rc.2', '0.15.0-rc.1')).toBe(1);
+			expect(compareVersions('0.15.0-rc.1', '0.15.0-rc.1')).toBe(0);
+		});
+
+		it('should order alpha < beta < rc lexically', () => {
+			expect(compareVersions('0.15.0-alpha', '0.15.0-beta')).toBe(-1);
+			expect(compareVersions('0.15.0-beta', '0.15.0-rc')).toBe(-1);
+			expect(compareVersions('0.15.0-alpha', '0.15.0-rc')).toBe(-1);
+		});
+
+		it('should sort pre-release versions correctly in descending order', () => {
+			const versions = ['0.15.0-rc.1', '0.15.0', '0.14.0', '0.15.0-beta.1', '0.16.0-rc.1'];
+			const sorted = [...versions].sort((a, b) => compareVersions(b, a));
+			expect(sorted).toEqual(['0.16.0-rc.1', '0.15.0', '0.15.0-rc.1', '0.15.0-beta.1', '0.14.0']);
+		});
+	});
+});
+
+describe('buildExpandedPath', () => {
+	const originalPlatform = process.platform;
+	const originalPath = process.env.PATH;
+
+	afterEach(() => {
+		Object.defineProperty(process, 'platform', { value: originalPlatform });
+		process.env.PATH = originalPath;
+	});
+
+	describe('Unix-like systems (macOS/Linux)', () => {
+		beforeEach(() => {
+			Object.defineProperty(process, 'platform', { value: 'darwin' });
+		});
+
+		it('should include Homebrew paths on macOS', () => {
+			process.env.PATH = '/usr/bin';
+			const result = buildExpandedPath();
+
+			expect(result).toContain('/opt/homebrew/bin');
+			expect(result).toContain('/opt/homebrew/sbin');
+			expect(result).toContain('/usr/local/bin');
+		});
+
+		it('should include user local paths', () => {
+			process.env.PATH = '/usr/bin';
+			const result = buildExpandedPath();
+
+			// Check for patterns rather than exact paths (path.join may use OS-native separators)
+			expect(result).toMatch(/\.local\/bin|\.local\\bin/);
+			expect(result).toMatch(/\.npm-global\/bin|\.npm-global\\bin/);
+			// User bin path - check with either separator
+			expect(result).toMatch(/testuser[\/\\]bin/);
+		});
+
+		it('should include Claude and OpenCode paths', () => {
+			process.env.PATH = '/usr/bin';
+			const result = buildExpandedPath();
+
+			expect(result).toMatch(/\.claude\/local|\.claude\\local/);
+			expect(result).toMatch(/\.opencode\/bin|\.opencode\\bin/);
+		});
+
+		it('should not duplicate paths already in PATH', () => {
+			process.env.PATH = '/opt/homebrew/bin:/usr/bin';
+			const result = buildExpandedPath();
+
+			const pathParts = result.split(':');
+			const homebrewCount = pathParts.filter((p) => p === '/opt/homebrew/bin').length;
+			expect(homebrewCount).toBe(1);
+		});
+
+		it('should prepend standard paths to front of PATH', () => {
+			process.env.PATH = '/custom/path';
+			const result = buildExpandedPath();
+
+			const homebrewIndex = result.indexOf('/opt/homebrew/bin');
+			const customIndex = result.indexOf('/custom/path');
+			expect(homebrewIndex).toBeLessThan(customIndex);
+		});
+
+		it('should accept custom paths that are prepended first', () => {
+			process.env.PATH = '/usr/bin';
+			const result = buildExpandedPath(['/my/custom/bin', '/another/path']);
+
+			// Custom paths should be added but standard paths are also prepended
+			expect(result).toContain('/my/custom/bin');
+			expect(result).toContain('/another/path');
+			expect(result).toContain('/opt/homebrew/bin');
+		});
+
+		it('should handle empty PATH environment', () => {
+			delete process.env.PATH;
+			const result = buildExpandedPath();
+
+			expect(result).toContain('/opt/homebrew/bin');
+			expect(result).toContain('/usr/local/bin');
+			expect(result.length).toBeGreaterThan(0);
+		});
+	});
+
+	describe('Windows', () => {
+		beforeEach(() => {
+			Object.defineProperty(process, 'platform', { value: 'win32' });
+		});
+
+		it('should include Windows-specific paths', () => {
+			process.env.PATH = 'C:\\Windows\\System32';
+			const result = buildExpandedPath();
+
+			// Check for npm paths (case-insensitive)
+			expect(result).toMatch(/npm/i);
+			// Check for Git paths (case-insensitive)
+			expect(result).toMatch(/Git/i);
+		});
+
+		it('should include .NET SDK paths', () => {
+			process.env.PATH = 'C:\\Windows\\System32';
+			const result = buildExpandedPath();
+
+			expect(result).toMatch(/dotnet/i);
+		});
+
+		it('should include Scoop and Chocolatey paths', () => {
+			process.env.PATH = 'C:\\Windows\\System32';
+			const result = buildExpandedPath();
+
+			expect(result).toMatch(/scoop/i);
+			expect(result).toMatch(/chocolatey/i);
+		});
+	});
+});
+
+describe('buildExpandedEnv', () => {
+	const originalPlatform = process.platform;
+	const originalPath = process.env.PATH;
+
+	beforeEach(() => {
+		Object.defineProperty(process, 'platform', { value: 'darwin' });
+	});
+
+	afterEach(() => {
+		Object.defineProperty(process, 'platform', { value: originalPlatform });
+		process.env.PATH = originalPath;
+	});
+
+	it('should return a copy of process.env with expanded PATH', () => {
+		process.env.PATH = '/usr/bin';
+		const env = buildExpandedEnv();
+
+		expect(env.PATH).toContain('/opt/homebrew/bin');
+		expect(env.PATH).toContain('/usr/bin');
+	});
+
+	it('should include all original environment variables', () => {
+		const originalHome = process.env.HOME;
+		const env = buildExpandedEnv();
+
+		expect(env.HOME).toBe(originalHome);
+	});
+
+	it('should apply custom environment variables', () => {
+		const env = buildExpandedEnv({
+			MY_CUSTOM_VAR: 'custom_value',
+			ANOTHER_VAR: 'another_value',
+		});
+
+		expect(env.MY_CUSTOM_VAR).toBe('custom_value');
+		expect(env.ANOTHER_VAR).toBe('another_value');
+	});
+
+	it('should expand tilde in custom env var values', () => {
+		const env = buildExpandedEnv({
+			MY_PATH: '~/some/path',
+		});
+
+		// path.join uses platform-specific separators, so check for both
+		expect(env.MY_PATH).toMatch(/testuser[\/\\]some[\/\\]path/);
+	});
+
+	it('should not expand tilde if not at start of value', () => {
+		const env = buildExpandedEnv({
+			MY_VAR: 'prefix~/suffix',
+		});
+
+		expect(env.MY_VAR).toBe('prefix~/suffix');
+	});
+
+	it('should handle empty custom env vars', () => {
+		const env = buildExpandedEnv({});
+
+		expect(env.PATH).toContain('/opt/homebrew/bin');
+	});
+
+	it('should handle undefined custom env vars', () => {
+		const env = buildExpandedEnv(undefined);
+
+		expect(env.PATH).toContain('/opt/homebrew/bin');
+	});
+
+	it('should not mutate process.env', () => {
+		const originalPathValue = process.env.PATH;
+		buildExpandedEnv({ NEW_VAR: 'new_value' });
+
+		expect(process.env.PATH).toBe(originalPathValue);
+		expect(process.env.NEW_VAR).toBeUndefined();
 	});
 });

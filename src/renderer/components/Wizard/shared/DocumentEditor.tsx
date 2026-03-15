@@ -15,7 +15,7 @@
  * - Tab character insertion
  */
 
-import { useState, useCallback, useRef, useMemo, useEffect } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeSlug from 'rehype-slug';
@@ -25,6 +25,7 @@ import { MermaidRenderer } from '../../MermaidRenderer';
 import type { GeneratedDocument } from '../WizardContext';
 import { DocumentSelector } from './DocumentSelector';
 import { generateProseStyles, createMarkdownComponents } from '../../../utils/markdownConfig';
+import { formatShortcutKeys } from '../../../utils/shortcutFormatter';
 
 // Memoize plugin arrays - they never change
 const REMARK_PLUGINS = [remarkGfm];
@@ -107,8 +108,8 @@ export function MarkdownImage({
 			const absolutePath = `${folderPath}/${src}`;
 			window.maestro.fs
 				.readFile(absolutePath)
-				.then((result: string) => {
-					if (result.startsWith('data:')) {
+				.then((result) => {
+					if (result && result.startsWith('data:')) {
 						setDataUrl(result);
 					} else {
 						setError('Invalid image data');
@@ -241,16 +242,45 @@ export function DocumentEditor({
 	isDropdownOpen,
 	onDropdownOpenChange,
 }: DocumentEditorProps): JSX.Element {
-	const _fileInputRef = useRef<HTMLInputElement>(null);
 	const [attachmentsExpanded, setAttachmentsExpanded] = useState(true);
 
-	// Handle image paste
+	// Handle paste (images and text with whitespace trimming)
 	const handlePaste = useCallback(
 		async (e: React.ClipboardEvent) => {
-			if (isLocked || !folderPath || !selectedFile) return;
+			if (isLocked) return;
 
 			const items = e.clipboardData?.items;
 			if (!items) return;
+
+			// Check if pasting an image
+			const hasImage = Array.from(items).some((item) => item.type.startsWith('image/'));
+
+			// Handle text paste with whitespace trimming (when no images)
+			if (!hasImage) {
+				const text = e.clipboardData.getData('text/plain');
+				if (text) {
+					const trimmedText = text.trim();
+					// Only intercept if trimming actually changed the text
+					if (trimmedText !== text) {
+						e.preventDefault();
+						const textarea = textareaRef.current;
+						if (textarea) {
+							const start = textarea.selectionStart ?? 0;
+							const end = textarea.selectionEnd ?? 0;
+							const newContent = content.slice(0, start) + trimmedText + content.slice(end);
+							onContentChange(newContent);
+							// Set cursor position after the pasted text
+							requestAnimationFrame(() => {
+								textarea.selectionStart = textarea.selectionEnd = start + trimmedText.length;
+							});
+						}
+					}
+				}
+				return;
+			}
+
+			// Image paste requires folder and file context
+			if (!folderPath || !selectedFile) return;
 
 			for (let i = 0; i < items.length; i++) {
 				const item = items[i];
@@ -314,42 +344,6 @@ export function DocumentEditor({
 			}
 		},
 		[content, folderPath, selectedFile, isLocked, onContentChange, onAddAttachment, textareaRef]
-	);
-
-	// Handle file input for manual image upload
-	const _handleFileSelect = useCallback(
-		async (e: React.ChangeEvent<HTMLInputElement>) => {
-			const file = e.target.files?.[0];
-			if (!file || !folderPath || !selectedFile) return;
-
-			const reader = new FileReader();
-			reader.onload = async (event) => {
-				const base64Data = event.target?.result as string;
-				if (!base64Data) return;
-
-				const base64Content = base64Data.replace(/^data:image\/\w+;base64,/, '');
-				const extension = file.name.split('.').pop() || 'png';
-
-				const result = await window.maestro.autorun.saveImage(
-					folderPath,
-					selectedFile,
-					base64Content,
-					extension
-				);
-
-				if (result.success && result.relativePath) {
-					const filename = result.relativePath.split('/').pop() || result.relativePath;
-					onAddAttachment(result.relativePath, base64Data);
-
-					const imageMarkdown = `\n![${filename}](${result.relativePath})\n`;
-					const newContent = content + imageMarkdown;
-					onContentChange(newContent);
-				}
-			};
-			reader.readAsDataURL(file);
-			e.target.value = '';
-		},
-		[content, folderPath, selectedFile, onContentChange, onAddAttachment]
 	);
 
 	// Handle key events
@@ -530,7 +524,7 @@ export function DocumentEditor({
 										mode === 'edit' && !isLocked ? theme.colors.accent : theme.colors.border
 									}`,
 								}}
-								title="Edit document (⌘E)"
+								title={`Edit document (${formatShortcutKeys(['Meta', 'e'])})`}
 							>
 								<Edit className="w-3.5 h-3.5" />
 								Edit
@@ -547,7 +541,7 @@ export function DocumentEditor({
 										mode === 'preview' ? theme.colors.accent : theme.colors.border
 									}`,
 								}}
-								title="Preview document (⌘E)"
+								title={`Preview document (${formatShortcutKeys(['Meta', 'e'])})`}
 							>
 								<Eye className="w-3.5 h-3.5" />
 								Preview
@@ -585,7 +579,7 @@ export function DocumentEditor({
 								mode === 'edit' && !isLocked ? theme.colors.accent : theme.colors.border
 							}`,
 						}}
-						title="Edit document (⌘E)"
+						title={`Edit document (${formatShortcutKeys(['Meta', 'e'])})`}
 					>
 						<Edit className="w-3.5 h-3.5" />
 						Edit
@@ -600,7 +594,7 @@ export function DocumentEditor({
 							color: mode === 'preview' ? theme.colors.textMain : theme.colors.textDim,
 							border: `1px solid ${mode === 'preview' ? theme.colors.accent : theme.colors.border}`,
 						}}
-						title="Preview document (⌘E)"
+						title={`Preview document (${formatShortcutKeys(['Meta', 'e'])})`}
 					>
 						<Eye className="w-3.5 h-3.5" />
 						Preview

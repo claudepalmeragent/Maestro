@@ -1,6 +1,7 @@
 import { execFileNoThrow } from './execFile';
-import * as os from 'os';
 import * as path from 'path';
+import { buildExpandedEnv } from '../../shared/pathUtils';
+import { isWindows, getWhichCommand } from '../../shared/platformDetection';
 
 let cloudflaredInstalledCache: boolean | null = null;
 let cloudflaredPathCache: string | null = null;
@@ -16,52 +17,7 @@ const GH_STATUS_CACHE_TTL_MS = 60000; // 1 minute TTL for auth status
  * This is necessary because packaged Electron apps don't inherit shell environment.
  */
 export function getExpandedEnv(): NodeJS.ProcessEnv {
-	const home = os.homedir();
-	const env = { ...process.env };
-	const isWindows = process.platform === 'win32';
-
-	// Platform-specific paths
-	let additionalPaths: string[];
-
-	if (isWindows) {
-		const appData = process.env.APPDATA || path.join(home, 'AppData', 'Roaming');
-		const localAppData = process.env.LOCALAPPDATA || path.join(home, 'AppData', 'Local');
-		const programFiles = process.env.ProgramFiles || 'C:\\Program Files';
-
-		additionalPaths = [
-			path.join(appData, 'npm'),
-			path.join(localAppData, 'npm'),
-			path.join(programFiles, 'cloudflared'),
-			path.join(home, 'scoop', 'shims'),
-			path.join(process.env.ChocolateyInstall || 'C:\\ProgramData\\chocolatey', 'bin'),
-			path.join(process.env.SystemRoot || 'C:\\Windows', 'System32'),
-		];
-	} else {
-		additionalPaths = [
-			'/opt/homebrew/bin', // Homebrew on Apple Silicon
-			'/opt/homebrew/sbin',
-			'/usr/local/bin', // Homebrew on Intel, common install location
-			'/usr/local/sbin',
-			`${home}/.local/bin`, // User local installs
-			`${home}/bin`, // User bin directory
-			'/usr/bin',
-			'/bin',
-			'/usr/sbin',
-			'/sbin',
-		];
-	}
-
-	const currentPath = env.PATH || '';
-	const pathParts = currentPath.split(path.delimiter);
-
-	for (const p of additionalPaths) {
-		if (!pathParts.includes(p)) {
-			pathParts.unshift(p);
-		}
-	}
-
-	env.PATH = pathParts.join(path.delimiter);
-	return env;
+	return buildExpandedEnv();
 }
 
 export async function isCloudflaredInstalled(): Promise<boolean> {
@@ -71,13 +27,15 @@ export async function isCloudflaredInstalled(): Promise<boolean> {
 	}
 
 	// Use 'which' on macOS/Linux, 'where' on Windows
-	const command = process.platform === 'win32' ? 'where' : 'which';
+	const command = getWhichCommand();
 	const env = getExpandedEnv();
 	const result = await execFileNoThrow(command, ['cloudflared'], undefined, env);
 
 	if (result.exitCode === 0 && result.stdout.trim()) {
 		cloudflaredInstalledCache = true;
-		cloudflaredPathCache = result.stdout.trim().split('\n')[0];
+		// Handle Windows CRLF line endings properly
+		const lines = result.stdout.trim().split(/\r?\n/);
+		cloudflaredPathCache = lines[0]?.trim() || null;
 	} else {
 		cloudflaredInstalledCache = false;
 	}
@@ -105,14 +63,16 @@ export async function isGhInstalled(): Promise<boolean> {
 	}
 
 	// Use 'which' on macOS/Linux, 'where' on Windows
-	const command = process.platform === 'win32' ? 'where' : 'which';
+	const command = getWhichCommand();
 	const env = getExpandedEnv();
 	const result = await execFileNoThrow(command, ['gh'], undefined, env);
 
 	if (result.exitCode === 0 && result.stdout.trim()) {
 		ghInstalledCache = true;
 		// On Windows, 'where' can return multiple paths - take the first one
-		ghPathCache = result.stdout.trim().split('\n')[0];
+		// Handle Windows CRLF line endings properly
+		const lines = result.stdout.trim().split(/\r?\n/);
+		ghPathCache = lines[0]?.trim() || null;
 	} else {
 		ghInstalledCache = false;
 	}
@@ -201,12 +161,29 @@ export async function detectSshPath(): Promise<string | null> {
 		return sshPathCache;
 	}
 
-	const command = process.platform === 'win32' ? 'where' : 'which';
+	const command = getWhichCommand();
 	const env = getExpandedEnv();
 	const result = await execFileNoThrow(command, ['ssh'], undefined, env);
 
 	if (result.exitCode === 0 && result.stdout.trim()) {
-		sshPathCache = result.stdout.trim().split('\n')[0];
+		// Handle Windows CRLF line endings properly
+		// On Windows, 'where' returns paths with \r\n, so we need to split on \r?\n
+		const lines = result.stdout.trim().split(/\r?\n/);
+		sshPathCache = lines[0]?.trim() || null;
+	} else if (isWindows()) {
+		// Fallback for Windows: Check the built-in OpenSSH location directly
+		// This is the standard location for Windows 10/11 OpenSSH
+		const fs = await import('fs');
+		const systemRoot = process.env.SystemRoot || 'C:\\Windows';
+		const opensshPath = path.join(systemRoot, 'System32', 'OpenSSH', 'ssh.exe');
+
+		try {
+			if (fs.existsSync(opensshPath)) {
+				sshPathCache = opensshPath;
+			}
+		} catch {
+			// If check fails, leave sshPathCache as null
+		}
 	}
 
 	sshDetectionDone = true;

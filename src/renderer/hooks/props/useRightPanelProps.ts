@@ -1,86 +1,32 @@
 /**
  * useRightPanelProps Hook
  *
- * Extracts and memoizes all props for the RightPanel component.
- * This prevents React from re-evaluating ~60 props on every state change
- * in MaestroConsoleInner by only recomputing when actual dependencies change.
- *
- * Key optimization: Uses primitive values in dependency arrays (e.g., session?.id
- * instead of session) to minimize re-renders.
+ * Assembles handler props for the RightPanel component.
+ * Data/state props are now read directly from Zustand stores inside RightPanel.
+ * This hook only passes domain-logic handlers that can't be replaced with
+ * direct store calls, plus the theme (computed externally) and refs.
  */
 
 import { useMemo } from 'react';
-import type {
-	Session,
-	Theme,
-	Shortcut,
-	FocusArea,
-	RightPanelTab,
-	BatchRunState,
-	PinnedItem,
-} from '../../types';
+import type { Session, Theme, Shortcut, FocusArea, RightPanelTab, BatchRunState, PinnedItem } from '../../types';
 import type { FileTreeChanges } from '../../utils/fileExplorer';
-import type { DocumentTaskCount } from '../../components/AutoRunDocumentSelector';
 
 /**
  * Dependencies for computing RightPanel props.
- * Separated from the props interface to ensure clear inputs vs outputs.
+ * Only handlers and externally-computed values remain — stores are read directly inside the component.
  */
 export interface UseRightPanelPropsDeps {
-	// Session & Theme
-	activeSession: Session | null;
+	// Theme (computed from settingsStore by App.tsx — not a raw store value)
 	theme: Theme;
-	shortcuts: Record<string, Shortcut>;
-
-	// Panel state
-	rightPanelOpen: boolean;
-	rightPanelWidth: number;
-
-	// Tab state
-	activeRightTab: RightPanelTab;
-
-	// Focus management
-	activeFocus: FocusArea;
-
-	// File explorer state
-	fileTreeFilter: string;
-	fileTreeFilterOpen: boolean;
-	filteredFileTree: any[];
-	selectedFileIndex: number;
-	previewFile: { name: string; content: string; path: string } | null;
-	showHiddenFiles: boolean;
-
-	// Auto Run state
-	autoRunDocumentList: string[];
-	autoRunDocumentTree:
-		| Array<{ name: string; type: 'file' | 'folder'; path: string; children?: unknown[] }>
-		| undefined;
-	autoRunIsLoadingDocuments: boolean;
-	autoRunDocumentTaskCounts: Map<string, DocumentTaskCount> | undefined;
-
-	// Batch processing
-	activeBatchRunState: BatchRunState | undefined;
-	currentSessionBatchState: BatchRunState | undefined;
-
-	// Document Graph
-	lastGraphFocusFilePath: string | undefined;
 
 	// Refs
 	fileTreeContainerRef: React.RefObject<HTMLDivElement>;
 	fileTreeFilterInputRef: React.RefObject<HTMLInputElement>;
 
-	// Setters (should be stable callbacks)
-	setRightPanelOpen: (open: boolean) => void;
-	setRightPanelWidth: (width: number) => void;
-	setActiveFocus: (focus: FocusArea) => void;
-	setFileTreeFilter: (filter: string) => void;
-	setFileTreeFilterOpen: (open: boolean) => void;
-	setSelectedFileIndex: (index: number) => void;
-	setShowHiddenFiles: (value: boolean) => void;
-	setSessions: React.Dispatch<React.SetStateAction<Session[]>>;
-
-	// Handlers (should be memoized with useCallback)
+	// Tab handler (custom logic: checks autorun folder before switching)
 	handleSetActiveRightTab: (tab: RightPanelTab) => void;
+
+	// File explorer handlers
 	toggleFolder: (
 		path: string,
 		activeSessionId: string,
@@ -118,9 +64,11 @@ export interface UseRightPanelPropsDeps {
 	handleAutoRunRefresh: () => void;
 	handleAutoRunOpenSetup: () => void;
 
-	// Batch processing handlers
+	// Batch processing (currentSessionBatchState is computed by useBatchHandlers, not a raw store field)
+	currentSessionBatchState: BatchRunState | undefined;
 	handleOpenBatchRunner: () => void;
 	handleStopBatchRun: (sessionId?: string) => void;
+	handleKillBatchRun: (sessionId: string) => void;
 	handleSkipCurrentDocument: () => void;
 	handleAbortBatchOnError: () => void;
 	handleResumeAfterError: () => void;
@@ -147,44 +95,21 @@ export interface UseRightPanelPropsDeps {
 }
 
 /**
- * Hook to compute and memoize RightPanel props.
+ * Hook to assemble handler props for RightPanel.
  *
- * @param deps - All dependencies needed to compute RightPanel props
+ * @param deps - Handler functions and externally-computed values
  * @returns Memoized props object for RightPanel
  */
 export function useRightPanelProps(deps: UseRightPanelPropsDeps) {
 	return useMemo(
 		() => ({
-			// Session & Theme
-			session: deps.activeSession,
+			// Theme & refs
 			theme: deps.theme,
-			shortcuts: deps.shortcuts,
-
-			// Panel state
-			rightPanelOpen: deps.rightPanelOpen,
-			setRightPanelOpen: deps.setRightPanelOpen,
-			rightPanelWidth: deps.rightPanelWidth,
-			setRightPanelWidthState: deps.setRightPanelWidth,
-
-			// Tab state
-			activeRightTab: deps.activeRightTab,
-			setActiveRightTab: deps.handleSetActiveRightTab,
-
-			// Focus management
-			activeFocus: deps.activeFocus,
-			setActiveFocus: deps.setActiveFocus,
-
-			// File explorer state & handlers
-			fileTreeFilter: deps.fileTreeFilter,
-			setFileTreeFilter: deps.setFileTreeFilter,
-			fileTreeFilterOpen: deps.fileTreeFilterOpen,
-			setFileTreeFilterOpen: deps.setFileTreeFilterOpen,
-			filteredFileTree: deps.filteredFileTree,
-			selectedFileIndex: deps.selectedFileIndex,
-			setSelectedFileIndex: deps.setSelectedFileIndex,
-			previewFile: deps.previewFile,
 			fileTreeContainerRef: deps.fileTreeContainerRef,
 			fileTreeFilterInputRef: deps.fileTreeFilterInputRef,
+
+			// Tab handler
+			setActiveRightTab: deps.handleSetActiveRightTab,
 
 			// File explorer handlers
 			toggleFolder: deps.toggleFolder,
@@ -193,19 +118,10 @@ export function useRightPanelProps(deps: UseRightPanelPropsDeps) {
 			collapseAllFolders: deps.collapseAllFolders,
 			updateSessionWorkingDirectory: deps.updateSessionWorkingDirectory,
 			refreshFileTree: deps.refreshFileTree,
-			setSessions: deps.setSessions,
 			onAutoRefreshChange: deps.handleAutoRefreshChange,
 			onShowFlash: deps.showSuccessFlash,
-			showHiddenFiles: deps.showHiddenFiles,
-			setShowHiddenFiles: deps.setShowHiddenFiles,
 
-			// Auto Run props
-			autoRunDocumentList: deps.autoRunDocumentList,
-			autoRunDocumentTree: deps.autoRunDocumentTree,
-			autoRunContent: deps.activeSession?.autoRunContent || '',
-			autoRunContentVersion: deps.activeSession?.autoRunContentVersion || 0,
-			autoRunIsLoadingDocuments: deps.autoRunIsLoadingDocuments,
-			autoRunDocumentTaskCounts: deps.autoRunDocumentTaskCounts,
+			// Auto Run handlers
 			onAutoRunContentChange: deps.handleAutoRunContentChange,
 			onAutoRunModeChange: deps.handleAutoRunModeChange,
 			onAutoRunStateChange: deps.handleAutoRunStateChange,
@@ -214,11 +130,11 @@ export function useRightPanelProps(deps: UseRightPanelPropsDeps) {
 			onAutoRunRefresh: deps.handleAutoRunRefresh,
 			onAutoRunOpenSetup: deps.handleAutoRunOpenSetup,
 
-			// Batch processing props
-			batchRunState: deps.activeBatchRunState,
+			// Batch processing
 			currentSessionBatchState: deps.currentSessionBatchState,
 			onOpenBatchRunner: deps.handleOpenBatchRunner,
 			onStopBatchRun: deps.handleStopBatchRun,
+			onKillBatchRun: deps.handleKillBatchRun,
 			onSkipCurrentDocument: deps.handleSkipCurrentDocument,
 			onAbortBatchOnError: deps.handleAbortBatchOnError,
 			onResumeAfterError: deps.handleResumeAfterError,
@@ -236,7 +152,6 @@ export function useRightPanelProps(deps: UseRightPanelPropsDeps) {
 
 			// Document Graph
 			onFocusFileInGraph: deps.handleFocusFileInGraph,
-			lastGraphFocusFile: deps.lastGraphFocusFilePath,
 			onOpenLastDocumentGraph: deps.handleOpenLastDocumentGraph,
 
 			// Pinned messages
@@ -246,40 +161,11 @@ export function useRightPanelProps(deps: UseRightPanelPropsDeps) {
 			onScrollToMessage: deps.handleScrollToMessage,
 		}),
 		[
-			// Primitive dependencies for minimal re-computation
-			deps.activeSession?.id,
-			deps.activeSession?.autoRunContent,
-			deps.activeSession?.autoRunContentVersion,
 			deps.theme,
-			deps.shortcuts,
-			deps.rightPanelOpen,
-			deps.rightPanelWidth,
-			deps.activeRightTab,
-			deps.activeFocus,
-			deps.fileTreeFilter,
-			deps.fileTreeFilterOpen,
-			deps.filteredFileTree,
-			deps.selectedFileIndex,
-			deps.previewFile,
-			deps.showHiddenFiles,
-			deps.autoRunDocumentList,
-			deps.autoRunDocumentTree,
-			deps.autoRunIsLoadingDocuments,
-			deps.autoRunDocumentTaskCounts,
-			deps.activeBatchRunState,
 			deps.currentSessionBatchState,
-			deps.lastGraphFocusFilePath,
 			deps.pinnedItems,
-			// Stable callbacks (shouldn't cause re-renders, but included for completeness)
-			deps.setRightPanelOpen,
-			deps.setRightPanelWidth,
+			// Stable callbacks
 			deps.handleSetActiveRightTab,
-			deps.setActiveFocus,
-			deps.setFileTreeFilter,
-			deps.setFileTreeFilterOpen,
-			deps.setSelectedFileIndex,
-			deps.setShowHiddenFiles,
-			deps.setSessions,
 			deps.toggleFolder,
 			deps.handleFileClick,
 			deps.expandAllFolders,
@@ -297,6 +183,7 @@ export function useRightPanelProps(deps: UseRightPanelPropsDeps) {
 			deps.handleAutoRunOpenSetup,
 			deps.handleOpenBatchRunner,
 			deps.handleStopBatchRun,
+			deps.handleKillBatchRun,
 			deps.handleSkipCurrentDocument,
 			deps.handleAbortBatchOnError,
 			deps.handleResumeAfterError,
@@ -308,7 +195,7 @@ export function useRightPanelProps(deps: UseRightPanelPropsDeps) {
 			deps.handleMainPanelFileClick,
 			deps.handleFocusFileInGraph,
 			deps.handleOpenLastDocumentGraph,
-			// Refs (stable, but included for completeness)
+			// Refs (stable)
 			deps.fileTreeContainerRef,
 			deps.fileTreeFilterInputRef,
 		]

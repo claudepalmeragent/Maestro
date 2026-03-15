@@ -1,18 +1,20 @@
 /**
  * Tests for src/main/process-manager/handlers/StderrHandler.ts
  *
- * Verifies SSH error detection from stderr, including:
- * - Detection when sshRemoteId IS set (baseline)
- * - Detection when sshRemoteId is NOT set (the fix — gate removed)
+ * Covers stderr handling including:
+ * - SSH informational message filtering
+ * - Codex stdin mode response extraction
+ * - Error detection from stderr
+ * - SSH error detection when sshRemoteId IS set (baseline)
+ * - SSH error detection when sshRemoteId is NOT set (the fix — gate removed)
  * - Suppression of known SSH informational messages
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { EventEmitter } from 'events';
-import { StderrHandler } from '../../../../main/process-manager/handlers/StderrHandler';
-import type { ManagedProcess, AgentError } from '../../../../main/process-manager/types';
 
-// Mock logger
+// ── Mocks ──────────────────────────────────────────────────────────────────
+
 vi.mock('../../../../main/utils/logger', () => ({
 	logger: {
 		info: vi.fn(),
@@ -22,54 +24,262 @@ vi.mock('../../../../main/utils/logger', () => ({
 	},
 }));
 
-// Mock SSH error pattern matching
+vi.mock('../../../../main/utils/terminalFilter', () => ({
+	stripAllAnsiCodes: vi.fn((str: string) => str),
+}));
+
 vi.mock('../../../../main/parsers/error-patterns', () => ({
 	matchSshErrorPattern: vi.fn(() => null),
 }));
 
-// Mock terminalFilter
-vi.mock('../../../../main/utils/terminalFilter', () => ({
-	stripAllAnsiCodes: vi.fn((s: string) => s),
+vi.mock('../../../../main/process-manager/utils/bufferUtils', () => ({
+	appendToBuffer: vi.fn((buf: string, data: string) => buf + data),
 }));
 
-// Mock bufferUtils
-vi.mock('../../../../main/process-manager/utils/bufferUtils', () => ({
-	appendToBuffer: vi.fn((existing: string, data: string) => existing + data),
-}));
+// ── Imports (after mocks) ──────────────────────────────────────────────────
+
+import { StderrHandler } from '../../../../main/process-manager/handlers/StderrHandler';
+import type { ManagedProcess, AgentError } from '../../../../main/process-manager/types';
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+function createMockProcess(overrides: Partial<ManagedProcess> = {}): ManagedProcess {
+	return {
+		sessionId: 'test-session',
+		toolType: 'claude-code',
+		cwd: '/tmp',
+		pid: 1234,
+		isTerminal: false,
+		startTime: Date.now(),
+		stderrBuffer: '',
+		errorEmitted: false,
+		...overrides,
+	} as ManagedProcess;
+}
+
+function createTestContext(processOverrides: Partial<ManagedProcess> = {}) {
+	const processes = new Map<string, ManagedProcess>();
+	const emitter = new EventEmitter();
+	const sessionId = 'test-session';
+	const proc = createMockProcess({ sessionId, ...processOverrides });
+	processes.set(sessionId, proc);
+
+	const handler = new StderrHandler({ processes, emitter });
+
+	return { processes, emitter, handler, sessionId, proc };
+}
+
+// ── Tests ──────────────────────────────────────────────────────────────────
 
 describe('StderrHandler', () => {
-	let processes: Map<string, ManagedProcess>;
-	let emitter: EventEmitter;
-	let stderrHandler: StderrHandler;
-	let emittedErrors: Array<{ sessionId: string; error: AgentError }>;
-
 	beforeEach(() => {
 		vi.clearAllMocks();
-		processes = new Map();
-		emitter = new EventEmitter();
-		stderrHandler = new StderrHandler({
-			processes,
-			emitter,
+	});
+
+	describe('SSH informational message filtering', () => {
+		it('should suppress "Pseudo-terminal will not be allocated" message', () => {
+			const { handler, emitter, sessionId } = createTestContext();
+
+			const stderrSpy = vi.fn();
+			emitter.on('stderr', stderrSpy);
+
+			handler.handleData(
+				sessionId,
+				'Pseudo-terminal will not be allocated because stdin is not a terminal.'
+			);
+
+			expect(stderrSpy).not.toHaveBeenCalled();
 		});
-		emittedErrors = [];
-		emitter.on('agent-error', (sessionId: string, error: AgentError) => {
-			emittedErrors.push({ sessionId, error });
+
+		it('should suppress SSH known hosts warning', () => {
+			const { handler, emitter, sessionId } = createTestContext();
+
+			const stderrSpy = vi.fn();
+			emitter.on('stderr', stderrSpy);
+
+			handler.handleData(
+				sessionId,
+				'Warning: Permanently added "example.com" to the list of known hosts.'
+			);
+
+			expect(stderrSpy).not.toHaveBeenCalled();
+		});
+
+		it('should emit other stderr messages normally', () => {
+			const { handler, emitter, sessionId } = createTestContext();
+
+			const stderrSpy = vi.fn();
+			emitter.on('stderr', stderrSpy);
+
+			handler.handleData(sessionId, 'Some error message');
+
+			expect(stderrSpy).toHaveBeenCalledWith(sessionId, 'Some error message');
 		});
 	});
 
-	function createManagedProcess(overrides: Partial<ManagedProcess> = {}): ManagedProcess {
-		return {
-			sessionId: 'test-session',
-			toolType: 'claude-code',
-			cwd: '/test',
-			pid: 1234,
-			isTerminal: false,
-			isStreamJsonMode: true,
-			jsonBuffer: '',
-			startTime: Date.now(),
-			...overrides,
-		};
-	}
+	describe('Codex stdin mode response extraction', () => {
+		it('should extract response from "Reading prompt from stdin..." prefix', () => {
+			const { handler, emitter, sessionId } = createTestContext({
+				toolType: 'codex',
+			});
+
+			const dataSpy = vi.fn();
+			const stderrSpy = vi.fn();
+			emitter.on('data', dataSpy);
+			emitter.on('stderr', stderrSpy);
+
+			handler.handleData(sessionId, 'Reading prompt from stdin...Hello! How can I help you?');
+
+			// Should emit as data, not stderr
+			expect(dataSpy).toHaveBeenCalledWith(sessionId, 'Hello! How can I help you?');
+			expect(stderrSpy).not.toHaveBeenCalled();
+		});
+
+		it('should handle "Reading prompt from stdin..." with no content after', () => {
+			const { handler, emitter, sessionId } = createTestContext({
+				toolType: 'codex',
+			});
+
+			const dataSpy = vi.fn();
+			const stderrSpy = vi.fn();
+			emitter.on('data', dataSpy);
+			emitter.on('stderr', stderrSpy);
+
+			handler.handleData(sessionId, 'Reading prompt from stdin...');
+
+			// No actual content to emit
+			expect(dataSpy).not.toHaveBeenCalled();
+			expect(stderrSpy).not.toHaveBeenCalled();
+		});
+
+		it('should NOT filter "Reading prompt from stdin..." for non-Codex agents', () => {
+			const { handler, emitter, sessionId } = createTestContext({
+				toolType: 'claude-code',
+			});
+
+			const stderrSpy = vi.fn();
+			emitter.on('stderr', stderrSpy);
+
+			handler.handleData(sessionId, 'Reading prompt from stdin...some message');
+
+			// Should emit as stderr for non-Codex agents
+			expect(stderrSpy).toHaveBeenCalledWith(sessionId, 'Reading prompt from stdin...some message');
+		});
+	});
+
+	describe('Codex tracing line filtering', () => {
+		it('should filter Rust tracing lines and emit remaining content as data', () => {
+			const { handler, emitter, sessionId } = createTestContext({
+				toolType: 'codex',
+			});
+
+			const dataSpy = vi.fn();
+			const stderrSpy = vi.fn();
+			emitter.on('data', dataSpy);
+			emitter.on('stderr', stderrSpy);
+
+			handler.handleData(
+				sessionId,
+				'2026-02-08T04:39:23.868314Z ERROR codex_core::rollout::list: state db missing rollout path for thread 019c3b87\nBelow is a concise architecture.'
+			);
+
+			// Tracing line stripped, content emitted as data
+			expect(dataSpy).toHaveBeenCalledWith(sessionId, 'Below is a concise architecture.');
+			expect(stderrSpy).not.toHaveBeenCalled();
+		});
+
+		it('should drop tracing-only stderr without emitting anything', () => {
+			const { handler, emitter, sessionId } = createTestContext({
+				toolType: 'codex',
+			});
+
+			const dataSpy = vi.fn();
+			const stderrSpy = vi.fn();
+			emitter.on('data', dataSpy);
+			emitter.on('stderr', stderrSpy);
+
+			handler.handleData(
+				sessionId,
+				'2026-02-08T04:39:23.868314Z ERROR codex_core::rollout::list: state db missing rollout path for thread abc123'
+			);
+
+			expect(dataSpy).not.toHaveBeenCalled();
+			expect(stderrSpy).not.toHaveBeenCalled();
+		});
+
+		it('should handle mixed tracing lines, stdin prefix, and content', () => {
+			const { handler, emitter, sessionId } = createTestContext({
+				toolType: 'codex',
+			});
+
+			const dataSpy = vi.fn();
+			const stderrSpy = vi.fn();
+			emitter.on('data', dataSpy);
+			emitter.on('stderr', stderrSpy);
+
+			handler.handleData(
+				sessionId,
+				'2026-02-08T10:00:00Z WARN codex_core::something: warning msg\nReading prompt from stdin...\nHere is the response.'
+			);
+
+			expect(dataSpy).toHaveBeenCalledWith(sessionId, 'Here is the response.');
+			expect(stderrSpy).not.toHaveBeenCalled();
+		});
+
+		it('should NOT filter tracing lines for non-Codex agents', () => {
+			const { handler, emitter, sessionId } = createTestContext({
+				toolType: 'claude-code',
+			});
+
+			const stderrSpy = vi.fn();
+			emitter.on('stderr', stderrSpy);
+
+			const tracingLine =
+				'2026-02-08T04:39:23.868314Z ERROR codex_core::rollout::list: state db missing';
+
+			handler.handleData(sessionId, tracingLine);
+
+			// Non-Codex agents should emit as normal stderr
+			expect(stderrSpy).toHaveBeenCalledWith(sessionId, tracingLine);
+		});
+	});
+
+	describe('empty and whitespace handling', () => {
+		it('should not emit empty stderr', () => {
+			const { handler, emitter, sessionId } = createTestContext();
+
+			const stderrSpy = vi.fn();
+			emitter.on('stderr', stderrSpy);
+
+			handler.handleData(sessionId, '');
+
+			expect(stderrSpy).not.toHaveBeenCalled();
+		});
+
+		it('should not emit whitespace-only stderr', () => {
+			const { handler, emitter, sessionId } = createTestContext();
+
+			const stderrSpy = vi.fn();
+			emitter.on('stderr', stderrSpy);
+
+			handler.handleData(sessionId, '   \n\t  ');
+
+			expect(stderrSpy).not.toHaveBeenCalled();
+		});
+	});
+
+	describe('stderr buffer accumulation', () => {
+		it('should accumulate stderr in buffer', () => {
+			const { handler, sessionId, proc } = createTestContext();
+
+			handler.handleData(sessionId, 'Error 1\n');
+			handler.handleData(sessionId, 'Error 2\n');
+
+			// Buffer should contain both errors
+			expect(proc.stderrBuffer).toContain('Error 1');
+			expect(proc.stderrBuffer).toContain('Error 2');
+		});
+	});
 
 	describe('SSH error detection with sshRemoteId set', () => {
 		it('detects SSH errors from stderr when sshRemoteId is set (baseline)', async () => {
@@ -84,8 +294,16 @@ describe('StderrHandler', () => {
 				matchedText: 'bash: claude: command not found',
 			});
 
+			const processes = new Map<string, ManagedProcess>();
+			const emitter = new EventEmitter();
+			const stderrHandler = new StderrHandler({ processes, emitter });
+			const emittedErrors: Array<{ sessionId: string; error: AgentError }> = [];
+			emitter.on('agent-error', (sessionId: string, error: AgentError) => {
+				emittedErrors.push({ sessionId, error });
+			});
+
 			const sessionId = 'test-session-ssh-with-id';
-			const managedProcess = createManagedProcess({
+			const managedProcess = createMockProcess({
 				sessionId,
 				sshRemoteId: 'remote-1',
 			});
@@ -113,8 +331,16 @@ describe('StderrHandler', () => {
 				matchedText: 'bash: claude: command not found',
 			});
 
+			const processes = new Map<string, ManagedProcess>();
+			const emitter = new EventEmitter();
+			const stderrHandler = new StderrHandler({ processes, emitter });
+			const emittedErrors: Array<{ sessionId: string; error: AgentError }> = [];
+			emitter.on('agent-error', (sessionId: string, error: AgentError) => {
+				emittedErrors.push({ sessionId, error });
+			});
+
 			const sessionId = 'test-session-ssh-no-id';
-			const managedProcess = createManagedProcess({
+			const managedProcess = createMockProcess({
 				sessionId,
 				sshRemoteId: undefined, // No SSH ID set — simulates flag loss
 			});
@@ -125,48 +351,6 @@ describe('StderrHandler', () => {
 			expect(managedProcess.errorEmitted).toBe(true);
 			expect(emittedErrors).toHaveLength(1);
 			expect(emittedErrors[0].error.type).toBe('agent_crashed');
-		});
-	});
-
-	describe('SSH informational message suppression', () => {
-		it('suppresses known SSH informational messages', () => {
-			const sessionId = 'test-session-ssh-info';
-			const managedProcess = createManagedProcess({ sessionId });
-			processes.set(sessionId, managedProcess);
-
-			const emittedStderr: string[] = [];
-			emitter.on('stderr', (_sessionId: string, data: string) => {
-				emittedStderr.push(data);
-			});
-
-			stderrHandler.handleData(
-				sessionId,
-				'Pseudo-terminal will not be allocated because stdin is not a terminal.'
-			);
-
-			// Should NOT emit to stderr channel (suppressed)
-			expect(emittedStderr).toHaveLength(0);
-			// Should NOT be treated as an error
-			expect(managedProcess.errorEmitted).toBeUndefined();
-		});
-
-		it('suppresses "Permanently added to known hosts" messages', () => {
-			const sessionId = 'test-session-ssh-known-hosts';
-			const managedProcess = createManagedProcess({ sessionId });
-			processes.set(sessionId, managedProcess);
-
-			const emittedStderr: string[] = [];
-			emitter.on('stderr', (_sessionId: string, data: string) => {
-				emittedStderr.push(data);
-			});
-
-			stderrHandler.handleData(
-				sessionId,
-				"Warning: Permanently added '192.168.1.100' (ED25519) to the list of known hosts."
-			);
-
-			expect(emittedStderr).toHaveLength(0);
-			expect(managedProcess.errorEmitted).toBeUndefined();
 		});
 	});
 
@@ -183,8 +367,16 @@ describe('StderrHandler', () => {
 				matchedText: 'bash: claude: command not found',
 			});
 
+			const processes = new Map<string, ManagedProcess>();
+			const emitter = new EventEmitter();
+			const stderrHandler = new StderrHandler({ processes, emitter });
+			const emittedErrors: Array<{ sessionId: string; error: AgentError }> = [];
+			emitter.on('agent-error', (sessionId: string, error: AgentError) => {
+				emittedErrors.push({ sessionId, error });
+			});
+
 			const sessionId = 'test-session-already-errored';
-			const managedProcess = createManagedProcess({
+			const managedProcess = createMockProcess({
 				sessionId,
 				errorEmitted: true, // Already emitted an error
 			});

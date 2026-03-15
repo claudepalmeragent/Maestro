@@ -13,7 +13,7 @@ import {
 	Edit3,
 } from 'lucide-react';
 import type { Group, Session, Theme } from '../../types';
-import { useClickOutside } from '../../hooks';
+import { useClickOutside, useContextMenuPosition } from '../../hooks';
 
 interface SessionContextMenuProps {
 	x: number;
@@ -21,19 +21,19 @@ interface SessionContextMenuProps {
 	theme: Theme;
 	session: Session;
 	groups: Group[];
-	hasWorktreeChildren: boolean; // Whether this parent has worktree sub-agents
+	hasWorktreeChildren: boolean;
 	onRename: () => void;
 	onEdit: () => void;
-	onDuplicate: () => void; // Opens New Agent dialog with pre-filled config
+	onDuplicate: () => void;
 	onToggleBookmark: () => void;
 	onMoveToGroup: (groupId: string) => void;
 	onDelete: () => void;
 	onDismiss: () => void;
-	onCreatePR?: () => void; // For worktree child sessions
-	onQuickCreateWorktree?: () => void; // Opens small modal for quick worktree creation
-	onConfigureWorktrees?: () => void; // Opens full worktree config modal
-	onDeleteWorktree?: () => void; // For worktree child sessions to delete
-	onCreateGroup?: () => void; // Creates a new group from the Move to Group submenu
+	onCreatePR?: () => void;
+	onQuickCreateWorktree?: () => void;
+	onConfigureWorktrees?: () => void;
+	onDeleteWorktree?: () => void;
+	onCreateGroup?: () => void;
 }
 
 export function SessionContextMenu({
@@ -65,14 +65,11 @@ export function SessionContextMenu({
 		horizontal: 'right' | 'left';
 	}>({ vertical: 'below', horizontal: 'right' });
 
-	// Use ref to avoid re-registering listener when onDismiss changes
 	const onDismissRef = useRef(onDismiss);
 	onDismissRef.current = onDismiss;
 
-	// Close on click outside
 	useClickOutside(menuRef, onDismiss);
 
-	// Close on Escape - stable listener that never re-registers
 	useEffect(() => {
 		const handleKeyDown = (e: KeyboardEvent) => {
 			if (e.key === 'Escape') {
@@ -83,15 +80,19 @@ export function SessionContextMenu({
 		return () => document.removeEventListener('keydown', handleKeyDown);
 	}, []);
 
-	// Adjust menu position to stay within viewport
-	const adjustedPosition = {
-		left: Math.min(x, window.innerWidth - 200),
-		top: Math.min(y, window.innerHeight - 250),
-	};
+	// Cleanup submenu timeout on unmount
+	useEffect(() => {
+		return () => {
+			if (submenuTimeoutRef.current) {
+				clearTimeout(submenuTimeoutRef.current);
+				submenuTimeoutRef.current = null;
+			}
+		};
+	}, []);
 
-	// Calculate submenu position when showing
+	const { left, top, ready } = useContextMenuPosition(menuRef, x, y);
+
 	const handleMoveToGroupHover = () => {
-		// Clear any pending close timeout
 		if (submenuTimeoutRef.current) {
 			clearTimeout(submenuTimeoutRef.current);
 			submenuTimeoutRef.current = null;
@@ -100,44 +101,53 @@ export function SessionContextMenu({
 
 		if (moveToGroupRef.current) {
 			const rect = moveToGroupRef.current.getBoundingClientRect();
-			// Estimate submenu height: ~28px per item + 8px padding + divider
 			const itemHeight = 28;
 			const submenuHeight = (groups.length + 1) * itemHeight + 16 + (groups.length > 0 ? 8 : 0);
-			const submenuWidth = 160; // minWidth + some padding
+			const submenuWidth = 160;
 			const spaceBelow = window.innerHeight - rect.top;
 			const spaceRight = window.innerWidth - rect.right;
 
-			// Determine vertical position
 			const vertical = spaceBelow < submenuHeight && rect.top > submenuHeight ? 'above' : 'below';
-
-			// Determine horizontal position
 			const horizontal = spaceRight < submenuWidth && rect.left > submenuWidth ? 'left' : 'right';
 
 			setSubmenuPosition({ vertical, horizontal });
 		}
 	};
 
-	// Delayed close for submenu to allow mouse to travel to it
 	const handleMoveToGroupLeave = () => {
+		if (submenuTimeoutRef.current) {
+			clearTimeout(submenuTimeoutRef.current);
+		}
 		submenuTimeoutRef.current = setTimeout(() => {
 			setShowMoveSubmenu(false);
-		}, 300); // 300ms delay to move mouse to submenu
+			submenuTimeoutRef.current = null;
+		}, 300);
 	};
+
+	// Compute visibility for worktree sections to avoid rendering dividers without buttons
+	const showWorktreeParentSection =
+		(hasWorktreeChildren || session.isGitRepo) &&
+		!session.parentSessionId &&
+		((onQuickCreateWorktree && session.worktreeConfig) || onConfigureWorktrees);
+
+	const showWorktreeChildSection =
+		session.parentSessionId && session.worktreeBranch && (onCreatePR || onDeleteWorktree);
 
 	return (
 		<div
 			ref={menuRef}
 			className="fixed z-50 py-1 rounded-md shadow-xl border"
 			style={{
-				left: adjustedPosition.left,
-				top: adjustedPosition.top,
+				left,
+				top,
+				opacity: ready ? 1 : 0,
 				backgroundColor: theme.colors.bgSidebar,
 				borderColor: theme.colors.border,
 				minWidth: '160px',
 			}}
 		>
-			{/* Rename */}
 			<button
+				type="button"
 				onClick={() => {
 					onRename();
 					onDismiss();
@@ -149,8 +159,8 @@ export function SessionContextMenu({
 				Rename
 			</button>
 
-			{/* Edit Agent */}
 			<button
+				type="button"
 				onClick={() => {
 					onEdit();
 					onDismiss();
@@ -162,8 +172,8 @@ export function SessionContextMenu({
 				Edit Agent...
 			</button>
 
-			{/* Duplicate */}
 			<button
+				type="button"
 				onClick={() => {
 					onDuplicate();
 					onDismiss();
@@ -175,9 +185,9 @@ export function SessionContextMenu({
 				Duplicate...
 			</button>
 
-			{/* Toggle Bookmark - only for non-worktree sessions */}
 			{!session.parentSessionId && (
 				<button
+					type="button"
 					onClick={() => {
 						onToggleBookmark();
 						onDismiss();
@@ -190,15 +200,27 @@ export function SessionContextMenu({
 				</button>
 			)}
 
-			{/* Move to Group - only for non-worktree sessions, no separator */}
 			{!session.parentSessionId && (
 				<div
 					ref={moveToGroupRef}
 					className="relative"
+					tabIndex={0}
 					onMouseEnter={handleMoveToGroupHover}
 					onMouseLeave={handleMoveToGroupLeave}
+					onFocus={handleMoveToGroupHover}
+					onBlur={handleMoveToGroupLeave}
+					onKeyDown={(e) => {
+						if (e.key === 'Enter' || e.key === ' ') {
+							e.preventDefault();
+							handleMoveToGroupHover();
+						} else if (e.key === 'Escape' && showMoveSubmenu) {
+							e.stopPropagation();
+							setShowMoveSubmenu(false);
+						}
+					}}
 				>
 					<button
+						type="button"
 						className="w-full text-left px-3 py-1.5 text-xs hover:bg-white/5 transition-colors flex items-center justify-between"
 						style={{ color: theme.colors.textMain }}
 					>
@@ -209,7 +231,6 @@ export function SessionContextMenu({
 						<ChevronRight className="w-3 h-3" />
 					</button>
 
-					{/* Submenu */}
 					{showMoveSubmenu && (
 						<div
 							className="absolute py-1 rounded-md shadow-xl border"
@@ -223,8 +244,8 @@ export function SessionContextMenu({
 									: { left: '100%', marginLeft: 4 }),
 							}}
 						>
-							{/* No Group option */}
 							<button
+								type="button"
 								onClick={() => {
 									onMoveToGroup('');
 									onDismiss();
@@ -238,14 +259,13 @@ export function SessionContextMenu({
 								{!session.groupId && <span className="text-[10px] opacity-50">(current)</span>}
 							</button>
 
-							{/* Divider if there are groups */}
 							{groups.length > 0 && (
 								<div className="my-1 border-t" style={{ borderColor: theme.colors.border }} />
 							)}
 
-							{/* Group options */}
 							{groups.map((group) => (
 								<button
+									type="button"
 									key={group.id}
 									onClick={() => {
 										onMoveToGroup(group.id);
@@ -263,14 +283,13 @@ export function SessionContextMenu({
 								</button>
 							))}
 
-							{/* Divider before Create New Group */}
 							{onCreateGroup && (
 								<div className="my-1 border-t" style={{ borderColor: theme.colors.border }} />
 							)}
 
-							{/* Create New Group option */}
 							{onCreateGroup && (
 								<button
+									type="button"
 									onClick={() => {
 										onCreateGroup();
 										onDismiss();
@@ -287,48 +306,46 @@ export function SessionContextMenu({
 				</div>
 			)}
 
-			{/* Worktree section - for parent sessions */}
-			{(hasWorktreeChildren || session.isGitRepo) &&
-				!session.parentSessionId &&
-				(onQuickCreateWorktree || onConfigureWorktrees) && (
-					<>
-						<div className="my-1 border-t" style={{ borderColor: theme.colors.border }} />
-						{/* Only show Create Worktree if worktrees have been configured */}
-						{onQuickCreateWorktree && session.worktreeConfig && (
-							<button
-								onClick={() => {
-									onQuickCreateWorktree();
-									onDismiss();
-								}}
-								className="w-full text-left px-3 py-1.5 text-xs hover:bg-white/5 transition-colors flex items-center gap-2"
-								style={{ color: theme.colors.accent }}
-							>
-								<GitBranch className="w-3.5 h-3.5" />
-								Create Worktree
-							</button>
-						)}
-						{onConfigureWorktrees && (
-							<button
-								onClick={() => {
-									onConfigureWorktrees();
-									onDismiss();
-								}}
-								className="w-full text-left px-3 py-1.5 text-xs hover:bg-white/5 transition-colors flex items-center gap-2"
-								style={{ color: theme.colors.accent }}
-							>
-								<Settings className="w-3.5 h-3.5" />
-								Configure Worktrees
-							</button>
-						)}
-					</>
-				)}
+			{showWorktreeParentSection && (
+				<>
+					<div className="my-1 border-t" style={{ borderColor: theme.colors.border }} />
+					{onQuickCreateWorktree && session.worktreeConfig && (
+						<button
+							type="button"
+							onClick={() => {
+								onQuickCreateWorktree();
+								onDismiss();
+							}}
+							className="w-full text-left px-3 py-1.5 text-xs hover:bg-white/5 transition-colors flex items-center gap-2"
+							style={{ color: theme.colors.accent }}
+						>
+							<GitBranch className="w-3.5 h-3.5" />
+							Create Worktree
+						</button>
+					)}
+					{onConfigureWorktrees && (
+						<button
+							type="button"
+							onClick={() => {
+								onConfigureWorktrees();
+								onDismiss();
+							}}
+							className="w-full text-left px-3 py-1.5 text-xs hover:bg-white/5 transition-colors flex items-center gap-2"
+							style={{ color: theme.colors.accent }}
+						>
+							<Settings className="w-3.5 h-3.5" />
+							Configure Worktrees
+						</button>
+					)}
+				</>
+			)}
 
-			{/* Worktree child session actions */}
-			{session.parentSessionId && session.worktreeBranch && (
+			{showWorktreeChildSection && (
 				<>
 					<div className="my-1 border-t" style={{ borderColor: theme.colors.border }} />
 					{onCreatePR && (
 						<button
+							type="button"
 							onClick={() => {
 								onCreatePR();
 								onDismiss();
@@ -342,6 +359,7 @@ export function SessionContextMenu({
 					)}
 					{onDeleteWorktree && (
 						<button
+							type="button"
 							onClick={() => {
 								onDeleteWorktree();
 								onDismiss();
@@ -356,11 +374,11 @@ export function SessionContextMenu({
 				</>
 			)}
 
-			{/* Remove Agent - only for non-worktree sessions */}
 			{!session.parentSessionId && (
 				<>
 					<div className="my-1 border-t" style={{ borderColor: theme.colors.border }} />
 					<button
+						type="button"
 						onClick={() => {
 							onDelete();
 							onDismiss();

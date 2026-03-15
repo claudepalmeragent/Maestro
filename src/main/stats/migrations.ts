@@ -27,6 +27,7 @@ import {
 	CREATE_AUDIT_SNAPSHOTS_SQL,
 	CREATE_AUDIT_SNAPSHOTS_INDEXES_SQL,
 	CREATE_AUDIT_SCHEDULE_SQL,
+	CREATE_COMPOUND_INDEXES_SQL,
 	runStatements,
 } from './schema';
 import { LOG_CONTEXT } from './utils';
@@ -86,6 +87,11 @@ export function getMigrations(): Migration[] {
 			version: 9,
 			description: 'Add tasks_completed_count to auto_run_tasks for per-invocation task counting',
 			up: (db) => migrateV9(db),
+		},
+		{
+			version: 10,
+			description: 'Add compound indexes on query_events for dashboard query performance',
+			up: (db) => migrateV10(db),
 		},
 	];
 }
@@ -431,4 +437,13 @@ function migrateV9(db: Database.Database): void {
 	db.prepare('ALTER TABLE auto_run_tasks ADD COLUMN tasks_completed_count INTEGER').run();
 
 	logger.info('Migration v9 complete: tasks_completed_count column added', LOG_CONTEXT);
+}
+
+/**
+ * Migration v10: Add compound indexes for dashboard query performance
+ */
+function migrateV10(db: Database.Database): void {
+	runStatements(db, CREATE_COMPOUND_INDEXES_SQL);
+
+	logger.debug('Added compound indexes on query_events', LOG_CONTEXT);
 }

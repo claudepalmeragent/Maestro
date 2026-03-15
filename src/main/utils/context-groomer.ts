@@ -14,10 +14,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { logger } from './logger';
-import { buildAgentArgs } from './agent-args';
-import { wrapSpawnWithSsh } from './ssh-spawn-helper';
-import { getSettingsStore } from '../stores/getters';
-import { isInitialized as areStoresInitialized } from '../stores/instances';
+import { buildAgentArgs, applyAgentConfigOverrides } from './agent-args';
 import type { AgentDetector } from '../agents';
 
 const LOG_CONTEXT = '[ContextGroomer]';
@@ -36,9 +33,14 @@ export interface GroomingProcessManager {
 		prompt?: string;
 		promptArgs?: (prompt: string) => string[];
 		noPromptSeparator?: boolean;
+		// SSH remote config for running on a remote host
+		sessionSshRemoteConfig?: {
+			enabled: boolean;
+			remoteId: string | null;
+			workingDirOverride?: string;
+		};
+		// Custom environment variables (resolved via applyAgentConfigOverrides)
 		customEnvVars?: Record<string, string>;
-		sshRemoteId?: string;
-		sshRemoteHost?: string;
 	}): { pid: number; success?: boolean } | null;
 	on(event: string, handler: (...args: unknown[]) => void): void;
 	off(event: string, handler: (...args: unknown[]) => void): void;
@@ -90,6 +92,18 @@ export function cancelAllGroomingSessions(): void {
 }
 
 /**
+ * SSH remote configuration for grooming.
+ */
+export interface GroomingSshRemoteConfig {
+	/** Whether SSH remote execution is enabled */
+	enabled: boolean;
+	/** The SSH remote ID (from settings) */
+	remoteId: string | null;
+	/** Optional working directory override on the remote host */
+	workingDirOverride?: string;
+}
+
+/**
  * Options for grooming context
  */
 export interface GroomContextOptions {
@@ -105,11 +119,16 @@ export interface GroomContextOptions {
 	readOnlyMode?: boolean;
 	/** Custom timeout in ms (default: 5 minutes) */
 	timeoutMs?: number;
-	/** SSH remote config for spawning on remote host */
-	sshRemoteConfig?: {
-		enabled: boolean;
-		remoteId: string;
-	};
+	/** SSH remote config for running grooming on a remote host */
+	sessionSshRemoteConfig?: GroomingSshRemoteConfig;
+	/** Custom path to the agent binary */
+	sessionCustomPath?: string;
+	/** Custom arguments for the agent */
+	sessionCustomArgs?: string;
+	/** Custom environment variables for the agent */
+	sessionCustomEnvVars?: Record<string, string>;
+	/** Agent-level config values (from agent config store) for override resolution */
+	agentConfigValues?: Record<string, any>;
 }
 
 /**
@@ -147,6 +166,11 @@ export async function groomContext(
 		agentSessionId,
 		readOnlyMode = false,
 		timeoutMs = DEFAULT_GROOMING_TIMEOUT_MS,
+		sessionSshRemoteConfig,
+		sessionCustomPath,
+		sessionCustomArgs,
+		sessionCustomEnvVars,
+		agentConfigValues,
 	} = options;
 
 	const groomerSessionId = `groomer-${uuidv4()}`;
@@ -158,6 +182,8 @@ export async function groomContext(
 		agentType,
 		promptLength: prompt.length,
 		hasSessionId: !!agentSessionId,
+		hasSshConfig: !!sessionSshRemoteConfig?.enabled,
+		sshRemoteId: sessionSshRemoteConfig?.remoteId,
 	});
 
 	// Get agent configuration
@@ -167,7 +193,7 @@ export async function groomContext(
 	}
 
 	// Build args using the unified buildAgentArgs utility
-	const finalArgs = buildAgentArgs(agent, {
+	const baseArgs = buildAgentArgs(agent, {
 		baseArgs: agent.args || [],
 		prompt: prompt,
 		cwd: projectRoot,
@@ -177,51 +203,16 @@ export async function groomContext(
 		agentSessionId,
 	});
 
-	// Wrap with SSH if configured (must be done before Promise executor since it's async)
-	let spawnCommand = agent.command;
-	let spawnArgs = finalArgs;
-	let spawnCwd = projectRoot;
-	let spawnPrompt: string | undefined = prompt;
-	let spawnPromptArgs: ((p: string) => string[]) | undefined = agent.promptArgs;
-	let spawnNoPromptSeparator: boolean | undefined = agent.noPromptSeparator;
-	let sshRemoteId: string | undefined;
-	let sshRemoteHost: string | undefined;
-
-	if (options.sshRemoteConfig?.enabled && options.sshRemoteConfig?.remoteId) {
-		const storesInitialized = areStoresInitialized();
-		if (storesInitialized) {
-			const sshWrapResult = await wrapSpawnWithSsh(
-				{
-					command: agent.command,
-					args: finalArgs,
-					cwd: projectRoot,
-					prompt,
-					sshRemoteConfig: options.sshRemoteConfig,
-					binaryName: agent.binaryName,
-					promptArgs: agent.promptArgs,
-					noPromptSeparator: agent.noPromptSeparator,
-				},
-				getSettingsStore()
-			);
-
-			if (sshWrapResult.usedSsh) {
-				spawnCommand = sshWrapResult.command;
-				spawnArgs = sshWrapResult.args;
-				spawnCwd = sshWrapResult.cwd;
-				sshRemoteId = sshWrapResult.sshConfig?.id;
-				sshRemoteHost = sshWrapResult.sshConfig?.host;
-				spawnPrompt = undefined;
-				spawnPromptArgs = undefined;
-				spawnNoPromptSeparator = undefined;
-
-				logger.info('Grooming spawn wrapped with SSH', LOG_CONTEXT, {
-					groomerSessionId,
-					remoteId: sshRemoteId,
-					remoteHost: sshRemoteHost,
-				});
-			}
-		}
-	}
+	// Apply agent config overrides (model, custom args, custom env vars)
+	// This merges agent-level config with session-level overrides
+	const configResolution = applyAgentConfigOverrides(agent, baseArgs, {
+		agentConfigValues: agentConfigValues ?? {},
+		sessionCustomArgs,
+		sessionCustomEnvVars,
+	});
+	const resolvedArgs = configResolution.args;
+	const resolvedEnvVars = configResolution.effectiveCustomEnvVars;
+	const resolvedCommand = sessionCustomPath || agent.command;
 
 	// Create a promise that collects the response
 	return new Promise<GroomContextResult>((resolve, reject) => {
@@ -342,14 +333,16 @@ export async function groomContext(
 		const spawnResult = processManager.spawn({
 			sessionId: groomerSessionId,
 			toolType: agentType,
-			cwd: spawnCwd,
-			command: spawnCommand,
-			args: spawnArgs,
-			prompt: spawnPrompt, // Triggers batch mode (no PTY) — undefined when SSH wraps it
-			promptArgs: spawnPromptArgs,
-			noPromptSeparator: spawnNoPromptSeparator,
-			sshRemoteId,
-			sshRemoteHost,
+			cwd: projectRoot,
+			command: resolvedCommand,
+			args: resolvedArgs,
+			prompt: prompt, // Triggers batch mode (no PTY)
+			promptArgs: agent.promptArgs, // For agents using flag-based prompt (e.g., OpenCode -p)
+			noPromptSeparator: agent.noPromptSeparator,
+			// Pass SSH config for remote execution support
+			sessionSshRemoteConfig,
+			// Pass resolved env vars (merged from agent defaults + agent config + session overrides)
+			customEnvVars: resolvedEnvVars,
 		});
 
 		if (!spawnResult || spawnResult.pid <= 0) {

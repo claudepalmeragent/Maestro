@@ -258,7 +258,7 @@ export interface CreateTabOptions {
 	starred?: boolean; // Whether session is starred
 	usageStats?: UsageStats; // Token usage stats
 	saveToHistory?: boolean; // Whether to save synopsis to history after completions
-	showThinking?: ThinkingMode | boolean; // Thinking display mode: 'off' | 'on' | 'sticky', or boolean for legacy compat
+	showThinking?: ThinkingMode; // Thinking display mode: 'off' | 'on' (temporary) | 'sticky' (persistent)
 }
 
 /**
@@ -567,6 +567,13 @@ export interface CloseFileTabResult {
  * @param session - The Maestro session containing the file tab
  * @param tabId - The ID of the file tab to close
  * @returns Object containing the closed tab entry and updated session, or null if tab not found
+ *
+ * @example
+ * const result = closeFileTab(session, 'file-tab-123');
+ * if (result) {
+ *   const { closedTabEntry, session: updatedSession } = result;
+ *   console.log(`Closed file tab at unified index ${closedTabEntry.unifiedIndex}`);
+ * }
  */
 export function closeFileTab(session: Session, tabId: string): CloseFileTabResult | null {
 	if (!session || !session.filePreviewTabs || session.filePreviewTabs.length === 0) {
@@ -709,6 +716,17 @@ export interface ReopenUnifiedClosedTabResult {
  *
  * @param session - The Maestro session
  * @returns Object containing the reopened tab info and updated session, or null if no closed tabs exist
+ *
+ * @example
+ * const result = reopenUnifiedClosedTab(session);
+ * if (result) {
+ *   const { tabType, tabId, session: updatedSession, wasDuplicate } = result;
+ *   if (wasDuplicate) {
+ *     console.log(`Switched to existing ${tabType} tab ${tabId}`);
+ *   } else {
+ *     console.log(`Restored ${tabType} tab ${tabId} from history`);
+ *   }
+ * }
  */
 export function reopenUnifiedClosedTab(session: Session): ReopenUnifiedClosedTabResult | null {
 	// Check if there's anything in the unified history
@@ -1142,6 +1160,18 @@ export interface NavigateToUnifiedTabResult {
  * @param session - The Maestro session
  * @param index - The 0-based index in unifiedTabOrder
  * @returns Object with the tab type, id, and updated session, or null if index out of bounds
+ *
+ * @example
+ * // Navigate to the first tab (Cmd+1)
+ * const result = navigateToUnifiedTabByIndex(session, 0);
+ * if (result) {
+ *   if (result.type === 'ai') {
+ *     // AI tab - activeTabId is updated, activeFileTabId is cleared
+ *   } else {
+ *     // File tab - activeFileTabId is updated, activeTabId preserved
+ *   }
+ *   setSessions(prev => prev.map(s => s.id === session.id ? result.session : s));
+ * }
  */
 export function navigateToUnifiedTabByIndex(
 	session: Session,
@@ -1265,9 +1295,18 @@ function getCurrentUnifiedTabIndex(session: Session, effectiveOrder?: UnifiedTab
  * Cycles through both AI tabs and file preview tabs in their visual order.
  * Wraps around to the first tab if currently on the last tab.
  *
+ * Note: The showUnreadOnly parameter is included for API compatibility but
+ * only filters AI tabs - file tabs are always included in navigation.
+ *
  * @param session - The Maestro session
  * @param showUnreadOnly - If true, skip AI tabs that are not unread and don't have drafts
  * @returns Object with the tab type, id, and updated session, or null if no navigation possible
+ *
+ * @example
+ * const result = navigateToNextUnifiedTab(session);
+ * if (result) {
+ *   setSessions(prev => prev.map(s => s.id === session.id ? result.session : s));
+ * }
  */
 export function navigateToNextUnifiedTab(
 	session: Session,
@@ -1328,9 +1367,18 @@ export function navigateToNextUnifiedTab(
  * Cycles through both AI tabs and file preview tabs in their visual order.
  * Wraps around to the last tab if currently on the first tab.
  *
+ * Note: The showUnreadOnly parameter is included for API compatibility but
+ * only filters AI tabs - file tabs are always included in navigation.
+ *
  * @param session - The Maestro session
  * @param showUnreadOnly - If true, skip AI tabs that are not unread and don't have drafts
  * @returns Object with the tab type, id, and updated session, or null if no navigation possible
+ *
+ * @example
+ * const result = navigateToPrevUnifiedTab(session);
+ * if (result) {
+ *   setSessions(prev => prev.map(s => s.id === session.id ? result.session : s));
+ * }
  */
 export function navigateToPrevUnifiedTab(
 	session: Session,
@@ -1448,7 +1496,7 @@ export interface CreateMergedSessionOptions {
 	/** Whether to save completions to history (default: true) */
 	saveToHistory?: boolean;
 	/** Thinking display mode: 'off' | 'on' (temporary) | 'sticky' (persistent) */
-	showThinking?: ThinkingMode | boolean;
+	showThinking?: ThinkingMode;
 }
 
 /**

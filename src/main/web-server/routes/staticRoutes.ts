@@ -26,6 +26,43 @@ const LOG_CONTEXT = 'WebServer:Static';
 const REDIRECT_URL = 'https://runmaestro.ai';
 
 /**
+ * File cache for static assets that don't change at runtime.
+ * Prevents blocking file reads on every request.
+ */
+interface CachedFile {
+	content: string;
+	exists: boolean;
+}
+
+const fileCache = new Map<string, CachedFile>();
+
+/**
+ * Read a file with caching - only reads from disk once per path.
+ * Returns null if file doesn't exist.
+ */
+function getCachedFile(filePath: string): string | null {
+	const cached = fileCache.get(filePath);
+	if (cached !== undefined) {
+		return cached.exists ? cached.content : null;
+	}
+
+	// First access - read from disk and cache
+	if (!existsSync(filePath)) {
+		fileCache.set(filePath, { content: '', exists: false });
+		return null;
+	}
+
+	try {
+		const content = readFileSync(filePath, 'utf-8');
+		fileCache.set(filePath, { content, exists: true });
+		return content;
+	} catch {
+		fileCache.set(filePath, { content: '', exists: false });
+		return null;
+	}
+}
+
+/**
  * Static Routes Class
  *
  * Encapsulates all static/core route setup logic.
@@ -77,7 +114,8 @@ export class StaticRoutes {
 		}
 
 		const indexPath = path.join(this.webAssetsPath, 'index.html');
-		if (!existsSync(indexPath)) {
+		const cachedHtml = getCachedFile(indexPath);
+		if (cachedHtml === null) {
 			reply.code(404).send({
 				error: 'Not Found',
 				message: 'Web interface index.html not found.',
@@ -86,8 +124,8 @@ export class StaticRoutes {
 		}
 
 		try {
-			// Read and transform the HTML to fix asset paths
-			let html = readFileSync(indexPath, 'utf-8');
+			// Use cached HTML and transform asset paths
+			let html = cachedHtml;
 
 			// Transform relative paths to use the token-prefixed absolute paths
 			html = html.replace(/\.\/assets\//g, `/${this.securityToken}/assets/`);
@@ -138,28 +176,30 @@ export class StaticRoutes {
 			return { status: 'ok', timestamp: Date.now() };
 		});
 
-		// PWA manifest.json
+		// PWA manifest.json (cached)
 		server.get(`/${token}/manifest.json`, async (_request, reply) => {
 			if (!this.webAssetsPath) {
 				return reply.code(404).send({ error: 'Not Found' });
 			}
 			const manifestPath = path.join(this.webAssetsPath, 'manifest.json');
-			if (!existsSync(manifestPath)) {
+			const content = getCachedFile(manifestPath);
+			if (content === null) {
 				return reply.code(404).send({ error: 'Not Found' });
 			}
-			return reply.type('application/json').send(readFileSync(manifestPath, 'utf-8'));
+			return reply.type('application/json').send(content);
 		});
 
-		// PWA service worker
+		// PWA service worker (cached)
 		server.get(`/${token}/sw.js`, async (_request, reply) => {
 			if (!this.webAssetsPath) {
 				return reply.code(404).send({ error: 'Not Found' });
 			}
 			const swPath = path.join(this.webAssetsPath, 'sw.js');
-			if (!existsSync(swPath)) {
+			const content = getCachedFile(swPath);
+			if (content === null) {
 				return reply.code(404).send({ error: 'Not Found' });
 			}
-			return reply.type('application/javascript').send(readFileSync(swPath, 'utf-8'));
+			return reply.type('application/javascript').send(content);
 		});
 
 		// Dashboard - list all live sessions

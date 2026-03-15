@@ -11,12 +11,14 @@ import {
 	Save,
 	RotateCcw,
 	LayoutGrid,
+	AlertTriangle,
 } from 'lucide-react';
 import type { Theme, BatchRunState, SessionState, Shortcut } from '../types';
 import { useLayerStack } from '../contexts/LayerStackContext';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 import { AutoRun, AutoRunHandle } from './AutoRun';
 import type { DocumentTaskCount } from './AutoRunDocumentSelector';
+import { ConfirmModal } from './ConfirmModal';
 import { formatShortcutKeys } from '../utils/shortcutFormatter';
 import { BatchRunStats } from './BatchRunStats';
 
@@ -94,6 +96,7 @@ export function AutoRunExpandedModal({
 	const { registerLayer, unregisterLayer, updateLayerHandler } = useLayerStack();
 	const layerIdRef = useRef<string>();
 	const onCloseRef = useRef(onClose);
+	const handleCloseRef = useRef<() => void>(() => {});
 	const autoRunRef = useRef<AutoRunHandle>(null);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	onCloseRef.current = onClose;
@@ -154,6 +157,26 @@ export function AutoRunExpandedModal({
 		}
 	}, []);
 
+	// Unsaved changes confirmation state
+	const [showUnsavedConfirm, setShowUnsavedConfirm] = useState(false);
+
+	// Close handler that checks for unsaved changes
+	const handleClose = useCallback(() => {
+		if (isDirty) {
+			setShowUnsavedConfirm(true);
+		} else {
+			onClose();
+		}
+	}, [isDirty, onClose]);
+	handleCloseRef.current = handleClose;
+
+	// Discard changes and close
+	const handleDiscardAndClose = useCallback(() => {
+		handleRevert();
+		setShowUnsavedConfirm(false);
+		onClose();
+	}, [handleRevert, onClose]);
+
 	// Register layer on mount
 	useEffect(() => {
 		const id = registerLayer({
@@ -163,7 +186,7 @@ export function AutoRunExpandedModal({
 			capturesFocus: true,
 			focusTrap: 'strict',
 			onEscape: () => {
-				onCloseRef.current();
+				handleCloseRef.current();
 			},
 		});
 		layerIdRef.current = id;
@@ -179,10 +202,10 @@ export function AutoRunExpandedModal({
 	useEffect(() => {
 		if (layerIdRef.current) {
 			updateLayerHandler(layerIdRef.current, () => {
-				onCloseRef.current();
+				handleCloseRef.current();
 			});
 		}
-	}, [onClose, updateLayerHandler]);
+	}, [handleClose, updateLayerHandler]);
 
 	// Focus the AutoRun component on mount
 	useEffect(() => {
@@ -211,7 +234,7 @@ export function AutoRunExpandedModal({
 			style={{ backgroundColor: 'rgba(0,0,0,0.7)' }}
 			onClick={(e) => {
 				if (e.target === e.currentTarget) {
-					onClose();
+					handleClose();
 				}
 			}}
 		>
@@ -331,7 +354,7 @@ export function AutoRunExpandedModal({
 											border: `1px solid ${theme.colors.border}`,
 										}}
 									>
-										⌘S
+										{formatShortcutKeys(['Meta', 's'])}
 									</span>
 								</button>
 							</>
@@ -400,7 +423,7 @@ export function AutoRunExpandedModal({
 					{/* Right side - Collapse/Close */}
 					<div className="flex items-center gap-2">
 						<button
-							onClick={onClose}
+							onClick={handleClose}
 							className="flex items-center gap-1.5 px-2 py-1 rounded text-xs transition-colors hover:bg-white/10"
 							style={{ color: theme.colors.textDim }}
 							title={`Collapse${shortcuts?.toggleAutoRunExpanded ? ` (${formatShortcutKeys(shortcuts.toggleAutoRunExpanded.keys)})` : ' (Esc)'}`}
@@ -409,7 +432,7 @@ export function AutoRunExpandedModal({
 							Collapse
 						</button>
 						<button
-							onClick={onClose}
+							onClick={handleClose}
 							className="p-1 rounded hover:bg-white/10 transition-colors"
 							title="Close (Esc)"
 						>
@@ -504,6 +527,20 @@ export function AutoRunExpandedModal({
 					</div>
 				)}
 			</div>
+
+			{/* Unsaved changes confirmation */}
+			{showUnsavedConfirm && (
+				<ConfirmModal
+					theme={theme}
+					title="Unsaved Changes"
+					headerIcon={<AlertTriangle className="w-4 h-4" style={{ color: theme.colors.warning }} />}
+					message="You have unsaved changes to this Auto Run document. Discard changes and close?"
+					onConfirm={handleDiscardAndClose}
+					onClose={() => setShowUnsavedConfirm(false)}
+					destructive={false}
+					confirmLabel="Discard"
+				/>
+			)}
 		</div>,
 		document.body
 	);

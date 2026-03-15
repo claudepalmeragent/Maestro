@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { PanelLeftClose, PanelLeftOpen, Bot, Wand2 } from 'lucide-react';
 import type { Theme, Shortcut } from '../../types';
 import { formatShortcutKeys } from '../../utils/shortcutFormatter';
@@ -12,7 +13,7 @@ interface SidebarActionsProps {
 	setLeftSidebarOpen: (open: boolean) => void;
 }
 
-export function SidebarActions({
+export const SidebarActions = memo(function SidebarActions({
 	theme,
 	leftSidebarOpen,
 	hasNoSessions,
@@ -27,12 +28,9 @@ export function SidebarActions({
 			style={{ borderColor: theme.colors.border }}
 		>
 			<button
-				onClick={() => {
-					// Only allow collapsing when there are sessions (prevent collapse on empty state)
-					if (!hasNoSessions || !leftSidebarOpen) {
-						setLeftSidebarOpen(!leftSidebarOpen);
-					}
-				}}
+				type="button"
+				disabled={hasNoSessions && leftSidebarOpen}
+				onClick={() => setLeftSidebarOpen(!leftSidebarOpen)}
 				className={`flex items-center justify-center p-2 rounded transition-colors w-8 h-8 shrink-0 ${hasNoSessions && leftSidebarOpen ? 'opacity-20 cursor-not-allowed' : 'hover:bg-white/5'}`}
 				title={
 					hasNoSessions && leftSidebarOpen
@@ -49,6 +47,7 @@ export function SidebarActions({
 
 			{leftSidebarOpen && (
 				<button
+					type="button"
 					onClick={addNewSession}
 					className="flex-1 flex items-center justify-center gap-2 py-2 rounded text-xs font-bold transition-colors hover:opacity-90"
 					style={{ backgroundColor: theme.colors.accent, color: theme.colors.accentForeground }}
@@ -59,6 +58,7 @@ export function SidebarActions({
 
 			{leftSidebarOpen && openWizard && (
 				<button
+					type="button"
 					onClick={openWizard}
 					className="flex-1 flex items-center justify-center gap-2 py-2 rounded text-xs font-bold transition-colors hover:opacity-90"
 					style={{ backgroundColor: theme.colors.accent, color: theme.colors.accentForeground }}
@@ -69,4 +69,4 @@ export function SidebarActions({
 			)}
 		</div>
 	);
-}
+});

@@ -4,6 +4,7 @@ import React from 'react';
 import {
 	BatchRunnerModal,
 	DEFAULT_BATCH_PROMPT,
+	validateAgentPromptHasTaskReference,
 } from '../../../renderer/components/BatchRunnerModal';
 import type { Theme, Playbook } from '../../../renderer/types';
 
@@ -985,6 +986,26 @@ describe('BatchRunnerModal', () => {
 				expect(props.onClose).toHaveBeenCalled();
 			}
 		});
+
+		it('closes without confirmation after saving a modified prompt', async () => {
+			const props = createDefaultProps();
+			// Override so showConfirmation does NOT auto-invoke onConfirm
+			props.showConfirmation = vi.fn();
+			render(<BatchRunnerModal {...props} />);
+
+			// Modify the prompt
+			const textarea = screen.getByPlaceholderText('Enter the system prompt for auto-run...');
+			fireEvent.change(textarea, { target: { value: 'Modified prompt text' } });
+
+			// Save
+			fireEvent.click(screen.getByRole('button', { name: /Save/ }));
+			expect(props.onSave).toHaveBeenCalledWith('Modified prompt text');
+
+			// Cancel should close directly without showConfirmation
+			fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+			expect(props.onClose).toHaveBeenCalled();
+			expect(props.showConfirmation).not.toHaveBeenCalled();
+		});
 	});
 
 	describe('Edge Cases', () => {
@@ -1127,6 +1148,130 @@ describe('DEFAULT_BATCH_PROMPT export', () => {
 		expect(DEFAULT_BATCH_PROMPT).toContain('{{DOCUMENT_PATH}}');
 		expect(DEFAULT_BATCH_PROMPT).toContain('{{AGENT_NAME}}');
 		expect(DEFAULT_BATCH_PROMPT).toContain('{{AGENT_PATH}}');
+	});
+});
+
+describe('validateAgentPromptHasTaskReference', () => {
+	it('returns false for empty string', () => {
+		expect(validateAgentPromptHasTaskReference('')).toBe(false);
+	});
+
+	it('returns false for whitespace-only string', () => {
+		expect(validateAgentPromptHasTaskReference('   \n\t  ')).toBe(false);
+	});
+
+	it('returns false for prompt with no task references', () => {
+		expect(validateAgentPromptHasTaskReference('Please help me write code.')).toBe(false);
+	});
+
+	it('returns true for prompt containing "markdown task"', () => {
+		expect(validateAgentPromptHasTaskReference('Process each markdown task in the document.')).toBe(
+			true
+		);
+	});
+
+	it('returns true for prompt containing "Markdown Tasks" (case-insensitive)', () => {
+		expect(validateAgentPromptHasTaskReference('Complete all Markdown Tasks listed below.')).toBe(
+			true
+		);
+	});
+
+	it('returns true for prompt containing checkbox syntax "- [ ]"', () => {
+		expect(
+			validateAgentPromptHasTaskReference('Look for items marked as - [ ] and complete them.')
+		).toBe(true);
+	});
+
+	it('returns true for prompt containing checked checkbox "- [x]"', () => {
+		expect(validateAgentPromptHasTaskReference('Mark completed items as - [x].')).toBe(true);
+	});
+
+	it('returns true for prompt containing "unchecked task"', () => {
+		expect(validateAgentPromptHasTaskReference('Process the first unchecked task.')).toBe(true);
+	});
+
+	it('returns true for prompt containing "checkbox"', () => {
+		expect(validateAgentPromptHasTaskReference('Each checkbox item represents a task.')).toBe(true);
+	});
+
+	it('returns true for prompt containing "check off task"', () => {
+		expect(validateAgentPromptHasTaskReference('Check off task items as you complete them.')).toBe(
+			true
+		);
+	});
+
+	it('returns true for the DEFAULT_BATCH_PROMPT', () => {
+		expect(validateAgentPromptHasTaskReference(DEFAULT_BATCH_PROMPT)).toBe(true);
+	});
+});
+
+describe('Agent Prompt Validation in UI', () => {
+	it('disables Go button when prompt is empty', async () => {
+		const props = createDefaultProps();
+		props.initialPrompt = '';
+		// Override currentDocument to have tasks (so it's not disabled for other reasons)
+		render(<BatchRunnerModal {...props} />);
+
+		// Clear the prompt textarea
+		const textarea = screen.getByPlaceholderText('Enter the system prompt for auto-run...');
+		fireEvent.change(textarea, { target: { value: '' } });
+
+		await waitFor(() => {
+			const goButton = screen.getByRole('button', { name: /Go/ });
+			expect(goButton).toBeDisabled();
+		});
+	});
+
+	it('disables Go button when prompt has no task references', async () => {
+		const props = createDefaultProps();
+		render(<BatchRunnerModal {...props} />);
+
+		// Set prompt to something without task references
+		const textarea = screen.getByPlaceholderText('Enter the system prompt for auto-run...');
+		fireEvent.change(textarea, { target: { value: 'Just do some coding please.' } });
+
+		await waitFor(() => {
+			const goButton = screen.getByRole('button', { name: /Go/ });
+			expect(goButton).toBeDisabled();
+		});
+	});
+
+	it('shows empty prompt warning when prompt is cleared', async () => {
+		const props = createDefaultProps();
+		render(<BatchRunnerModal {...props} />);
+
+		const textarea = screen.getByPlaceholderText('Enter the system prompt for auto-run...');
+		fireEvent.change(textarea, { target: { value: '' } });
+
+		await waitFor(() => {
+			expect(screen.getByText(/Agent prompt cannot be empty/)).toBeInTheDocument();
+		});
+	});
+
+	it('shows task reference warning when prompt lacks task references', async () => {
+		const props = createDefaultProps();
+		render(<BatchRunnerModal {...props} />);
+
+		const textarea = screen.getByPlaceholderText('Enter the system prompt for auto-run...');
+		fireEvent.change(textarea, { target: { value: 'Just do some coding please.' } });
+
+		await waitFor(() => {
+			expect(screen.getByText(/Agent prompt must reference Markdown tasks/)).toBeInTheDocument();
+		});
+	});
+
+	it('enables Go button when prompt has valid task references', async () => {
+		const props = createDefaultProps();
+		render(<BatchRunnerModal {...props} />);
+
+		// Wait for task counts to load
+		await waitFor(() => {
+			expect(screen.getByText('5')).toBeInTheDocument();
+		});
+
+		// Default prompt should be valid — Go should be enabled
+		const goButton = screen.getByRole('button', { name: /Go/ });
+		expect(goButton).not.toBeDisabled();
 	});
 });
 
@@ -2247,5 +2392,115 @@ describe('Escape Handler Priority', () => {
 		await waitFor(() => {
 			expect(screen.queryByTestId('playbook-name-modal')).not.toBeInTheDocument();
 		});
+	});
+});
+
+describe('Worktree Loading State', () => {
+	afterEach(async () => {
+		const { useSessionStore } = await import('../../../renderer/stores/sessionStore');
+		useSessionStore.setState({ sessions: [], activeSessionId: '' });
+	});
+
+	it('shows Preparing Worktree text when onGo is async and worktree mode is active', async () => {
+		// Setup session store with a session that has worktreeConfig
+		const { useSessionStore } = await import('../../../renderer/stores/sessionStore');
+		const sessionWithWorktreeConfig = {
+			id: 'session-123',
+			name: 'Test Agent',
+			toolType: 'claude-code',
+			cwd: '/project',
+			fullPath: '/project',
+			projectRoot: '/project',
+			state: 'idle',
+			tabs: [],
+			activeTabIndex: 0,
+			isGitRepo: true,
+			isLive: false,
+			changedFiles: [],
+			fileTree: [],
+			fileExplorerExpanded: [],
+			fileExplorerScrollPos: 0,
+			worktreeConfig: {
+				basePath: '/project/worktrees',
+				watchEnabled: false,
+			},
+		};
+
+		useSessionStore.setState({
+			sessions: [sessionWithWorktreeConfig as never],
+			activeSessionId: 'session-123',
+		});
+
+		// Mock scanWorktreeDirectory
+		(window.maestro.git as Record<string, unknown>).scanWorktreeDirectory = vi
+			.fn()
+			.mockResolvedValue({ gitSubdirs: [] });
+
+		// Create a slow async onGo that we can control
+		let resolveOnGo: () => void;
+		const onGoPromise = new Promise<void>((resolve) => {
+			resolveOnGo = resolve;
+		});
+		const props = createDefaultProps();
+		props.onGo = vi.fn().mockReturnValue(onGoPromise);
+
+		render(<BatchRunnerModal {...props} />);
+
+		// Wait for tasks to load
+		await waitFor(() => {
+			expect(screen.getByText('5')).toBeInTheDocument();
+		});
+
+		// Enable worktree toggle (should be visible since session has worktreeConfig)
+		const toggleButton = screen.getByText('Dispatch to a separate worktree');
+		fireEvent.click(toggleButton);
+
+		// The select should now be visible with "Create New Worktree" as default
+		await waitFor(() => {
+			expect(screen.getByText('Create New Worktree')).toBeInTheDocument();
+		});
+
+		// Click Go — should show "Preparing Worktree..." since mode is create-new
+		const goButton = screen.getByRole('button', { name: /Go/ });
+		await act(async () => {
+			fireEvent.click(goButton);
+		});
+
+		// The button should now show "Preparing Worktree..." text
+		await waitFor(() => {
+			expect(screen.getByText('Preparing Worktree...')).toBeInTheDocument();
+		});
+
+		// The button should be disabled during preparation
+		const preparingButton = screen.getByRole('button', { name: /Preparing Worktree/ });
+		expect(preparingButton).toBeDisabled();
+
+		// Resolve the promise to complete the async operation
+		await act(async () => {
+			resolveOnGo!();
+		});
+
+		// onGo should have been called
+		expect(props.onGo).toHaveBeenCalled();
+	});
+
+	it('does not show loading state for non-worktree Go clicks', async () => {
+		const props = createDefaultProps();
+		props.onGo = vi.fn();
+
+		render(<BatchRunnerModal {...props} />);
+
+		await waitFor(() => {
+			expect(screen.getByText('5')).toBeInTheDocument();
+		});
+
+		// Click Go without worktree enabled — should call onGo and onClose immediately
+		fireEvent.click(screen.getByRole('button', { name: /Go/ }));
+
+		expect(props.onGo).toHaveBeenCalled();
+		expect(props.onClose).toHaveBeenCalled();
+
+		// Should NOT show "Preparing Worktree..." text
+		expect(screen.queryByText('Preparing Worktree...')).not.toBeInTheDocument();
 	});
 });

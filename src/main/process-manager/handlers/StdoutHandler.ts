@@ -2,9 +2,11 @@
 
 import { EventEmitter } from 'events';
 import { logger } from '../../utils/logger';
+import { stripAllAnsiCodes } from '../../utils/terminalFilter';
 import { appendToBuffer } from '../utils/bufferUtils';
 import { aggregateModelUsage, type ModelStats } from '../../parsers/usage-aggregator';
 import { matchSshErrorPattern } from '../../parsers/error-patterns';
+import { FALLBACK_CONTEXT_WINDOW } from '../../../shared/agentConstants';
 import type { ManagedProcess, UsageStats, UsageTotals, AgentError } from '../types';
 import type { DataBufferManager } from './DataBufferManager';
 
@@ -15,10 +17,21 @@ interface StdoutHandlerDependencies {
 }
 
 /**
- * Normalize Codex usage stats to handle cumulative vs delta usage reporting.
- * Codex reports cumulative usage, so we need to track the last totals and compute deltas.
+ * Normalize usage stats to handle cumulative vs per-turn usage reporting.
+ *
+ * Claude Code and Codex both report CUMULATIVE session totals rather than per-turn values.
+ * For context window display, we need per-turn values because:
+ * - Anthropic API formula: total_context = input + cacheRead + cacheCreation
+ * - If we use cumulative values, context exceeds 100% after a few turns
+ *
+ * This function detects cumulative reporting (values only increase) and converts to deltas.
+ * On the first usage report, it returns the values as-is.
+ * On subsequent reports, it computes the delta from the previous totals.
+ *
+ * @see https://platform.claude.com/docs/en/build-with-claude/prompt-caching
+ * @see https://codelynx.dev/posts/calculate-claude-code-context
  */
-function normalizeCodexUsage(
+function normalizeUsageToDelta(
 	managedProcess: ManagedProcess,
 	usageStats: {
 		inputTokens: number;
@@ -107,18 +120,23 @@ export class StdoutHandler {
 		const managedProcess = this.processes.get(sessionId);
 		if (!managedProcess) return;
 
+		// SSH-launched agent CLIs can leak terminal mode switches like ESC[?1h ESC=
+		// before their real output. Strip non-printing control bytes before parsing.
+		const cleanedOutput = stripAllAnsiCodes(output);
+		if (!cleanedOutput) return;
+
 		const { isStreamJsonMode, isBatchMode } = managedProcess;
 
 		if (isStreamJsonMode) {
-			this.handleStreamJsonData(sessionId, managedProcess, output);
+			this.handleStreamJsonData(sessionId, managedProcess, cleanedOutput);
 		} else if (isBatchMode) {
-			managedProcess.jsonBuffer = (managedProcess.jsonBuffer || '') + output;
+			managedProcess.jsonBuffer = (managedProcess.jsonBuffer || '') + cleanedOutput;
 			logger.debug('[ProcessManager] Accumulated JSON buffer', 'ProcessManager', {
 				sessionId,
 				bufferLength: managedProcess.jsonBuffer.length,
 			});
 		} else {
-			this.bufferManager.emitDataBuffered(sessionId, output);
+			this.bufferManager.emitDataBuffered(sessionId, cleanedOutput);
 		}
 	}
 
@@ -144,9 +162,24 @@ export class StdoutHandler {
 	private processLine(sessionId: string, managedProcess: ManagedProcess, line: string): void {
 		const { outputParser, toolType } = managedProcess;
 
-		// Error detection from parser
+		// ── Single JSON parse for the entire line ──
+		// Previously JSON.parse was called up to 3× per line (detectErrorFromLine,
+		// outer parse, parseJsonLine). Now we parse once and pass the object downstream.
+		let parsed: unknown = null;
+		try {
+			parsed = JSON.parse(line);
+		} catch {
+			// Not valid JSON — handled in the else branch below
+		}
+
+		// ── Error detection from parser ──
 		if (outputParser && !managedProcess.errorEmitted) {
-			const agentError = outputParser.detectErrorFromLine(line);
+			// Use pre-parsed object when available; fall back to line-based detection
+			// for non-JSON lines (e.g., Claude embedded JSON in stderr)
+			const agentError =
+				parsed !== null
+					? outputParser.detectErrorFromParsed(parsed)
+					: outputParser.detectErrorFromLine(line);
 			if (agentError) {
 				managedProcess.errorEmitted = true;
 				agentError.sessionId = sessionId;
@@ -166,29 +199,21 @@ export class StdoutHandler {
 			}
 		}
 
-		// SSH error detection on stdout — GATED on process lifecycle.
+		// ── SSH error detection on stdout — GATED on process lifecycle ──
 		//
 		// With -tt (forced TTY), remote stderr is merged into SSH stdout. This means
 		// ALL output from the AI agent — including its response text — flows through here.
 		// SSH error patterns like "ssh:.*connection refused" can match against the AI's
 		// own conversational text (e.g., discussing SSH errors), causing false-positive crashes.
 		//
-		// PROVEN BY DIAGNOSTICS (2026-03-02): Pattern "ssh:.*connection refused" matched
-		// against Claude's own streamed response text discussing SSH error patterns.
-		// processUptimeMs=30472, hasProducedOutput=true — definitively a false positive.
-		//
 		// GATING STRATEGY: Only check SSH patterns on stdout during the startup window
-		// (first 15 seconds AND before the agent has produced any output). After the agent
-		// starts producing output, stdout contains AI response data, not SSH errors.
+		// (first 15 seconds). After that, stdout contains AI response data, not SSH errors.
 		// Real SSH errors (connection refused, broken pipe) arrive via stderr (StderrHandler)
 		// or are detected at exit (ExitHandler), which remain ungated.
 		const SSH_STDOUT_STARTUP_WINDOW_MS = 15_000;
 		if (!managedProcess.errorEmitted) {
 			const processUptimeMs = Date.now() - managedProcess.startTime;
 			const hasProducedOutput = !!(managedProcess.streamedText || managedProcess.stdoutBuffer);
-			// Gate on time only — stdoutBuffer gets populated before processLine runs,
-			// so hasProducedOutput would always be true even for the first line.
-			// The 15s window is sufficient: real SSH errors appear within seconds of spawn.
 			const isInStartupWindow = processUptimeMs < SSH_STDOUT_STARTUP_WINDOW_MS;
 
 			if (isInStartupWindow) {
@@ -266,16 +291,14 @@ export class StdoutHandler {
 			}
 		}
 
-		// Parse JSON line
-		try {
-			const msg = JSON.parse(line);
-
+		// ── Process parsed data ──
+		if (parsed !== null) {
 			if (outputParser) {
-				this.handleParsedEvent(sessionId, managedProcess, line, outputParser);
+				this.handleParsedEvent(sessionId, managedProcess, parsed, outputParser);
 			} else {
-				this.handleLegacyMessage(sessionId, managedProcess, msg);
+				this.handleLegacyMessage(sessionId, managedProcess, parsed);
 			}
-		} catch {
+		} else {
 			this.bufferManager.emitDataBuffered(sessionId, line);
 		}
 	}
@@ -283,10 +306,10 @@ export class StdoutHandler {
 	private handleParsedEvent(
 		sessionId: string,
 		managedProcess: ManagedProcess,
-		line: string,
+		parsed: unknown,
 		outputParser: NonNullable<ManagedProcess['outputParser']>
 	): void {
-		const event = outputParser.parseJsonLine(line);
+		const event = outputParser.parseJsonObject(parsed);
 
 		logger.debug('[ProcessManager] Parsed event from output parser', 'ProcessManager', {
 			sessionId,
@@ -331,6 +354,14 @@ export class StdoutHandler {
 			managedProcess.lastUsageTotals.anthropicMessageId = event.anthropicMessageId;
 		}
 
+		// OpenCode emits multiple steps: step_start → text → tool_use → step_finish(tool-calls) → repeat
+		// Each step may have a text event. Only the final text (before reason:"stop") is the real result.
+		// Reset resultEmitted on each new step so the last text event wins instead of the first.
+		if (event.type === 'init' && managedProcess.toolType === 'opencode') {
+			managedProcess.resultEmitted = false;
+			managedProcess.streamedText = '';
+		}
+
 		// Extract usage
 		const usage = outputParser.extractUsage(event);
 		if (usage) {
@@ -339,7 +370,7 @@ export class StdoutHandler {
 			const anthropicMessageId =
 				event.anthropicMessageId || managedProcess.lastUsageTotals?.anthropicMessageId;
 
-			// Log model tracking for debugging FIX-30
+			// Log model tracking for debugging
 			logger.debug('[ProcessManager] Building usage stats with model tracking', 'ProcessManager', {
 				sessionId,
 				eventDetectedModel: event.detectedModel,
@@ -357,37 +388,38 @@ export class StdoutHandler {
 				anthropicMessageId
 			);
 
-			// For Codex: Convert cumulative -> delta (also sets lastUsageTotals internally)
-			// For all other agents: Set lastUsageTotals directly (for ExitHandler to use)
-			let normalizedUsageStats: typeof usageStats;
-			if (managedProcess.toolType === 'codex') {
-				normalizedUsageStats = normalizeCodexUsage(managedProcess, usageStats);
-			} else {
-				// Store totals for non-Codex agents (Claude, OpenCode, etc.)
-				// This is needed by ExitHandler to emit cache tokens and cost in query-complete
-				// Preserve detectedModel/anthropicMessageId if already captured from earlier events
-				const existingModel = managedProcess.lastUsageTotals?.detectedModel;
-				const existingMessageId = managedProcess.lastUsageTotals?.anthropicMessageId;
-				managedProcess.lastUsageTotals = {
-					inputTokens: usageStats.inputTokens,
-					outputTokens: usageStats.outputTokens,
-					cacheReadInputTokens: usageStats.cacheReadInputTokens,
-					cacheCreationInputTokens: usageStats.cacheCreationInputTokens,
-					reasoningTokens: usageStats.reasoningTokens || 0,
-					totalCostUsd: usageStats.totalCostUsd,
-					// Use event's model/messageId if present, otherwise preserve existing
-					detectedModel: event.detectedModel || existingModel,
-					anthropicMessageId: event.anthropicMessageId || existingMessageId,
-				};
-				normalizedUsageStats = usageStats;
-			}
+			// Claude Code's modelUsage reports the ACTUAL context used for each API call:
+			// - inputTokens: new input for this turn
+			// - cacheReadInputTokens: conversation history read from cache
+			// - cacheCreationInputTokens: new context being cached
+			// These values directly represent current context window usage.
+			//
+			// Codex reports CUMULATIVE session totals that must be normalized to deltas.
+			//
+			// Terminal has no usage reporting.
+			const normalizedUsageStats =
+				managedProcess.toolType === 'codex' || managedProcess.toolType === 'claude-code'
+					? normalizeUsageToDelta(managedProcess, usageStats)
+					: usageStats;
 
-			// Log emitted usage stats for debugging FIX-30 model flow
-			console.log('[FIX-30] Emitting usage event:', {
+			// Preserve detectedModel/anthropicMessageId in lastUsageTotals for ExitHandler
+			if (!managedProcess.lastUsageTotals) {
+				managedProcess.lastUsageTotals = {
+					inputTokens: 0,
+					outputTokens: 0,
+					cacheReadInputTokens: 0,
+					cacheCreationInputTokens: 0,
+					reasoningTokens: 0,
+					totalCostUsd: 0,
+				};
+			}
+			managedProcess.lastUsageTotals.detectedModel = detectedModel;
+			managedProcess.lastUsageTotals.anthropicMessageId = anthropicMessageId;
+
+			// DEBUG: Log normalized stats being emitted
+			console.log('[StdoutHandler] Emitting usage', {
 				sessionId,
-				detectedModel: normalizedUsageStats.detectedModel,
-				eventDetectedModel: event.detectedModel,
-				inputTokens: normalizedUsageStats.inputTokens,
+				normalizedUsageStats,
 			});
 
 			this.emitter.emit('usage', sessionId, normalizedUsageStats);
@@ -463,13 +495,46 @@ export class StdoutHandler {
 			});
 		}
 
+		// Codex can emit multiple agent_message results in a single turn:
+		// an interim "I'm checking..." message and then the final answer.
+		// Keep the latest result text and emit once at turn completion.
+		if (managedProcess.toolType === 'codex' && outputParser.isResultMessage(event) && event.text) {
+			managedProcess.streamedText = event.text;
+		}
+
+		// For Codex, flush the latest captured result when the turn completes.
+		// turn.completed is normalized as a usage event by the Codex parser.
+		if (
+			managedProcess.toolType === 'codex' &&
+			event.type === 'usage' &&
+			!managedProcess.resultEmitted
+		) {
+			const resultText = managedProcess.streamedText || '';
+			if (resultText) {
+				managedProcess.resultEmitted = true;
+				logger.debug(
+					'[ProcessManager] Emitting final Codex result at turn completion',
+					'ProcessManager',
+					{
+						sessionId,
+						resultLength: resultText.length,
+					}
+				);
+				this.bufferManager.emitDataBuffered(sessionId, resultText);
+			}
+		}
+
 		// Skip processing error events further - they're handled by agent-error emission
 		if (event.type === 'error') {
 			return;
 		}
 
 		// Handle result
-		if (outputParser.isResultMessage(event) && !managedProcess.resultEmitted) {
+		if (
+			managedProcess.toolType !== 'codex' &&
+			outputParser.isResultMessage(event) &&
+			!managedProcess.resultEmitted
+		) {
 			managedProcess.resultEmitted = true;
 			const resultText = event.text || managedProcess.streamedText || '';
 
@@ -540,11 +605,26 @@ export class StdoutHandler {
 		}
 
 		if (msgRecord.modelUsage || msgRecord.usage || msgRecord.total_cost_usd !== undefined) {
+			// DEBUG: Log raw usage data from Claude Code before aggregation
+			console.log('[StdoutHandler] Raw usage data from Claude Code', {
+				sessionId,
+				modelUsage: msgRecord.modelUsage,
+				usage: msgRecord.usage,
+				totalCostUsd: msgRecord.total_cost_usd,
+			});
+
 			const usageStats = aggregateModelUsage(
 				msgRecord.modelUsage as Record<string, ModelStats> | undefined,
 				(msgRecord.usage as Record<string, unknown>) || {},
 				(msgRecord.total_cost_usd as number) || 0
 			);
+
+			// DEBUG: Log aggregated result
+			console.log('[StdoutHandler] Aggregated usage stats', {
+				sessionId,
+				usageStats,
+			});
+
 			this.emitter.emit('usage', sessionId, usageStats);
 		}
 	}
@@ -569,7 +649,9 @@ export class StdoutHandler {
 			cacheReadInputTokens: usage.cacheReadTokens || 0,
 			cacheCreationInputTokens: usage.cacheCreationTokens || 0,
 			totalCostUsd: usage.costUsd || 0,
-			contextWindow: managedProcess.contextWindow || usage.contextWindow || 0,
+			// Prioritize Claude Code's reported contextWindow over spawn config
+			// This ensures we use the actual model's context limit, not a stale config value
+			contextWindow: usage.contextWindow || managedProcess.contextWindow || FALLBACK_CONTEXT_WINDOW,
 			reasoningTokens: usage.reasoningTokens,
 			detectedModel,
 			anthropicMessageId,

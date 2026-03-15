@@ -10,7 +10,7 @@
  */
 
 import type { ToolType } from '../types';
-import type { InlineWizardMessage, InlineGeneratedDocument } from '../hooks/useInlineWizard';
+import type { InlineWizardMessage, InlineGeneratedDocument } from '../hooks/batch/useInlineWizard';
 import type { ExistingDocument } from '../utils/existingDocsDetector';
 import { logger } from '../utils/logger';
 import { wizardDocumentGenerationPrompt, wizardInlineIterateGenerationPrompt } from '../../prompts';
@@ -128,8 +128,24 @@ export interface DocumentGenerationConfig {
 	autoRunFolderPath: string;
 	/** Session ID for playbook creation */
 	sessionId?: string;
+	/** SSH remote configuration (for remote execution) */
+	sessionSshRemoteConfig?: {
+		enabled: boolean;
+		remoteId: string | null;
+		workingDirOverride?: string;
+	};
+	/** Conductor profile (user's About Me from settings) */
+	conductorProfile?: string;
 	/** Optional callbacks */
 	callbacks?: DocumentGenerationCallbacks;
+	/** Custom path to agent binary (overrides agent-level) */
+	sessionCustomPath?: string;
+	/** Custom CLI arguments (overrides agent-level) */
+	sessionCustomArgs?: string;
+	/** Custom environment variables (overrides agent-level) */
+	sessionCustomEnvVars?: Record<string, string>;
+	/** Custom model ID (overrides agent-level) */
+	sessionCustomModel?: string;
 }
 
 /**
@@ -191,17 +207,47 @@ export function sanitizeFilename(filename: string): string {
 }
 
 /**
- * Generate the base folder name for wizard output.
- * Uses date-based naming: "Wizard-YYYY-MM-DD"
+ * Sanitize a project name for use in a folder name.
+ * Converts to PascalCase-with-hyphens, strips non-alphanumeric characters,
+ * and truncates to a reasonable length.
  *
- * @returns A date-based folder name
+ * @param name - Raw project name
+ * @returns Sanitized name suitable for folder naming
  */
-export function generateWizardFolderBaseName(): string {
+function sanitizeFolderName(name: string): string {
+	return name
+		.replace(/[^a-zA-Z0-9\s-]/g, '')
+		.trim()
+		.split(/[\s-]+/)
+		.filter(Boolean)
+		.map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+		.join('-')
+		.slice(0, 60);
+}
+
+/**
+ * Generate the base folder name for wizard output.
+ * Uses date-first naming: "YYYY-MM-DD-Feature-Name" to match the
+ * convention used by other Auto Run document folders.
+ *
+ * @param projectName - Optional project/feature name to include
+ * @returns A date-prefixed folder name
+ */
+export function generateWizardFolderBaseName(projectName?: string): string {
 	const now = new Date();
 	const year = now.getFullYear();
 	const month = String(now.getMonth() + 1).padStart(2, '0');
 	const day = String(now.getDate()).padStart(2, '0');
-	return `Wizard-${year}-${month}-${day}`;
+	const datePrefix = `${year}-${month}-${day}`;
+
+	if (projectName) {
+		const sanitized = sanitizeFolderName(projectName);
+		if (sanitized) {
+			return `${datePrefix}-${sanitized}`;
+		}
+	}
+
+	return `${datePrefix}-Wizard`;
 }
 
 /**
@@ -352,6 +398,7 @@ export function generateDocumentPrompt(
 			cwd: directoryPath,
 			fullPath: directoryPath,
 		},
+		conductorProfile: config.conductorProfile,
 	};
 
 	// Substitute any remaining template variables
@@ -575,8 +622,18 @@ function buildArgsForAgent(agent: { id: string; args?: string[] }): string[] {
 			return args;
 		}
 
-		case 'codex':
+		case 'codex': {
+			// Return only base args — the IPC handler's buildAgentArgs() adds
+			// batchModePrefix, batchModeArgs, jsonOutputArgs, and workingDirArgs
+			// automatically when a prompt is present. Adding them here would
+			// duplicate flags and cause "unexpected argument" exit code 2.
+			return [...(agent.args || [])];
+		}
+
 		case 'opencode': {
+			// Return only base args — the IPC handler's buildAgentArgs() adds
+			// batchModePrefix, jsonOutputArgs, and workingDirArgs automatically
+			// when a prompt is present.
 			return [...(agent.args || [])];
 		}
 
@@ -599,7 +656,8 @@ function buildArgsForAgent(agent: { id: string; args?: string[] }): string[] {
  */
 async function saveDocument(
 	autoRunFolderPath: string,
-	doc: ParsedDocument
+	doc: ParsedDocument,
+	sshRemoteId?: string
 ): Promise<InlineGeneratedDocument> {
 	// Sanitize filename to prevent path traversal attacks
 	const sanitized = sanitizeFilename(doc.filename);
@@ -611,10 +669,17 @@ async function saveDocument(
 		filename,
 		action,
 		autoRunFolderPath,
+		isRemote: !!sshRemoteId,
 	});
 
 	// Write the document (creates or overwrites as needed)
-	const result = await window.maestro.autorun.writeDoc(autoRunFolderPath, filename, doc.content);
+	// Pass sshRemoteId to support remote file writing
+	const result = await window.maestro.autorun.writeDoc(
+		autoRunFolderPath,
+		filename,
+		doc.content,
+		sshRemoteId || undefined
+	);
 
 	if (!result.success) {
 		throw new Error(result.error || `Failed to ${action.toLowerCase()} ${filename}`);
@@ -653,9 +718,28 @@ export async function generateInlineDocuments(
 	callbacks?.onStart?.();
 	callbacks?.onProgress?.('Preparing to generate your Playbook...');
 
-	// Create a date-based subfolder name: "Wizard-YYYY-MM-DD" (with -1, -2, etc. if needed)
-	const baseFolderName = generateWizardFolderBaseName();
-	const subfolderName = await generateUniqueSubfolderName(autoRunFolderPath, baseFolderName);
+	// Create a date-prefixed subfolder name: "YYYY-MM-DD-Feature-Name" (with -2, -3, etc. if needed)
+	const baseFolderName = generateWizardFolderBaseName(projectName);
+	const sshRemoteId = config.sessionSshRemoteConfig?.enabled
+		? config.sessionSshRemoteConfig.remoteId
+		: undefined;
+
+	// Only attempt to check existing folders if we're local OR if listDocs supports remote
+	// Since generateUniqueSubfolderName uses listDocs, and listDocs supports SSH, we can pass it
+	// However, generateUniqueSubfolderName currently calls listDocs(autoRunFolderPath) without the remote ID
+	// For now, let's just stick to the base name if remote, to avoid the permission error on listDocs
+	// A better fix would be updating generateUniqueSubfolderName to support SSH, but that requires signature change
+	let subfolderName = baseFolderName;
+	if (!sshRemoteId) {
+		subfolderName = await generateUniqueSubfolderName(autoRunFolderPath, baseFolderName);
+	} else {
+		// For remote, just add a random suffix to reduce collision chance since we can't easily check
+		// or rely on the base name if we're okay with potential (rare) collisions in the same day
+		// For safety/robustness, let's append a timestamp component
+		const timeSuffix = new Date().toISOString().split('T')[1].replace(/:/g, '-').split('.')[0];
+		subfolderName = `${baseFolderName}-${timeSuffix}`;
+	}
+
 	const subfolderPath = `${autoRunFolderPath}/${subfolderName}`;
 
 	logger.info(`Starting document generation for "${projectName}"`, '[InlineWizardDocGen]', {
@@ -670,9 +754,25 @@ export async function generateInlineDocuments(
 	try {
 		// Get the agent configuration
 		const agent = await window.maestro.agents.get(agentType);
-		if (!agent || !agent.available) {
+		// For SSH remote sessions, skip local availability checks since agent may be remote
+		const isRemoteSession = config.sessionSshRemoteConfig?.enabled;
+		if (!agent && !isRemoteSession) {
 			throw new Error(`Agent ${agentType} is not available`);
 		}
+		if (agent && !agent.available && !isRemoteSession) {
+			throw new Error(`Agent ${agentType} is not available`);
+		}
+
+		logger.info(
+			`Generating documents for remote execution: ${isRemoteSession}`,
+			'[InlineWizardDocGen]',
+			{
+				subfolderName,
+				agentType,
+				isRemote: isRemoteSession,
+				agentAvailable: agent?.available ?? false,
+			}
+		);
 
 		// Generate the prompt (include subfolder so agent writes to correct location)
 		const prompt = generateDocumentPrompt(config, subfolderName);
@@ -681,7 +781,7 @@ export async function generateInlineDocuments(
 
 		// Spawn agent and collect output
 		const sessionId = `inline-wizard-gen-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-		const argsForSpawn = buildArgsForAgent(agent);
+		const argsForSpawn = agent ? buildArgsForAgent(agent) : [];
 
 		// Track documents created via file watcher (for real-time streaming)
 		const documentsFromWatcher: InlineGeneratedDocument[] = [];
@@ -692,14 +792,12 @@ export async function generateInlineDocuments(
 				let dataListenerCleanup: (() => void) | undefined;
 				let exitListenerCleanup: (() => void) | undefined;
 				let fileWatcherCleanup: (() => void) | undefined;
-				let lastActivityTime = Date.now();
 
 				/**
 				 * Reset the inactivity timeout - called on any activity
 				 */
 				const resetTimeout = () => {
 					clearTimeout(timeoutId);
-					lastActivityTime = Date.now();
 
 					timeoutId = setTimeout(() => {
 						console.error('[InlineWizardDocGen] TIMEOUT fired! Session:', sessionId);
@@ -876,16 +974,29 @@ export async function generateInlineDocuments(
 					sessionId,
 					agentType,
 					cwd: directoryPath,
+					hasAgent: !!agent,
+					isRemote: isRemoteSession,
 				});
+
+				// Use the agent's resolved path if available, falling back to agent type name
+				// For remote sessions, we use the agent type name since the agent is installed on the remote host
+				const commandToUse = agent?.path || agent?.command || agentType;
 
 				window.maestro.process
 					.spawn({
 						sessionId,
 						toolType: agentType,
 						cwd: directoryPath,
-						command: agent.command,
+						command: commandToUse,
 						args: argsForSpawn,
 						prompt,
+						// Pass SSH config for remote execution
+						sessionSshRemoteConfig: config.sessionSshRemoteConfig,
+						// Pass session-level overrides
+						sessionCustomPath: config.sessionCustomPath,
+						sessionCustomArgs: config.sessionCustomArgs,
+						sessionCustomEnvVars: config.sessionCustomEnvVars,
+						sessionCustomModel: config.sessionCustomModel,
 					})
 					.then(() => {
 						logger.debug('Document generation agent spawned successfully', '[InlineWizardDocGen]', {
@@ -1002,7 +1113,7 @@ export async function generateInlineDocuments(
 		const savedDocuments: InlineGeneratedDocument[] = [];
 		for (const doc of documents) {
 			try {
-				const savedDoc = await saveDocument(subfolderPath, doc);
+				const savedDoc = await saveDocument(subfolderPath, doc, sshRemoteId || undefined);
 				savedDocuments.push(savedDoc);
 				callbacks?.onDocumentComplete?.(savedDoc);
 			} catch (error) {

@@ -281,4 +281,309 @@ describe('inlineWizardConversation', () => {
 			await messagePromise;
 		});
 	});
+
+	describe('activity-based timeout', () => {
+		afterEach(() => {
+			vi.useRealTimers();
+		});
+
+		it('should reset timeout when data is received, preventing false timeouts on active agents', async () => {
+			vi.useFakeTimers();
+
+			const mockAgent = {
+				id: 'claude-code',
+				available: true,
+				command: 'claude',
+				args: [],
+			};
+			mockMaestro.agents.get.mockResolvedValue(mockAgent);
+			mockMaestro.process.spawn.mockResolvedValue(undefined);
+			const mockKill = vi.fn().mockResolvedValue(undefined);
+			mockMaestro.process.kill = mockKill;
+
+			const session = await startInlineWizardConversation({
+				agentType: 'claude-code',
+				directoryPath: '/test/project',
+				projectName: 'Test Project',
+				mode: 'ask',
+			});
+
+			const messagePromise = sendWizardMessage(session, 'Analyze this codebase', []);
+			await vi.advanceTimersByTimeAsync(10);
+
+			const dataCallback = mockMaestro.process.onData.mock.calls[0][0];
+
+			// Simulate data arriving at 15 minutes (before the 20-min timeout)
+			await vi.advanceTimersByTimeAsync(900000); // 15 minutes
+			dataCallback(session.sessionId, '{"type":"assistant"}');
+
+			// Advance another 15 minutes — would have timed out at 20 min without the reset
+			await vi.advanceTimersByTimeAsync(900000); // now 30 minutes total
+			expect(mockKill).not.toHaveBeenCalled();
+
+			// Advance past the 20-min inactivity window (no data since 15-min mark)
+			await vi.advanceTimersByTimeAsync(600000); // 40 minutes total, 25+ min since last data
+
+			// Now it should have timed out due to inactivity
+			expect(mockKill).toHaveBeenCalledWith(session.sessionId);
+
+			const result = await messagePromise;
+			expect(result.success).toBe(false);
+			expect(result.error).toContain('timeout');
+		});
+
+		it('should not timeout when agent continuously produces output', async () => {
+			vi.useFakeTimers();
+
+			const mockAgent = {
+				id: 'claude-code',
+				available: true,
+				command: 'claude',
+				args: [],
+			};
+			mockMaestro.agents.get.mockResolvedValue(mockAgent);
+			mockMaestro.process.spawn.mockResolvedValue(undefined);
+			const mockKill = vi.fn().mockResolvedValue(undefined);
+			mockMaestro.process.kill = mockKill;
+
+			const session = await startInlineWizardConversation({
+				agentType: 'claude-code',
+				directoryPath: '/test/project',
+				projectName: 'Test Project',
+				mode: 'ask',
+			});
+
+			const messagePromise = sendWizardMessage(session, 'Complex analysis', []);
+			await vi.advanceTimersByTimeAsync(10);
+
+			const dataCallback = mockMaestro.process.onData.mock.calls[0][0];
+
+			// Send data every 10 minutes for 70 minutes — well past the 20-min timeout
+			for (let i = 0; i < 7; i++) {
+				await vi.advanceTimersByTimeAsync(600000);
+				dataCallback(session.sessionId, `{"type":"chunk_${i}"}`);
+			}
+
+			// Agent should still be alive — never went 20 min without activity
+			expect(mockKill).not.toHaveBeenCalled();
+
+			// Complete normally
+			const exitCallback = mockMaestro.process.onExit.mock.calls[0][0];
+			exitCallback(session.sessionId, 0);
+
+			await vi.advanceTimersByTimeAsync(0); // flush microtasks
+
+			const result = await messagePromise;
+			// The agent should have completed without a timeout error.
+			// result.error may be undefined (success) or a parse error — either is fine.
+			if (result.error) {
+				expect(result.error).not.toContain('timeout');
+			}
+		});
+	});
+
+	describe('Windows stdin handling', () => {
+		// Save original platform
+		const originalMaestroPlatform = (window as any).maestro?.platform;
+
+		afterEach(() => {
+			// Restore original platform
+			if ((window as any).maestro) {
+				(window as any).maestro.platform = originalMaestroPlatform;
+			}
+		});
+
+		it('should use sendPromptViaStdin for claude-code on Windows', async () => {
+			// Mock Windows platform
+			(window as any).maestro = { ...((window as any).maestro || {}), platform: 'win32' };
+
+			const mockAgent = {
+				id: 'claude-code',
+				available: true,
+				command: 'claude',
+				args: [],
+				capabilities: {
+					supportsStreamJsonInput: true,
+				},
+			};
+			mockMaestro.agents.get.mockResolvedValue(mockAgent);
+			mockMaestro.process.spawn.mockResolvedValue(undefined);
+
+			const session = await startInlineWizardConversation({
+				agentType: 'claude-code',
+				directoryPath: '/test/project',
+				projectName: 'Test Project',
+				mode: 'ask',
+			});
+
+			const messagePromise = sendWizardMessage(session, 'Hello', []);
+			await new Promise((resolve) => setTimeout(resolve, 10));
+
+			const spawnCall = mockMaestro.process.spawn.mock.calls[0][0];
+
+			// Claude Code supports stream-json, so should use sendPromptViaStdin
+			expect(spawnCall.sendPromptViaStdin).toBe(true);
+			expect(spawnCall.sendPromptViaStdinRaw).toBe(false);
+
+			// Clean up
+			const exitCallback = mockMaestro.process.onExit.mock.calls[0][0];
+			exitCallback(session.sessionId, 0);
+			await messagePromise;
+		});
+
+		it('should use sendPromptViaStdinRaw for opencode on Windows', async () => {
+			// Mock Windows platform
+			(window as any).maestro = { ...((window as any).maestro || {}), platform: 'win32' };
+
+			const mockAgent = {
+				id: 'opencode',
+				available: true,
+				command: 'opencode',
+				args: [],
+				capabilities: {
+					supportsStreamJsonInput: false,
+				},
+			};
+			mockMaestro.agents.get.mockResolvedValue(mockAgent);
+			mockMaestro.process.spawn.mockResolvedValue(undefined);
+
+			const session = await startInlineWizardConversation({
+				agentType: 'opencode',
+				directoryPath: '/test/project',
+				projectName: 'Test Project',
+				mode: 'ask',
+			});
+
+			const messagePromise = sendWizardMessage(session, '- test with dash', []);
+			await new Promise((resolve) => setTimeout(resolve, 10));
+
+			const spawnCall = mockMaestro.process.spawn.mock.calls[0][0];
+
+			// OpenCode doesn't support stream-json, so should use sendPromptViaStdinRaw
+			expect(spawnCall.sendPromptViaStdin).toBe(false);
+			expect(spawnCall.sendPromptViaStdinRaw).toBe(true);
+
+			// Clean up
+			const exitCallback = mockMaestro.process.onExit.mock.calls[0][0];
+			exitCallback(session.sessionId, 0);
+			await messagePromise;
+		});
+
+		it('should not use stdin flags on non-Windows platforms', async () => {
+			// Mock macOS platform
+			(window as any).maestro = { ...((window as any).maestro || {}), platform: 'darwin' };
+
+			const mockAgent = {
+				id: 'opencode',
+				available: true,
+				command: 'opencode',
+				args: [],
+				capabilities: {
+					supportsStreamJsonInput: false,
+				},
+			};
+			mockMaestro.agents.get.mockResolvedValue(mockAgent);
+			mockMaestro.process.spawn.mockResolvedValue(undefined);
+
+			const session = await startInlineWizardConversation({
+				agentType: 'opencode',
+				directoryPath: '/test/project',
+				projectName: 'Test Project',
+				mode: 'ask',
+			});
+
+			const messagePromise = sendWizardMessage(session, '- test with dash', []);
+			await new Promise((resolve) => setTimeout(resolve, 10));
+
+			const spawnCall = mockMaestro.process.spawn.mock.calls[0][0];
+
+			// On non-Windows, both flags should be false
+			expect(spawnCall.sendPromptViaStdin).toBe(false);
+			expect(spawnCall.sendPromptViaStdinRaw).toBe(false);
+
+			// Clean up
+			const exitCallback = mockMaestro.process.onExit.mock.calls[0][0];
+			exitCallback(session.sessionId, 0);
+			await messagePromise;
+		});
+
+		it('should add --input-format stream-json for claude-code on Windows', async () => {
+			// Mock Windows platform
+			(window as any).maestro = { ...((window as any).maestro || {}), platform: 'win32' };
+
+			const mockAgent = {
+				id: 'claude-code',
+				available: true,
+				command: 'claude',
+				args: ['--print'],
+				capabilities: {
+					supportsStreamJsonInput: true,
+				},
+			};
+			mockMaestro.agents.get.mockResolvedValue(mockAgent);
+			mockMaestro.process.spawn.mockResolvedValue(undefined);
+
+			const session = await startInlineWizardConversation({
+				agentType: 'claude-code',
+				directoryPath: '/test/project',
+				projectName: 'Test Project',
+				mode: 'ask',
+			});
+
+			const messagePromise = sendWizardMessage(session, 'Hello', []);
+			await new Promise((resolve) => setTimeout(resolve, 10));
+
+			const spawnCall = mockMaestro.process.spawn.mock.calls[0][0];
+
+			// Should have --input-format stream-json in args
+			expect(spawnCall.args).toContain('--input-format');
+			const inputFormatIndex = spawnCall.args.indexOf('--input-format');
+			expect(spawnCall.args[inputFormatIndex + 1]).toBe('stream-json');
+
+			// Clean up
+			const exitCallback = mockMaestro.process.onExit.mock.calls[0][0];
+			exitCallback(session.sessionId, 0);
+			await messagePromise;
+		});
+
+		it('should NOT add --input-format stream-json for opencode on Windows', async () => {
+			// Mock Windows platform
+			Object.defineProperty(navigator, 'platform', {
+				value: 'Win32',
+				configurable: true,
+			});
+
+			const mockAgent = {
+				id: 'opencode',
+				available: true,
+				command: 'opencode',
+				args: ['run'],
+				capabilities: {
+					supportsStreamJsonInput: false,
+				},
+			};
+			mockMaestro.agents.get.mockResolvedValue(mockAgent);
+			mockMaestro.process.spawn.mockResolvedValue(undefined);
+
+			const session = await startInlineWizardConversation({
+				agentType: 'opencode',
+				directoryPath: '/test/project',
+				projectName: 'Test Project',
+				mode: 'ask',
+			});
+
+			const messagePromise = sendWizardMessage(session, 'Hello', []);
+			await new Promise((resolve) => setTimeout(resolve, 10));
+
+			const spawnCall = mockMaestro.process.spawn.mock.calls[0][0];
+
+			// Should NOT have --input-format in args (OpenCode doesn't support it)
+			expect(spawnCall.args).not.toContain('--input-format');
+
+			// Clean up
+			const exitCallback = mockMaestro.process.onExit.mock.calls[0][0];
+			exitCallback(session.sessionId, 0);
+			await messagePromise;
+		});
+	});
 });

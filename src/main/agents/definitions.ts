@@ -6,6 +6,7 @@
  */
 
 import type { AgentCapabilities } from './capabilities';
+import { isWindows } from '../../shared/platformDetection';
 
 // ============ Configuration Types ============
 
@@ -116,8 +117,8 @@ export const AGENT_DEFINITIONS: AgentDefinition[] = [
 		id: 'terminal',
 		name: 'Terminal',
 		// Use platform-appropriate default shell
-		binaryName: process.platform === 'win32' ? 'powershell.exe' : 'bash',
-		command: process.platform === 'win32' ? 'powershell.exe' : 'bash',
+		binaryName: isWindows() ? 'powershell.exe' : 'bash',
+		command: isWindows() ? 'powershell.exe' : 'bash',
 		args: [],
 		requiresPty: true,
 		hidden: true, // Internal agent, not shown in UI
@@ -137,6 +138,7 @@ export const AGENT_DEFINITIONS: AgentDefinition[] = [
 		],
 		resumeArgs: (sessionId: string) => ['--resume', sessionId], // Resume with session ID
 		readOnlyArgs: ['--permission-mode', 'plan'], // Read-only/plan mode
+		readOnlyCliEnforced: true, // CLI enforces read-only via --permission-mode plan
 		modelArgs: (modelId: string) => ['--model', modelId], // Model selection (e.g., 'opus', 'sonnet', 'sonnet[1m]')
 		// Agent-specific configuration options shown in UI
 		configOptions: [
@@ -173,18 +175,34 @@ export const AGENT_DEFINITIONS: AgentDefinition[] = [
 		jsonOutputArgs: ['--json'], // JSON output format (must come before resume subcommand)
 		resumeArgs: (sessionId: string) => ['resume', sessionId], // Resume with session/thread ID
 		readOnlyArgs: ['--sandbox', 'read-only'], // Read-only/plan mode
+		readOnlyCliEnforced: true, // CLI enforces read-only via --sandbox read-only
 		yoloModeArgs: ['--dangerously-bypass-approvals-and-sandbox'], // Full access mode
 		workingDirArgs: (dir: string) => ['-C', dir], // Set working directory
 		imageArgs: (imagePath: string) => ['-i', imagePath], // Image attachment: codex exec -i /path/to/image.png
+		modelArgs: (modelId: string) => ['-m', modelId], // Model selection: codex exec -m gpt-5.3-codex
 		// Agent-specific configuration options shown in UI
 		configOptions: [
+			{
+				key: 'model',
+				type: 'text',
+				label: 'Model',
+				description:
+					'Model override (e.g., gpt-5.3-codex, o3). Leave empty to use the default from ~/.codex/config.toml.',
+				default: '', // Empty = use Codex's default model from config.toml
+				argBuilder: (value: string) => {
+					if (value && value.trim()) {
+						return ['-m', value.trim()];
+					}
+					return [];
+				},
+			},
 			{
 				key: 'contextWindow',
 				type: 'number',
 				label: 'Context Window Size',
 				description:
-					'Maximum context window size in tokens. Required for context usage display. Common values: 400000 (GPT-5.2), 128000 (GPT-4o).',
-				default: 400000, // Default for GPT-5.2 models
+					'Maximum context window size in tokens. Required for context usage display. Common values: 400000 (GPT-5.2/5.3), 128000 (GPT-4o).',
+				default: 400000, // Default for GPT-5.2+ models
 			},
 		],
 	},
@@ -194,6 +212,50 @@ export const AGENT_DEFINITIONS: AgentDefinition[] = [
 		binaryName: 'gemini',
 		command: 'gemini',
 		args: [],
+		batchModePrefix: [],
+		batchModeArgs: ['-y'],
+		jsonOutputArgs: ['--output-format', 'stream-json'],
+		resumeArgs: (sessionId: string) => ['--resume', sessionId],
+		// Note: --approval-mode plan requires experimental.plan to be enabled in Gemini CLI config.
+		// Until that feature is generally available, readOnlyArgs is empty and read-only
+		// behavior is enforced via system prompt instructions instead.
+		readOnlyArgs: [],
+		readOnlyCliEnforced: false, // No CLI-level read-only enforcement; prompt-only
+		yoloModeArgs: ['-y'],
+		workingDirArgs: (dir: string) => ['--include-directories', dir],
+		imageArgs: undefined,
+		modelArgs: (modelId: string) => ['-m', modelId],
+		promptArgs: (prompt: string) => ['-p', prompt],
+		configOptions: [
+			{
+				key: 'model',
+				type: 'select' as const,
+				label: 'Model',
+				description:
+					'Model to use. Auto lets Gemini route between Pro and Flash based on task complexity.',
+				options: [
+					'',
+					'auto',
+					'pro',
+					'flash',
+					'flash-lite',
+					'gemini-2.5-pro',
+					'gemini-2.5-flash',
+					'gemini-3-pro-preview',
+					'gemini-3-flash-preview',
+				],
+				default: '',
+				argBuilder: (value: string) => (value && value.trim() ? ['-m', value.trim()] : []),
+			},
+			{
+				key: 'contextWindow',
+				type: 'number' as const,
+				label: 'Context Window Size',
+				description:
+					'Maximum context window size in tokens. Common values: 1048576 (Gemini 2.5 Pro), 32767 (Gemini 2.5 Flash).',
+				default: 1048576,
+			},
+		],
 	},
 	{
 		id: 'qwen3-coder',
@@ -216,13 +278,25 @@ export const AGENT_DEFINITIONS: AgentDefinition[] = [
 		jsonOutputArgs: ['--format', 'json'], // JSON output format
 		resumeArgs: (sessionId: string) => ['--session', sessionId], // Resume with session ID
 		readOnlyArgs: ['--agent', 'plan'], // Read-only/plan mode
+		readOnlyCliEnforced: true, // CLI enforces read-only via --agent plan
 		modelArgs: (modelId: string) => ['--model', modelId], // Model selection (e.g., 'ollama/qwen3:8b')
 		imageArgs: (imagePath: string) => ['-f', imagePath], // Image/file attachment: opencode run -f /path/to/image.png -- "prompt"
-		noPromptSeparator: true, // OpenCode doesn't need '--' before prompt - yargs handles positional args
+		// Use '--' separator before prompt to prevent yargs from misinterpreting
+		// leading '---' (YAML frontmatter in slash command prompts) as flags (#527)
 		// Default env vars: enable YOLO mode (allow all permissions including external_directory)
+		// Disable the question tool via both methods:
+		// - "question": "deny" in permission block (per OpenCode GitHub issue workaround)
+		// - "question": false in tools block (original approach)
+		// The question tool waits for stdin input which hangs batch mode
 		// Users can override by setting customEnvVars in agent config
 		defaultEnvVars: {
-			OPENCODE_CONFIG_CONTENT: '{"permission":{"*":"allow","external_directory":"allow"}}',
+			OPENCODE_CONFIG_CONTENT:
+				'{"permission":{"*":"allow","external_directory":"allow","question":"deny"},"tools":{"question":false}}',
+		},
+		// In read-only mode, strip blanket permission grants so the plan agent can't auto-approve file writes.
+		// Keep question tool disabled to prevent stdin hangs in batch mode.
+		readOnlyEnvOverrides: {
+			OPENCODE_CONFIG_CONTENT: '{"permission":{"question":"deny"},"tools":{"question":false}}',
 		},
 		// Agent-specific configuration options shown in UI
 		configOptions: [
@@ -291,12 +365,16 @@ export const AGENT_DEFINITIONS: AgentDefinition[] = [
 		defaultEnvVars: {},
 
 		// UI config options
+		// Model IDs from droid CLI (exact IDs required)
+		// NOTE: autonomyLevel is NOT configurable - Maestro always uses --skip-permissions-unsafe
+		// which conflicts with --auto. This matches Claude Code's behavior.
 		configOptions: [
 			{
 				key: 'model',
-				type: 'select' as const,
+				type: 'select',
 				label: 'Model',
 				description: 'Model to use for Factory Droid',
+				// Model IDs from `droid exec --help`
 				options: [
 					'', // Empty = use droid's default
 					// OpenAI models
@@ -316,7 +394,7 @@ export const AGENT_DEFINITIONS: AgentDefinition[] = [
 			},
 			{
 				key: 'reasoningEffort',
-				type: 'select' as const,
+				type: 'select',
 				label: 'Reasoning Effort',
 				description: 'How much the model should reason before responding',
 				options: ['', 'low', 'medium', 'high'],
@@ -325,7 +403,7 @@ export const AGENT_DEFINITIONS: AgentDefinition[] = [
 			},
 			{
 				key: 'contextWindow',
-				type: 'number' as const,
+				type: 'number',
 				label: 'Context Window Size',
 				description: 'Maximum context window in tokens (for UI display)',
 				default: 200000,

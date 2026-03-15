@@ -9,10 +9,13 @@ import type {
 	PinnedItem,
 } from '../../types';
 import type { CapacityCheckModalData } from '../../components/CapacityCheckModal';
-import { getActiveTab } from '../../utils/tabHelpers';
+import { getActiveTab, extractQuickTabName } from '../../utils/tabHelpers';
+import { getStdinFlags } from '../../utils/spawnHelpers';
 import { generateId } from '../../utils/ids';
 import { substituteTemplateVariables } from '../../utils/templateVariables';
 import { resolvePinVariables, hasPinVariables } from '../../utils/pinVariableResolver';
+import { filterYoloArgs } from '../../utils/agentArgs';
+import { hasCapabilityCached } from '../agent/useAgentCapabilities';
 import { gitService } from '../../services/git';
 import { imageOnlyDefaultPrompt, maestroSystemPrompt } from '../../../prompts';
 
@@ -68,7 +71,7 @@ export interface UseInputProcessingDeps {
 	/** Handler for the /wizard built-in command (starts the inline wizard for Auto Run documents) */
 	onWizardCommand?: (args: string) => void;
 	/** Handler for sending messages to the wizard (when wizard is active) */
-	onWizardSendMessage?: (content: string) => Promise<void>;
+	onWizardSendMessage?: (content: string, images?: string[]) => Promise<void>;
 	/** Whether the wizard is currently active for the active tab */
 	isWizardActive?: boolean;
 	/** Callback to show the interactive capacity check modal */
@@ -79,6 +82,12 @@ export interface UseInputProcessingDeps {
 	pinnedItems?: PinnedItem[];
 	/** Show a flash notification to the user */
 	showFlashNotification?: (message: string) => void;
+	/** Handler for the /skills built-in command (lists Claude Code skills) */
+	onSkillsCommand?: () => Promise<void>;
+	/** Whether automatic tab naming is enabled */
+	automaticTabNamingEnabled?: boolean;
+	/** Conductor profile (user's About Me from settings) */
+	conductorProfile?: string;
 }
 
 /**
@@ -137,6 +146,9 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 		interactiveCapacityResumeRef,
 		pinnedItems,
 		showFlashNotification,
+		onSkillsCommand,
+		automaticTabNamingEnabled,
+		conductorProfile,
 	} = deps;
 
 	// Ref for the processInput function so external code can access the latest version
@@ -206,9 +218,36 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 					return;
 				}
 
+				// Handle built-in /skills command (only in AI mode, only for Claude Code sessions)
+				// This lists available Claude Code skills for the current project
+				if (
+					!isTerminalMode &&
+					commandText === '/skills' &&
+					onSkillsCommand &&
+					activeSession.toolType === 'claude-code'
+				) {
+					setInputValue('');
+					setSlashCommandOpen(false);
+					syncAiInputToSession('');
+					if (inputRef.current) inputRef.current.style.height = 'auto';
+
+					// Execute the skills command handler asynchronously
+					onSkillsCommand().catch((error) => {
+						console.error('[processInput] /skills command failed:', error);
+					});
+					return;
+				}
+
 				// Check for custom AI commands (only in AI mode)
 				if (!isTerminalMode) {
-					const matchingCustomCommand = customAICommands.find((cmd) => cmd.command === commandText);
+					// Parse command and arguments: "/speckit.plan Blah blah" -> baseCommand="/speckit.plan", args="Blah blah"
+					const firstSpaceIndex = commandText.indexOf(' ');
+					const baseCommand =
+						firstSpaceIndex === -1 ? commandText : commandText.substring(0, firstSpaceIndex);
+					const commandArgs =
+						firstSpaceIndex === -1 ? '' : commandText.substring(firstSpaceIndex + 1).trim();
+
+					const matchingCustomCommand = customAICommands.find((cmd) => cmd.command === baseCommand);
 					if (matchingCustomCommand) {
 						// Execute the custom AI command by sending its prompt
 						setInputValue('');
@@ -230,6 +269,7 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 							substituteTemplateVariables(matchingCustomCommand.prompt, {
 								session: activeSession,
 								gitBranch,
+								conductorProfile,
 							});
 
 							// ALWAYS queue slash commands - they execute in order like write messages
@@ -247,6 +287,7 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 								tabId: activeTab?.id || activeSession.activeTabId,
 								type: 'command',
 								command: matchingCustomCommand.command,
+								commandArgs, // Arguments passed after the command (for $ARGUMENTS substitution)
 								commandDescription: matchingCustomCommand.description,
 								tabName:
 									activeTab?.name ||
@@ -335,14 +376,17 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 					return;
 				}
 
+				// Capture staged images before clearing
+				const imagesToSend = stagedImages.length > 0 ? [...stagedImages] : undefined;
+
 				// Clear input
 				setInputValue('');
 				setStagedImages([]);
 				syncAiInputToSession('');
 				if (inputRef.current) inputRef.current.style.height = 'auto';
 
-				// Send to wizard
-				onWizardSendMessage(effectiveInputValue).catch((error) => {
+				// Send to wizard (with images if any were staged)
+				onWizardSendMessage(effectiveInputValue, imagesToSend).catch((error) => {
 					console.error('[processInput] Wizard message failed:', error);
 				});
 				return;
@@ -629,6 +673,145 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 				})
 			);
 
+			// Trigger automatic tab naming for new AI sessions immediately after sending the first message
+			// This runs in parallel with the agent request (no need to wait for session ID)
+			const activeTabForNaming = getActiveTab(activeSession);
+			const isNewAiSession =
+				currentMode === 'ai' && activeTabForNaming && !activeTabForNaming.agentSessionId;
+			const hasTextMessage = effectiveInputValue.trim().length > 0;
+			const hasNoCustomName = !activeTabForNaming?.name;
+
+			if (automaticTabNamingEnabled && isNewAiSession && hasTextMessage && hasNoCustomName) {
+				// Fast-path: extract tab name from known patterns (GitHub URLs, PR/issue refs, Jira tickets)
+				// This avoids spawning an ephemeral agent for messages with obvious identifiers
+				const quickName = extractQuickTabName(effectiveInputValue);
+				if (quickName) {
+					window.maestro.logger.log('info', `Quick tab named: "${quickName}"`, 'TabNaming', {
+						tabId: activeTabForNaming.id,
+						sessionId: activeSessionId,
+						quickName,
+					});
+					setSessions((prev) =>
+						prev.map((s) => {
+							if (s.id !== activeSessionId) return s;
+							return {
+								...s,
+								aiTabs: s.aiTabs.map((t) =>
+									t.id === activeTabForNaming.id ? { ...t, name: quickName } : t
+								),
+							};
+						})
+					);
+				} else {
+					// Set isGeneratingName to show spinner in tab
+					setSessions((prev) =>
+						prev.map((s) => {
+							if (s.id !== activeSessionId) return s;
+							return {
+								...s,
+								aiTabs: s.aiTabs.map((t) =>
+									t.id === activeTabForNaming.id ? { ...t, isGeneratingName: true } : t
+								),
+							};
+						})
+					);
+
+					window.maestro.logger.log('info', 'Auto tab naming started', 'TabNaming', {
+						tabId: activeTabForNaming.id,
+						sessionId: activeSessionId,
+						agentType: activeSession.toolType,
+						messageLength: effectiveInputValue.length,
+					});
+
+					// Call the tab naming API (async, fire and forget)
+					window.maestro.tabNaming
+						.generateTabName({
+							userMessage: effectiveInputValue,
+							agentType: activeSession.toolType,
+							cwd: activeSession.cwd,
+							sessionSshRemoteConfig: activeSession.sessionSshRemoteConfig,
+						})
+						.then((generatedName) => {
+							// Clear the generating indicator
+							setSessions((prev) =>
+								prev.map((s) => {
+									if (s.id !== activeSessionId) return s;
+									return {
+										...s,
+										aiTabs: s.aiTabs.map((t) =>
+											t.id === activeTabForNaming.id ? { ...t, isGeneratingName: false } : t
+										),
+									};
+								})
+							);
+
+							if (!generatedName) {
+								window.maestro.logger.log('warn', 'Auto tab naming returned null', 'TabNaming', {
+									tabId: activeTabForNaming.id,
+									sessionId: activeSessionId,
+								});
+								return;
+							}
+
+							// Update the tab name only if it's still null (user hasn't manually renamed it)
+							setSessions((prev) =>
+								prev.map((s) => {
+									if (s.id !== activeSessionId) return s;
+									const tab = s.aiTabs.find((t) => t.id === activeTabForNaming.id);
+									if (!tab || tab.name !== null) {
+										window.maestro.logger.log(
+											'info',
+											'Auto tab naming skipped (tab already named)',
+											'TabNaming',
+											{
+												tabId: activeTabForNaming.id,
+												generatedName,
+												existingName: tab?.name,
+											}
+										);
+										return s;
+									}
+									window.maestro.logger.log(
+										'info',
+										`Auto tab named: "${generatedName}"`,
+										'TabNaming',
+										{
+											tabId: activeTabForNaming.id,
+											sessionId: activeSessionId,
+											generatedName,
+										}
+									);
+									return {
+										...s,
+										aiTabs: s.aiTabs.map((t) =>
+											t.id === activeTabForNaming.id ? { ...t, name: generatedName } : t
+										),
+									};
+								})
+							);
+						})
+						.catch((error) => {
+							window.maestro.logger.log('error', 'Auto tab naming failed', 'TabNaming', {
+								tabId: activeTabForNaming.id,
+								sessionId: activeSessionId,
+								error: String(error),
+							});
+							// Clear the generating indicator on error
+							setSessions((prev) =>
+								prev.map((s) => {
+									if (s.id !== activeSessionId) return s;
+									return {
+										...s,
+										aiTabs: s.aiTabs.map((t) =>
+											t.id === activeTabForNaming.id ? { ...t, isGeneratingName: false } : t
+										),
+									};
+								})
+							);
+						});
+				}
+			}
+
 			// If directory changed, check if new directory is a Git repository
 			// For remote sessions, check remoteCwd; for local sessions, check shellCwd
 			if (cwdChanged || remoteCwdChanged) {
@@ -689,14 +872,10 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 					? `${activeSession.id}-ai-${activeTabForSpawn?.id || 'default'}`
 					: `${activeSession.id}-terminal`;
 
-			// Check if this is an AI agent in batch mode (e.g., Claude Code, OpenCode, Codex)
+			// Check if this is an AI agent in batch mode
 			// Batch mode agents spawn a new process per message rather than writing to stdin
 			const isBatchModeAgent =
-				currentMode === 'ai' &&
-				(activeSession.toolType === 'claude' ||
-					activeSession.toolType === 'claude-code' ||
-					activeSession.toolType === 'opencode' ||
-					activeSession.toolType === 'codex');
+				currentMode === 'ai' && hasCapabilityCached(activeSession.toolType, 'supportsBatchMode');
 
 			if (isBatchModeAgent) {
 				// Batch mode: Spawn new agent process with prompt
@@ -722,16 +901,8 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 
 						// For read-only mode, filter out any YOLO/skip-permissions flags from base args
 						// (they would override the read-only mode we're requesting)
-						// - Claude Code: --dangerously-skip-permissions
-						// - Codex: --dangerously-bypass-approvals-and-sandbox
 						const baseArgs = agent.args ?? [];
-						const spawnArgs = isReadOnly
-							? baseArgs.filter(
-									(arg) =>
-										arg !== '--dangerously-skip-permissions' &&
-										arg !== '--dangerously-bypass-approvals-and-sandbox'
-								)
-							: [...baseArgs];
+						const spawnArgs = isReadOnly ? filterYoloArgs(baseArgs, agent) : [...baseArgs];
 
 						// Use agent.path (full path) if available, otherwise fall back to agent.command
 						const commandToUse = agent.path || agent.command;
@@ -866,12 +1037,17 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 							}
 
 							// Get history file path for task recall
+							// Skip for SSH sessions — the local path is unreachable from the remote host
 							let historyFilePath: string | undefined;
-							try {
-								historyFilePath =
-									(await window.maestro.history.getFilePath(freshSession.id)) || undefined;
-							} catch {
-								// Ignore history errors
+							const isSSH =
+								freshSession.sshRemoteId || freshSession.sessionSshRemoteConfig?.enabled;
+							if (!isSSH) {
+								try {
+									historyFilePath =
+										(await window.maestro.history.getFilePath(freshSession.id)) || undefined;
+								} catch {
+									// Ignore history errors
+								}
 							}
 
 							// Substitute template variables in the system prompt
@@ -888,11 +1064,18 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 								session: freshSession,
 								gitBranch,
 								historyFilePath,
+								conductorProfile,
 							});
 
 							// Prepend system prompt to user's message
 							effectivePrompt = `${substitutedSystemPrompt}\n\n---\n\n# User Request\n\n${effectivePrompt}`;
 						}
+
+						const { sendPromptViaStdin, sendPromptViaStdinRaw } = getStdinFlags({
+							isSshSession:
+								!!freshSession.sshRemoteId || !!freshSession.sessionSshRemoteConfig?.enabled,
+							supportsStreamJsonInput: agent.capabilities?.supportsStreamJsonInput ?? false,
+						});
 
 						// Spawn agent with generic config - the main process will use agent-specific
 						// argument builders (resumeArgs, readOnlyArgs, etc.) to construct the final args
@@ -915,6 +1098,11 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 							sessionCustomContextWindow: freshSession.customContextWindow,
 							// Per-session SSH remote config (takes precedence over agent-level SSH config)
 							sessionSshRemoteConfig: freshSession.sessionSshRemoteConfig,
+							// Windows stdin handling - send prompt via stdin to avoid shell escaping issues
+							// For stream-json agents (Claude Code, Codex): use JSON format via stdin
+							// For other agents (OpenCode, etc.): use raw text via stdin
+							sendPromptViaStdin,
+							sendPromptViaStdinRaw,
 						});
 					} catch (error) {
 						console.error('Failed to spawn agent batch process:', error);

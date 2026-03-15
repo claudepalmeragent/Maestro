@@ -14,6 +14,18 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { LightboxModal } from '../../../renderer/components/LightboxModal';
 import { LayerStackProvider } from '../../../renderer/contexts/LayerStackContext';
+import { formatShortcutKeys } from '../../../renderer/utils/shortcutFormatter';
+
+// Mock lucide-react
+vi.mock('lucide-react', () => ({
+	Copy: () => <svg data-testid="copy-icon" />,
+	Check: () => <svg data-testid="check-icon" />,
+	Trash2: () => <svg data-testid="trash-icon" />,
+	AlertTriangle: () => <svg data-testid="alert-triangle-icon" />,
+	X: () => <svg data-testid="x-icon" />,
+}));
+
+
 // Mock navigator.clipboard
 const mockClipboardWrite = vi.fn();
 Object.defineProperty(navigator, 'clipboard', {
@@ -438,7 +450,9 @@ describe('LightboxModal', () => {
 			);
 
 			// Click copy button
-			const copyButton = screen.getByTitle('Copy image to clipboard (⌘C)');
+			const copyButton = screen.getByTitle(
+				`Copy image to clipboard (${formatShortcutKeys(['Meta', 'c'])})`
+			);
 			fireEvent.click(copyButton);
 
 			await waitFor(() => {
@@ -507,7 +521,9 @@ describe('LightboxModal', () => {
 			// Initially shows copy icon
 			expect(screen.getByTestId('copy-icon')).toBeInTheDocument();
 
-			const copyButton = screen.getByTitle('Copy image to clipboard (⌘C)');
+			const copyButton = screen.getByTitle(
+				`Copy image to clipboard (${formatShortcutKeys(['Meta', 'c'])})`
+			);
 			fireEvent.click(copyButton);
 
 			await waitFor(() => {
@@ -530,7 +546,9 @@ describe('LightboxModal', () => {
 				/>
 			);
 
-			const copyButton = screen.getByTitle('Copy image to clipboard (⌘C)');
+			const copyButton = screen.getByTitle(
+				`Copy image to clipboard (${formatShortcutKeys(['Meta', 'c'])})`
+			);
 
 			// Trigger copy and immediately resolve the promise chain
 			await act(async () => {
@@ -565,14 +583,15 @@ describe('LightboxModal', () => {
 				/>
 			);
 
-			const copyButton = screen.getByTitle('Copy image to clipboard (⌘C)');
+			const copyButton = screen.getByTitle(
+				`Copy image to clipboard (${formatShortcutKeys(['Meta', 'c'])})`
+			);
 			fireEvent.click(copyButton);
 
 			expect(onClose).not.toHaveBeenCalled();
 		});
 
 		it('handles copy error gracefully', async () => {
-			const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 			mockClipboardWrite.mockRejectedValue(new Error('Clipboard error'));
 
 			const onClose = vi.fn();
@@ -587,20 +606,16 @@ describe('LightboxModal', () => {
 				/>
 			);
 
-			const copyButton = screen.getByTitle('Copy image to clipboard (⌘C)');
+			const copyButton = screen.getByTitle(
+				`Copy image to clipboard (${formatShortcutKeys(['Meta', 'c'])})`
+			);
 			fireEvent.click(copyButton);
 
+			// safeClipboardWriteBlob swallows the error and returns false,
+			// so the copy-success indicator should NOT appear
 			await waitFor(() => {
-				expect(consoleSpy).toHaveBeenCalledWith(
-					'Failed to copy image to clipboard:',
-					expect.any(Error)
-				);
+				expect(screen.getByTestId('copy-icon')).toBeInTheDocument();
 			});
-
-			// Should still show copy icon (not check)
-			expect(screen.getByTestId('copy-icon')).toBeInTheDocument();
-
-			consoleSpy.mockRestore();
 		});
 	});
 
@@ -809,7 +824,9 @@ describe('LightboxModal', () => {
 				/>
 			);
 
-			const copyButton = screen.getByTitle('Copy image to clipboard (⌘C)');
+			const copyButton = screen.getByTitle(
+				`Copy image to clipboard (${formatShortcutKeys(['Meta', 'c'])})`
+			);
 			expect(copyButton).toHaveClass('bg-white/10');
 			expect(copyButton).toHaveClass('hover:bg-white/20');
 			expect(copyButton).toHaveClass('rounded-full');
@@ -1112,6 +1129,137 @@ describe('LightboxModal', () => {
 			expect(
 				screen.queryByText(/Are you sure you want to remove this image/)
 			).not.toBeInTheDocument();
+		});
+	});
+
+	describe('integration: parent state synchronization', () => {
+		/**
+		 * This test simulates the App.tsx pattern where lightboxImages is a separate
+		 * snapshot from stagedImages. The bug we're testing for: when deleting an image,
+		 * both stagedImages AND lightboxImages must be updated, otherwise the lightbox
+		 * continues showing the "deleted" image from the stale lightboxImages snapshot.
+		 */
+		it('parent must update lightboxImages when deleting (regression test)', () => {
+			// Simulate the parent component pattern from App.tsx
+			let lightboxImages = [...mockImages]; // Snapshot taken when lightbox opened
+			let stagedImages = [...mockImages]; // Actual staged images state
+			let currentImage = mockImages[2]; // Viewing last image
+
+			const onClose = vi.fn();
+			const onNavigate = vi.fn((img: string) => {
+				currentImage = img;
+			});
+
+			// This simulates the FIXED handleDeleteLightboxImage from App.tsx
+			// The bug was that it only updated stagedImages, not lightboxImages
+			const onDelete = vi.fn((img: string) => {
+				stagedImages = stagedImages.filter((i) => i !== img);
+				// CRITICAL: Also update lightboxImages (this was the bug fix)
+				lightboxImages = lightboxImages.filter((i) => i !== img);
+			});
+
+			const { rerender } = renderWithLayerStack(
+				<LightboxModal
+					image={currentImage}
+					stagedImages={lightboxImages} // Note: uses lightboxImages, not stagedImages
+					onClose={onClose}
+					onNavigate={onNavigate}
+					onDelete={onDelete}
+				/>
+			);
+
+			// Verify initial state: viewing image 3 of 3
+			expect(screen.getByText(/Image 3 of 3/)).toBeInTheDocument();
+
+			// Delete the image
+			const deleteButton = screen.getByTitle('Delete image (Delete key)');
+			fireEvent.click(deleteButton);
+			const confirmButton = screen.getByRole('button', { name: /confirm/i });
+			fireEvent.click(confirmButton);
+
+			// Verify onDelete was called with the correct image
+			expect(onDelete).toHaveBeenCalledWith(mockImages[2]);
+
+			// Verify navigation happened (should go to previous image since we deleted last)
+			expect(onNavigate).toHaveBeenCalledWith(mockImages[1]);
+
+			// CRITICAL: After deletion, lightboxImages should be updated too
+			// This is what the bug fix ensures
+			expect(lightboxImages).toHaveLength(2);
+			expect(lightboxImages).not.toContain(mockImages[2]);
+
+			// Rerender with updated state (simulating React re-render)
+			rerender(
+				<LayerStackProvider>
+					<LightboxModal
+						image={currentImage}
+						stagedImages={lightboxImages}
+						onClose={onClose}
+						onNavigate={onNavigate}
+						onDelete={onDelete}
+					/>
+				</LayerStackProvider>
+			);
+
+			// Now should show image 2 of 2 (not 2 of 3)
+			expect(screen.getByText(/Image 2 of 2/)).toBeInTheDocument();
+		});
+
+		it('demonstrates the bug when lightboxImages is not updated (negative test)', () => {
+			// This test demonstrates what happens when the bug exists:
+			// Only stagedImages is updated, lightboxImages remains stale
+			let lightboxImages = [...mockImages]; // Snapshot - NOT updated on delete (bug!)
+			let stagedImages = [...mockImages];
+			let currentImage = mockImages[2];
+
+			const onClose = vi.fn();
+			const onNavigate = vi.fn((img: string) => {
+				currentImage = img;
+			});
+
+			// BUGGY version: only updates stagedImages
+			const onDeleteBuggy = vi.fn((img: string) => {
+				stagedImages = stagedImages.filter((i) => i !== img);
+				// BUG: lightboxImages is NOT updated!
+			});
+
+			const { rerender } = renderWithLayerStack(
+				<LightboxModal
+					image={currentImage}
+					stagedImages={lightboxImages}
+					onClose={onClose}
+					onNavigate={onNavigate}
+					onDelete={onDeleteBuggy}
+				/>
+			);
+
+			// Delete the image
+			const deleteButton = screen.getByTitle('Delete image (Delete key)');
+			fireEvent.click(deleteButton);
+			const confirmButton = screen.getByRole('button', { name: /confirm/i });
+			fireEvent.click(confirmButton);
+
+			expect(onNavigate).toHaveBeenCalledWith(mockImages[1]);
+
+			// BUG: lightboxImages still has 3 images because it wasn't updated
+			expect(lightboxImages).toHaveLength(3); // This is the bug!
+
+			// Rerender with the buggy state
+			rerender(
+				<LayerStackProvider>
+					<LightboxModal
+						image={currentImage}
+						stagedImages={lightboxImages} // Still has 3 images!
+						onClose={onClose}
+						onNavigate={onNavigate}
+						onDelete={onDeleteBuggy}
+					/>
+				</LayerStackProvider>
+			);
+
+			// BUG: Shows "Image 2 of 3" instead of "Image 2 of 2"
+			// because lightboxImages wasn't updated
+			expect(screen.getByText(/Image 2 of 3/)).toBeInTheDocument();
 		});
 	});
 });

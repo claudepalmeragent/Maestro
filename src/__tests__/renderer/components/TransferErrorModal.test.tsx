@@ -28,7 +28,7 @@ vi.mock('../../../renderer/services/contextGroomer', () => ({
 			'claude-code': 'Claude Code',
 			opencode: 'OpenCode',
 			codex: 'OpenAI Codex',
-			aider: 'Aider',
+			'factory-droid': 'Factory Droid',
 			terminal: 'Terminal',
 		};
 		return names[toolType] || toolType;
@@ -173,7 +173,7 @@ describe('TransferErrorModal', () => {
 				<TransferErrorModal {...defaultProps} error={createTestError('session_creation_failed')} />
 			);
 
-			expect(screen.getByText('Session Creation Failed')).toBeInTheDocument();
+			expect(screen.getByText('Agent Creation Failed')).toBeInTheDocument();
 		});
 
 		it('shows correct title for network_error', () => {

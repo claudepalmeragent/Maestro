@@ -13,6 +13,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { WizardInputPanel } from '../../../../renderer/components/InlineWizard/WizardInputPanel';
+import {
+	formatShortcutKeys,
+	formatEnterToSend,
+} from '../../../../renderer/utils/shortcutFormatter';
 import type { Session, Theme } from '../../../../renderer/types';
 
 // Mock useLayerStack for the WizardExitConfirmDialog
@@ -91,7 +95,7 @@ const createMockSession = (overrides?: Partial<Session>): Session =>
 			previousUIState: {
 				readOnlyMode: false,
 				saveToHistory: true,
-				showThinking: false,
+				showThinking: 'off',
 			},
 		},
 		...overrides,
@@ -198,14 +202,16 @@ describe('WizardInputPanel', () => {
 	describe('mode toggle', () => {
 		it('renders the mode toggle button', () => {
 			render(<WizardInputPanel {...defaultProps} />);
-			expect(screen.getByTitle('Toggle Mode (Cmd+J)')).toBeInTheDocument();
+			expect(
+				screen.getByTitle(`Toggle Mode (${formatShortcutKeys(['Meta', 'j'])})`)
+			).toBeInTheDocument();
 		});
 
 		it('calls toggleInputMode when clicked', () => {
 			const toggleInputMode = vi.fn();
 			render(<WizardInputPanel {...defaultProps} toggleInputMode={toggleInputMode} />);
 
-			fireEvent.click(screen.getByTitle('Toggle Mode (Cmd+J)'));
+			fireEvent.click(screen.getByTitle(`Toggle Mode (${formatShortcutKeys(['Meta', 'j'])})`));
 
 			expect(toggleInputMode).toHaveBeenCalled();
 		});
@@ -235,7 +241,7 @@ describe('WizardInputPanel', () => {
 			);
 
 			// Terminal icon should be present (not the Wand icon)
-			const modeButton = screen.getByTitle('Toggle Mode (Cmd+J)');
+			const modeButton = screen.getByTitle(`Toggle Mode (${formatShortcutKeys(['Meta', 'j'])})`);
 			const svgIcon = modeButton.querySelector('svg');
 			expect(svgIcon).toBeInTheDocument();
 		});
@@ -333,9 +339,9 @@ describe('WizardInputPanel', () => {
 			expect(screen.getByText('Enter')).toBeInTheDocument();
 		});
 
-		it('shows "⌘ + Enter" when enterToSend is false', () => {
+		it('shows "⌘ + Enter" (or "Ctrl + Enter" on non-Mac) when enterToSend is false', () => {
 			render(<WizardInputPanel {...defaultProps} enterToSend={false} />);
-			expect(screen.getByText('⌘ + Enter')).toBeInTheDocument();
+			expect(screen.getByText(formatEnterToSend(false))).toBeInTheDocument();
 		});
 
 		it('calls setEnterToSend when clicked', () => {

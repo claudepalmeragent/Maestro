@@ -59,6 +59,7 @@ import { execFileNoThrow } from '../../../main/utils/execFile';
 import { logger } from '../../../main/utils/logger';
 import * as fs from 'fs';
 import * as os from 'os';
+import * as path from 'path';
 
 describe('agent-detector', () => {
 	let detector: AgentDetector;
@@ -321,6 +322,7 @@ describe('agent-detector', () => {
 			expect(agentIds).toContain('gemini-cli');
 			expect(agentIds).toContain('qwen3-coder');
 			expect(agentIds).toContain('opencode');
+			expect(agentIds).toContain('factory-droid');
 			expect(agentIds).toContain('aider');
 		});
 
@@ -351,7 +353,8 @@ describe('agent-detector', () => {
 		it('should handle mixed availability', async () => {
 			mockExecFileNoThrow.mockImplementation(async (cmd, args) => {
 				const binaryName = args[0];
-				if (binaryName === 'bash' || binaryName === 'claude') {
+				const terminalBinary = process.platform === 'win32' ? 'powershell.exe' : 'bash';
+				if (binaryName === terminalBinary || binaryName === 'claude') {
 					return { stdout: `/usr/bin/${binaryName}\n`, stderr: '', exitCode: 0 };
 				}
 				return { stdout: '', stderr: 'not found', exitCode: 1 };
@@ -424,10 +427,10 @@ describe('agent-detector', () => {
 				expect.stringContaining('Agent detection starting'),
 				'AgentDetector'
 			);
-			expect(logger.info).toHaveBeenCalledWith(
-				expect.stringContaining('Agent detection complete'),
-				'AgentDetector'
-			);
+			const calls = logger.info.mock.calls;
+			const completeCall = calls.find((call) => call[0].includes('Agent detection complete'));
+			expect(completeCall).toBeDefined();
+			expect(completeCall[1]).toBe('AgentDetector');
 		});
 
 		it('should log when agents are found', async () => {
@@ -718,21 +721,29 @@ describe('agent-detector', () => {
 			await detector.detectAgents();
 
 			// Check that execFileNoThrow was called with expanded env
-			expect(mockExecFileNoThrow).toHaveBeenCalledWith(
-				expect.any(String),
-				expect.any(Array),
-				undefined,
-				expect.objectContaining({
-					PATH: expect.stringContaining('/opt/homebrew/bin'),
-				})
-			);
+			const expectedPath =
+				process.platform === 'win32'
+					? path.join(os.homedir(), '.local', 'bin')
+					: '/opt/homebrew/bin';
 
 			expect(mockExecFileNoThrow).toHaveBeenCalledWith(
 				expect.any(String),
 				expect.any(Array),
 				undefined,
 				expect.objectContaining({
-					PATH: expect.stringContaining('/usr/local/bin'),
+					PATH: expect.stringContaining(expectedPath),
+				})
+			);
+
+			const expectedPath2 =
+				process.platform === 'win32' ? path.join(os.homedir(), 'scoop', 'shims') : '/usr/local/bin';
+
+			expect(mockExecFileNoThrow).toHaveBeenCalledWith(
+				expect.any(String),
+				expect.any(Array),
+				undefined,
+				expect.objectContaining({
+					PATH: expect.stringContaining(expectedPath2),
 				})
 			);
 		});
@@ -791,18 +802,23 @@ describe('agent-detector', () => {
 
 		it('should not duplicate paths already in PATH', async () => {
 			const originalPath = process.env.PATH;
-			process.env.PATH = '/opt/homebrew/bin:/usr/bin';
+			const testPath =
+				process.platform === 'win32'
+					? path.join(os.homedir(), '.local', 'bin')
+					: '/opt/homebrew/bin';
+			const delimiter = process.platform === 'win32' ? ';' : ':';
+			process.env.PATH = `${testPath}${delimiter}/usr/bin`;
 
 			const newDetector = new AgentDetector();
 			await newDetector.detectAgents();
 
 			const call = mockExecFileNoThrow.mock.calls[0];
 			const env = call[3] as NodeJS.ProcessEnv;
-			const pathParts = (env.PATH || '').split(':');
+			const pathParts = (env.PATH || '').split(delimiter);
 
 			// Should only appear once
-			const homebrewCount = pathParts.filter((p) => p === '/opt/homebrew/bin').length;
-			expect(homebrewCount).toBe(1);
+			const testPathCount = pathParts.filter((p) => p === testPath).length;
+			expect(testPathCount).toBe(1);
 
 			process.env.PATH = originalPath;
 		});
@@ -942,6 +958,7 @@ describe('agent-detector', () => {
 
 			const result = await detectPromise;
 			expect(result).toBeDefined();
+			// Should have all 8 agents (terminal, claude-code, codex, gemini-cli, qwen3-coder, opencode, factory-droid, aider)
 			expect(result.length).toBe(8);
 		});
 
@@ -1213,7 +1230,7 @@ describe('agent-detector', () => {
 			expect(opencode?.promptArgs).toBeUndefined();
 		});
 
-		it('should have noPromptSeparator true since prompt is positional arg', async () => {
+		it('should not have noPromptSeparator so -- separator prevents prompt misparse (#527)', async () => {
 			mockExecFileNoThrow.mockImplementation(async (cmd, args) => {
 				if (args[0] === 'opencode') {
 					return { stdout: '/usr/bin/opencode\n', stderr: '', exitCode: 0 };
@@ -1224,9 +1241,9 @@ describe('agent-detector', () => {
 			const agents = await detector.detectAgents();
 			const opencode = agents.find((a) => a.id === 'opencode');
 
-			// OpenCode uses noPromptSeparator: true since prompt is positional
-			// (yargs handles positional args without needing '--' separator)
-			expect(opencode?.noPromptSeparator).toBe(true);
+			// noPromptSeparator removed: '--' separator prevents yargs from
+			// misinterpreting leading '---' in prompts as flags
+			expect(opencode?.noPromptSeparator).toBeUndefined();
 		});
 
 		it('should have correct jsonOutputArgs for JSON streaming', async () => {

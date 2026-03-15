@@ -61,7 +61,7 @@ vi.mock('../../../main/tunnel-manager', () => ({
 describe('app-lifecycle/quit-handler', () => {
 	let mockMainWindow: {
 		isDestroyed: ReturnType<typeof vi.fn>;
-		webContents: { send: ReturnType<typeof vi.fn> };
+		webContents: { send: ReturnType<typeof vi.fn>; isDestroyed: ReturnType<typeof vi.fn> };
 		on: ReturnType<typeof vi.fn>;
 	};
 	let mockProcessManager: {
@@ -96,7 +96,7 @@ describe('app-lifecycle/quit-handler', () => {
 
 		mockMainWindow = {
 			isDestroyed: vi.fn().mockReturnValue(false),
-			webContents: { send: vi.fn() },
+			webContents: { send: vi.fn(), isDestroyed: vi.fn().mockReturnValue(false) },
 			on: vi.fn(),
 		};
 		mockProcessManager = {

@@ -1,4 +1,4 @@
-import React, {
+import {
 	useState,
 	useRef,
 	useEffect,
@@ -29,12 +29,12 @@ import {
 	RefreshCw,
 	Maximize2,
 	AlertTriangle,
-	SkipForward,
 	XCircle,
 	RotateCcw,
 	LayoutGrid,
 	CheckSquare,
 	Wand2,
+	Save,
 } from 'lucide-react';
 import { getEncoder, formatTokenCount } from '../utils/tokenCounter';
 import type { BatchRunState, SessionState, Theme, Shortcut } from '../types';
@@ -135,6 +135,9 @@ interface AutoRunProps {
 
 	// Hide top controls (when rendered in expanded modal with controls in header)
 	hideTopControls?: boolean;
+
+	// Flash notification callback (for showing center-screen messages)
+	onShowFlash?: (message: string) => void;
 }
 
 export interface AutoRunHandle {
@@ -259,7 +262,7 @@ const AttachmentImage = memo(function AttachmentImage({
 				.readFile(absolutePath, sshRemoteId)
 				.then((result) => {
 					if (isStale) return;
-					if (result.startsWith('data:')) {
+					if (result && result.startsWith('data:')) {
 						imageCache.set(cacheKey, result);
 						setDataUrl(result);
 					} else {
@@ -279,7 +282,7 @@ const AttachmentImage = memo(function AttachmentImage({
 				.readFile(src, sshRemoteId)
 				.then((result) => {
 					if (isStale) return;
-					if (result.startsWith('data:')) {
+					if (result && result.startsWith('data:')) {
 						setDataUrl(result);
 					} else {
 						setError('Invalid image data');
@@ -308,7 +311,7 @@ const AttachmentImage = memo(function AttachmentImage({
 				.readFile(pathToLoad, sshRemoteId)
 				.then((result) => {
 					if (isStale) return;
-					if (result.startsWith('data:')) {
+					if (result && result.startsWith('data:')) {
 						if (folderPath) {
 							imageCache.set(cacheKey, result);
 						}
@@ -332,7 +335,7 @@ const AttachmentImage = memo(function AttachmentImage({
 
 	if (loading) {
 		return (
-			<div
+			<span
 				className="inline-flex items-center gap-2 px-3 py-2 rounded"
 				style={{ backgroundColor: theme.colors.bgActivity }}
 			>
@@ -340,13 +343,13 @@ const AttachmentImage = memo(function AttachmentImage({
 				<span className="text-xs" style={{ color: theme.colors.textDim }}>
 					Loading image...
 				</span>
-			</div>
+			</span>
 		);
 	}
 
 	if (error) {
 		return (
-			<div
+			<span
 				className="inline-flex items-center gap-2 px-3 py-2 rounded"
 				style={{
 					backgroundColor: theme.colors.bgActivity,
@@ -358,7 +361,7 @@ const AttachmentImage = memo(function AttachmentImage({
 				<span className="text-xs" style={{ color: theme.colors.error }}>
 					{error}
 				</span>
-			</div>
+			</span>
 		);
 	}
 
@@ -480,7 +483,7 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
 		onOpenBatchRunner,
 		onStopBatchRun,
 		// Error handling callbacks (Phase 5.10)
-		onSkipCurrentDocument,
+		onSkipCurrentDocument: _onSkipCurrentDocument,
 		onAbortBatchOnError,
 		onResumeAfterError,
 		sessionState,
@@ -489,6 +492,7 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
 		onLaunchWizard,
 		shortcuts,
 		hideTopControls = false,
+		onShowFlash,
 	},
 	ref
 ) {
@@ -665,6 +669,9 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
 	const matchElementsRef = useRef<HTMLElement[]>([]);
 	// Refresh animation state for empty state button
 	const [isRefreshingEmpty, setIsRefreshingEmpty] = useState(false);
+	// Compact mode for responsive bottom panel (icons only when narrow)
+	const [isCompact, setIsCompact] = useState(false);
+	const bottomPanelRef = useRef<HTMLDivElement>(null);
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 	const previewRef = useRef<HTMLDivElement>(null);
 	const containerRef = useRef<HTMLDivElement>(null);
@@ -711,6 +718,11 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
 	const handleResetTasks = useCallback(async () => {
 		if (!folderPath || !selectedFile) return;
 
+		// Count how many completed tasks we're resetting
+		const completedRegex = /^[\s]*[-*]\s*\[x\]/gim;
+		const completedMatches = localContent.match(completedRegex) || [];
+		const resetCount = completedMatches.length;
+
 		// Push undo state before resetting
 		pushUndoState();
 
@@ -728,6 +740,11 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
 				sshRemoteId
 			);
 			setSavedContent(resetContent);
+
+			// Show flash notification with the count of reset tasks
+			if (onShowFlash && resetCount > 0) {
+				onShowFlash(`${resetCount} task${resetCount !== 1 ? 's' : ''} reverted to incomplete`);
+			}
 		} catch (err) {
 			console.error('Failed to save after reset:', err);
 		}
@@ -740,6 +757,7 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
 		pushUndoState,
 		lastUndoSnapshotRef,
 		sshRemoteId,
+		onShowFlash,
 	]);
 
 	// Image handling hook (attachments, paste, upload, lightbox)
@@ -950,22 +968,6 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
 		}
 	}, [selectedFile, mode]);
 
-	// Save cursor position and scroll position when they change
-	const _handleCursorOrScrollChange = () => {
-		if (textareaRef.current) {
-			// Save to ref for persistence across re-renders
-			editScrollPosRef.current = textareaRef.current.scrollTop;
-			if (onStateChange) {
-				onStateChange({
-					mode,
-					cursorPosition: textareaRef.current.selectionStart,
-					editScrollPos: textareaRef.current.scrollTop,
-					previewScrollPos: previewRef.current?.scrollTop || 0,
-				});
-			}
-		}
-	};
-
 	// Debounced preview scroll handler to avoid triggering re-renders on every scroll event
 	// We only save scroll position to ref immediately (for local use), but delay parent notification
 	const previewScrollDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -998,6 +1000,24 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
 				clearTimeout(previewScrollDebounceRef.current);
 			}
 		};
+	}, []);
+
+	// ResizeObserver to detect when bottom panel is narrow (compact mode)
+	// Threshold: 350px - below this, use icons only for save/revert and hide "completed"
+	useEffect(() => {
+		if (!bottomPanelRef.current) return;
+
+		const observer = new ResizeObserver((entries) => {
+			for (const entry of entries) {
+				const width = entry.contentRect.width;
+				// Use compact mode when width is below 350px
+				setIsCompact(width < 350);
+			}
+		});
+
+		observer.observe(bottomPanelRef.current);
+
+		return () => observer.disconnect();
 	}, []);
 
 	// Handle refresh for empty state with animation
@@ -1819,24 +1839,6 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
 								)}
 							</div>
 							<div className="flex gap-2 flex-wrap">
-								{/* Skip button - only show if there are more documents */}
-								{batchRunState &&
-									batchRunState.currentDocumentIndex < batchRunState.documents.length - 1 &&
-									onSkipCurrentDocument && (
-										<button
-											onClick={onSkipCurrentDocument}
-											className="flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-medium transition-colors hover:opacity-80"
-											style={{
-												backgroundColor: theme.colors.bgActivity,
-												color: theme.colors.textMain,
-												border: `1px solid ${theme.colors.border}`,
-											}}
-											title="Skip this document and continue with the next one"
-										>
-											<SkipForward className="w-3 h-3" />
-											Skip Document
-										</button>
-									)}
 								{/* Resume button - for recoverable errors */}
 								{batchError.recoverable && onResumeAfterError && (
 									<button
@@ -1924,7 +1926,16 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
 
 			{/* Content Area - only shown when folder is selected */}
 			{folderPath && (
-				<div className="flex-1 min-h-0 overflow-y-auto">
+				<div
+					className="flex-1 min-h-0 overflow-y-auto mx-2 rounded-lg transition-colors"
+					style={{
+						backgroundColor: isDirty && !isLocked ? `${theme.colors.warning}08` : 'transparent',
+						border:
+							isDirty && !isLocked
+								? `2px solid ${theme.colors.warning}40`
+								: '2px solid transparent',
+					}}
+				>
 					{/* Empty folder state - show when folder is configured but has no documents */}
 					{documentList.length === 0 && !isLoadingDocuments ? (
 						<div
@@ -1944,7 +1955,8 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
 								The selected folder doesn't contain any markdown (.md) files.
 							</p>
 							<p className="mb-6 max-w-xs text-xs" style={{ color: theme.colors.textDim }}>
-								Create a markdown file in the folder to get started, or select a different folder.
+								Create a markdown file in the folder to get started, or change to a different
+								folder.
 							</p>
 							<div className="flex gap-3">
 								<button
@@ -1968,7 +1980,7 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
 									}}
 								>
 									<FolderOpen className="w-4 h-4" />
-									Select Folder
+									Change Folder
 								</button>
 							</div>
 						</div>
@@ -2054,89 +2066,89 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
 			)}
 
 			{/* Bottom Panel - shown when folder selected AND (there are tasks, unsaved changes, or content with token count) */}
-			{folderPath &&
-				(taskCounts.total > 0 ||
-					(isDirty && mode === 'edit' && !isLocked) ||
-					tokenCount !== null) && (
-					<div
-						className="flex-shrink-0 px-3 py-1.5 text-xs border-t flex items-center justify-between"
-						style={{
-							backgroundColor: theme.colors.bgActivity,
-							borderColor: theme.colors.border,
-						}}
-					>
-						{/* Revert button - left side */}
-						{isDirty && mode === 'edit' && !isLocked ? (
+			{folderPath && (taskCounts.total > 0 || (isDirty && !isLocked) || tokenCount !== null) && (
+				<div
+					ref={bottomPanelRef}
+					className="flex-shrink-0 px-3 py-1.5 mt-[5px] text-xs border-t flex items-center justify-between"
+					style={{
+						backgroundColor: theme.colors.bgActivity,
+						borderColor: theme.colors.border,
+					}}
+				>
+					{/* Revert button - left side (visible in both edit and preview when dirty) */}
+					{isDirty && !isLocked ? (
+						<button
+							onClick={handleRevert}
+							className={`${isCompact ? 'p-1.5' : 'px-2 py-0.5'} rounded text-xs transition-colors hover:opacity-80 flex items-center gap-1`}
+							style={{
+								backgroundColor: 'transparent',
+								color: theme.colors.textDim,
+								border: `1px solid ${theme.colors.border}`,
+							}}
+							title="Discard changes"
+						>
+							{isCompact ? <RotateCcw className="w-3.5 h-3.5" /> : 'Revert'}
+						</button>
+					) : (
+						<div />
+					)}
+
+					{/* Center info: Reset button, Task count, and/or Token count */}
+					<div className="flex items-center gap-3">
+						{/* Reset button - only show when there are completed tasks */}
+						{taskCounts.completed > 0 && !isLocked && (
 							<button
-								onClick={handleRevert}
-								className="px-2 py-0.5 rounded text-xs transition-colors hover:opacity-80"
-								style={{
-									backgroundColor: 'transparent',
-									color: theme.colors.textDim,
-									border: `1px solid ${theme.colors.border}`,
-								}}
-								title="Discard changes"
+								onClick={() => setResetTasksModalOpen(true)}
+								className="p-0.5 rounded transition-colors hover:bg-white/10"
+								style={{ color: theme.colors.textDim }}
+								title={`Reset ${taskCounts.completed} completed task${taskCounts.completed !== 1 ? 's' : ''}`}
 							>
-								Revert
+								<RotateCcw className="w-3.5 h-3.5" />
 							</button>
-						) : (
-							<div />
 						)}
-
-						{/* Center info: Reset button, Task count, and/or Token count */}
-						<div className="flex items-center gap-3">
-							{/* Reset button - only show when there are completed tasks */}
-							{taskCounts.completed > 0 && !isLocked && (
-								<button
-									onClick={() => setResetTasksModalOpen(true)}
-									className="p-0.5 rounded transition-colors hover:bg-white/10"
-									style={{ color: theme.colors.textDim }}
-									title={`Reset ${taskCounts.completed} completed task${taskCounts.completed !== 1 ? 's' : ''}`}
+						{taskCounts.total > 0 && (
+							<span style={{ color: theme.colors.textDim }}>
+								<span
+									style={{
+										color:
+											taskCounts.completed === taskCounts.total
+												? theme.colors.success
+												: theme.colors.accent,
+									}}
 								>
-									<RotateCcw className="w-3.5 h-3.5" />
-								</button>
-							)}
-							{taskCounts.total > 0 && (
-								<span style={{ color: theme.colors.textDim }}>
-									<span
-										style={{
-											color:
-												taskCounts.completed === taskCounts.total
-													? theme.colors.success
-													: theme.colors.accent,
-										}}
-									>
-										{taskCounts.completed}
-									</span>{' '}
-									of <span style={{ color: theme.colors.accent }}>{taskCounts.total}</span> task
-									{taskCounts.total !== 1 ? 's' : ''} completed
-								</span>
-							)}
-							{tokenCount !== null && (
-								<span style={{ color: theme.colors.textDim }}>
-									<span className="opacity-60">Tokens:</span>{' '}
-									<span style={{ color: theme.colors.accent }}>{formatTokenCount(tokenCount)}</span>
-								</span>
-							)}
-							{taskCounts.total === 0 && tokenCount === null && isDirty && (
-								<span style={{ color: theme.colors.textDim }}>Unsaved changes</span>
-							)}
-						</div>
+									{taskCounts.completed}
+								</span>{' '}
+								of <span style={{ color: theme.colors.accent }}>{taskCounts.total}</span> task
+								{taskCounts.total !== 1 ? 's' : ''}
+								{!isCompact && ' completed'}
+							</span>
+						)}
+						{tokenCount !== null && (
+							<span style={{ color: theme.colors.textDim }}>
+								<span className="opacity-60">Tokens:</span>{' '}
+								<span style={{ color: theme.colors.accent }}>{formatTokenCount(tokenCount)}</span>
+							</span>
+						)}
+						{taskCounts.total === 0 && tokenCount === null && isDirty && !isLocked && (
+							<span style={{ color: theme.colors.textDim }}>Unsaved changes</span>
+						)}
+					</div>
 
-						{/* Save button - right side */}
-						{isDirty && mode === 'edit' && !isLocked ? (
-							<button
-								onClick={handleSave}
-								className="group relative px-2 py-0.5 rounded text-xs transition-colors hover:opacity-80"
-								style={{
-									backgroundColor: theme.colors.accent,
-									color: theme.colors.accentForeground,
-									border: `1px solid ${theme.colors.accent}`,
-								}}
-								title="Save changes"
-							>
-								Save
-								{/* Keyboard shortcut overlay on hover */}
+					{/* Save button - right side (visible in both edit and preview when dirty) */}
+					{isDirty && !isLocked ? (
+						<button
+							onClick={handleSave}
+							className={`group relative ${isCompact ? 'p-1.5' : 'px-2 py-0.5'} rounded text-xs transition-colors hover:opacity-80 flex items-center gap-1`}
+							style={{
+								backgroundColor: theme.colors.accent,
+								color: theme.colors.accentForeground,
+								border: `1px solid ${theme.colors.accent}`,
+							}}
+							title={`Save changes (${formatShortcutKeys(['Meta', 's'])})`}
+						>
+							{isCompact ? <Save className="w-3.5 h-3.5" /> : 'Save'}
+							{/* Keyboard shortcut overlay on hover - only show in non-compact mode */}
+							{!isCompact && (
 								<span
 									className="absolute -top-7 left-1/2 -translate-x-1/2 px-1.5 py-0.5 rounded text-[10px] whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
 									style={{
@@ -2145,14 +2157,15 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
 										border: `1px solid ${theme.colors.border}`,
 									}}
 								>
-									⌘S
+									{formatShortcutKeys(['Meta', 's'])}
 								</span>
-							</button>
-						) : (
-							<div />
-						)}
-					</div>
-				)}
+							)}
+						</button>
+					) : (
+						<div />
+					)}
+				</div>
+			)}
 
 			{/* Help Modal */}
 			{helpModalOpen && (
@@ -2218,6 +2231,7 @@ export const AutoRun = memo(AutoRunInner, (prevProps, nextProps) => {
 		prevProps.onOpenSetup === nextProps.onOpenSetup &&
 		prevProps.onRefresh === nextProps.onRefresh &&
 		prevProps.onSelectDocument === nextProps.onSelectDocument &&
+		prevProps.onShowFlash === nextProps.onShowFlash &&
 		// UI control props
 		prevProps.hideTopControls === nextProps.hideTopControls &&
 		// External change detection

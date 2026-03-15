@@ -7,7 +7,14 @@ import React, {
 	useCallback,
 	memo,
 } from 'react';
-import { PanelRightClose, PanelRightOpen, Loader2, GitBranch } from 'lucide-react';
+import {
+	PanelRightClose,
+	PanelRightOpen,
+	Loader2,
+	GitBranch,
+	Skull,
+	AlertTriangle,
+} from 'lucide-react';
 import type {
 	Session,
 	Theme,
@@ -21,11 +28,17 @@ import type { FileTreeChanges } from '../utils/fileExplorer';
 import { FileExplorerPanel } from './FileExplorerPanel';
 import { HistoryPanel, HistoryPanelHandle } from './HistoryPanel';
 import { AutoRun, AutoRunHandle } from './AutoRun';
-import type { DocumentTaskCount } from './AutoRunDocumentSelector';
 import { AutoRunExpandedModal } from './AutoRunExpandedModal';
 import { PinnedPanel } from './PinnedPanel';
 import { formatShortcutKeys } from '../utils/shortcutFormatter';
 import { BatchRunStats } from './BatchRunStats';
+import { ConfirmModal } from './ConfirmModal';
+import { useResizablePanel } from '../hooks';
+import { useUIStore } from '../stores/uiStore';
+import { useSettingsStore } from '../stores/settingsStore';
+import { useFileExplorerStore } from '../stores/fileExplorerStore';
+import { useBatchStore } from '../stores/batchStore';
+import { useSessionStore } from '../stores/sessionStore';
 
 export interface RightPanelHandle {
 	refreshHistoryPanel: () => void;
@@ -36,34 +49,13 @@ export interface RightPanelHandle {
 }
 
 interface RightPanelProps {
-	// Session & Theme
-	session: Session | null;
+	// Theme (computed from settingsStore by App.tsx)
 	theme: Theme;
-	shortcuts: Record<string, Shortcut>;
 
-	// Panel state
-	rightPanelOpen: boolean;
-	setRightPanelOpen: (open: boolean) => void;
-	rightPanelWidth: number;
-	setRightPanelWidthState: (width: number) => void;
-
-	// Tab state
-	activeRightTab: RightPanelTab;
+	// Tab state (custom handler with setup modal logic)
 	setActiveRightTab: (tab: RightPanelTab) => void;
 
-	// Focus management
-	activeFocus: FocusArea;
-	setActiveFocus: (focus: FocusArea) => void;
-
-	// File explorer state & handlers
-	fileTreeFilter: string;
-	setFileTreeFilter: (filter: string) => void;
-	fileTreeFilterOpen: boolean;
-	setFileTreeFilterOpen: (open: boolean) => void;
-	filteredFileTree: any[];
-	selectedFileIndex: number;
-	setSelectedFileIndex: (index: number) => void;
-	previewFile: { name: string; content: string; path: string } | null;
+	// Refs
 	fileTreeContainerRef: React.RefObject<HTMLDivElement>;
 	fileTreeFilterInputRef: React.RefObject<HTMLInputElement>;
 
@@ -88,24 +80,10 @@ interface RightPanelProps {
 		setSessions: React.Dispatch<React.SetStateAction<Session[]>>
 	) => Promise<void>;
 	refreshFileTree: (sessionId: string) => Promise<FileTreeChanges | undefined>;
-	setSessions: React.Dispatch<React.SetStateAction<Session[]>>;
 	onAutoRefreshChange?: (interval: number) => void;
 	onShowFlash?: (message: string) => void;
-	showHiddenFiles: boolean;
-	setShowHiddenFiles: (value: boolean) => void;
 
 	// Auto Run handlers
-	autoRunDocumentList: string[]; // List of document filenames (without .md)
-	autoRunDocumentTree?: Array<{
-		name: string;
-		type: 'file' | 'folder';
-		path: string;
-		children?: unknown[];
-	}>; // Tree structure for subfolders
-	autoRunContent: string; // Content of currently selected document
-	autoRunContentVersion?: number; // Version counter for external file changes (forces sync)
-	autoRunIsLoadingDocuments: boolean; // Loading state
-	autoRunDocumentTaskCounts?: Map<string, DocumentTaskCount>; // Task counts per document
 	onAutoRunContentChange: (content: string) => void;
 	onAutoRunModeChange: (mode: 'edit' | 'preview') => void;
 	onAutoRunStateChange: (state: {
@@ -119,30 +97,26 @@ interface RightPanelProps {
 	onAutoRunRefresh: () => void;
 	onAutoRunOpenSetup: () => void;
 
-	// Batch processing props
-	batchRunState?: BatchRunState; // For progress display (may be from any session)
-	currentSessionBatchState?: BatchRunState | null; // For locking editor (current session only)
+	// Batch processing
+	currentSessionBatchState?: BatchRunState | null;
 	onOpenBatchRunner?: () => void;
 	onStopBatchRun?: (sessionId?: string) => void;
-	// Error handling callbacks (Phase 5.10)
+	onKillBatchRun?: (sessionId: string) => void;
 	onSkipCurrentDocument?: () => void;
 	onAbortBatchOnError?: () => void;
 	onResumeAfterError?: () => void;
 	onJumpToAgentSession?: (agentSessionId: string) => void;
 	onResumeSession?: (agentSessionId: string) => void;
 	onOpenSessionAsTab?: (agentSessionId: string) => void;
-	onOpenAboutModal?: () => void; // For opening About/achievements panel from history entries
-	// File linking callback for history detail modal
+
+	// Modal handlers
+	onOpenAboutModal?: () => void;
 	onFileClick?: (path: string) => void;
-	// Marketplace modal
 	onOpenMarketplace?: () => void;
-	// Launch inline wizard in new tab
 	onLaunchWizard?: () => void;
-	/** Callback to open graph view focused on a specific file (relative path to session.cwd) */
+
+	// Document Graph handlers
 	onFocusFileInGraph?: (relativePath: string) => void;
-	/** Path of the last opened document graph focus file (for quick re-open) */
-	lastGraphFocusFile?: string;
-	/** Callback to open the last document graph */
 	onOpenLastDocumentGraph?: () => void;
 	pinnedItems: PinnedItem[];
 	onUnpinMessage: (logId: string) => void;
@@ -152,26 +126,42 @@ interface RightPanelProps {
 
 export const RightPanel = memo(
 	forwardRef<RightPanelHandle, RightPanelProps>(function RightPanel(props, ref) {
+		// === State from stores (direct subscriptions — no prop drilling) ===
+		const session = useSessionStore(
+			(s) => s.sessions.find((x) => x.id === s.activeSessionId) ?? null
+		);
+		const setSessions = useSessionStore((s) => s.setSessions);
+
+		const rightPanelOpen = useUIStore((s) => s.rightPanelOpen);
+		const activeRightTab = useUIStore((s) => s.activeRightTab);
+		const activeFocus = useUIStore((s) => s.activeFocus);
+		const setRightPanelOpen = useUIStore((s) => s.setRightPanelOpen);
+		const setActiveFocus = useUIStore((s) => s.setActiveFocus);
+
+		const rightPanelWidth = useSettingsStore((s) => s.rightPanelWidth);
+		const shortcuts = useSettingsStore((s) => s.shortcuts);
+		const showHiddenFiles = useSettingsStore((s) => s.showHiddenFiles);
+		const setRightPanelWidth = useSettingsStore((s) => s.setRightPanelWidth);
+		const setShowHiddenFiles = useSettingsStore((s) => s.setShowHiddenFiles);
+
+		const fileTreeFilter = useFileExplorerStore((s) => s.fileTreeFilter);
+		const fileTreeFilterOpen = useFileExplorerStore((s) => s.fileTreeFilterOpen);
+		const filteredFileTree = useFileExplorerStore((s) => s.filteredFileTree);
+		const selectedFileIndex = useFileExplorerStore((s) => s.selectedFileIndex);
+		const lastGraphFocusFile = useFileExplorerStore((s) => s.lastGraphFocusFilePath);
+		const setFileTreeFilter = useFileExplorerStore((s) => s.setFileTreeFilter);
+		const setFileTreeFilterOpen = useFileExplorerStore((s) => s.setFileTreeFilterOpen);
+		const setSelectedFileIndex = useFileExplorerStore((s) => s.setSelectedFileIndex);
+
+		const autoRunDocumentList = useBatchStore((s) => s.documentList);
+		const autoRunDocumentTree = useBatchStore((s) => s.documentTree);
+		const autoRunIsLoadingDocuments = useBatchStore((s) => s.isLoadingDocuments);
+		const autoRunDocumentTaskCounts = useBatchStore((s) => s.documentTaskCounts);
+
+		// === Props (domain-hook handlers + theme + batch state + refs) ===
 		const {
-			session,
 			theme,
-			shortcuts,
-			rightPanelOpen,
-			setRightPanelOpen,
-			rightPanelWidth,
-			setRightPanelWidthState,
-			activeRightTab,
 			setActiveRightTab,
-			activeFocus,
-			setActiveFocus,
-			fileTreeFilter,
-			setFileTreeFilter,
-			fileTreeFilterOpen,
-			setFileTreeFilterOpen,
-			filteredFileTree,
-			selectedFileIndex,
-			setSelectedFileIndex,
-			previewFile,
 			fileTreeContainerRef,
 			fileTreeFilterInputRef,
 			toggleFolder,
@@ -180,17 +170,8 @@ export const RightPanel = memo(
 			collapseAllFolders,
 			updateSessionWorkingDirectory,
 			refreshFileTree,
-			setSessions,
 			onAutoRefreshChange,
 			onShowFlash,
-			showHiddenFiles,
-			setShowHiddenFiles,
-			autoRunDocumentList,
-			autoRunDocumentTree,
-			autoRunContent,
-			autoRunContentVersion,
-			autoRunIsLoadingDocuments,
-			autoRunDocumentTaskCounts,
 			onAutoRunContentChange,
 			onAutoRunModeChange,
 			onAutoRunStateChange,
@@ -201,7 +182,7 @@ export const RightPanel = memo(
 			currentSessionBatchState,
 			onOpenBatchRunner,
 			onStopBatchRun,
-			// Error handling callbacks (Phase 5.10)
+			onKillBatchRun,
 			onSkipCurrentDocument,
 			onAbortBatchOnError,
 			onResumeAfterError,
@@ -213,7 +194,6 @@ export const RightPanel = memo(
 			onOpenMarketplace,
 			onLaunchWizard,
 			onFocusFileInGraph,
-			lastGraphFocusFile,
 			onOpenLastDocumentGraph,
 			pinnedItems,
 			onUnpinMessage,
@@ -221,12 +201,30 @@ export const RightPanel = memo(
 			onScrollToMessage,
 		} = props;
 
+		// === Values derived from session ===
+		const autoRunContent = session?.autoRunContent ?? '';
+		const autoRunContentVersion = session?.autoRunContentVersion ?? 0;
+
 		const historyPanelRef = useRef<HistoryPanelHandle>(null);
 		const autoRunRef = useRef<AutoRunHandle>(null);
-		const panelRef = useRef<HTMLDivElement>(null);
+		const {
+			panelRef,
+			onResizeStart: onRightPanelResizeStart,
+			transitionClass: rightPanelTransitionClass,
+		} = useResizablePanel({
+			width: rightPanelWidth,
+			minWidth: 384,
+			maxWidth: 800,
+			settingsKey: 'rightPanelWidth',
+			setWidth: setRightPanelWidth,
+			side: 'right',
+		});
 
 		// Elapsed time for Auto Run display - tracks wall clock time from startTime
 		const [elapsedTime, setElapsedTime] = useState<string>('');
+
+		// Kill confirmation modal for force-killing during Auto Run stop
+		const [showKillConfirm, setShowKillConfirm] = useState(false);
 
 		// Shared draft state for Auto Run (shared between panel and expanded modal)
 		// This ensures edits in one view are immediately visible in the other
@@ -394,13 +392,14 @@ export const RightPanel = memo(
 			shortcuts,
 			onOpenMarketplace,
 			onLaunchWizard,
+			onShowFlash,
 		};
 
 		return (
 			<div
 				ref={panelRef}
 				tabIndex={0}
-				className={`border-l flex flex-col transition-all duration-300 outline-none relative ${rightPanelOpen ? '' : 'w-0 overflow-hidden opacity-0'} ${activeFocus === 'right' ? 'ring-1 ring-inset z-10' : ''}`}
+				className={`border-l flex flex-col ${rightPanelTransitionClass} outline-none relative ${rightPanelOpen ? '' : 'w-0 overflow-hidden opacity-0'} ${activeFocus === 'right' ? 'ring-1 ring-inset z-10' : ''}`}
 				style={
 					{
 						width: rightPanelOpen ? `${rightPanelWidth}px` : '0',
@@ -415,33 +414,8 @@ export const RightPanel = memo(
 				{/* Resize Handle */}
 				{rightPanelOpen && (
 					<div
-						className="absolute top-0 left-0 w-1 h-full cursor-col-resize hover:bg-blue-500 transition-colors z-20"
-						onMouseDown={(e) => {
-							e.preventDefault();
-							const startX = e.clientX;
-							const startWidth = rightPanelWidth;
-							let currentWidth = startWidth;
-
-							const handleMouseMove = (e: MouseEvent) => {
-								const delta = startX - e.clientX; // Reversed for right panel
-								currentWidth = Math.max(384, Math.min(800, startWidth + delta));
-								// Direct DOM update during drag for performance (avoids ~60 re-renders/sec)
-								if (panelRef.current) {
-									panelRef.current.style.width = `${currentWidth}px`;
-								}
-							};
-
-							const handleMouseUp = () => {
-								// Only update React state once on mouseup
-								setRightPanelWidthState(currentWidth);
-								window.maestro.settings.set('rightPanelWidth', currentWidth);
-								document.removeEventListener('mousemove', handleMouseMove);
-								document.removeEventListener('mouseup', handleMouseUp);
-							};
-
-							document.addEventListener('mousemove', handleMouseMove);
-							document.addEventListener('mouseup', handleMouseUp);
-						}}
+						className="absolute top-0 left-0 w-3 h-full cursor-col-resize border-l-4 border-transparent hover:border-blue-500 transition-colors z-20"
+						onMouseDown={onRightPanelResizeStart}
 					/>
 				)}
 
@@ -484,10 +458,11 @@ export const RightPanel = memo(
 					ref={fileTreeContainerRef}
 					className="flex-1 px-4 pb-4 overflow-y-auto overflow-x-hidden min-w-[24rem] outline-none scrollbar-thin"
 					tabIndex={-1}
-					onClick={() => {
+					onClick={(e) => {
 						setActiveFocus('right');
 						// Only focus the container for file explorer, not for autorun (which has its own focus management)
-						if (activeRightTab === 'files') {
+						// Skip when the filter input is focused — otherwise the container steals focus from it
+						if (activeRightTab === 'files' && e.target !== fileTreeFilterInputRef.current) {
 							fileTreeContainerRef.current?.focus();
 						}
 					}}
@@ -503,40 +478,42 @@ export const RightPanel = memo(
 						}
 					}}
 				>
-					{activeRightTab === 'files' && (
-						<div data-tour="files-panel" className="h-full">
-							<FileExplorerPanel
-								session={session}
-								theme={theme}
-								fileTreeFilter={fileTreeFilter}
-								setFileTreeFilter={setFileTreeFilter}
-								fileTreeFilterOpen={fileTreeFilterOpen}
-								setFileTreeFilterOpen={setFileTreeFilterOpen}
-								filteredFileTree={filteredFileTree}
-								selectedFileIndex={selectedFileIndex}
-								setSelectedFileIndex={setSelectedFileIndex}
-								activeFocus={activeFocus}
-								activeRightTab={activeRightTab}
-								previewFile={previewFile}
-								setActiveFocus={setActiveFocus}
-								fileTreeFilterInputRef={fileTreeFilterInputRef}
-								toggleFolder={toggleFolder}
-								handleFileClick={handleFileClick}
-								expandAllFolders={expandAllFolders}
-								collapseAllFolders={collapseAllFolders}
-								updateSessionWorkingDirectory={updateSessionWorkingDirectory}
-								refreshFileTree={refreshFileTree}
-								setSessions={setSessions}
-								onAutoRefreshChange={onAutoRefreshChange}
-								onShowFlash={onShowFlash}
-								showHiddenFiles={showHiddenFiles}
-								setShowHiddenFiles={setShowHiddenFiles}
-								onFocusFileInGraph={onFocusFileInGraph}
-								lastGraphFocusFile={lastGraphFocusFile}
-								onOpenLastDocumentGraph={onOpenLastDocumentGraph}
-							/>
-						</div>
-					)}
+					{/* FileExplorerPanel stays mounted so auto-refresh timer persists across tab switches */}
+					<div
+						data-tour="files-panel"
+						className="h-full"
+						style={{ display: activeRightTab === 'files' ? undefined : 'none' }}
+					>
+						<FileExplorerPanel
+							session={session}
+							theme={theme}
+							fileTreeFilter={fileTreeFilter}
+							setFileTreeFilter={setFileTreeFilter}
+							fileTreeFilterOpen={fileTreeFilterOpen}
+							setFileTreeFilterOpen={setFileTreeFilterOpen}
+							filteredFileTree={filteredFileTree}
+							selectedFileIndex={selectedFileIndex}
+							setSelectedFileIndex={setSelectedFileIndex}
+							activeFocus={activeFocus}
+							activeRightTab={activeRightTab}
+							setActiveFocus={setActiveFocus}
+							fileTreeFilterInputRef={fileTreeFilterInputRef}
+							toggleFolder={toggleFolder}
+							handleFileClick={handleFileClick}
+							expandAllFolders={expandAllFolders}
+							collapseAllFolders={collapseAllFolders}
+							updateSessionWorkingDirectory={updateSessionWorkingDirectory}
+							refreshFileTree={refreshFileTree}
+							setSessions={setSessions}
+							onAutoRefreshChange={onAutoRefreshChange}
+							onShowFlash={onShowFlash}
+							showHiddenFiles={showHiddenFiles}
+							setShowHiddenFiles={setShowHiddenFiles}
+							onFocusFileInGraph={onFocusFileInGraph}
+							lastGraphFocusFile={lastGraphFocusFile}
+							onOpenLastDocumentGraph={onOpenLastDocumentGraph}
+						/>
+					</div>
 
 					{activeRightTab === 'history' && (
 						<div data-tour="history-panel" className="h-full">
@@ -585,24 +562,60 @@ export const RightPanel = memo(
 					<div
 						className="mx-4 mb-4 px-4 py-3 rounded border flex-shrink-0"
 						style={{
-							backgroundColor: theme.colors.bgActivity,
-							borderColor: theme.colors.warning,
+							backgroundColor: currentSessionBatchState.errorPaused
+								? `${theme.colors.error}15`
+								: theme.colors.bgActivity,
+							borderColor: currentSessionBatchState.errorPaused
+								? theme.colors.error
+								: theme.colors.warning,
 						}}
 					>
 						{/* Header with status and elapsed time */}
 						<div className="flex items-center justify-between mb-2">
 							<div className="flex items-center gap-2">
-								<Loader2 className="w-4 h-4 animate-spin" style={{ color: theme.colors.warning }} />
-								<span
-									className="text-xs font-bold uppercase"
-									style={{ color: theme.colors.textMain }}
-								>
-									{currentSessionBatchState.isStopping ? 'Stopping...' : 'Auto Run Active'}
-								</span>
+								{currentSessionBatchState.errorPaused ? (
+									<AlertTriangle className="w-4 h-4" style={{ color: theme.colors.error }} />
+								) : (
+									<Loader2
+										className="w-4 h-4 animate-spin"
+										style={{ color: theme.colors.warning }}
+									/>
+								)}
+								{currentSessionBatchState.errorPaused ? (
+									<button
+										onClick={() => setActiveRightTab('autorun')}
+										className="text-xs font-bold uppercase cursor-pointer hover:underline"
+										style={{ color: theme.colors.error }}
+										title="View error details in Auto Run tab"
+									>
+										Auto Run Paused
+									</button>
+								) : (
+									<span
+										className="text-xs font-bold uppercase"
+										style={{ color: theme.colors.textMain }}
+									>
+										{currentSessionBatchState.isStopping ? 'Stopping...' : 'Auto Run Active'}
+									</span>
+								)}
 								{currentSessionBatchState.worktreeActive && (
 									<span title={`Worktree: ${currentSessionBatchState.worktreeBranch || 'active'}`}>
 										<GitBranch className="w-4 h-4" style={{ color: theme.colors.warning }} />
 									</span>
+								)}
+								{currentSessionBatchState.isStopping && (
+									<button
+										onClick={() => setShowKillConfirm(true)}
+										className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase transition-colors hover:opacity-90"
+										style={{
+											backgroundColor: theme.colors.error,
+											color: 'white',
+										}}
+										title="Force kill the running process"
+									>
+										<Skull className="w-3 h-3" />
+										Kill
+									</button>
 								)}
 							</div>
 							{/* Elapsed time - wall clock time since run started */}
@@ -621,8 +634,16 @@ export const RightPanel = memo(
 						{currentSessionBatchState.documents &&
 							currentSessionBatchState.documents.length === 1 && (
 								<div className="mb-2">
-									<span className="text-xs" style={{ color: theme.colors.textDim }}>
-										{currentSessionBatchState.documents[0]}.md
+									<span
+										className="text-xs overflow-hidden text-ellipsis whitespace-nowrap block"
+										style={{
+											color: theme.colors.textDim,
+											direction: 'rtl',
+											textAlign: 'left',
+										}}
+										title={`${currentSessionBatchState.documents[0]}.md`}
+									>
+										<bdi>{currentSessionBatchState.documents[0]}.md</bdi>
 									</span>
 								</div>
 							)}
@@ -634,17 +655,23 @@ export const RightPanel = memo(
 									{/* Document name with progress bar */}
 									<div className="flex items-center gap-2 min-w-0">
 										<span
-											className="text-xs font-medium truncate min-w-0"
-											style={{ color: theme.colors.textMain }}
+											className="text-xs font-medium overflow-hidden text-ellipsis whitespace-nowrap min-w-0"
+											style={{
+												color: theme.colors.textMain,
+												direction: 'rtl',
+												textAlign: 'left',
+											}}
 											title={`Document ${currentSessionBatchState.currentDocumentIndex + 1}/${currentSessionBatchState.documents.length}: ${currentSessionBatchState.documents[currentSessionBatchState.currentDocumentIndex]}.md`}
 										>
-											Document {currentSessionBatchState.currentDocumentIndex + 1}/
-											{currentSessionBatchState.documents.length}:{' '}
-											{
-												currentSessionBatchState.documents[
-													currentSessionBatchState.currentDocumentIndex
-												]
-											}
+											<bdi>
+												Document {currentSessionBatchState.currentDocumentIndex + 1}/
+												{currentSessionBatchState.documents.length}:{' '}
+												{
+													currentSessionBatchState.documents[
+														currentSessionBatchState.currentDocumentIndex
+													]
+												}
+											</bdi>
 										</span>
 										<div
 											className="flex-1 h-1 rounded-full overflow-hidden shrink-0"
@@ -687,35 +714,60 @@ export const RightPanel = memo(
 													100
 												: 0
 									}%`,
-									backgroundColor: currentSessionBatchState.isStopping
-										? theme.colors.error
-										: theme.colors.warning,
+									backgroundColor:
+										currentSessionBatchState.isStopping || currentSessionBatchState.errorPaused
+											? theme.colors.error
+											: theme.colors.warning,
 								}}
 							/>
 						</div>
 
 						{/* Overall completed count with loop info */}
 						<div className="mt-2 flex items-start justify-between gap-2">
-							<span className="text-[10px]" style={{ color: theme.colors.textDim }}>
-								{currentSessionBatchState.isStopping
-									? 'Waiting for current task to complete before stopping...'
-									: currentSessionBatchState.totalTasksAcrossAllDocs > 0
-										? `${currentSessionBatchState.completedTasksAcrossAllDocs} of ${currentSessionBatchState.totalTasksAcrossAllDocs} tasks completed`
-										: `${currentSessionBatchState.completedTasks} of ${currentSessionBatchState.totalTasks} tasks completed`}
+							<span
+								className="text-[10px]"
+								style={{
+									color: currentSessionBatchState.errorPaused
+										? theme.colors.error
+										: theme.colors.textDim,
+								}}
+							>
+								{currentSessionBatchState.errorPaused
+									? currentSessionBatchState.error?.message || 'Paused due to error'
+									: currentSessionBatchState.isStopping
+										? 'Waiting for current task to complete before stopping...'
+										: currentSessionBatchState.totalTasksAcrossAllDocs > 0
+											? `${currentSessionBatchState.completedTasksAcrossAllDocs} of ${currentSessionBatchState.totalTasksAcrossAllDocs} tasks completed`
+											: `${currentSessionBatchState.completedTasks} of ${currentSessionBatchState.totalTasks} tasks completed`}
 							</span>
-							{/* Loop iteration indicator */}
-							{currentSessionBatchState.loopEnabled && (
-								<span
-									className="text-[10px] px-1.5 py-0.5 rounded whitespace-nowrap shrink-0"
-									style={{
-										backgroundColor: theme.colors.accent + '20',
-										color: theme.colors.accent,
-									}}
-								>
-									Loop {currentSessionBatchState.loopIteration + 1} of{' '}
-									{currentSessionBatchState.maxLoops ?? '∞'}
-								</span>
-							)}
+							<div className="flex items-center gap-2 shrink-0">
+								{/* Loop iteration indicator */}
+								{currentSessionBatchState.loopEnabled && (
+									<span
+										className="text-[10px] px-1.5 py-0.5 rounded whitespace-nowrap"
+										style={{
+											backgroundColor: theme.colors.accent + '20',
+											color: theme.colors.accent,
+										}}
+									>
+										Loop {currentSessionBatchState.loopIteration + 1} of{' '}
+										{currentSessionBatchState.maxLoops ?? '∞'}
+									</span>
+								)}
+								{/* View history link - only shown on auto-run tab */}
+								{activeRightTab === 'autorun' && (
+									<button
+										className="text-[10px] whitespace-nowrap bg-transparent border-none p-0 cursor-pointer"
+										style={{
+											color: theme.colors.textDim,
+											textDecoration: 'underline',
+										}}
+										onClick={() => setActiveRightTab('history')}
+									>
+										View history
+									</button>
+								)}
+							</div>
 						</div>
 
 						{/* Comprehensive token breakdown */}
@@ -739,6 +791,25 @@ export const RightPanel = memo(
 							</div>
 						)}
 					</div>
+				)}
+
+				{/* Kill confirmation modal */}
+				{showKillConfirm && (
+					<ConfirmModal
+						theme={theme}
+						title="Force Kill Process"
+						message="This will immediately terminate the running agent process. The current task will be interrupted mid-execution and may leave incomplete changes. Are you sure?"
+						headerIcon={<Skull className="w-4 h-4" style={{ color: theme.colors.error }} />}
+						icon={<Skull className="w-5 h-5" style={{ color: theme.colors.error }} />}
+						confirmLabel="Kill Process"
+						destructive
+						onConfirm={() => {
+							if (session?.id) {
+								onKillBatchRun?.(session.id);
+							}
+						}}
+						onClose={() => setShowKillConfirm(false)}
+					/>
 				)}
 			</div>
 		);

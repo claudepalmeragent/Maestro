@@ -24,6 +24,8 @@ import { getSessionStorage, type SessionMessagesResult } from '../../agents';
 import { groomContext, cancelAllGroomingSessions } from '../../utils/context-groomer';
 import type { ProcessManager } from '../../process-manager';
 import type { AgentDetector } from '../../agents';
+import type Store from 'electron-store';
+import type { AgentConfigsData } from '../../stores/types';
 
 const LOG_CONTEXT = '[ContextMerge]';
 
@@ -47,6 +49,7 @@ export interface ContextHandlerDependencies {
 	getMainWindow: () => BrowserWindow | null;
 	getProcessManager: () => ProcessManager | null;
 	getAgentDetector: () => AgentDetector | null;
+	agentConfigsStore: Store<AgentConfigsData>;
 }
 
 /**
@@ -77,7 +80,7 @@ const GROOMING_TIMEOUT_MS = 5 * 60 * 1000;
  * - cleanupGroomingSession: Clean up a temporary grooming session
  */
 export function registerContextHandlers(deps: ContextHandlerDependencies): void {
-	const { getProcessManager, getAgentDetector } = deps;
+	const { getProcessManager, getAgentDetector, agentConfigsStore } = deps;
 
 	logger.info('Registering context IPC handlers', LOG_CONTEXT);
 	console.log('[ContextMerge] Registering context IPC handlers (v2 with response collection)');
@@ -136,10 +139,23 @@ export function registerContextHandlers(deps: ContextHandlerDependencies): void 
 				projectRoot: string,
 				agentType: string,
 				prompt: string,
-				sshRemoteConfig?: { enabled: boolean; remoteId: string }
+				options?: {
+					sshRemoteConfig?: {
+						enabled: boolean;
+						remoteId: string | null;
+						workingDirOverride?: string;
+					};
+					customPath?: string;
+					customArgs?: string;
+					customEnvVars?: Record<string, string>;
+				}
 			): Promise<string> => {
 				const processManager = requireDependency(getProcessManager, 'Process manager');
 				const agentDetector = requireDependency(getAgentDetector, 'Agent detector');
+
+				// Look up agent-level config values for override resolution
+				const allConfigs = agentConfigsStore.get('configs', {});
+				const agentConfigValues = allConfigs[agentType] || {};
 
 				// Use the shared groomContext utility
 				const result = await groomContext(
@@ -147,7 +163,12 @@ export function registerContextHandlers(deps: ContextHandlerDependencies): void 
 						projectRoot,
 						agentType,
 						prompt,
-						sshRemoteConfig,
+						// Pass SSH and custom config for remote execution support
+						sessionSshRemoteConfig: options?.sshRemoteConfig,
+						sessionCustomPath: options?.customPath,
+						sessionCustomArgs: options?.customArgs,
+						sessionCustomEnvVars: options?.customEnvVars,
+						agentConfigValues,
 					},
 					processManager,
 					agentDetector

@@ -10,7 +10,7 @@ import { UsageDashboardModal } from '../../../renderer/components/UsageDashboard
 import { useLayerStack } from '../../../renderer/contexts/LayerStackContext';
 import type { Theme } from '../../../renderer/types';
 
-// Mock lucide-react icons - include all icons used by modal and its child components
+// lucide-react icons are mocked globally via test setup
 
 // Mock maestro stats API
 const mockGetAggregation = vi.fn();
@@ -183,10 +183,13 @@ describe('UsageDashboardModal', () => {
 			render(<UsageDashboardModal isOpen={true} onClose={onClose} theme={theme} />);
 
 			await waitFor(() => {
-				expect(screen.getByText('Overview')).toBeInTheDocument();
-				expect(screen.getByText('Agents')).toBeInTheDocument();
-				expect(screen.getByText('Activity')).toBeInTheDocument();
-				expect(screen.getByText('Auto Run')).toBeInTheDocument();
+				// Use getAllByRole('tab') to find tabs - there may be multiple elements with text 'Agents'
+				const tabs = screen.getAllByRole('tab');
+				expect(tabs).toHaveLength(4);
+				expect(tabs[0]).toHaveTextContent('Overview');
+				expect(tabs[1]).toHaveTextContent('Agents');
+				expect(tabs[2]).toHaveTextContent('Activity');
+				expect(tabs[3]).toHaveTextContent('Auto Run');
 			});
 		});
 
@@ -340,12 +343,13 @@ describe('UsageDashboardModal', () => {
 			await waitFor(() => {
 				const select = screen.getByRole('combobox');
 				const options = select.querySelectorAll('option');
-				expect(options).toHaveLength(5);
+				expect(options).toHaveLength(6);
 				expect(options[0]).toHaveValue('day');
 				expect(options[1]).toHaveValue('week');
 				expect(options[2]).toHaveValue('month');
-				expect(options[3]).toHaveValue('year');
-				expect(options[4]).toHaveValue('all');
+				expect(options[3]).toHaveValue('quarter');
+				expect(options[4]).toHaveValue('year');
+				expect(options[5]).toHaveValue('all');
 			});
 		});
 	});
@@ -355,10 +359,12 @@ describe('UsageDashboardModal', () => {
 			render(<UsageDashboardModal isOpen={true} onClose={onClose} theme={theme} />);
 
 			await waitFor(() => {
-				expect(screen.getByText('Overview')).toBeInTheDocument();
+				expect(screen.getByTestId('usage-dashboard-content')).toBeInTheDocument();
 			});
 
-			const agentsTab = screen.getByText('Agents');
+			// Use getAllByRole('tab') to avoid "multiple elements" error - Agents tab is index 1
+			const tabs = screen.getAllByRole('tab');
+			const agentsTab = tabs[1];
 			fireEvent.click(agentsTab);
 
 			// The tab should now be active (different styling)
@@ -1679,8 +1685,9 @@ describe('UsageDashboardModal', () => {
 				expect(screen.getByTestId('usage-dashboard-content')).toBeInTheDocument();
 			});
 
-			// Click on Agents tab
-			fireEvent.click(screen.getByText('Agents'));
+			// Click on Agents tab - use getAllByRole('tab') to avoid "multiple elements" error
+			const tabs = screen.getAllByRole('tab');
+			fireEvent.click(tabs[1]); // Agents is the 2nd tab (index 1)
 
 			await waitFor(() => {
 				const tabpanel = screen.getByRole('tabpanel');
@@ -1791,8 +1798,9 @@ describe('UsageDashboardModal', () => {
 				expect(screen.getByTestId('usage-dashboard-content')).toBeInTheDocument();
 			});
 
-			// Switch to Agents view
-			fireEvent.click(screen.getByText('Agents'));
+			// Switch to Agents view - use getAllByRole('tab') to avoid "multiple elements" error
+			const tabs = screen.getAllByRole('tab');
+			fireEvent.click(tabs[1]); // Agents is the 2nd tab (index 1)
 
 			await waitFor(() => {
 				expect(screen.getByTestId('section-agent-comparison')).toBeInTheDocument();
@@ -1916,8 +1924,9 @@ describe('UsageDashboardModal', () => {
 				expect(document.activeElement).toBe(screen.getByTestId('section-agent-comparison'));
 			});
 
-			// Switch to Agents view
-			fireEvent.click(screen.getByText('Agents'));
+			// Switch to Agents view - use getAllByRole('tab') to avoid "multiple elements" error
+			const tabs = screen.getAllByRole('tab');
+			fireEvent.click(tabs[1]); // Agents is the 2nd tab (index 1)
 
 			await waitFor(() => {
 				// The section in the new view should not have focus ring initially
@@ -1942,12 +1951,13 @@ describe('UsageDashboardModal', () => {
 
 			const heatmapSection = screen.getByTestId('section-activity-heatmap');
 
-			// Focus heatmap and Tab to duration trends
+			// Focus heatmap and Tab to weekday comparison (the next section in activity view)
 			heatmapSection.focus();
 			fireEvent.keyDown(heatmapSection, { key: 'Tab' });
 
 			await waitFor(() => {
-				expect(document.activeElement).toBe(screen.getByTestId('section-duration-trends'));
+				// Activity sections order: activity-heatmap -> weekday-comparison -> duration-trends
+				expect(document.activeElement).toBe(screen.getByTestId('section-weekday-comparison'));
 			});
 		});
 

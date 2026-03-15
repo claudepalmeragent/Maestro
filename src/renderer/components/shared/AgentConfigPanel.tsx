@@ -55,7 +55,7 @@ interface ModelTextInputProps {
 	option: { key: string; default?: string };
 	value: string;
 	onChange: (value: string) => void;
-	onBlur: () => void;
+	onBlur: (committedValue: string) => void;
 	availableModels: string[];
 	loadingModels: boolean;
 	onRefreshModels?: () => void;
@@ -79,6 +79,8 @@ function ModelTextInput({
 	const inputRef = useRef<HTMLInputElement>(null);
 	// Keep track of the committed value (what was actually selected/saved)
 	const committedValueRef = useRef(value);
+	// Track whether a dropdown selection was just made (to prevent blur from overwriting it)
+	const selectionMadeRef = useRef(false);
 
 	// Update committed value when value prop changes from outside
 	useEffect(() => {
@@ -145,6 +147,11 @@ function ModelTextInput({
 						onBlur={() => {
 							// Delay to allow click on dropdown item
 							setTimeout(() => {
+								// If a dropdown item was clicked, skip blur logic — the click handler already committed the value
+								if (selectionMadeRef.current) {
+									selectionMadeRef.current = false;
+									return;
+								}
 								setShowDropdown(false);
 								if (isFiltering) {
 									// If user was filtering but didn't select, keep the filter text as the value
@@ -152,11 +159,17 @@ function ModelTextInput({
 									if (filterText && filterText !== committedValueRef.current) {
 										onChange(filterText);
 										committedValueRef.current = filterText;
+										setIsFiltering(false);
+										setFilterText('');
+										// Pass the newly committed value so the consumer can save it
+										// without relying on stale React state
+										onBlur(filterText);
+										return;
 									}
 									setIsFiltering(false);
 									setFilterText('');
 								}
-								onBlur();
+								onBlur(committedValueRef.current);
 							}, 150);
 						}}
 						onClick={(e) => e.stopPropagation()}
@@ -195,11 +208,13 @@ function ModelTextInput({
 									type="button"
 									onClick={(e) => {
 										e.stopPropagation();
+										selectionMadeRef.current = true;
 										onChange(model);
 										committedValueRef.current = model;
 										setShowDropdown(false);
 										setFilterText('');
 										setIsFiltering(false);
+										onBlur(model);
 									}}
 									className="w-full text-left px-3 py-2 text-xs font-mono hover:bg-white/10 transition-colors"
 									style={{
@@ -264,7 +279,8 @@ export interface AgentConfigPanelProps {
 	// Agent-specific config options
 	agentConfig: Record<string, any>;
 	onConfigChange: (key: string, value: any) => void;
-	onConfigBlur: () => void;
+	/** Called when a config field blurs. For text fields, `committedValue` is the value that was just saved. */
+	onConfigBlur: (key: string, committedValue: any) => void | Promise<void>;
 	// Model selection (if supported)
 	availableModels?: string[];
 	loadingModels?: boolean;
@@ -293,6 +309,8 @@ export interface AgentConfigPanelProps {
 	detectedModel?: string;
 	/** Host-detected effort level from Claude Code settings (for Active badge) */
 	hostEffortLevel?: string;
+	// SSH remote execution enabled for this session
+	isSshEnabled?: boolean;
 }
 
 export function AgentConfigPanel({
@@ -334,7 +352,16 @@ export function AgentConfigPanel({
 	refreshingRemoteAuth = false,
 	detectedModel,
 	hostEffortLevel,
+	isSshEnabled = false,
 }: AgentConfigPanelProps): JSX.Element {
+	const callOnConfigBlurSafely = (key: string, committedValue: any) => {
+		const maybePromise = onConfigBlur(key, committedValue);
+		if (maybePromise && typeof (maybePromise as Promise<void>).catch === 'function') {
+			void (maybePromise as Promise<void>).catch((error: unknown) => {
+				console.error(`Failed to persist config field "${key}":`, error);
+			});
+		}
+	};
 	const padding = compact ? 'p-2' : 'p-3';
 	const spacing = compact ? 'space-y-2' : 'space-y-3';
 	// Track which built-in env var tooltip is showing
@@ -416,6 +443,7 @@ export function AgentConfigPanel({
 	return (
 		<div className={spacing}>
 			{/* Path input - pre-filled with detected path, editable to override */}
+			{/* When SSH is enabled and no custom path is set, show the remote binary name instead of local path */}
 			<div
 				className={`${padding} rounded border`}
 				style={{ borderColor: theme.colors.border, backgroundColor: theme.colors.bgMain }}
@@ -424,8 +452,8 @@ export function AgentConfigPanel({
 					className="block text-xs font-medium mb-2 flex items-center justify-between"
 					style={{ color: theme.colors.textDim }}
 				>
-					<span>Path</span>
-					{onRefreshAgent && (
+					<span>{isSshEnabled ? 'Remote Command' : 'Path'}</span>
+					{onRefreshAgent && !isSshEnabled && (
 						<button
 							onClick={onRefreshAgent}
 							className="p-1 rounded hover:bg-white/10 transition-colors flex items-center gap-1"
@@ -440,15 +468,22 @@ export function AgentConfigPanel({
 				<div className="flex gap-2">
 					<input
 						type="text"
-						value={customPath || agent.path || ''}
+						value={customPath || (isSshEnabled ? agent.binaryName : agent.path) || ''}
 						onChange={(e) => onCustomPathChange(e.target.value)}
 						onBlur={onCustomPathBlur}
 						onClick={(e) => e.stopPropagation()}
 						placeholder={`/path/to/${agent.binaryName}`}
+						// When showing default SSH binary name, make field read-only to prevent accidental modification
+						readOnly={isSshEnabled && !customPath}
 						className="flex-1 p-2 rounded border bg-transparent outline-none text-xs font-mono"
-						style={{ borderColor: theme.colors.border, color: theme.colors.textMain }}
+						style={{
+							borderColor: theme.colors.border,
+							color: theme.colors.textMain,
+							// Slightly dim read-only fields to show they're not editable
+							opacity: isSshEnabled && !customPath ? 0.7 : 1,
+						}}
 					/>
-					{customPath && customPath !== agent.path && (
+					{customPath && (
 						<button
 							onClick={(e) => {
 								e.stopPropagation();
@@ -456,14 +491,16 @@ export function AgentConfigPanel({
 							}}
 							className="px-2 py-1.5 rounded text-xs"
 							style={{ backgroundColor: theme.colors.bgActivity, color: theme.colors.textDim }}
-							title="Reset to detected path"
+							title={isSshEnabled ? 'Reset to remote binary name' : 'Reset to detected path'}
 						>
 							Reset
 						</button>
 					)}
 				</div>
 				<p className="text-xs opacity-50 mt-2">
-					Path to the {agent.binaryName} binary. Edit to override the auto-detected path.
+					{isSshEnabled
+						? `Remote command/binary for ${agent.binaryName}. Leave empty to use default.`
+						: `Path to the ${agent.binaryName} binary. Edit to override the auto-detected path.`}
 				</p>
 			</div>
 
@@ -620,7 +657,8 @@ export function AgentConfigPanel({
 					</button>
 				</div>
 				<p className="text-xs opacity-50 mt-2">
-					Environment variables passed to all calls to this agent
+					Agent-specific environment variables (overrides global environment variables from
+					Settings). These are passed to all calls to this agent.
 				</p>
 			</div>
 
@@ -744,7 +782,10 @@ export function AgentConfigPanel({
 									const value = e.target.value === '' ? 0 : parseInt(e.target.value, 10);
 									onConfigChange(option.key, isNaN(value) ? 0 : value);
 								}}
-								onBlur={onConfigBlur}
+								onBlur={(e) => {
+									const value = e.target.value === '' ? 0 : parseInt(e.target.value, 10);
+									callOnConfigBlurSafely(option.key, isNaN(value) ? 0 : value);
+								}}
 								onClick={(e) => e.stopPropagation()}
 								placeholder={option.default?.toString() || '0'}
 								min={0}
@@ -758,10 +799,14 @@ export function AgentConfigPanel({
 								option={option}
 								value={agentConfig[option.key] ?? option.default}
 								onChange={(value) => onConfigChange(option.key, value)}
-								onBlur={onConfigBlur}
-								availableModels={[]}
-								loadingModels={false}
-								onRefreshModels={undefined}
+								onBlur={(committedValue) => callOnConfigBlurSafely(option.key, committedValue)}
+								availableModels={option.key === 'model' ? _availableModels : []}
+								loadingModels={option.key === 'model' ? _loadingModels : false}
+								onRefreshModels={
+									option.key === 'model' && agent.capabilities?.supportsModelSelection
+										? _onRefreshModels
+										: undefined
+								}
 							/>
 						)}
 						{option.type === 'checkbox' && (
@@ -775,7 +820,7 @@ export function AgentConfigPanel({
 									onChange={(e) => {
 										onConfigChange(option.key, e.target.checked);
 										// Immediately persist checkbox changes
-										onConfigBlur();
+										callOnConfigBlurSafely(option.key, e.target.checked);
 									}}
 									className="w-4 h-4"
 									style={{ accentColor: theme.colors.accent }}
@@ -792,28 +837,27 @@ export function AgentConfigPanel({
 								activeModel={detectedModel}
 								onChange={(model) => {
 									onConfigChange(option.key, model);
-									onConfigBlur();
+									callOnConfigBlurSafely(option.key, model);
 								}}
 							/>
 						)}
-						{option.type === 'select' && option.key !== 'model' && (
+						{option.type === 'select' && option.key !== 'model' && option.options && (
 							<select
-								className="flex-1 text-xs px-2 py-1.5 rounded border bg-transparent"
-								style={{
-									color: theme.colors.textMain,
-									borderColor: theme.colors.border,
-									backgroundColor: theme.colors.bgMain,
-								}}
-								value={agentConfig[option.key] ?? option.default}
+								value={agentConfig[option.key] ?? option.default ?? ''}
 								onChange={(e) => {
 									onConfigChange(option.key, e.target.value);
-									onConfigBlur();
+									callOnConfigBlurSafely(option.key, e.target.value);
 								}}
 								onClick={(e) => e.stopPropagation()}
+								className="w-full p-2 rounded border bg-transparent outline-none text-xs cursor-pointer"
+								style={{
+									borderColor: theme.colors.border,
+									color: theme.colors.textMain,
+									backgroundColor: theme.colors.bgMain,
+								}}
 							>
-								<option value="">default</option>
-								{((option as any).options || []).map((opt: string) => (
-									<option key={opt} value={opt}>
+								{option.options.map((opt) => (
+									<option key={opt} value={opt} style={{ backgroundColor: theme.colors.bgMain }}>
 										{opt}
 									</option>
 								))}

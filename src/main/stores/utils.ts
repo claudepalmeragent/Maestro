@@ -8,6 +8,7 @@
  */
 
 import path from 'path';
+import { isWindows, isLinux } from '../../shared/platformDetection';
 
 import Store from 'electron-store';
 import fsSync from 'fs';
@@ -52,14 +53,14 @@ function isValidSyncPath(customPath: string): boolean {
 
 	// Reject paths that are too short (likely system directories)
 	// Minimum reasonable path: /a/b (5 chars on Unix) or C:\a (4 chars on Windows)
-	const minPathLength = process.platform === 'win32' ? 4 : 5;
+	const minPathLength = isWindows() ? 4 : 5;
 	if (normalizedPath.length < minPathLength) {
 		console.error(`Custom sync path is too short: ${customPath}`);
 		return false;
 	}
 
 	// Check for Windows reserved names (CON, PRN, AUX, NUL, COM1-9, LPT1-9)
-	if (process.platform === 'win32') {
+	if (isWindows()) {
 		const reservedNames = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
 		const pathSegments = normalizedPath.split(/[/\\]/);
 		for (const segment of pathSegments) {
@@ -74,21 +75,20 @@ function isValidSyncPath(customPath: string): boolean {
 
 	// Reject known sensitive system directories
 	// For Windows, check common sensitive paths across all drive letters
-	const sensitiveRoots =
-		process.platform === 'win32'
-			? [
-					'\\Windows',
-					'\\Program Files',
-					'\\Program Files (x86)',
-					'\\System',
-					'\\System32',
-					'\\SysWOW64',
-				]
-			: ['/bin', '/sbin', '/usr/bin', '/usr/sbin', '/etc', '/var', '/tmp', '/dev', '/proc', '/sys'];
+	const sensitiveRoots = isWindows()
+		? [
+				'\\Windows',
+				'\\Program Files',
+				'\\Program Files (x86)',
+				'\\System',
+				'\\System32',
+				'\\SysWOW64',
+			]
+		: ['/bin', '/sbin', '/usr/bin', '/usr/sbin', '/etc', '/var', '/tmp', '/dev', '/proc', '/sys'];
 
 	const lowerPath = normalizedPath.toLowerCase();
 
-	if (process.platform === 'win32') {
+	if (isWindows()) {
 		// For Windows, check if any sensitive root appears after the drive letter
 		// e.g., C:\Windows, D:\Windows, etc.
 		for (const sensitive of sensitiveRoots) {
@@ -154,6 +154,32 @@ export function getCustomSyncPath(bootstrapStore: Store<BootstrapSettings>): str
 }
 
 // ============================================================================
+// WSL Detection (early, before app.ready)
+// ============================================================================
+
+/**
+ * Detect if the current environment is WSL (Windows Subsystem for Linux).
+ * This is a simplified version for early startup (before app.ready).
+ * The full isWsl() from wslDetector.ts can be used after app.ready.
+ */
+function isWslEnvironment(): boolean {
+	if (!isLinux()) {
+		return false;
+	}
+
+	try {
+		if (fsSync.existsSync('/proc/version')) {
+			const version = fsSync.readFileSync('/proc/version', 'utf8').toLowerCase();
+			return version.includes('microsoft') || version.includes('wsl');
+		}
+	} catch {
+		// Ignore read errors
+	}
+
+	return false;
+}
+
+// ============================================================================
 // Early Settings Access
 // ============================================================================
 
@@ -163,22 +189,40 @@ export function getCustomSyncPath(bootstrapStore: Store<BootstrapSettings>): str
  *
  * This creates a temporary store instance just for reading these values
  * before the full store initialization happens.
+ *
+ * Note: In WSL environments, GPU acceleration is disabled by default due to
+ * frequent GPU process crashes (EGL_EXT_create_context_robustness issues).
+ * Users can still manually enable it if their WSL setup supports it.
  */
 export function getEarlySettings(syncPath: string): {
 	crashReportingEnabled: boolean;
 	disableGpuAcceleration: boolean;
+	useNativeTitleBar: boolean;
+	autoHideMenuBar: boolean;
 } {
 	const earlyStore = new Store<{
 		crashReportingEnabled: boolean;
 		disableGpuAcceleration: boolean;
+		useNativeTitleBar: boolean;
+		autoHideMenuBar: boolean;
 	}>({
 		name: 'maestro-settings',
 		cwd: syncPath,
 	});
 
+	// Check if user has explicitly set GPU acceleration preference
+	const explicitGpuSetting = earlyStore.get('disableGpuAcceleration');
+
+	// In WSL, default to disabling GPU acceleration due to common EGL/GPU issues
+	// unless the user has explicitly set a preference
+	const isWsl = isWslEnvironment();
+	const defaultDisableGpu = isWsl ? true : false;
+
 	return {
 		crashReportingEnabled: earlyStore.get('crashReportingEnabled', true),
-		disableGpuAcceleration: earlyStore.get('disableGpuAcceleration', false),
+		disableGpuAcceleration: explicitGpuSetting ?? defaultDisableGpu,
+		useNativeTitleBar: earlyStore.get('useNativeTitleBar', false),
+		autoHideMenuBar: earlyStore.get('autoHideMenuBar', false),
 	};
 }
 

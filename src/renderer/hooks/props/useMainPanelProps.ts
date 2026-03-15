@@ -10,18 +10,20 @@
  */
 
 import { useMemo } from 'react';
-import type { MainPanelHandle } from '../../components/MainPanel';
 import type {
 	Session,
 	Theme,
-	Shortcut,
-	FocusArea,
 	BatchRunState,
 	LogEntry,
 	UsageStats,
 	AITab,
 	PinnedItem,
+	UnifiedTab,
+	FilePreviewTab,
+	ThinkingItem,
+	AgentError,
 } from '../../types';
+import type { FileTreeChanges } from '../../utils/fileExplorer';
 import type { TabCompletionSuggestion, TabCompletionFilter } from '../input/useTabCompletion';
 import type {
 	SummarizeProgress,
@@ -42,16 +44,10 @@ export interface UseMainPanelPropsDeps {
 	agentSessionsOpen: boolean;
 	activeAgentSessionId: string | null;
 	activeSession: Session | null;
-	thinkingSessions: Session[];
+	thinkingItems: ThinkingItem[];
 	theme: Theme;
-	fontFamily: string;
 	isMobileLandscape: boolean;
-	activeFocus: FocusArea;
-	outputSearchOpen: boolean;
-	outputSearchQuery: string;
 	inputValue: string;
-	enterToSendAI: boolean;
-	enterToSendTerminal: boolean;
 	stagedImages: string[];
 	commandHistoryOpen: boolean;
 	commandHistoryFilter: string;
@@ -59,16 +55,7 @@ export interface UseMainPanelPropsDeps {
 	slashCommandOpen: boolean;
 	slashCommands: Array<{ command: string; description: string }>;
 	selectedSlashCommandIndex: number;
-	previewFile: { name: string; content: string; path: string } | null;
 	filePreviewLoading: { name: string; path: string } | null;
-	markdownEditMode: boolean;
-	shortcuts: Record<string, Shortcut>;
-	rightPanelOpen: boolean;
-	maxOutputLines: number;
-	gitDiffPreview: string | null;
-	fileTreeFilterOpen: boolean;
-	logLevel: string;
-	logViewerSelectedLevels: string[];
 
 	// Tab completion state
 	tabCompletionOpen: boolean;
@@ -89,17 +76,16 @@ export interface UseMainPanelPropsDeps {
 	selectedAtMentionIndex: number;
 
 	// Batch run state (undefined matches component prop type)
-	activeBatchRunState: BatchRunState | undefined;
 	currentSessionBatchState: BatchRunState | undefined;
 
 	// File tree
 	fileTree: FileNode[];
 
-	// File preview navigation
+	// File preview navigation (per-tab)
 	canGoBack: boolean;
 	canGoForward: boolean;
-	backHistory: { name: string; content: string; path: string }[];
-	forwardHistory: { name: string; content: string; path: string }[];
+	backHistory: { name: string; path: string; scrollTop?: number }[];
+	forwardHistory: { name: string; path: string; scrollTop?: number }[];
 	filePreviewHistoryIndex: number;
 
 	// Active tab for error handling
@@ -109,9 +95,6 @@ export interface UseMainPanelPropsDeps {
 	isWorktreeChild: boolean;
 
 	// Context management settings
-	contextWarningsEnabled: boolean;
-	contextWarningYellowThreshold: number;
-	contextWarningRedThreshold: number;
 
 	// Summarization progress
 	summarizeProgress: SummarizeProgress | null;
@@ -130,24 +113,12 @@ export interface UseMainPanelPropsDeps {
 	ghCliAvailable: boolean;
 	hasGist: boolean;
 
-	// Unread filter
-	showUnreadOnly: boolean;
-
-	// Audio feedback
-	audioFeedbackCommand: string;
-
 	// Setters (these are stable callbacks - should be memoized at definition site)
-	setLogViewerSelectedLevels: (levels: string[]) => void;
 	setGitDiffPreview: (preview: string | null) => void;
 	setLogViewerOpen: (open: boolean) => void;
 	setAgentSessionsOpen: (open: boolean) => void;
 	setActiveAgentSessionId: (id: string | null) => void;
-	setActiveFocus: (focus: FocusArea) => void;
-	setOutputSearchOpen: (open: boolean) => void;
-	setOutputSearchQuery: (query: string) => void;
 	setInputValue: (value: string) => void;
-	setEnterToSendAI: (value: boolean) => void;
-	setEnterToSendTerminal: (value: boolean) => void;
 	setStagedImages: React.Dispatch<React.SetStateAction<string[]>>;
 	setCommandHistoryOpen: (open: boolean) => void;
 	setCommandHistoryFilter: (filter: string) => void;
@@ -161,18 +132,12 @@ export interface UseMainPanelPropsDeps {
 	setAtMentionFilter: (filter: string) => void;
 	setAtMentionStartIndex: (index: number) => void;
 	setSelectedAtMentionIndex: (index: number) => void;
-	setPreviewFile: (file: { name: string; content: string; path: string } | null) => void;
-	setMarkdownEditMode: (mode: boolean) => void;
-	setAboutModalOpen: (open: boolean) => void;
-	setRightPanelOpen: (open: boolean) => void;
 	setGitLogOpen: (open: boolean) => void;
 
 	// Refs
 	inputRef: React.RefObject<HTMLTextAreaElement>;
 	logsEndRef: React.RefObject<HTMLDivElement>;
 	terminalOutputRef: React.RefObject<HTMLDivElement>;
-	fileTreeContainerRef: React.RefObject<HTMLDivElement>;
-	fileTreeFilterInputRef: React.RefObject<HTMLInputElement>;
 
 	// Handlers (should be memoized with useCallback at definition site)
 	handleResumeSession: (
@@ -192,7 +157,6 @@ export interface UseMainPanelPropsDeps {
 	getContextColor: (usage: number, theme: Theme) => string;
 	setActiveSessionId: (id: string) => void;
 	handleStopBatchRun: (sessionId?: string) => void;
-	showConfirmation: (message: string, onConfirm: () => void) => void;
 	handleDeleteLog: (logId: string) => number | null;
 	handleRemoveQueuedItem: (itemId: string) => void;
 	handleOpenQueueBrowser: () => void;
@@ -203,6 +167,7 @@ export interface UseMainPanelPropsDeps {
 	handleNewTab: () => void;
 	handleRequestTabRename: (tabId: string) => void;
 	handleTabReorder: (fromIndex: number, toIndex: number) => void;
+	handleUnifiedTabReorder: (fromIndex: number, toIndex: number) => void;
 	handleUpdateTabByClaudeSessionId: (
 		agentSessionId: string,
 		updates: { name?: string | null; starred?: boolean }
@@ -219,6 +184,23 @@ export interface UseMainPanelPropsDeps {
 	handleCloseOtherTabs: () => void;
 	handleCloseTabsLeft: () => void;
 	handleCloseTabsRight: () => void;
+
+	// Unified tab system props (Phase 4)
+	unifiedTabs: UnifiedTab[];
+	activeFileTabId: string | null;
+	activeFileTab: FilePreviewTab | null;
+	handleFileTabSelect: (tabId: string) => void;
+	handleFileTabClose: (tabId: string) => void;
+	handleFileTabEditModeChange: (tabId: string, editMode: boolean) => void;
+	handleFileTabEditContentChange: (
+		tabId: string,
+		editContent: string | undefined,
+		savedContent?: string
+	) => void;
+	handleFileTabScrollPositionChange: (tabId: string, scrollTop: number) => void;
+	handleFileTabSearchQueryChange: (tabId: string, searchQuery: string) => void;
+	handleReloadFileTab: (tabId: string) => void;
+
 	handleScrollPositionChange: (scrollTop: number) => void;
 	handleAtBottomChange: (isAtBottom: boolean) => void;
 	handleMainPanelInputBlur: () => void;
@@ -231,8 +213,9 @@ export interface UseMainPanelPropsDeps {
 	handleNavigateBack: () => void;
 	handleNavigateForward: () => void;
 	handleNavigateToIndex: (index: number) => void;
+	handleClearFilePreviewHistory: () => void;
 	handleClearAgentErrorForMainPanel: () => void;
-	handleShowAgentErrorModal: () => void;
+	handleShowAgentErrorModal: (error?: AgentError) => void;
 	showSuccessFlash: (message: string) => void;
 	pinnedItems: PinnedItem[];
 	handleOpenFuzzySearch: () => void;
@@ -273,6 +256,17 @@ export interface UseMainPanelPropsDeps {
 	endInlineWizard: () => void;
 	handleAutoRunRefresh: () => void;
 
+	// File tree refresh
+	refreshFileTree: (sessionId: string) => Promise<FileTreeChanges | undefined>;
+
+	// Open saved file in tab
+	onOpenSavedFileInTab?: (file: {
+		path: string;
+		name: string;
+		content: string;
+		sshRemoteId?: string;
+	}) => void;
+
 	// Complex wizard handlers (passed through from App.tsx)
 	onWizardComplete?: () => void;
 	onWizardLetsGo?: () => void;
@@ -307,16 +301,10 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 			agentSessionsOpen: deps.agentSessionsOpen,
 			activeAgentSessionId: deps.activeAgentSessionId,
 			activeSession: deps.activeSession,
-			thinkingSessions: deps.thinkingSessions,
+			thinkingItems: deps.thinkingItems,
 			theme: deps.theme,
-			fontFamily: deps.fontFamily,
 			isMobileLandscape: deps.isMobileLandscape,
-			activeFocus: deps.activeFocus,
-			outputSearchOpen: deps.outputSearchOpen,
-			outputSearchQuery: deps.outputSearchQuery,
 			inputValue: deps.inputValue,
-			enterToSendAI: deps.enterToSendAI,
-			enterToSendTerminal: deps.enterToSendTerminal,
 			stagedImages: deps.stagedImages,
 			commandHistoryOpen: deps.commandHistoryOpen,
 			commandHistoryFilter: deps.commandHistoryFilter,
@@ -324,29 +312,14 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 			slashCommandOpen: deps.slashCommandOpen,
 			slashCommands: deps.slashCommands,
 			selectedSlashCommandIndex: deps.selectedSlashCommandIndex,
-			previewFile: deps.previewFile,
 			filePreviewLoading: deps.filePreviewLoading,
-			markdownEditMode: deps.markdownEditMode,
-			shortcuts: deps.shortcuts,
-			rightPanelOpen: deps.rightPanelOpen,
-			maxOutputLines: deps.maxOutputLines,
-			gitDiffPreview: deps.gitDiffPreview,
-			fileTreeFilterOpen: deps.fileTreeFilterOpen,
-			logLevel: deps.logLevel,
-			logViewerSelectedLevels: deps.logViewerSelectedLevels,
-			setLogViewerSelectedLevels: deps.setLogViewerSelectedLevels,
 			setGitDiffPreview: deps.setGitDiffPreview,
 			setLogViewerOpen: deps.setLogViewerOpen,
 			setAgentSessionsOpen: deps.setAgentSessionsOpen,
 			setActiveAgentSessionId: deps.setActiveAgentSessionId,
 			onResumeAgentSession: deps.handleResumeSession,
 			onNewAgentSession: deps.handleNewAgentSession,
-			setActiveFocus: deps.setActiveFocus,
-			setOutputSearchOpen: deps.setOutputSearchOpen,
-			setOutputSearchQuery: deps.setOutputSearchQuery,
 			setInputValue: deps.setInputValue,
-			setEnterToSendAI: deps.setEnterToSendAI,
-			setEnterToSendTerminal: deps.setEnterToSendTerminal,
 			setStagedImages: deps.setStagedImages,
 			setLightboxImage: deps.handleSetLightboxImage,
 			setCommandHistoryOpen: deps.setCommandHistoryOpen,
@@ -370,16 +343,10 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 			atMentionSuggestions: deps.atMentionSuggestions,
 			selectedAtMentionIndex: deps.selectedAtMentionIndex,
 			setSelectedAtMentionIndex: deps.setSelectedAtMentionIndex,
-			setPreviewFile: deps.setPreviewFile,
-			setMarkdownEditMode: deps.setMarkdownEditMode,
-			setAboutModalOpen: deps.setAboutModalOpen,
-			setRightPanelOpen: deps.setRightPanelOpen,
 			setGitLogOpen: deps.setGitLogOpen,
 			inputRef: deps.inputRef,
 			logsEndRef: deps.logsEndRef,
 			terminalOutputRef: deps.terminalOutputRef,
-			fileTreeContainerRef: deps.fileTreeContainerRef,
-			fileTreeFilterInputRef: deps.fileTreeFilterInputRef,
 			toggleInputMode: deps.toggleInputMode,
 			processInput: deps.processInput,
 			handleInterrupt: deps.handleInterrupt,
@@ -388,32 +355,40 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 			handleDrop: deps.handleDrop,
 			getContextColor: deps.getContextColor,
 			setActiveSessionId: deps.setActiveSessionId,
-			batchRunState: deps.activeBatchRunState,
 			currentSessionBatchState: deps.currentSessionBatchState,
 			onStopBatchRun: deps.handleStopBatchRun,
-			showConfirmation: deps.showConfirmation,
 			onDeleteLog: deps.handleDeleteLog,
 			onRemoveQueuedItem: deps.handleRemoveQueuedItem,
 			onOpenQueueBrowser: deps.handleOpenQueueBrowser,
-			audioFeedbackCommand: deps.audioFeedbackCommand,
 			// Tab management handlers
 			onTabSelect: deps.handleTabSelect,
 			onTabClose: deps.handleTabClose,
 			onNewTab: deps.handleNewTab,
 			onRequestTabRename: deps.handleRequestTabRename,
 			onTabReorder: deps.handleTabReorder,
+			onUnifiedTabReorder: deps.handleUnifiedTabReorder,
 			onUpdateTabByClaudeSessionId: deps.handleUpdateTabByClaudeSessionId,
 			onTabStar: deps.handleTabStar,
 			onTabLock: deps.handleTabLock,
 			onTabMarkUnread: deps.handleTabMarkUnread,
 			onToggleTabReadOnlyMode: deps.handleToggleTabReadOnlyMode,
-			showUnreadOnly: deps.showUnreadOnly,
 			onToggleUnreadFilter: deps.toggleUnreadFilter,
 			onOpenTabSearch: deps.handleOpenTabSearch,
 			onCloseAllTabs: deps.handleCloseAllTabs,
 			onCloseOtherTabs: deps.handleCloseOtherTabs,
 			onCloseTabsLeft: deps.handleCloseTabsLeft,
 			onCloseTabsRight: deps.handleCloseTabsRight,
+			// Unified tab system props (Phase 4)
+			unifiedTabs: deps.unifiedTabs,
+			activeFileTabId: deps.activeFileTabId,
+			activeFileTab: deps.activeFileTab,
+			onFileTabSelect: deps.handleFileTabSelect,
+			onFileTabClose: deps.handleFileTabClose,
+			onFileTabEditModeChange: deps.handleFileTabEditModeChange,
+			onFileTabEditContentChange: deps.handleFileTabEditContentChange,
+			onFileTabScrollPositionChange: deps.handleFileTabScrollPositionChange,
+			onFileTabSearchQueryChange: deps.handleFileTabSearchQueryChange,
+			onReloadFileTab: deps.handleReloadFileTab,
 			onToggleTabSaveToHistory: deps.handleToggleTabSaveToHistory,
 			onToggleTabShowThinking: deps.handleToggleTabShowThinking,
 			onScrollPositionChange: deps.handleScrollPositionChange,
@@ -434,12 +409,11 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 			forwardHistory: deps.forwardHistory,
 			currentHistoryIndex: deps.filePreviewHistoryIndex,
 			onNavigateToIndex: deps.handleNavigateToIndex,
+			onClearFilePreviewHistory: deps.handleClearFilePreviewHistory,
 			onClearAgentError: deps.activeTab?.agentError
 				? deps.handleClearAgentErrorForMainPanel
 				: undefined,
-			onShowAgentErrorModal: deps.activeTab?.agentError
-				? deps.handleShowAgentErrorModal
-				: undefined,
+			onShowAgentErrorModal: deps.handleShowAgentErrorModal,
 			showFlashNotification: deps.showSuccessFlash,
 			pinnedItems: deps.pinnedItems,
 			onOpenFuzzySearch: deps.handleOpenFuzzySearch,
@@ -485,13 +459,13 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 			onPublishGist: () => deps.setGistPublishModalOpen(true),
 			hasGist: deps.hasGist,
 			onOpenInGraph: () => {
-				if (deps.previewFile && deps.activeSession) {
+				if (deps.activeFileTab && deps.activeSession) {
 					const graphRootPath = deps.activeSession.projectRoot || deps.activeSession.cwd || '';
-					const relativePath = deps.previewFile.path.startsWith(graphRootPath + '/')
-						? deps.previewFile.path.slice(graphRootPath.length + 1)
-						: deps.previewFile.path.startsWith(graphRootPath)
-							? deps.previewFile.path.slice(graphRootPath.length + 1)
-							: deps.previewFile.name;
+					const relativePath = deps.activeFileTab.path.startsWith(graphRootPath + '/')
+						? deps.activeFileTab.path.slice(graphRootPath.length + 1)
+						: deps.activeFileTab.path.startsWith(graphRootPath)
+							? deps.activeFileTab.path.slice(graphRootPath.length + 1)
+							: deps.activeFileTab.name;
 					deps.setGraphFocusFilePath(relativePath);
 					deps.setLastGraphFocusFilePath(relativePath);
 					deps.setIsGraphViewOpen(true);
@@ -514,6 +488,10 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 			allSessions: deps.allSessions,
 			getBatchState: deps.getBatchState,
 			onSwitchToSession: deps.onSwitchToSession,
+			// File tree refresh
+			refreshFileTree: deps.refreshFileTree,
+			// Open saved file in tab
+			onOpenSavedFileInTab: deps.onOpenSavedFileInTab,
 		}),
 		[
 			// Primitive dependencies for minimal re-computation
@@ -525,16 +503,10 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 			deps.activeSession?.inputMode,
 			deps.activeSession?.projectRoot,
 			deps.activeSession?.cwd,
-			deps.thinkingSessions,
+			deps.thinkingItems,
 			deps.theme,
-			deps.fontFamily,
 			deps.isMobileLandscape,
-			deps.activeFocus,
-			deps.outputSearchOpen,
-			deps.outputSearchQuery,
 			deps.inputValue,
-			deps.enterToSendAI,
-			deps.enterToSendTerminal,
 			deps.stagedImages,
 			deps.commandHistoryOpen,
 			deps.commandHistoryFilter,
@@ -542,16 +514,7 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 			deps.slashCommandOpen,
 			deps.slashCommands,
 			deps.selectedSlashCommandIndex,
-			deps.previewFile,
 			deps.filePreviewLoading,
-			deps.markdownEditMode,
-			deps.shortcuts,
-			deps.rightPanelOpen,
-			deps.maxOutputLines,
-			deps.gitDiffPreview,
-			deps.fileTreeFilterOpen,
-			deps.logLevel,
-			deps.logViewerSelectedLevels,
 			deps.tabCompletionOpen,
 			deps.tabCompletionSuggestions,
 			deps.selectedTabCompletionIndex,
@@ -561,7 +524,6 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 			deps.atMentionStartIndex,
 			deps.atMentionSuggestions,
 			deps.selectedAtMentionIndex,
-			deps.activeBatchRunState,
 			deps.currentSessionBatchState,
 			deps.fileTree,
 			deps.canGoBack,
@@ -571,9 +533,6 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 			deps.filePreviewHistoryIndex,
 			deps.activeTab?.agentError,
 			deps.isWorktreeChild,
-			deps.contextWarningsEnabled,
-			deps.contextWarningYellowThreshold,
-			deps.contextWarningRedThreshold,
 			deps.summarizeProgress,
 			deps.summarizeResult,
 			deps.summarizeStartTime,
@@ -585,22 +544,14 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 			deps.mergeTargetName,
 			deps.ghCliAvailable,
 			deps.hasGist,
-			deps.showUnreadOnly,
-			deps.audioFeedbackCommand,
 			// Stable callbacks (shouldn't cause re-renders, but included for completeness)
-			deps.setLogViewerSelectedLevels,
 			deps.setGitDiffPreview,
 			deps.setLogViewerOpen,
 			deps.setAgentSessionsOpen,
 			deps.setActiveAgentSessionId,
 			deps.handleResumeSession,
 			deps.handleNewAgentSession,
-			deps.setActiveFocus,
-			deps.setOutputSearchOpen,
-			deps.setOutputSearchQuery,
 			deps.setInputValue,
-			deps.setEnterToSendAI,
-			deps.setEnterToSendTerminal,
 			deps.setStagedImages,
 			deps.handleSetLightboxImage,
 			deps.setCommandHistoryOpen,
@@ -615,10 +566,6 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 			deps.setAtMentionFilter,
 			deps.setAtMentionStartIndex,
 			deps.setSelectedAtMentionIndex,
-			deps.setPreviewFile,
-			deps.setMarkdownEditMode,
-			deps.setAboutModalOpen,
-			deps.setRightPanelOpen,
 			deps.setGitLogOpen,
 			deps.toggleInputMode,
 			deps.processInput,
@@ -629,7 +576,6 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 			deps.getContextColor,
 			deps.setActiveSessionId,
 			deps.handleStopBatchRun,
-			deps.showConfirmation,
 			deps.handleDeleteLog,
 			deps.handleRemoveQueuedItem,
 			deps.handleOpenQueueBrowser,
@@ -638,6 +584,7 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 			deps.handleNewTab,
 			deps.handleRequestTabRename,
 			deps.handleTabReorder,
+			deps.handleUnifiedTabReorder,
 			deps.handleUpdateTabByClaudeSessionId,
 			deps.handleTabStar,
 			deps.handleTabLock,
@@ -651,6 +598,17 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 			deps.handleCloseOtherTabs,
 			deps.handleCloseTabsLeft,
 			deps.handleCloseTabsRight,
+			// Unified tab system (Phase 4)
+			deps.unifiedTabs,
+			deps.activeFileTabId,
+			deps.activeFileTab,
+			deps.handleFileTabSelect,
+			deps.handleFileTabClose,
+			deps.handleFileTabEditModeChange,
+			deps.handleFileTabEditContentChange,
+			deps.handleFileTabScrollPositionChange,
+			deps.handleFileTabSearchQueryChange,
+			deps.handleReloadFileTab,
 			deps.handleScrollPositionChange,
 			deps.handleAtBottomChange,
 			deps.handleMainPanelInputBlur,
@@ -663,6 +621,7 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 			deps.handleNavigateBack,
 			deps.handleNavigateForward,
 			deps.handleNavigateToIndex,
+			deps.handleClearFilePreviewHistory,
 			deps.handleClearAgentErrorForMainPanel,
 			deps.handleShowAgentErrorModal,
 			deps.showSuccessFlash,
@@ -697,12 +656,14 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 			deps.allSessions,
 			deps.getBatchState,
 			deps.onSwitchToSession,
+			// File tree refresh
+			deps.refreshFileTree,
+			// Open saved file in tab
+			deps.onOpenSavedFileInTab,
 			// Refs (stable, but included for completeness)
 			deps.inputRef,
 			deps.logsEndRef,
 			deps.terminalOutputRef,
-			deps.fileTreeContainerRef,
-			deps.fileTreeFilterInputRef,
 		]
 	);
 }

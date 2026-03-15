@@ -169,11 +169,11 @@ describe('sessionValidation', () => {
 						toolType: 'claude-code',
 					}),
 				];
-				// Different provider (aider) also gets a warning now
+				// Different provider (factory-droid) also gets a warning now
 				const result = validateNewSession(
-					'Aider Agent',
+					'Factory Droid Agent',
 					'/Users/test/project',
-					'aider',
+					'factory-droid',
 					existingSessions
 				);
 				expect(result.valid).toBe(true);
@@ -269,7 +269,7 @@ describe('sessionValidation', () => {
 					createMockSession({
 						name: 'Agent 2',
 						projectRoot: '/Users/test/project',
-						toolType: 'aider',
+						toolType: 'factory-droid',
 					}),
 				];
 				const result = validateNewSession(
@@ -299,7 +299,11 @@ describe('sessionValidation', () => {
 						projectRoot: '/path/two',
 						toolType: 'claude-code',
 					}),
-					createMockSession({ name: 'Session 3', projectRoot: '/path/three', toolType: 'aider' }),
+					createMockSession({
+						name: 'Session 3',
+						projectRoot: '/path/three',
+						toolType: 'factory-droid',
+					}),
 				];
 
 				// Unique name and directory - no warning
@@ -331,7 +335,7 @@ describe('sessionValidation', () => {
 				const diffProviderResult = validateNewSession(
 					'Session 4',
 					'/path/two',
-					'aider',
+					'factory-droid',
 					existingSessions
 				);
 				expect(diffProviderResult.valid).toBe(true);
@@ -372,10 +376,10 @@ describe('sessionValidation', () => {
 					createMockSession({
 						name: 'Existing',
 						projectRoot: '/path',
-						toolType: 'aider',
+						toolType: 'factory-droid',
 					}),
 				];
-				const result = validateNewSession('New', '/path', 'aider', existingSessions);
+				const result = validateNewSession('New', '/path', 'factory-droid', existingSessions);
 				expect(result.valid).toBe(true);
 				expect(result.warning).toBeDefined();
 				expect(result.warning).toContain('Existing');
@@ -393,6 +397,172 @@ describe('sessionValidation', () => {
 				expect(result.valid).toBe(true);
 				expect(result.warning).toBeDefined();
 				expect(result.warning).toContain('Existing');
+			});
+		});
+
+		describe('SSH host awareness', () => {
+			it('does not warn when same directory but different SSH hosts', () => {
+				const existingSessions = [
+					createMockSession({
+						name: 'SSH Agent',
+						projectRoot: '/home/user/project',
+						toolType: 'claude-code',
+						sshRemoteId: 'ssh-remote-1',
+					}),
+				];
+				const result = validateNewSession(
+					'Local Agent',
+					'/home/user/project',
+					'claude-code',
+					existingSessions,
+					'ssh-remote-2'
+				);
+				expect(result.valid).toBe(true);
+				expect(result.warning).toBeUndefined();
+			});
+
+			it('does not warn when same directory but one is local and one is SSH', () => {
+				const existingSessions = [
+					createMockSession({
+						name: 'SSH Agent',
+						projectRoot: '/Users/test/project',
+						toolType: 'claude-code',
+						sshRemoteId: 'ssh-remote-1',
+					}),
+				];
+				// New agent is local (no sshRemoteId)
+				const result = validateNewSession(
+					'Local Agent',
+					'/Users/test/project',
+					'claude-code',
+					existingSessions
+				);
+				expect(result.valid).toBe(true);
+				expect(result.warning).toBeUndefined();
+			});
+
+			it('does not warn when local agent exists and new agent is SSH', () => {
+				const existingSessions = [
+					createMockSession({
+						name: 'Local Agent',
+						projectRoot: '/Users/test/project',
+						toolType: 'claude-code',
+					}),
+				];
+				const result = validateNewSession(
+					'SSH Agent',
+					'/Users/test/project',
+					'claude-code',
+					existingSessions,
+					'ssh-remote-1'
+				);
+				expect(result.valid).toBe(true);
+				expect(result.warning).toBeUndefined();
+			});
+
+			it('warns when same directory and same SSH host', () => {
+				const existingSessions = [
+					createMockSession({
+						name: 'SSH Agent 1',
+						projectRoot: '/home/user/project',
+						toolType: 'claude-code',
+						sshRemoteId: 'ssh-remote-1',
+					}),
+				];
+				const result = validateNewSession(
+					'SSH Agent 2',
+					'/home/user/project',
+					'claude-code',
+					existingSessions,
+					'ssh-remote-1'
+				);
+				expect(result.valid).toBe(true);
+				expect(result.warning).toBeDefined();
+				expect(result.conflictingAgents).toEqual(['SSH Agent 1']);
+			});
+
+			it('warns when same directory and both are local', () => {
+				const existingSessions = [
+					createMockSession({
+						name: 'Local Agent 1',
+						projectRoot: '/Users/test/project',
+						toolType: 'claude-code',
+					}),
+				];
+				const result = validateNewSession(
+					'Local Agent 2',
+					'/Users/test/project',
+					'claude-code',
+					existingSessions
+				);
+				expect(result.valid).toBe(true);
+				expect(result.warning).toBeDefined();
+				expect(result.conflictingAgents).toEqual(['Local Agent 1']);
+			});
+
+			it('resolves SSH remote from sessionSshRemoteConfig (canonical source)', () => {
+				const existingSessions = [
+					createMockSession({
+						name: 'SSH Agent',
+						projectRoot: '/home/user/project',
+						toolType: 'claude-code',
+						sessionSshRemoteConfig: { enabled: true, remoteId: 'ssh-remote-1' },
+					}),
+				];
+				// Same SSH remote should warn
+				const sameResult = validateNewSession(
+					'SSH Agent 2',
+					'/home/user/project',
+					'claude-code',
+					existingSessions,
+					'ssh-remote-1'
+				);
+				expect(sameResult.valid).toBe(true);
+				expect(sameResult.warning).toBeDefined();
+				expect(sameResult.conflictingAgents).toEqual(['SSH Agent']);
+
+				// Different SSH remote should not warn
+				const diffResult = validateNewSession(
+					'SSH Agent 3',
+					'/home/user/project',
+					'claude-code',
+					existingSessions,
+					'ssh-remote-2'
+				);
+				expect(diffResult.valid).toBe(true);
+				expect(diffResult.warning).toBeUndefined();
+
+				// Local agent should not warn
+				const localResult = validateNewSession(
+					'Local Agent',
+					'/home/user/project',
+					'claude-code',
+					existingSessions
+				);
+				expect(localResult.valid).toBe(true);
+				expect(localResult.warning).toBeUndefined();
+			});
+
+			it('uses sshRemote.id as fallback when sshRemoteId is not set', () => {
+				const existingSessions = [
+					createMockSession({
+						name: 'SSH Agent',
+						projectRoot: '/home/user/project',
+						toolType: 'claude-code',
+						sshRemote: { id: 'ssh-remote-1', name: 'My Server', host: 'server.example.com' },
+					}),
+				];
+				// Same SSH remote should warn
+				const result = validateNewSession(
+					'SSH Agent 2',
+					'/home/user/project',
+					'claude-code',
+					existingSessions,
+					'ssh-remote-1'
+				);
+				expect(result.valid).toBe(true);
+				expect(result.warning).toBeDefined();
+				expect(result.conflictingAgents).toEqual(['SSH Agent']);
 			});
 		});
 

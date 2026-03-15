@@ -1,13 +1,4 @@
-/**
- * SettingsModal - Tab orchestrator
- *
- * Manages tab selection state, modal chrome, layer stack registration,
- * and delegates rendering to tab components.
- *
- * Extracted from the monolithic SettingsModal.tsx.
- */
-
-import React, { useState, useEffect, useRef, memo, useCallback } from 'react';
+import { useState, useEffect, useRef, memo } from 'react';
 import {
 	X,
 	Key,
@@ -16,20 +7,12 @@ import {
 	Cpu,
 	Settings,
 	Palette,
+	FlaskConical,
 	Server,
-	ClipboardCheck,
-	Activity,
 	Monitor,
 } from 'lucide-react';
 import { useSettings } from '../../hooks';
-import type {
-	Theme,
-	ThemeColors,
-	ThemeId,
-	Shortcut,
-	CustomAICommand,
-	LLMProvider,
-} from '../../types';
+import type { Theme, LLMProvider } from '../../types';
 import { useLayerStack } from '../../contexts/LayerStackContext';
 import { MODAL_PRIORITIES } from '../../constants/modalPriorities';
 import { AICommandsPanel } from '../AICommandsPanel';
@@ -37,111 +20,36 @@ import { SpecKitCommandsPanel } from '../SpecKitCommandsPanel';
 import { OpenSpecCommandsPanel } from '../OpenSpecCommandsPanel';
 import { NotificationsPanel } from '../NotificationsPanel';
 import { SshRemotesSection } from './SshRemotesSection';
-import { AuditsSettingsTab } from './AuditsSettingsTab';
-import { HoneycombSettingsSection } from '../HoneycombSettingsSection';
-import { useHoneycombUsage } from '../../hooks/useHoneycombUsage';
-import { PlanCalibrationSettings } from '../PlanCalibrationSettings';
-import { CalibrationHistoryModal } from '../CalibrationHistoryModal';
-import { GeneralTab, DisplayTab, ShortcutsTab, ThemeTab } from './tabs';
+import { SshRemoteIgnoreSection } from './SshRemoteIgnoreSection';
+import { GeneralTab } from './tabs/GeneralTab';
+import { DisplayTab } from './tabs/DisplayTab';
+import { EncoreTab } from './tabs/EncoreTab';
+import { ShortcutsTab } from './tabs/ShortcutsTab';
+import { ThemeTab } from './tabs/ThemeTab';
 
 // Feature flags - set to true to enable dormant features
 const FEATURE_FLAGS = {
 	LLM_SETTINGS: false, // LLM provider configuration (OpenRouter, Anthropic, Ollama)
 };
 
-type SettingsTabId =
-	| 'general'
-	| 'display'
-	| 'llm'
-	| 'shortcuts'
-	| 'theme'
-	| 'notifications'
-	| 'aicommands'
-	| 'ssh'
-	| 'audits'
-	| 'honeycomb';
-
 interface SettingsModalProps {
 	isOpen: boolean;
 	onClose: () => void;
 	theme: Theme;
 	themes: Record<string, Theme>;
-	activeThemeId: ThemeId;
-	setActiveThemeId: (id: ThemeId) => void;
-	customThemeColors: ThemeColors;
-	setCustomThemeColors: (colors: ThemeColors) => void;
-	customThemeBaseId: ThemeId;
-	setCustomThemeBaseId: (id: ThemeId) => void;
-	llmProvider: LLMProvider;
-	setLlmProvider: (provider: LLMProvider) => void;
-	modelSlug: string;
-	setModelSlug: (slug: string) => void;
-	apiKey: string;
-	setApiKey: (key: string) => void;
-	shortcuts: Record<string, Shortcut>;
-	setShortcuts: (shortcuts: Record<string, Shortcut>) => void;
-	tabShortcuts: Record<string, Shortcut>;
-	setTabShortcuts: (shortcuts: Record<string, Shortcut>) => void;
-	fontFamily: string;
-	setFontFamily: (font: string) => void;
-	fontSize: number;
-	setFontSize: (size: number) => void;
-	terminalWidth: number;
-	setTerminalWidth: (width: number) => void;
-	logLevel: string;
-	setLogLevel: (level: string) => void;
-	maxLogBuffer: number;
-	setMaxLogBuffer: (buffer: number) => void;
-	maxOutputLines: number;
-	setMaxOutputLines: (lines: number) => void;
-	defaultShell: string;
-	setDefaultShell: (shell: string) => void;
-	customShellPath: string;
-	setCustomShellPath: (path: string) => void;
-	shellArgs: string;
-	setShellArgs: (args: string) => void;
-	shellEnvVars: Record<string, string>;
-	setShellEnvVars: (vars: Record<string, string>) => void;
-	ghPath: string;
-	setGhPath: (path: string) => void;
-	enterToSendAI: boolean;
-	setEnterToSendAI: (value: boolean) => void;
-	enterToSendTerminal: boolean;
-	setEnterToSendTerminal: (value: boolean) => void;
-	defaultSaveToHistory: boolean;
-	setDefaultSaveToHistory: (value: boolean) => void;
-	defaultShowThinking: boolean;
-	setDefaultShowThinking: (value: boolean) => void;
-	groupChatDefaultShowThinking: boolean;
-	setGroupChatDefaultShowThinking: (value: boolean) => void;
-	osNotificationsEnabled: boolean;
-	setOsNotificationsEnabled: (value: boolean) => void;
-	audioFeedbackEnabled: boolean;
-	setAudioFeedbackEnabled: (value: boolean) => void;
-	audioFeedbackCommand: string;
-	setAudioFeedbackCommand: (value: string) => void;
-	toastDuration: number;
-	setToastDuration: (value: number) => void;
-	checkForUpdatesOnStartup: boolean;
-	setCheckForUpdatesOnStartup: (value: boolean) => void;
-	enableBetaUpdates: boolean;
-	setEnableBetaUpdates: (value: boolean) => void;
-	checkForNewModelsOnStartup: boolean;
-	setCheckForNewModelsOnStartup: (value: boolean) => void;
-	crashReportingEnabled: boolean;
-	setCrashReportingEnabled: (value: boolean) => void;
-	customAICommands: CustomAICommand[];
-	setCustomAICommands: (commands: CustomAICommand[]) => void;
-	initialTab?: SettingsTabId;
+	initialTab?:
+		| 'general'
+		| 'display'
+		| 'llm'
+		| 'shortcuts'
+		| 'theme'
+		| 'notifications'
+		| 'aicommands'
+		| 'ssh'
+		| 'encore';
 	hasNoAgents?: boolean;
 	onThemeImportError?: (message: string) => void;
 	onThemeImportSuccess?: (message: string) => void;
-	themeMode: 'manual' | 'system';
-	onThemeModeChange: (mode: 'manual' | 'system') => void;
-	lightThemeId: ThemeId;
-	onLightThemeIdChange: (id: ThemeId) => void;
-	darkThemeId: ThemeId;
-	onDarkThemeIdChange: (id: ThemeId) => void;
 }
 
 export const SettingsModal = memo(function SettingsModal(props: SettingsModalProps) {
@@ -151,63 +59,61 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 		theme,
 		themes,
 		initialTab,
-		themeMode,
-		onThemeModeChange,
-		lightThemeId,
-		onLightThemeIdChange,
-		darkThemeId,
-		onDarkThemeIdChange,
+		hasNoAgents,
+		onThemeImportError,
+		onThemeImportSuccess,
 	} = props;
 
-	// Honeycomb & calibration settings from useSettings hook
+	// All settings from useSettings hook (self-sourced, Tier 1B)
+	// General tab settings are now self-sourced by GeneralTab
+	// Display tab settings are now self-sourced by DisplayTab
 	const {
-		honeycombWarningSettings,
-		updateHoneycombWarningSettings,
-		honeycombDataSource,
-		setHoneycombDataSource,
-		honeycombMcpApiKey,
-		setHoneycombMcpApiKey,
-		honeycombEnvironmentSlug,
-		setHoneycombEnvironmentSlug,
-		honeycombMcpRegion,
-		setHoneycombMcpRegion,
-		honeycombApiKey,
-		setHoneycombApiKey,
-		honeycombDatasetSlug,
-		setHoneycombDatasetSlug,
-		planCalibration,
-		setPlanCalibration,
+		// LLM settings
+		llmProvider,
+		setLlmProvider,
+		modelSlug,
+		setModelSlug,
+		apiKey,
+		setApiKey,
+		// Notification settings
+		osNotificationsEnabled,
+		setOsNotificationsEnabled,
+		audioFeedbackEnabled,
+		setAudioFeedbackEnabled,
+		audioFeedbackCommand,
+		setAudioFeedbackCommand,
+		toastDuration,
+		setToastDuration,
+		// AI Commands
+		customAICommands,
+		setCustomAICommands,
+		// SSH Remote file indexing settings
+		sshRemoteIgnorePatterns,
+		setSshRemoteIgnorePatterns,
+		sshRemoteHonorGitignore,
+		setSshRemoteHonorGitignore,
 	} = useSettings();
 
-	const [activeTab, setActiveTab] = useState<SettingsTabId>('general');
-
-	// LLM test state (only used when FEATURE_FLAGS.LLM_SETTINGS is true)
+	const [activeTab, setActiveTab] = useState<
+		| 'general'
+		| 'display'
+		| 'llm'
+		| 'shortcuts'
+		| 'theme'
+		| 'notifications'
+		| 'aicommands'
+		| 'ssh'
+		| 'encore'
+	>('general');
 	const [testingLLM, setTestingLLM] = useState(false);
 	const [testResult, setTestResult] = useState<{
 		status: 'success' | 'error' | null;
 		message: string;
 	}>({ status: null, message: '' });
-
-	// Calibration history modal state
-	const [showCalibrationHistory, setShowCalibrationHistory] = useState(false);
-
-	// Honeycomb usage data for calibration
-	const { data: honeycombUsageDataForCalibration } = useHoneycombUsage();
-
-	const getHoneycombBillableTokens = useCallback(
-		async (window: '5hr' | 'weekly' | 'sonnet-weekly'): Promise<number> => {
-			if (!honeycombUsageDataForCalibration) throw new Error('Honeycomb data not available');
-			if (window === '5hr') return honeycombUsageDataForCalibration.fiveHourBillableTokens;
-			if (window === 'sonnet-weekly')
-				return honeycombUsageDataForCalibration.sonnetWeeklyBillableTokens;
-			return honeycombUsageDataForCalibration.weeklyBillableTokens;
-		},
-		[honeycombUsageDataForCalibration]
-	);
-
 	// Layer stack integration
-	const { registerLayer, unregisterLayer, updateLayerHandler } = useLayerStack();
+	const { registerLayer, unregisterLayer } = useLayerStack();
 	const layerIdRef = useRef<string>();
+	const isRecordingShortcutRef = useRef(false);
 
 	useEffect(() => {
 		if (isOpen) {
@@ -232,6 +138,8 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 			focusTrap: 'strict',
 			ariaLabel: 'Settings',
 			onEscape: () => {
+				// If recording a shortcut, ShortcutsTab handles its own escape via onKeyDownCapture
+				if (isRecordingShortcutRef.current) return;
 				onCloseRef.current();
 			},
 		});
@@ -243,23 +151,24 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 				unregisterLayer(layerIdRef.current);
 			}
 		};
-	}, [isOpen, registerLayer, unregisterLayer]);
-
-	// Update handler when dependencies change
-	useEffect(() => {
-		if (!isOpen || !layerIdRef.current) return;
-
-		updateLayerHandler(layerIdRef.current, () => {
-			onCloseRef.current();
-		});
-	}, [isOpen, updateLayerHandler]);
+	}, [isOpen, registerLayer, unregisterLayer]); // Removed onClose from deps
 
 	// Tab navigation with Cmd+Shift+[ and ]
 	useEffect(() => {
 		if (!isOpen) return;
 
 		const handleTabNavigation = (e: KeyboardEvent) => {
-			const tabs: SettingsTabId[] = FEATURE_FLAGS.LLM_SETTINGS
+			const tabs: Array<
+				| 'general'
+				| 'display'
+				| 'llm'
+				| 'shortcuts'
+				| 'theme'
+				| 'notifications'
+				| 'aicommands'
+				| 'ssh'
+				| 'encore'
+			> = FEATURE_FLAGS.LLM_SETTINGS
 				? [
 						'general',
 						'display',
@@ -269,8 +178,7 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 						'notifications',
 						'aicommands',
 						'ssh',
-						'audits',
-						'honeycomb',
+						'encore',
 					]
 				: [
 						'general',
@@ -280,8 +188,7 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 						'notifications',
 						'aicommands',
 						'ssh',
-						'audits',
-						'honeycomb',
+						'encore',
 					];
 			const currentIndex = tabs.indexOf(activeTab);
 
@@ -308,20 +215,20 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 			let response;
 			const testPrompt = 'Respond with exactly: "Connection successful"';
 
-			if (props.llmProvider === 'openrouter') {
-				if (!props.apiKey) {
+			if (llmProvider === 'openrouter') {
+				if (!apiKey) {
 					throw new Error('API key is required for OpenRouter');
 				}
 
 				response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
 					method: 'POST',
 					headers: {
-						Authorization: `Bearer ${props.apiKey}`,
+						Authorization: `Bearer ${apiKey}`,
 						'Content-Type': 'application/json',
 						'HTTP-Referer': 'https://maestro.local',
 					},
 					body: JSON.stringify({
-						model: props.modelSlug || 'anthropic/claude-3.5-sonnet',
+						model: modelSlug || 'anthropic/claude-3.5-sonnet',
 						messages: [{ role: 'user', content: testPrompt }],
 						max_tokens: 50,
 					}),
@@ -341,20 +248,20 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 					status: 'success',
 					message: 'Successfully connected to OpenRouter!',
 				});
-			} else if (props.llmProvider === 'anthropic') {
-				if (!props.apiKey) {
+			} else if (llmProvider === 'anthropic') {
+				if (!apiKey) {
 					throw new Error('API key is required for Anthropic');
 				}
 
 				response = await fetch('https://api.anthropic.com/v1/messages', {
 					method: 'POST',
 					headers: {
-						'x-api-key': props.apiKey,
+						'x-api-key': apiKey,
 						'anthropic-version': '2023-06-01',
 						'Content-Type': 'application/json',
 					},
 					body: JSON.stringify({
-						model: props.modelSlug || 'claude-3-5-sonnet-20241022',
+						model: modelSlug || 'claude-3-5-sonnet-20241022',
 						max_tokens: 50,
 						messages: [{ role: 'user', content: testPrompt }],
 					}),
@@ -374,14 +281,14 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 					status: 'success',
 					message: 'Successfully connected to Anthropic!',
 				});
-			} else if (props.llmProvider === 'ollama') {
+			} else if (llmProvider === 'ollama') {
 				response = await fetch('http://localhost:11434/api/generate', {
 					method: 'POST',
 					headers: {
 						'Content-Type': 'application/json',
 					},
 					body: JSON.stringify({
-						model: props.modelSlug || 'llama3:latest',
+						model: modelSlug || 'llama3:latest',
 						prompt: testPrompt,
 						stream: false,
 					}),
@@ -423,14 +330,13 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 			aria-label="Settings"
 		>
 			<div
-				className="w-[650px] h-[600px] rounded-xl border shadow-2xl overflow-hidden flex flex-col"
+				className="w-[780px] h-[720px] rounded-xl border shadow-2xl overflow-hidden flex flex-col"
 				style={{ backgroundColor: theme.colors.bgSidebar, borderColor: theme.colors.border }}
 			>
 				<div className="flex border-b" style={{ borderColor: theme.colors.border }}>
 					<button
 						onClick={() => setActiveTab('general')}
-						className={`px-4 py-4 text-sm font-bold border-b-2 ${activeTab === 'general' ? 'border-indigo-500' : 'border-transparent'} flex items-center gap-2`}
-						tabIndex={-1}
+						className={`px-4 py-4 text-sm font-bold border-b-2 cursor-pointer ${activeTab === 'general' ? 'border-indigo-500' : 'border-transparent'} flex items-center gap-2`}
 						title="General"
 					>
 						<Settings className="w-4 h-4" />
@@ -438,8 +344,7 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 					</button>
 					<button
 						onClick={() => setActiveTab('display')}
-						className={`px-4 py-4 text-sm font-bold border-b-2 ${activeTab === 'display' ? 'border-indigo-500' : 'border-transparent'} flex items-center gap-2`}
-						tabIndex={-1}
+						className={`px-4 py-4 text-sm font-bold border-b-2 cursor-pointer ${activeTab === 'display' ? 'border-indigo-500' : 'border-transparent'} flex items-center gap-2`}
 						title="Display"
 					>
 						<Monitor className="w-4 h-4" />
@@ -448,8 +353,7 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 					{FEATURE_FLAGS.LLM_SETTINGS && (
 						<button
 							onClick={() => setActiveTab('llm')}
-							className={`px-4 py-4 text-sm font-bold border-b-2 ${activeTab === 'llm' ? 'border-indigo-500' : 'border-transparent'}`}
-							tabIndex={-1}
+							className={`px-4 py-4 text-sm font-bold border-b-2 cursor-pointer ${activeTab === 'llm' ? 'border-indigo-500' : 'border-transparent'}`}
 							title="LLM"
 						>
 							LLM
@@ -457,8 +361,7 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 					)}
 					<button
 						onClick={() => setActiveTab('shortcuts')}
-						className={`px-4 py-4 text-sm font-bold border-b-2 ${activeTab === 'shortcuts' ? 'border-indigo-500' : 'border-transparent'} flex items-center gap-2`}
-						tabIndex={-1}
+						className={`px-4 py-4 text-sm font-bold border-b-2 cursor-pointer ${activeTab === 'shortcuts' ? 'border-indigo-500' : 'border-transparent'} flex items-center gap-2`}
 						title="Shortcuts"
 					>
 						<Keyboard className="w-4 h-4" />
@@ -466,8 +369,7 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 					</button>
 					<button
 						onClick={() => setActiveTab('theme')}
-						className={`px-4 py-4 text-sm font-bold border-b-2 ${activeTab === 'theme' ? 'border-indigo-500' : 'border-transparent'} flex items-center gap-2`}
-						tabIndex={-1}
+						className={`px-4 py-4 text-sm font-bold border-b-2 cursor-pointer ${activeTab === 'theme' ? 'border-indigo-500' : 'border-transparent'} flex items-center gap-2`}
 						title="Themes"
 					>
 						<Palette className="w-4 h-4" />
@@ -475,8 +377,7 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 					</button>
 					<button
 						onClick={() => setActiveTab('notifications')}
-						className={`px-4 py-4 text-sm font-bold border-b-2 ${activeTab === 'notifications' ? 'border-indigo-500' : 'border-transparent'} flex items-center gap-2`}
-						tabIndex={-1}
+						className={`px-4 py-4 text-sm font-bold border-b-2 cursor-pointer ${activeTab === 'notifications' ? 'border-indigo-500' : 'border-transparent'} flex items-center gap-2`}
 						title="Notifications"
 					>
 						<Bell className="w-4 h-4" />
@@ -484,8 +385,7 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 					</button>
 					<button
 						onClick={() => setActiveTab('aicommands')}
-						className={`px-4 py-4 text-sm font-bold border-b-2 ${activeTab === 'aicommands' ? 'border-indigo-500' : 'border-transparent'} flex items-center gap-2`}
-						tabIndex={-1}
+						className={`px-4 py-4 text-sm font-bold border-b-2 cursor-pointer ${activeTab === 'aicommands' ? 'border-indigo-500' : 'border-transparent'} flex items-center gap-2`}
 						title="AI Commands"
 					>
 						<Cpu className="w-4 h-4" />
@@ -493,35 +393,25 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 					</button>
 					<button
 						onClick={() => setActiveTab('ssh')}
-						className={`px-4 py-4 text-sm font-bold border-b-2 ${activeTab === 'ssh' ? 'border-indigo-500' : 'border-transparent'} flex items-center gap-2`}
-						tabIndex={-1}
+						className={`px-4 py-4 text-sm font-bold border-b-2 cursor-pointer ${activeTab === 'ssh' ? 'border-indigo-500' : 'border-transparent'} flex items-center gap-2`}
 						title="SSH Hosts"
 					>
 						<Server className="w-4 h-4" />
 						{activeTab === 'ssh' && <span>SSH Hosts</span>}
 					</button>
 					<button
-						onClick={() => setActiveTab('audits')}
-						className={`px-4 py-4 text-sm font-bold border-b-2 ${activeTab === 'audits' ? 'border-indigo-500' : 'border-transparent'} flex items-center gap-2`}
-						tabIndex={-1}
-						title="Audits"
+						onClick={() => setActiveTab('encore')}
+						className={`px-4 py-4 text-sm font-bold border-b-2 cursor-pointer ${activeTab === 'encore' ? 'border-indigo-500' : 'border-transparent'} flex items-center gap-2`}
+						style={{
+							color: activeTab === 'encore' ? theme.colors.textMain : theme.colors.textDim,
+						}}
+						title="Encore Features"
 					>
-						<ClipboardCheck className="w-4 h-4" />
-						{activeTab === 'audits' && <span>Audits</span>}
-					</button>
-					<button
-						onClick={() => setActiveTab('honeycomb')}
-						className={`px-4 py-4 text-sm font-bold border-b-2 ${
-							activeTab === 'honeycomb' ? 'border-indigo-500' : 'border-transparent'
-						} flex items-center gap-2`}
-						tabIndex={-1}
-						title="Honeycomb"
-					>
-						<Activity className="w-4 h-4" />
-						{activeTab === 'honeycomb' && <span>Honeycomb</span>}
+						<FlaskConical className="w-4 h-4" />
+						{activeTab === 'encore' && <span>Encore Features</span>}
 					</button>
 					<div className="flex-1 flex justify-end items-center pr-4">
-						<button onClick={onClose} tabIndex={-1}>
+						<button onClick={onClose} className="cursor-pointer">
 							<X className="w-5 h-5 opacity-50 hover:opacity-100" />
 						</button>
 					</div>
@@ -535,12 +425,12 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 					{activeTab === 'llm' && FEATURE_FLAGS.LLM_SETTINGS && (
 						<div className="space-y-5">
 							<div>
-								<label className="block text-xs font-bold opacity-70 uppercase mb-2">
+								<div className="block text-xs font-bold opacity-70 uppercase mb-2">
 									LLM Provider
-								</label>
+								</div>
 								<select
-									value={props.llmProvider}
-									onChange={(e) => props.setLlmProvider(e.target.value as LLMProvider)}
+									value={llmProvider}
+									onChange={(e) => setLlmProvider(e.target.value as LLMProvider)}
 									className="w-full p-2 rounded border bg-transparent outline-none"
 									style={{ borderColor: theme.colors.border }}
 								>
@@ -551,25 +441,21 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 							</div>
 
 							<div>
-								<label className="block text-xs font-bold opacity-70 uppercase mb-2">
-									Model Slug
-								</label>
+								<div className="block text-xs font-bold opacity-70 uppercase mb-2">Model Slug</div>
 								<input
-									value={props.modelSlug}
-									onChange={(e) => props.setModelSlug(e.target.value)}
+									value={modelSlug}
+									onChange={(e) => setModelSlug(e.target.value)}
 									className="w-full p-2 rounded border bg-transparent outline-none"
 									style={{ borderColor: theme.colors.border }}
 									placeholder={
-										props.llmProvider === 'ollama' ? 'llama3:latest' : 'anthropic/claude-3.5-sonnet'
+										llmProvider === 'ollama' ? 'llama3:latest' : 'anthropic/claude-3.5-sonnet'
 									}
 								/>
 							</div>
 
-							{props.llmProvider !== 'ollama' && (
+							{llmProvider !== 'ollama' && (
 								<div>
-									<label className="block text-xs font-bold opacity-70 uppercase mb-2">
-										API Key
-									</label>
+									<div className="block text-xs font-bold opacity-70 uppercase mb-2">API Key</div>
 									<div
 										className="flex items-center border rounded px-3 py-2"
 										style={{
@@ -580,8 +466,8 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 										<Key className="w-4 h-4 mr-2 opacity-50" />
 										<input
 											type="password"
-											value={props.apiKey}
-											onChange={(e) => props.setApiKey(e.target.value)}
+											value={apiKey}
+											onChange={(e) => setApiKey(e.target.value)}
 											className="bg-transparent flex-1 text-sm outline-none"
 											placeholder="sk-..."
 										/>
@@ -596,7 +482,7 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 							<div className="pt-4 border-t" style={{ borderColor: theme.colors.border }}>
 								<button
 									onClick={testLLMConnection}
-									disabled={testingLLM || (props.llmProvider !== 'ollama' && !props.apiKey)}
+									disabled={testingLLM || (llmProvider !== 'ollama' && !apiKey)}
 									className="w-full py-3 rounded-lg font-bold text-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed"
 									style={{
 										backgroundColor: theme.colors.accent,
@@ -631,40 +517,34 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 					)}
 
 					{activeTab === 'shortcuts' && (
-						<ShortcutsTab theme={theme} hasNoAgents={props.hasNoAgents} />
+						<ShortcutsTab
+							theme={theme}
+							hasNoAgents={hasNoAgents}
+							onRecordingChange={(isRecording) => {
+								isRecordingShortcutRef.current = isRecording;
+							}}
+						/>
 					)}
 
 					{activeTab === 'theme' && (
 						<ThemeTab
 							theme={theme}
 							themes={themes}
-							activeThemeId={props.activeThemeId}
-							setActiveThemeId={props.setActiveThemeId}
-							customThemeColors={props.customThemeColors}
-							setCustomThemeColors={props.setCustomThemeColors}
-							customThemeBaseId={props.customThemeBaseId}
-							setCustomThemeBaseId={props.setCustomThemeBaseId}
-							themeMode={themeMode}
-							onThemeModeChange={onThemeModeChange}
-							lightThemeId={lightThemeId}
-							onLightThemeIdChange={onLightThemeIdChange}
-							darkThemeId={darkThemeId}
-							onDarkThemeIdChange={onDarkThemeIdChange}
-							onThemeImportError={props.onThemeImportError}
-							onThemeImportSuccess={props.onThemeImportSuccess}
+							onThemeImportError={onThemeImportError}
+							onThemeImportSuccess={onThemeImportSuccess}
 						/>
 					)}
 
 					{activeTab === 'notifications' && (
 						<NotificationsPanel
-							osNotificationsEnabled={props.osNotificationsEnabled}
-							setOsNotificationsEnabled={props.setOsNotificationsEnabled}
-							audioFeedbackEnabled={props.audioFeedbackEnabled}
-							setAudioFeedbackEnabled={props.setAudioFeedbackEnabled}
-							audioFeedbackCommand={props.audioFeedbackCommand}
-							setAudioFeedbackCommand={props.setAudioFeedbackCommand}
-							toastDuration={props.toastDuration}
-							setToastDuration={props.setToastDuration}
+							osNotificationsEnabled={osNotificationsEnabled}
+							setOsNotificationsEnabled={setOsNotificationsEnabled}
+							audioFeedbackEnabled={audioFeedbackEnabled}
+							setAudioFeedbackEnabled={setAudioFeedbackEnabled}
+							audioFeedbackCommand={audioFeedbackCommand}
+							setAudioFeedbackCommand={setAudioFeedbackCommand}
+							toastDuration={toastDuration}
+							setToastDuration={setToastDuration}
 							theme={theme}
 						/>
 					)}
@@ -673,8 +553,8 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 						<div className="space-y-8">
 							<AICommandsPanel
 								theme={theme}
-								customAICommands={props.customAICommands}
-								setCustomAICommands={props.setCustomAICommands}
+								customAICommands={customAICommands}
+								setCustomAICommands={setCustomAICommands}
 							/>
 
 							{/* Divider */}
@@ -694,53 +574,19 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 					{activeTab === 'ssh' && (
 						<div className="space-y-5">
 							<SshRemotesSection theme={theme} />
+							<SshRemoteIgnoreSection
+								theme={theme}
+								ignorePatterns={sshRemoteIgnorePatterns}
+								onIgnorePatternsChange={setSshRemoteIgnorePatterns}
+								honorGitignore={sshRemoteHonorGitignore}
+								onHonorGitignoreChange={setSshRemoteHonorGitignore}
+							/>
 						</div>
 					)}
 
-					{activeTab === 'audits' && (
-						<div className="space-y-5">
-							<AuditsSettingsTab theme={theme} />
-						</div>
-					)}
-
-					{activeTab === 'honeycomb' && (
-						<>
-							<HoneycombSettingsSection
-								theme={theme}
-								settings={honeycombWarningSettings}
-								onUpdate={updateHoneycombWarningSettings}
-								hasCalibrationData={planCalibration.calibrationPoints.length > 0}
-								dataSource={honeycombDataSource}
-								onDataSourceChange={setHoneycombDataSource}
-								mcpApiKey={honeycombMcpApiKey}
-								onMcpApiKeyChange={setHoneycombMcpApiKey}
-								environmentSlug={honeycombEnvironmentSlug}
-								onEnvironmentSlugChange={setHoneycombEnvironmentSlug}
-								mcpRegion={honeycombMcpRegion}
-								onMcpRegionChange={setHoneycombMcpRegion}
-								apiKey={honeycombApiKey}
-								onApiKeyChange={setHoneycombApiKey}
-								datasetSlug={honeycombDatasetSlug}
-								onDatasetSlugChange={setHoneycombDatasetSlug}
-							/>
-							<PlanCalibrationSettings
-								theme={theme}
-								calibration={planCalibration}
-								onCalibrationUpdate={setPlanCalibration}
-								onViewHistory={() => setShowCalibrationHistory(true)}
-								getHoneycombBillableTokens={getHoneycombBillableTokens}
-							/>
-						</>
-					)}
+					{activeTab === 'encore' && <EncoreTab theme={theme} isOpen={isOpen} />}
 				</div>
 			</div>
-
-			<CalibrationHistoryModal
-				theme={theme}
-				calibration={planCalibration}
-				isOpen={showCalibrationHistory}
-				onClose={() => setShowCalibrationHistory(false)}
-			/>
 		</div>
 	);
 });

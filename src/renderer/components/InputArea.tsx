@@ -16,9 +16,14 @@ import {
 	Brain,
 	Wand2,
 	Library,
+	Pin,
 } from 'lucide-react';
-import type { Session, Theme, BatchRunState, Shortcut, PinnedItem } from '../types';
-import { formatShortcutKeys } from '../utils/shortcutFormatter';
+import type { Session, Theme, BatchRunState, Shortcut, PinnedItem, ThinkingMode, ThinkingItem } from '../types';
+import {
+	formatShortcutKeys,
+	formatEnterToSend,
+	formatEnterToSendTooltip,
+} from '../utils/shortcutFormatter';
 import { PinAutocomplete } from './PinAutocomplete';
 import { getPartialPinVariable } from '../utils/pinVariableResolver';
 import type { TabCompletionSuggestion, TabCompletionFilter } from '../hooks';
@@ -111,9 +116,9 @@ interface InputAreaProps {
 	}>;
 	selectedAtMentionIndex?: number;
 	setSelectedAtMentionIndex?: (index: number) => void;
-	// ThinkingStatusPill props - PERF: receive pre-filtered thinkingSessions instead of full sessions
+	// ThinkingStatusPill props - PERF: receive pre-filtered thinkingItems instead of full sessions
 	// This prevents re-renders when unrelated session updates occur (e.g., terminal output)
-	thinkingSessions?: Session[];
+	thinkingItems?: ThinkingItem[];
 	namedSessions?: Record<string, string>;
 	onSessionClick?: (sessionId: string, tabId?: string) => void;
 	autoRunState?: BatchRunState;
@@ -134,8 +139,8 @@ interface InputAreaProps {
 	shortcuts?: Record<string, Shortcut>;
 	// Flash notification callback
 	showFlashNotification?: (message: string) => void;
-	// Show Thinking toggle (per-tab)
-	tabShowThinking?: boolean;
+	// Show Thinking toggle (per-tab) - three states: 'off' | 'on' | 'sticky'
+	tabShowThinking?: ThinkingMode;
 	onToggleTabShowThinking?: () => void;
 	supportsThinking?: boolean; // From agent capabilities
 	// Context warning sash props (Phase 6)
@@ -227,7 +232,7 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 		atMentionSuggestions = [],
 		selectedAtMentionIndex = 0,
 		setSelectedAtMentionIndex,
-		thinkingSessions = [],
+		thinkingItems = [],
 		namedSessions,
 		onSessionClick,
 		autoRunState,
@@ -241,7 +246,7 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 		onOpenPromptLibrary,
 		shortcuts,
 		showFlashNotification,
-		tabShowThinking = false,
+		tabShowThinking = 'off',
 		onToggleTabShowThinking,
 		supportsThinking = false,
 		// Context warning sash props (Phase 6)
@@ -292,6 +297,12 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 	const [promptEffortLevel, setPromptEffortLevel] = useState<'high' | 'medium' | 'low' | undefined>(
 		sessionEffortDefault
 	);
+
+	const setCommandHistoryFilterRef = React.useCallback((el: HTMLInputElement | null) => {
+		if (el) {
+			el.focus();
+		}
+	}, []);
 
 	// Get agent capabilities for conditional feature rendering
 	const { hasCapability } = useAgentCapabilities(session.toolType);
@@ -455,7 +466,7 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 	// Filter slash commands based on input and current mode
 	const isTerminalMode = session.inputMode === 'terminal';
 
-	// thinkingSessions is now passed directly from App.tsx (pre-filtered) for better performance
+	// thinkingItems is now passed directly from App.tsx (pre-filtered) for better performance
 
 	// Get the appropriate command history based on current mode
 	// Fall back to legacy commandHistory for sessions created before the split
@@ -492,17 +503,17 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 	);
 
 	// Use scroll-into-view hooks for all dropdown lists
-	const slashCommandItemRefs = useScrollIntoView<HTMLDivElement>(
+	const slashCommandItemRefs = useScrollIntoView<HTMLButtonElement>(
 		slashCommandOpen,
 		safeSelectedIndex,
 		filteredSlashCommands.length
 	);
-	const tabCompletionItemRefs = useScrollIntoView<HTMLDivElement>(
+	const tabCompletionItemRefs = useScrollIntoView<HTMLButtonElement>(
 		tabCompletionOpen,
 		selectedTabCompletionIndex,
 		tabCompletionSuggestions.length
 	);
-	const atMentionItemRefs = useScrollIntoView<HTMLDivElement>(
+	const atMentionItemRefs = useScrollIntoView<HTMLButtonElement>(
 		atMentionOpen,
 		selectedAtMentionIndex,
 		atMentionSuggestions.length
@@ -518,16 +529,17 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 			.slice(0, 10);
 	}, [currentCommandHistory, commandHistoryFilterLower]);
 
-	// Auto-resize textarea when switching tabs
-	// This ensures the textarea height matches the content when switching between tabs
-	// PERF: Only depend on activeTabId, NOT inputValue - inputValue changes on every keystroke
-	// and would cause expensive layout reflow (scrollHeight access) on each character typed
+	// Auto-resize textarea to match content height.
+	// Fires on tab switch AND inputValue changes (handles external updates like session restore,
+	// paste-from-history, programmatic sets). The onChange handler also resizes via rAF for
+	// keystroke responsiveness, but this effect catches all non-keystroke inputValue mutations
+	// that would otherwise leave the textarea at the wrong height.
 	useEffect(() => {
 		if (inputRef.current) {
 			inputRef.current.style.height = 'auto';
 			inputRef.current.style.height = `${Math.min(inputRef.current.scrollHeight, 112)}px`;
 		}
-	}, [session.activeTabId, inputRef]);
+	}, [session.activeTabId, inputValue, inputRef]);
 
 	// Show summarization progress overlay when active for this tab
 	if (isSummarizing && session.inputMode === 'ai' && onCancelSummarize) {
@@ -595,10 +607,10 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 			className="relative p-4 border-t"
 			style={{ borderColor: theme.colors.border, backgroundColor: theme.colors.bgSidebar }}
 		>
-			{/* ThinkingStatusPill - only show in AI mode when there are thinking sessions or AutoRun */}
-			{session.inputMode === 'ai' && (thinkingSessions.length > 0 || autoRunState?.isRunning) && (
+			{/* ThinkingStatusPill - only show in AI mode when there are thinking items or AutoRun */}
+			{session.inputMode === 'ai' && (thinkingItems.length > 0 || autoRunState?.isRunning) && (
 				<ThinkingStatusPill
-					thinkingSessions={thinkingSessions}
+					thinkingItems={thinkingItems}
 					theme={theme}
 					onSessionClick={onSessionClick}
 					namedSessions={namedSessions}
@@ -713,23 +725,29 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 			{session.inputMode === 'ai' && stagedImages.length > 0 && (
 				<div className="flex gap-2 mb-3 pb-2 overflow-x-auto overflow-y-visible scrollbar-thin">
 					{stagedImages.map((img, idx) => (
-						<div key={idx} className="relative group shrink-0">
-							<img
-								src={img}
-								className="h-16 rounded border cursor-pointer hover:opacity-80 transition-opacity"
-								style={{
-									borderColor: theme.colors.border,
-									objectFit: 'contain',
-									maxWidth: '200px',
-								}}
+						<div key={img} className="relative group shrink-0">
+							<button
+								type="button"
+								className="p-0 bg-transparent outline-none focus-visible:ring-2 focus-visible:ring-accent rounded"
 								onClick={() => setLightboxImage(img, stagedImages, 'staged')}
-							/>
+							>
+								<img
+									src={img}
+									alt={`Staged image ${idx + 1}`}
+									className="h-16 rounded border cursor-pointer hover:opacity-80 transition-opacity block"
+									style={{
+										borderColor: theme.colors.border,
+										objectFit: 'contain',
+										maxWidth: '200px',
+									}}
+								/>
+							</button>
 							<button
 								onClick={(e) => {
 									e.stopPropagation();
-									setStagedImages((p) => p.filter((_, i) => i !== idx));
+									setStagedImages((p) => p.filter((x) => x !== img));
 								}}
-								className="absolute top-0.5 right-0.5 bg-red-500 text-white rounded-full p-1 shadow-md hover:bg-red-600 transition-colors opacity-90 hover:opacity-100"
+								className="absolute top-0.5 right-0.5 bg-red-500 text-white rounded-full p-1 shadow-md hover:bg-red-600 transition-colors opacity-90 hover:opacity-100 outline-none focus-visible:ring-2 focus-visible:ring-white"
 							>
 								<X className="w-3 h-3" />
 							</button>
@@ -749,10 +767,11 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 						style={{ overscrollBehavior: 'contain' }}
 					>
 						{filteredSlashCommands.map((cmd, idx) => (
-							<div
+							<button
+								type="button"
 								key={cmd.command}
 								ref={(el) => (slashCommandItemRefs.current[idx] = el)}
-								className={`px-4 py-3 cursor-pointer transition-colors ${
+								className={`w-full px-4 py-3 text-left transition-colors ${
 									idx === safeSelectedIndex ? 'font-semibold' : ''
 								}`}
 								style={{
@@ -773,7 +792,7 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 							>
 								<div className="font-mono text-sm">{cmd.command}</div>
 								<div className="text-xs opacity-70 mt-0.5">{cmd.description}</div>
-							</div>
+							</button>
 						))}
 					</div>
 				</div>
@@ -787,7 +806,8 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 				>
 					<div className="p-2">
 						<input
-							autoFocus
+							ref={setCommandHistoryFilterRef}
+							tabIndex={0}
 							type="text"
 							className="w-full bg-transparent outline-none text-sm p-2 border-b"
 							style={{ borderColor: theme.colors.border, color: theme.colors.textMain }}
@@ -831,9 +851,10 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 							const isMostRecent = idx === 0;
 
 							return (
-								<div
-									key={idx}
-									className={`px-3 py-2 cursor-pointer text-sm font-mono ${isSelected ? 'ring-1 ring-inset' : ''} ${isMostRecent ? 'font-semibold' : ''}`}
+								<button
+									type="button"
+									key={cmd}
+									className={`w-full px-3 py-2 text-left text-sm font-mono ${isSelected ? 'ring-1 ring-inset' : ''} ${isMostRecent ? 'font-semibold' : ''}`}
 									style={
 										{
 											backgroundColor: isSelected
@@ -855,7 +876,7 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 									onMouseEnter={() => setCommandHistorySelectedIndex(idx)}
 								>
 									{cmd}
-								</div>
+								</button>
 							);
 						})}
 						{filteredCommandHistory.length === 0 && (
@@ -949,10 +970,11 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 								const typeLabel = suggestion.type;
 
 								return (
-									<div
+									<button
+										type="button"
 										key={`${suggestion.type}-${suggestion.value}`}
 										ref={(el) => (tabCompletionItemRefs.current[idx] = el)}
-										className={`px-3 py-2 cursor-pointer text-sm font-mono flex items-center gap-2 ${isSelected ? 'ring-1 ring-inset' : ''}`}
+										className={`w-full px-3 py-2 text-left text-sm font-mono flex items-center gap-2 ${isSelected ? 'ring-1 ring-inset' : ''}`}
 										style={
 											{
 												backgroundColor: isSelected ? theme.colors.bgActivity : 'transparent',
@@ -984,7 +1006,7 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 										/>
 										<span className="flex-1 truncate">{suggestion.displayText}</span>
 										<span className="text-[10px] opacity-40 flex-shrink-0">{typeLabel}</span>
-									</div>
+									</button>
 								);
 							})
 						) : (
@@ -1027,10 +1049,11 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 							const IconComponent = suggestion.type === 'folder' ? Folder : File;
 
 							return (
-								<div
+								<button
+									type="button"
 									key={`${suggestion.type}-${suggestion.value}`}
 									ref={(el) => (atMentionItemRefs.current[idx] = el)}
-									className={`px-3 py-2 cursor-pointer text-sm font-mono flex items-center gap-2 ${isSelected ? 'ring-1 ring-inset' : ''}`}
+									className={`w-full px-3 py-2 text-left text-sm font-mono flex items-center gap-2 ${isSelected ? 'ring-1 ring-inset' : ''}`}
 									style={
 										{
 											backgroundColor: isSelected ? theme.colors.bgActivity : 'transparent',
@@ -1072,7 +1095,7 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 										</span>
 									)}
 									<span className="text-[10px] opacity-40 flex-shrink-0">{suggestion.type}</span>
-								</div>
+								</button>
 							);
 						})}
 					</div>
@@ -1114,8 +1137,8 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 							)}
 							<textarea
 								ref={inputRef}
-								className={`flex-1 bg-transparent text-sm outline-none ${isTerminalMode ? 'pl-1.5' : 'pl-3'} pt-3 pr-3 resize-none min-h-[2.5rem] scrollbar-thin`}
-								style={{ color: theme.colors.textMain, maxHeight: '7rem' }}
+								className={`flex-1 bg-transparent text-sm outline-none ${isTerminalMode ? 'pl-1.5' : 'pl-3'} pt-3 pr-3 resize-none min-h-[3.5rem] scrollbar-thin`}
+								style={{ color: theme.colors.textMain, maxHeight: '11rem' }}
 								placeholder={
 									isTerminalMode
 										? 'Run shell command...'
@@ -1192,7 +1215,7 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 									const textarea = e.target;
 									requestAnimationFrame(() => {
 										textarea.style.height = 'auto';
-										textarea.style.height = `${Math.min(textarea.scrollHeight, 112)}px`;
+										textarea.style.height = `${Math.min(textarea.scrollHeight, 176)}px`;
 									});
 								}}
 								onKeyDown={handleInputKeyDown}
@@ -1202,7 +1225,7 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 									handleDrop(e);
 								}}
 								onDragOver={(e) => e.preventDefault()}
-								rows={1}
+								rows={2}
 							/>
 						</div>
 
@@ -1307,7 +1330,7 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 												? `1px solid ${theme.colors.accent}50`
 												: '1px solid transparent',
 										}}
-										title="Save to History (Cmd+S) - Synopsis added after each completion"
+										title={`Save to History (${formatShortcutKeys(['Meta', 's'])}) - Synopsis added after each completion`}
 									>
 										<History className="w-3 h-3" />
 										<span>History</span>
@@ -1338,41 +1361,60 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 											<span>Read-only</span>
 										</button>
 									)}
-								{/* Show Thinking toggle - AI mode only, for agents that support it */}
+								{/* Show Thinking toggle - AI mode only, for agents that support it
+								    Three states: 'off' (hidden), 'on' (temporary), 'sticky' (persistent) */}
 								{session.inputMode === 'ai' && supportsThinking && onToggleTabShowThinking && (
 									<button
 										onClick={onToggleTabShowThinking}
 										className={`flex items-center gap-1.5 text-[10px] px-2 py-1 rounded-full cursor-pointer transition-all ${
-											tabShowThinking ? '' : 'opacity-40 hover:opacity-70'
+											tabShowThinking !== 'off' ? '' : 'opacity-40 hover:opacity-70'
 										}`}
 										style={{
-											backgroundColor: tabShowThinking
-												? `${theme.colors.accentText}25`
-												: 'transparent',
-											color: tabShowThinking ? theme.colors.accentText : theme.colors.textDim,
-											border: tabShowThinking
-												? `1px solid ${theme.colors.accentText}50`
-												: '1px solid transparent',
+											backgroundColor:
+												tabShowThinking === 'sticky'
+													? `${theme.colors.warning}30`
+													: tabShowThinking === 'on'
+														? `${theme.colors.accentText}25`
+														: 'transparent',
+											color:
+												tabShowThinking === 'sticky'
+													? theme.colors.warning
+													: tabShowThinking === 'on'
+														? theme.colors.accentText
+														: theme.colors.textDim,
+											border:
+												tabShowThinking === 'sticky'
+													? `1px solid ${theme.colors.warning}50`
+													: tabShowThinking === 'on'
+														? `1px solid ${theme.colors.accentText}50`
+														: '1px solid transparent',
 										}}
-										title="Show Thinking - Stream AI reasoning in real-time"
+										title={
+											tabShowThinking === 'off'
+												? 'Show Thinking - Click to stream AI reasoning'
+												: tabShowThinking === 'on'
+													? 'Thinking (temporary) - Click for sticky mode'
+													: 'Thinking (sticky) - Click to turn off'
+										}
 									>
 										<Brain className="w-3 h-3" />
 										<span>Thinking</span>
+										{tabShowThinking === 'sticky' && <Pin className="w-2.5 h-2.5" />}
 									</button>
 								)}
 								<button
 									onClick={() => setEnterToSend(!enterToSend)}
 									className="flex items-center gap-1 text-[10px] opacity-50 hover:opacity-100 px-2 py-1 rounded hover:bg-white/5"
-									title={enterToSend ? 'Switch to Meta+Enter to send' : 'Switch to Enter to send'}
+									title={formatEnterToSendTooltip(enterToSend)}
 								>
 									<Keyboard className="w-3 h-3" />
-									{enterToSend ? 'Enter' : '⌘ + Enter'}
+									{formatEnterToSend(enterToSend)}
 								</button>
 							</div>
 						</div>
 					</div>
 					{/* Context Warning Sash - AI mode only, appears below input when context usage is high */}
-					{session.inputMode === 'ai' && onSummarizeAndContinue && (
+					{session.inputMode === 'ai' && contextWarningsEnabled && onSummarizeAndContinue && (
 						<ContextWarningSash
 							theme={theme}
 							contextUsage={contextUsage}
@@ -1419,7 +1461,7 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 							borderColor: theme.colors.border,
 							color: theme.colors.textDim,
 						}}
-						title="Toggle Mode (Cmd+J)"
+						title={`Toggle Mode (${formatShortcutKeys(['Meta', 'j'])})`}
 					>
 						{session.inputMode === 'terminal' ? (
 							<Terminal className="w-4 h-4" />

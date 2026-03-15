@@ -22,7 +22,19 @@ function getCommitHash(): string {
 const disableHmr = process.env.DISABLE_HMR === '1';
 
 export default defineConfig(({ mode }) => ({
-	plugins: [react({ fastRefresh: !disableHmr })],
+	plugins: [
+		react({ fastRefresh: !disableHmr }),
+		// In dev mode, relax CSP to allow Vite's inline HMR/React Refresh scripts
+		mode === 'development' && {
+			name: 'dev-csp-relaxation',
+			transformIndexHtml(html: string) {
+				return html.replace(
+					"script-src 'self'",
+					"script-src 'self' 'unsafe-inline' http://localhost:*"
+				);
+			},
+		},
+	].filter(Boolean),
 	root: path.join(__dirname, 'src/renderer'),
 	base: './',
 	define: {
@@ -49,6 +61,70 @@ export default defineConfig(({ mode }) => ({
 	build: {
 		outDir: path.join(__dirname, 'dist/renderer'),
 		emptyOutDir: true,
+		rollupOptions: {
+			output: {
+				// Manual chunking for better caching and code splitting
+				manualChunks: (id) => {
+					// React core in its own chunk for optimal caching
+					if (id.includes('node_modules/react-dom')) {
+						return 'vendor-react';
+					}
+					if (id.includes('node_modules/react/') || id.includes('node_modules/react-is')) {
+						return 'vendor-react';
+					}
+					if (id.includes('node_modules/scheduler')) {
+						return 'vendor-react';
+					}
+
+					// Terminal (xterm) in its own chunk - large and not immediately needed
+					if (id.includes('node_modules/xterm')) {
+						return 'vendor-xterm';
+					}
+
+					// Markdown processing libraries
+					if (
+						id.includes('node_modules/react-markdown') ||
+						id.includes('node_modules/remark-') ||
+						id.includes('node_modules/rehype-') ||
+						id.includes('node_modules/unified') ||
+						id.includes('node_modules/unist-') ||
+						id.includes('node_modules/mdast-') ||
+						id.includes('node_modules/hast-') ||
+						id.includes('node_modules/micromark')
+					) {
+						return 'vendor-markdown';
+					}
+
+					// Syntax highlighting (large)
+					if (
+						id.includes('node_modules/react-syntax-highlighter') ||
+						id.includes('node_modules/prismjs') ||
+						id.includes('node_modules/refractor')
+					) {
+						return 'vendor-syntax';
+					}
+
+					// Heavy visualization libraries (lazy-loaded components)
+					if (id.includes('node_modules/mermaid')) {
+						return 'vendor-mermaid';
+					}
+					if (id.includes('node_modules/recharts') || id.includes('node_modules/d3-')) {
+						return 'vendor-charts';
+					}
+					if (id.includes('node_modules/reactflow') || id.includes('node_modules/@reactflow')) {
+						return 'vendor-flow';
+					}
+
+					// Diff viewer
+					if (id.includes('node_modules/react-diff-view') || id.includes('node_modules/diff')) {
+						return 'vendor-diff';
+					}
+
+					// Return undefined to let Rollup handle other modules automatically
+					return undefined;
+				},
+			},
+		},
 	},
 	server: {
 		port: process.env.VITE_PORT ? parseInt(process.env.VITE_PORT, 10) : 5173,

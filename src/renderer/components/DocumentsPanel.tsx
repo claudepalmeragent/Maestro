@@ -14,15 +14,9 @@ import {
 } from 'lucide-react';
 import type { Theme, BatchDocumentEntry } from '../types';
 import { generateId } from '../utils/ids';
-
-// Platform detection helper (userAgentData is newer but not in all TS types yet)
-const isMacPlatform = (): boolean => {
-	const nav = navigator as Navigator & { userAgentData?: { platform?: string } };
-	return (
-		nav.userAgentData?.platform?.toLowerCase().includes('mac') ??
-		navigator.platform.toLowerCase().includes('mac')
-	);
-};
+import { useLayerStack } from '../contexts/LayerStackContext';
+import { MODAL_PRIORITIES } from '../constants/modalPriorities';
+import { formatMetaKey } from '../utils/shortcutFormatter';
 
 // Tree node type for folder structure
 export interface DocTreeNode {
@@ -71,6 +65,27 @@ function DocumentSelectorModal({
 	onAdd,
 	onRefresh,
 }: DocumentSelectorModalProps) {
+	// Layer stack for escape handling
+	const { registerLayer, unregisterLayer } = useLayerStack();
+	const onCloseRef = useRef(onClose);
+	onCloseRef.current = onClose;
+
+	// Register with layer stack for escape handling
+	useEffect(() => {
+		const id = registerLayer({
+			type: 'modal',
+			priority: MODAL_PRIORITIES.DOCUMENT_SELECTOR,
+			blocksLowerLayers: true,
+			capturesFocus: true,
+			focusTrap: 'strict',
+			ariaLabel: 'Select Documents',
+			onEscape: () => {
+				onCloseRef.current();
+			},
+		});
+		return () => unregisterLayer(id);
+	}, [registerLayer, unregisterLayer]);
+
 	// Pre-select currently added documents
 	const [selectedDocs, setSelectedDocs] = useState<Set<string>>(() => {
 		return new Set(documents.map((d) => d.filename));
@@ -183,7 +198,6 @@ function DocumentSelectorModal({
 
 	// Handle refresh
 	const handleRefresh = useCallback(async () => {
-		const _countBefore = allDocuments.length;
 		setRefreshing(true);
 		setRefreshMessage(null);
 
@@ -386,7 +400,6 @@ function DocumentSelectorModal({
 	};
 
 	const allSelected = selectedDocs.size === allDocuments.length && allDocuments.length > 0;
-	const _someSelected = selectedDocs.size > 0;
 
 	// Calculate task count for selected documents
 	const selectedTaskCount = useMemo(() => {
@@ -402,8 +415,18 @@ function DocumentSelectorModal({
 			className="fixed inset-0 bg-black/50 flex items-center justify-center z-[10000]"
 			onClick={onClose}
 		>
+			<button
+				type="button"
+				className="absolute inset-0 outline-none"
+				tabIndex={-1}
+				onClick={(e) => {
+					e.stopPropagation();
+					onClose();
+				}}
+				aria-label="Close document selector"
+			/>
 			<div
-				className="w-[550px] max-h-[70vh] border rounded-lg shadow-2xl overflow-hidden flex flex-col"
+				className="relative z-10 w-[550px] max-h-[70vh] border rounded-lg shadow-2xl overflow-hidden flex flex-col"
 				style={{ backgroundColor: theme.colors.bgSidebar, borderColor: theme.colors.border }}
 				onClick={(e) => e.stopPropagation()}
 			>
@@ -594,7 +617,7 @@ export function DocumentsPanel({
 	const [showDocSelector, setShowDocSelector] = useState(false);
 
 	// Loop mode state
-	const [showMaxLoopsSlider, setShowMaxLoopsSlider] = useState(maxLoops != null);
+	const showMaxLoopsSlider = maxLoops != null;
 
 	// Drag state for reordering
 	const [draggedId, setDraggedId] = useState<string | null>(null);
@@ -796,17 +819,12 @@ export function DocumentsPanel({
 		resetDragState();
 	}, [performDropOperation, resetDragState]);
 
-	// Sync showMaxLoopsSlider when maxLoops prop changes externally
-	useEffect(() => {
-		setShowMaxLoopsSlider(maxLoops != null);
-	}, [maxLoops]);
-
 	return (
 		<div className="mb-6">
 			<div className="flex items-center justify-between mb-3">
-				<label className="text-xs font-bold uppercase" style={{ color: theme.colors.textDim }}>
+				<div className="text-xs font-bold uppercase" style={{ color: theme.colors.textDim }}>
 					Documents to Run
-				</label>
+				</div>
 				<button
 					onClick={handleOpenDocSelector}
 					className="flex items-center gap-1 text-xs px-2 py-1 rounded hover:bg-white/10 transition-colors"
@@ -956,14 +974,17 @@ export function DocumentsPanel({
 												}}
 											/>
 
-											{/* Document Name */}
+											{/* Document Name - truncates from left to show filename */}
 											<span
-												className={`flex-1 text-sm font-medium truncate ${doc.isMissing ? 'line-through' : ''}`}
+												className={`flex-1 text-sm font-medium overflow-hidden text-ellipsis whitespace-nowrap ${doc.isMissing ? 'line-through' : ''}`}
 												style={{
 													color: doc.isMissing ? theme.colors.error : theme.colors.textMain,
+													direction: 'rtl',
+													textAlign: 'left',
 												}}
+												title={`${doc.filename}.md`}
 											>
-												{doc.filename}.md
+												<bdi>{doc.filename}.md</bdi>
 											</span>
 
 											{/* Missing Indicator */}
@@ -1007,7 +1028,7 @@ export function DocumentsPanel({
 														documents.filter((d) => d.filename === doc.filename).length > 1;
 													const canDisableReset = !hasDuplicates;
 
-													const modifierKey = isMacPlatform() ? '⌘' : 'Ctrl';
+													const modifierKey = formatMetaKey();
 													let tooltipText: string;
 													if (doc.resetOnCompletion) {
 														if (canDisableReset) {
@@ -1072,23 +1093,17 @@ export function DocumentsPanel({
 												</span>
 											)}
 
-											{/* Remove Button (invisible placeholder when not applicable) */}
-											{doc.isDuplicate || documents.length > 1 || doc.isMissing ? (
-												<button
-													onClick={() => handleRemoveDocument(doc.id)}
-													className="p-1 rounded hover:bg-white/10 transition-colors shrink-0"
-													style={{
-														color: doc.isMissing ? theme.colors.error : theme.colors.textDim,
-													}}
-													title={doc.isMissing ? 'Remove missing document' : 'Remove document'}
-												>
-													<X className="w-3.5 h-3.5" />
-												</button>
-											) : (
-												<span className="p-1 shrink-0 invisible">
-													<X className="w-3.5 h-3.5" />
-												</span>
-											)}
+											{/* Remove Button */}
+											<button
+												onClick={() => handleRemoveDocument(doc.id)}
+												className="p-1 rounded hover:bg-white/10 transition-colors shrink-0"
+												style={{
+													color: doc.isMissing ? theme.colors.error : theme.colors.textDim,
+												}}
+												title={doc.isMissing ? 'Remove missing document' : 'Remove document'}
+											>
+												<X className="w-3.5 h-3.5" />
+											</button>
 										</div>
 
 										{/* Drop Indicator Line - After (only for last item) */}
@@ -1190,7 +1205,6 @@ export function DocumentsPanel({
 								{/* Infinity Toggle */}
 								<button
 									onClick={() => {
-										setShowMaxLoopsSlider(false);
 										setMaxLoops(null);
 									}}
 									className={`px-2.5 py-1 text-xs font-medium transition-colors ${
@@ -1206,7 +1220,6 @@ export function DocumentsPanel({
 								{/* Max Toggle */}
 								<button
 									onClick={() => {
-										setShowMaxLoopsSlider(true);
 										if (maxLoops === null) {
 											setMaxLoops(5);
 										}

@@ -71,7 +71,9 @@ export function createShellsApi() {
 export function createShellApi() {
 	return {
 		openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
+		openPath: (itemPath: string) => ipcRenderer.invoke('shell:openPath', itemPath),
 		trashItem: (itemPath: string) => ipcRenderer.invoke('shell:trashItem', itemPath),
+		showItemInFolder: (itemPath: string) => ipcRenderer.invoke('shell:showItemInFolder', itemPath),
 	};
 }
 
@@ -214,6 +216,15 @@ export function createAppApi() {
 			const handler = (_: any, isDark: boolean) => callback(isDark);
 			ipcRenderer.on('system-theme-changed', handler);
 			return () => ipcRenderer.removeListener('system-theme-changed', handler);
+		},
+		/**
+		 * Listen for system resume event (after sleep/suspend)
+		 * Used to refresh settings that may have been reset during sleep
+		 */
+		onSystemResume: (callback: () => void) => {
+			const handler = () => callback();
+			ipcRenderer.on('app:systemResume', handler);
+			return () => ipcRenderer.removeListener('app:systemResume', handler);
 		},
 	};
 }

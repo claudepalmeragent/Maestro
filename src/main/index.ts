@@ -1,5 +1,7 @@
-import { app, BrowserWindow, nativeTheme } from 'electron';
+import { app, BrowserWindow, Menu, nativeTheme, powerMonitor } from 'electron';
+import { isMacOS } from '../shared/platformDetection';
 import path from 'path';
+import os from 'os';
 import crypto from 'crypto';
 // Sentry is imported dynamically below to avoid module-load-time access to electron.app
 // which causes "Cannot read properties of undefined (reading 'getAppPath')" errors
@@ -55,6 +57,11 @@ import {
 	registerFeedbackHandlers,
 	registerGpuMonitorHandlers,
 	registerHoneycombHandlers,
+	registerSymphonyHandlers,
+	registerTabNamingHandlers,
+	registerAgentErrorHandlers,
+	registerDirectorNotesHandlers,
+	registerWakatimeHandlers,
 	setupLoggerEventForwarding,
 	cleanupAllGroomingSessions,
 	getActiveGroomingSessionCount,
@@ -82,11 +89,14 @@ import {
 	setGetSessionsCallback,
 	setGetCustomEnvVarsCallback,
 	setGetAgentConfigCallback,
+	setSshStore,
+	setGetCustomShellPathCallback,
 	markParticipantResponded,
 	spawnModeratorSynthesis,
 	getGroupChatReadOnlyState,
 	respawnParticipantWithRecovery,
 } from './group-chat/group-chat-router';
+import { createSshRemoteStoreAdapter } from './utils/ssh-remote-resolver';
 import { updateParticipant, loadGroupChat, updateGroupChat } from './group-chat/group-chat-storage';
 import { needsSessionRecovery, initiateSessionRecovery } from './group-chat/session-recovery';
 import { initializeSessionStorages } from './storage';
@@ -114,7 +124,7 @@ import {
 	clearGroupChatBuffer,
 } from './group-chat/output-buffer';
 // Phase 2 refactoring - dependency injection
-import { createSafeSend } from './utils/safe-send';
+import { createSafeSend, isWebContentsAvailable } from './utils/safe-send';
 import { createWebServerFactory } from './web-server/web-server-factory';
 import { cleanupStaleSshSockets } from './utils/ssh-socket-cleanup';
 import { sshHealthMonitor } from './services/ssh-health-monitor';
@@ -128,6 +138,8 @@ import {
 } from './app-lifecycle';
 // Phase 3 refactoring - process listeners
 import { setupProcessListeners as setupProcessListenersModule } from './process-listeners';
+import { setupWakaTimeListener } from './process-listeners/wakatime-listener';
+import { WakaTimeManager } from './wakatime-manager';
 
 // ============================================================================
 // Data Directory Configuration (MUST happen before any Store initialization)
@@ -164,13 +176,15 @@ if (isDevelopment && !DEMO_MODE && !process.env.USE_PROD_DATA) {
 const { syncPath, bootstrapStore } = initializeStores({ productionDataPath });
 
 // Get early settings before Sentry init (for crash reporting and GPU acceleration)
-const { crashReportingEnabled, disableGpuAcceleration } = getEarlySettings(syncPath);
+const { crashReportingEnabled, disableGpuAcceleration, useNativeTitleBar, autoHideMenuBar } =
+	getEarlySettings(syncPath);
 
-// Disable GPU hardware acceleration if user has opted out
+// Disable GPU hardware acceleration if user has opted out or in WSL environment
 // Must be called before app.ready event
+// In WSL, GPU acceleration is auto-disabled due to EGL/GPU process crash issues
 if (disableGpuAcceleration) {
 	app.disableHardwareAcceleration();
-	console.log('[STARTUP] GPU hardware acceleration disabled by user preference');
+	console.log('[STARTUP] GPU hardware acceleration disabled');
 }
 
 // Generate installation ID on first run (one-time generation)
@@ -182,6 +196,21 @@ if (!installationId) {
 	store.set('installationId', installationId);
 	logger.info('Generated new installation ID', 'Startup', { installationId });
 }
+
+// Initialize WakaTime heartbeat manager
+const wakatimeManager = new WakaTimeManager(store);
+
+// Auto-install WakaTime CLI on startup if enabled
+if (store.get('wakatimeEnabled', false)) {
+	wakatimeManager.ensureCliInstalled();
+}
+
+// Auto-install WakaTime CLI when user enables the feature
+store.onDidChange('wakatimeEnabled', (newValue) => {
+	if (newValue === true) {
+		wakatimeManager.ensureCliInstalled();
+	}
+});
 
 // Initialize Sentry for crash reporting (dynamic import to avoid module-load-time errors)
 // Only enable in production - skip during development to avoid noise from hot-reload artifacts
@@ -211,6 +240,12 @@ if (crashReportingEnabled && !isDevelopment) {
 			});
 			// Add installation ID to Sentry for error correlation across installations
 			setTag('installationId', installationId);
+
+			// Start memory monitoring for crash diagnostics (MAESTRO-5A/4Y)
+			// Records breadcrumbs with memory state every minute, warns above 500MB heap
+			import('./utils/sentry').then(({ startMemoryMonitoring }) => {
+				startMemoryMonitoring(500, 60000);
+			});
 		})
 		.catch((err) => {
 			logger.warn('Failed to initialize Sentry', 'Startup', { error: String(err) });
@@ -254,6 +289,8 @@ const windowManager = createWindowManager({
 	preloadPath: path.join(__dirname, 'preload.js'),
 	rendererPath: path.join(__dirname, '../renderer/index.html'),
 	devServerUrl: devServerUrl,
+	useNativeTitleBar,
+	autoHideMenuBar,
 });
 
 // Create web server factory with dependency injection (Phase 2 refactoring)
@@ -410,7 +447,7 @@ app.whenReady().then(async () => {
 				`History file changed for session ${sessionId}, notifying renderer`,
 				'HistoryWatcher'
 			);
-			if (mainWindow && !mainWindow.isDestroyed()) {
+			if (isWebContentsAvailable(mainWindow)) {
 				mainWindow.webContents.send('history:externalChange', sessionId);
 			}
 		});
@@ -446,6 +483,25 @@ app.whenReady().then(async () => {
 	logger.debug('Setting up process event listeners', 'Startup');
 	setupProcessListeners();
 
+	// Set custom application menu to prevent macOS from injecting native
+	// "Show Previous Tab" (Cmd+Shift+{) and "Show Next Tab" (Cmd+Shift+})
+	// menu items into the default Window menu. Without this, those keyboard
+	// events are intercepted at the NSMenu level and never reach the renderer.
+	if (isMacOS()) {
+		const template: Electron.MenuItemConstructorOptions[] = [
+			{ role: 'appMenu' },
+			{ role: 'editMenu' },
+			{
+				label: 'Window',
+				submenu: [{ role: 'minimize' }, { role: 'zoom' }, { role: 'close' }],
+			},
+		];
+		Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+	} else {
+		// On Windows/Linux, hide the menu bar entirely (Maestro uses its own UI)
+		Menu.setApplicationMenu(null);
+	}
+
 	// Create main window
 	logger.info('Creating main window', 'Startup');
 	createWindow();
@@ -472,10 +528,19 @@ app.whenReady().then(async () => {
 			createWindow();
 		}
 	});
+
+	// Listen for system resume (after sleep/suspend) and notify renderer
+	// This allows the renderer to refresh settings that may have been reset
+	powerMonitor.on('resume', () => {
+		logger.info('System resumed from sleep/suspend', 'PowerMonitor');
+		if (isWebContentsAvailable(mainWindow)) {
+			mainWindow.webContents.send('app:systemResume');
+		}
+	});
 });
 
 app.on('window-all-closed', () => {
-	if (process.platform !== 'darwin') {
+	if (!isMacOS()) {
 		app.quit();
 	}
 });
@@ -538,6 +603,13 @@ function setupIpcHandlers() {
 	// Uses HistoryManager singleton for per-session storage
 	registerHistoryHandlers();
 
+	// Director's Notes - unified history + synopsis generation
+	registerDirectorNotesHandlers({
+		getProcessManager: () => processManager,
+		getAgentDetector: () => agentDetector,
+		agentConfigsStore,
+	});
+
 	// Agent management operations - extracted to src/main/ipc/handlers/agents.ts
 	registerAgentsHandlers({
 		getAgentDetector: () => agentDetector,
@@ -552,6 +624,7 @@ function setupIpcHandlers() {
 		agentConfigsStore,
 		settingsStore: store,
 		getMainWindow: () => mainWindow,
+		sessionsStore,
 	});
 
 	// Persistence operations - extracted to src/main/ipc/handlers/persistence.ts
@@ -635,6 +708,7 @@ function setupIpcHandlers() {
 		getMainWindow: () => mainWindow,
 		getProcessManager: () => processManager,
 		getAgentDetector: () => agentDetector,
+		agentConfigsStore,
 	});
 
 	// Register Marketplace handlers for fetching and importing playbooks
@@ -703,12 +777,14 @@ function setupIpcHandlers() {
 				id: s.id,
 				name: s.name,
 				toolType: s.toolType,
-				cwd: s.cwd || s.fullPath || process.env.HOME || '/tmp',
+				cwd: s.cwd || s.fullPath || os.homedir(),
 				customArgs: s.customArgs,
 				customEnvVars: s.customEnvVars,
 				customModel: s.customModel,
 				sshRemoteName,
 				sshRemoteId,
+				// Pass full SSH config for remote execution support
+				sshRemoteConfig: s.sessionSshRemoteConfig,
 			};
 		});
 	});
@@ -716,6 +792,14 @@ function setupIpcHandlers() {
 	// Set up callback for group chat router to lookup custom env vars for agents
 	setGetCustomEnvVarsCallback(getCustomEnvVarsForAgent);
 	setGetAgentConfigCallback(getAgentConfigForAgent);
+
+	// Set up SSH store for group chat SSH remote execution support
+	setSshStore(createSshRemoteStoreAdapter(store));
+
+	// Set up callback for group chat to get custom shell path (for Windows PowerShell preference)
+	// This is used by both group-chat-router.ts and group-chat-agent.ts via the shared config module
+	const getCustomShellPathFn = () => store.get('customShellPath', '') as string | undefined;
+	setGetCustomShellPathCallback(getCustomShellPathFn);
 
 	// Setup logger event forwarding to renderer
 	setupLoggerEventForwarding(() => mainWindow);
@@ -729,6 +813,7 @@ function setupIpcHandlers() {
 	// Claude Code sessions - extracted to src/main/ipc/handlers/claude.ts
 
 	// Agent Error Handling API - extracted to src/main/ipc/handlers/agent-error.ts
+	registerAgentErrorHandlers();
 
 	// Register notification handlers (extracted to handlers/notifications.ts)
 	registerNotificationsHandlers();
@@ -759,6 +844,24 @@ function setupIpcHandlers() {
 
 	// Register Honeycomb query handlers (no dependencies - uses singleton client)
 	registerHoneycombHandlers();
+
+	// Register Symphony handlers for token donation / open source contributions
+	registerSymphonyHandlers({
+		app,
+		getMainWindow: () => mainWindow,
+		sessionsStore,
+	});
+
+	// Register tab naming handlers for automatic tab naming
+	registerTabNamingHandlers({
+		getProcessManager: () => processManager,
+		getAgentDetector: () => agentDetector,
+		agentConfigsStore,
+		settingsStore: store,
+	});
+
+	// Register WakaTime handlers (CLI check, API key validation)
+	registerWakatimeHandlers(wakatimeManager);
 }
 
 // Handle process output streaming (set up after initialization)
@@ -813,5 +916,8 @@ function setupProcessListeners() {
 			},
 			logger,
 		});
+
+		// WakaTime heartbeat listener (query-complete → heartbeat, exit → cleanup)
+		setupWakaTimeListener(processManager, wakatimeManager, store);
 	}
 }

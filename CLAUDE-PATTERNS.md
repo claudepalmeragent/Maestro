@@ -1,595 +1,363 @@
-# Maestro v0.14.5 Implementation Patterns
+# CLAUDE-PATTERNS.md
 
-Regenerated 2026-02-17, archived at `__MD_ARCHIVE/CLAUDE-PATTERNS_20260217_182050.md`. Cross-ref `Codebase_Context_20260217_180422.md`.
+Core implementation patterns for the Maestro codebase. For the main guide, see [[CLAUDE.md]].
 
----
+## 1. Process Management
 
-## Key Corrections
+Each agent runs **two processes** simultaneously:
 
-- **useSettings path** is `src/renderer/hooks/settings/useSettings.ts` (NOT `hooks/useSettings.ts`)
-- **AITab field** is `inputValue` (NOT `draftInput`)
-- **agentSessionId type** is `string | null` (NOT `string | undefined`)
-- **session.terminalPid** is legacy/always-zero -- do not rely on this value
-
----
-
-## Pattern 1: Process Management
-
-Dual AI + Terminal processes per session. AI processes are spawned as child_process instances
-via ProcessManager. Terminal processes use PTY (node-pty).
-
-Process spawning goes through the `process:spawn` IPC channel with full configuration:
+- AI agent process (Claude Code, etc.) - spawned with `-ai` suffix
+- Terminal process (PTY shell) - spawned with `-terminal` suffix
 
 ```typescript
-// Main process - spawning an AI process
-const result = await ipcMain.handle('process:spawn', async (_event, config) => {
-  const { sessionId, command, args, cwd, env } = config;
-  const process = processManager.spawn(sessionId, {
-    command,
-    args,
-    cwd,
-    env,
-  });
-  return { pid: process.pid, sessionId };
-});
+// Agent stores both PIDs (code interface: Session object)
+session.aiPid; // AI agent process
+session.terminalPid; // Terminal process
 ```
 
-Each session maintains references to both processes. The AI process handles agent
-communication while the PTY handles interactive terminal I/O. They are independent --
-killing one does not affect the other.
+## 2. Security Requirements
 
----
-
-## Pattern 2: Security Requirements
-
-Use `execFileNoThrow` for all external command execution. Never use shell execution
-(`exec`, `execSync`, or `spawn` with `shell: true`).
+**Always use `execFileNoThrow`** for external commands:
 
 ```typescript
-// CORRECT - no shell injection possible
-const result = await execFileNoThrow('git', ['status', '--porcelain'], { cwd });
-
-// WRONG - shell injection risk
-const result = await exec(`git status --porcelain`, { cwd });
+import { execFileNoThrow } from './utils/execFile';
+const result = await execFileNoThrow('git', ['status'], cwd);
+// Returns: { stdout, stderr, exitCode } - never throws
 ```
 
-Input validation on IPC handlers uses the `createIpcHandler()` envelope pattern:
+**Never use shell-based command execution** - it creates injection vulnerabilities. The `execFileNoThrow` utility is the safe alternative.
+
+## 3. Settings Persistence
+
+Add new settings in `useSettings.ts`:
 
 ```typescript
-const handler = createIpcHandler({
-  channel: 'settings:update',
-  validate: (payload) => {
-    if (typeof payload.key !== 'string') throw new Error('Invalid key');
-    return payload;
-  },
-  handle: async (validated) => {
-    await store.set(validated.key, validated.value);
-  },
-});
-```
+// 1. Add state with default value
+const [mySetting, setMySettingState] = useState(defaultValue);
 
-All IPC messages pass through this envelope for consistent validation and error handling.
-
----
-
-## Pattern 3: Settings Persistence
-
-The `useSettings()` hook lives at `src/renderer/hooks/settings/useSettings.ts`.
-
-Pattern: useState + IPC wrapper + batch loading from electron-store.
-
-```typescript
-// Usage in components
-const { settings, updateSetting, loading } = useSettings();
-
-// Internal pattern (simplified)
-function useSettings() {
-  const [settings, setSettings] = useState<Settings>(defaultSettings);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    // Batch load all settings from electron-store via IPC
-    ipcRenderer.invoke('settings:getAll').then((all) => {
-      setSettings(all);
-      setLoading(false);
-    });
-  }, []);
-
-  const updateSetting = useCallback(async (key: string, value: unknown) => {
-    setSettings((prev) => ({ ...prev, [key]: value }));
-    await ipcRenderer.invoke('settings:update', { key, value });
-  }, []);
-
-  return { settings, updateSetting, loading };
-}
-```
-
----
-
-## Pattern 4: Adding Modals
-
-Four-step process for every new modal:
-
-1. **Component**: Create the modal component in `src/renderer/components/modals/`
-2. **Priority**: Add entry in `modalPriorities.ts` to define stacking order
-3. **State**: Add open/close state in `ModalContext.tsx`
-4. **LayerStack**: Register for Escape key handling via LayerStack
-
-```typescript
-// modalPriorities.ts
-export const MODAL_PRIORITIES = {
-  // ... existing modals
-  myNewModal: 50, // higher = renders on top
+// 2. Add wrapper that persists
+const setMySetting = (value) => {
+	setMySettingState(value);
+	window.maestro.settings.set('mySetting', value);
 };
 
-// ModalContext.tsx - add state
-const [myNewModalOpen, setMyNewModalOpen] = useState(false);
-
-// In the modal component
-function MyNewModal() {
-  const { myNewModalOpen, setMyNewModalOpen } = useModalContext();
-
-  useLayerStack({
-    isOpen: myNewModalOpen,
-    onEscape: () => setMyNewModalOpen(false),
-    priority: MODAL_PRIORITIES.myNewModal,
-  });
-
-  if (!myNewModalOpen) return null;
-  return <ModalShell>...</ModalShell>;
-}
+// 3. Load from batch response in useEffect (settings use batch loading)
+// In the loadSettings useEffect, extract from allSettings object:
+const allSettings = await window.maestro.settings.getAll();
+const savedMySetting = allSettings['mySetting'];
+if (savedMySetting !== undefined) setMySettingState(savedMySetting);
 ```
 
----
+## 4. Adding Modals
 
-## Pattern 5: Theme Colors
-
-Use inline styles with `theme.colors` for all theme-dependent colors. Do NOT use
-Tailwind classes for colors that change with the theme.
-
-Theme is prop-drilled through the entire component tree. This is intentional for
-performance -- avoids context re-render overhead on every theme-dependent component.
+1. Create component in `src/renderer/components/`
+2. Add priority in `src/renderer/constants/modalPriorities.ts`
+3. Register with layer stack:
 
 ```typescript
-// CORRECT
-function MyComponent({ theme }: { theme: Theme }) {
-  return (
-    <div style={{
-      backgroundColor: theme.colors.background,
-      color: theme.colors.text,
-      borderColor: theme.colors.border,
-    }}>
-      <span style={{ color: theme.colors.textSecondary }}>
-        Subtitle
-      </span>
-    </div>
-  );
-}
+import { useLayerStack } from '../contexts/LayerStackContext';
+import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 
-// WRONG - Tailwind classes for theme colors
-function MyComponent() {
-  return (
-    <div className="bg-gray-900 text-white border-gray-700">
-      ...
-    </div>
-  );
-}
+const { registerLayer, unregisterLayer } = useLayerStack();
+const onCloseRef = useRef(onClose);
+onCloseRef.current = onClose;
+
+useEffect(() => {
+	if (isOpen) {
+		const id = registerLayer({
+			type: 'modal',
+			priority: MODAL_PRIORITIES.YOUR_MODAL,
+			onEscape: () => onCloseRef.current(),
+		});
+		return () => unregisterLayer(id);
+	}
+}, [isOpen, registerLayer, unregisterLayer]);
 ```
 
-Tailwind is fine for layout, spacing, and non-theme-dependent styling (e.g., `flex`,
-`p-4`, `rounded-lg`).
+## 5. Theme Colors
 
----
-
-## Pattern 6: Multi-Tab Sessions
-
-The AITab interface is defined in `src/renderer/types/index.ts`. Key fields:
+Themes have 13 required colors. Use inline styles for theme colors:
 
 ```typescript
-interface AITab {
-  id: string;
-  agentSessionId: string | null;   // null until agent connects (NOT undefined)
-  name: string;
-  logs: LogEntry[];
-  usageStats: UsageStats;
-  cumulativeUsageStats: UsageStats;
-  inputValue: string;              // current input text (NOT draftInput)
-  readOnlyMode: boolean;
-  showThinking: boolean;
-  wizardState: WizardState;
-  rating: Rating;
-  state: TabState;
-  starred: boolean;
-  locked: boolean;
-  hasUnread: boolean;
-  createdAt: number;
-}
+style={{ color: theme.colors.textMain }}  // Correct
+className="text-gray-500"                  // Wrong for themed text
 ```
 
-Tabs are managed per-session. Each session holds an array of AITab instances.
-The `agentSessionId` starts as `null` and is populated once the AI agent process
-establishes a connection for that tab.
+## 6. Multi-Tab Agents & Unified Tab System
 
----
+Agents support multiple AI conversation tabs and file preview tabs in a unified tab bar.
 
-## Pattern 7: Execution Queue
+### Critical Invariant: `unifiedTabOrder` Must Stay in Sync
 
-Each session maintains a `QueuedItem[]` for sequential prompt delivery:
+**Every tab in `aiTabs` or `filePreviewTabs` MUST have a corresponding entry in `unifiedTabOrder`.** The TabBar renders from `unifiedTabOrder` — tabs missing from this array are invisible even if their content renders.
 
 ```typescript
+// Session tab state (three arrays that MUST stay in sync)
+session.aiTabs: AITab[]                    // AI conversation tab data
+session.filePreviewTabs: FilePreviewTab[]  // File preview tab data
+session.unifiedTabOrder: UnifiedTabRef[]   // Visual order — TabBar source of truth
+
+session.activeTabId: string                // Active AI tab
+session.activeFileTabId: string | null     // Active file tab (null if AI tab active)
+```
+
+### When Adding Tabs
+
+Always update both the tab array AND `unifiedTabOrder`:
+
+```typescript
+// CORRECT — tab appears in TabBar
+return {
+	...s,
+	aiTabs: [...s.aiTabs, newTab],
+	activeTabId: newTabId,
+	unifiedTabOrder: [...s.unifiedTabOrder, { type: 'ai', id: newTabId }],
+};
+
+// WRONG — tab content renders but no tab visible
+return {
+	...s,
+	aiTabs: [...s.aiTabs, newTab],
+	activeTabId: newTabId,
+	// unifiedTabOrder not updated — ghost tab!
+};
+```
+
+### When Activating Existing Tabs
+
+Use `ensureInUnifiedTabOrder()` to repair orphaned tabs defensively:
+
+```typescript
+import { ensureInUnifiedTabOrder } from '../utils/tabHelpers';
+
+return {
+	...s,
+	activeFileTabId: existingTab.id,
+	unifiedTabOrder: ensureInUnifiedTabOrder(s.unifiedTabOrder, 'file', existingTab.id),
+};
+```
+
+### Shared Utilities (`tabHelpers.ts`)
+
+- **`buildUnifiedTabs(session)`** — Builds the unified tab list from session data. Follows `unifiedTabOrder` then appends orphaned tabs as a safety net. Single source of truth used by both `useTabHandlers.ts` and `tabStore.ts`.
+- **`ensureInUnifiedTabOrder(order, type, id)`** — Returns order unchanged if tab is present, appends it otherwise. Zero-cost no-op when no repair needed (returns same reference).
+
+## 7. Execution Queue
+
+Messages are queued when the AI is busy:
+
+```typescript
+// Queue items for sequential execution
 interface QueuedItem {
-  prompt: string;
-  tabId: string;
-  timestamp: number;
+	type: 'message' | 'slashCommand';
+	content: string;
+	timestamp: number;
 }
+
+// Add to queue instead of sending directly when busy
+session.executionQueue.push({ type: 'message', content, timestamp: Date.now() });
 ```
 
-Items are queued when the session/tab is busy (agent is processing), and delivered
-in FIFO order when the session becomes idle:
+## 8. Auto Run
+
+File-based document automation system:
 
 ```typescript
-// Simplified queue delivery logic
-function onSessionIdle(sessionId: string) {
-  const queue = sessionQueues.get(sessionId);
-  if (queue && queue.length > 0) {
-    const next = queue.shift();
-    deliverPrompt(sessionId, next.tabId, next.prompt);
-  }
+// Auto Run state on session
+session.autoRunFolderPath?: string;    // Document folder path
+session.autoRunSelectedFile?: string;  // Currently selected document
+session.autoRunMode?: 'edit' | 'preview';
+
+// API for Auto Run operations
+window.maestro.autorun.listDocuments(folderPath);
+window.maestro.autorun.readDocument(folderPath, filename);
+window.maestro.autorun.saveDocument(folderPath, filename, content);
+```
+
+**Worktree Support:** Auto Run can operate in a git worktree, allowing users to continue interactive editing in the main repo while Auto Run processes tasks in the background. When `batchRunState.worktreeActive` is true, read-only mode is disabled and a git branch icon appears in the UI. See `useBatchProcessor.ts` for worktree setup logic.
+
+**Playbook Assets:** Playbooks can include non-markdown assets (config files, YAML, Dockerfiles, scripts) in an `assets/` subfolder. When installing playbooks from the marketplace or importing from ZIP files, Maestro copies the entire folder structure including assets. See the [Maestro-Playbooks repository](https://github.com/RunMaestro/Maestro-Playbooks) for the convention documentation.
+
+```
+playbook-folder/
+├── 01_TASK.md
+├── 02_TASK.md
+├── README.md
+└── assets/
+    ├── config.yaml
+    ├── Dockerfile
+    └── setup.sh
+```
+
+Documents can reference assets using `{{AUTORUN_FOLDER}}/assets/filename`. The manifest lists assets explicitly:
+
+```json
+{
+  "id": "example-playbook",
+  "documents": [...],
+  "assets": ["config.yaml", "Dockerfile", "setup.sh"]
 }
 ```
 
-This ensures prompts are never dropped when users type while the agent is working.
+## 9. Tab Hover Overlay Menu
 
----
+AI conversation tabs display a hover overlay menu after a 400ms delay when hovering over tabs with an established provider session. The overlay includes tab management and context operations:
 
-## Pattern 8: Auto Run
-
-Folder-based automation with playbook assets. The state machine governs the lifecycle:
-
-```
-IDLE -> INITIALIZING -> RUNNING -> COMPLETING -> IDLE
-                          |
-                    PAUSED_ERROR -> STOPPING
-```
-
-Key implementation details:
-- **Worktree support**: Each auto-run can operate in an isolated git worktree
-- **Document polling**: 10-15 second intervals for checking new playbook documents
-- **Playbook assets**: Stored in designated folders, discovered at initialization
+**Menu Structure:**
 
 ```typescript
-type AutoRunState =
-  | 'IDLE'
-  | 'INITIALIZING'
-  | 'RUNNING'
-  | 'COMPLETING'
-  | 'PAUSED_ERROR'
-  | 'STOPPING';
+// Tab operations (always shown)
+- Copy Session ID (if provider session exists)
+- Star/Unstar Session (if provider session exists)
+- Rename Tab
+- Mark as Unread
 
-// State transitions are explicit
-function transitionAutoRun(current: AutoRunState, event: AutoRunEvent): AutoRunState {
-  switch (current) {
-    case 'IDLE':
-      if (event === 'START') return 'INITIALIZING';
-      break;
-    case 'INITIALIZING':
-      if (event === 'READY') return 'RUNNING';
-      break;
-    case 'RUNNING':
-      if (event === 'COMPLETE') return 'COMPLETING';
-      if (event === 'ERROR') return 'PAUSED_ERROR';
-      break;
-    case 'PAUSED_ERROR':
-      if (event === 'STOP') return 'STOPPING';
-      if (event === 'RETRY') return 'RUNNING';
-      break;
-    case 'COMPLETING':
-      if (event === 'DONE') return 'IDLE';
-      break;
-    case 'STOPPING':
-      if (event === 'STOPPED') return 'IDLE';
-      break;
-  }
-  return current;
-}
+// Context management (shown when applicable)
+- Context: Compact (if tab has 5+ messages)
+- Context: Merge Into (if provider session exists)
+- Context: Send to Agent (if provider session exists)
+
+// Tab close actions (always shown)
+- Close (disabled if only one tab)
+- Close Others (disabled if only one tab)
+- Close Tabs to the Left (disabled if first tab)
+- Close Tabs to the Right (disabled if last tab)
 ```
 
----
-
-## Pattern 9: Tab Hover Overlay Menu
-
-Consistent hover menu UX across tab components:
-
-- **400ms delay** before showing the overlay (prevents flash on quick mouse movement)
-- **Portal rendering** to avoid z-index and overflow clipping issues
-- **Disabled states** when the session is busy (agent processing)
+**Implementation Pattern:**
 
 ```typescript
-function useTabHoverMenu(tabId: string, isBusy: boolean) {
-  const [showMenu, setShowMenu] = useState(false);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
+const [overlayOpen, setOverlayOpen] = useState(false);
+const [overlayPosition, setOverlayPosition] = useState<{ top: number; left: number } | null>(null);
 
-  const onMouseEnter = useCallback(() => {
-    if (isBusy) return;
-    timerRef.current = setTimeout(() => setShowMenu(true), 400);
-  }, [isBusy]);
+const handleMouseEnter = () => {
+  if (!tab.agentSessionId) return; // Only for tabs with provider sessions
 
-  const onMouseLeave = useCallback(() => {
-    if (timerRef.current) clearTimeout(timerRef.current);
-    setShowMenu(false);
-  }, []);
+  hoverTimeoutRef.current = setTimeout(() => {
+    if (tabRef.current) {
+      const rect = tabRef.current.getBoundingClientRect();
+      setOverlayPosition({ top: rect.bottom + 4, left: rect.left });
+    }
+    setOverlayOpen(true);
+  }, 400);
+};
 
-  return { showMenu, onMouseEnter, onMouseLeave };
-}
-
-// Render via portal
-{showMenu && createPortal(
-  <TabOverlayMenu tabId={tabId} />,
-  document.getElementById('overlay-root')!
+// Render overlay via portal to escape stacking context
+{overlayOpen && overlayPosition && createPortal(
+  <div style={{ top: overlayPosition.top, left: overlayPosition.left }}>
+    {/* Overlay menu items */}
+  </div>,
+  document.body
 )}
 ```
 
----
+**Key Features:**
 
-## Pattern 10: SSH Remote Sessions
+- Appears after 400ms hover delay (only for tabs with `agentSessionId`)
+- Fixed positioning at tab bottom
+- Mouse can move from tab to overlay without closing
+- Disabled states with visual feedback (opacity-40, cursor-default)
+- Theme-aware styling
+- Dividers separate action groups
 
-CRITICAL dual-identifier pattern. Two distinct concepts must not be confused:
+See `src/renderer/components/TabBar.tsx` (Tab component) for implementation details.
 
-| Identifier | Purpose | When to use |
-|---|---|---|
-| `sshRemoteId` | Reference to saved SSH config entry | Settings UI, detecting if session is remote |
-| `sessionSshRemoteConfig` | Snapshot of SSH config at session creation | All runtime operations, process spawning |
+## 10. SSH Remote Agents
 
-```typescript
-interface Session {
-  // For config lookup only -- points to saved SSH settings
-  sshRemoteId: string | null;
-
-  // For runtime execution -- frozen snapshot at session creation
-  sessionSshRemoteConfig: SSHRemoteConfig | null;
-}
-
-// CORRECT - use snapshot for execution
-function spawnRemoteProcess(session: Session) {
-  if (session.sessionSshRemoteConfig) {
-    return connectAndSpawn(session.sessionSshRemoteConfig);
-  }
-}
-
-// WRONG - do not look up config by ID at runtime
-// The saved config may have changed since session creation
-function spawnRemoteProcess(session: Session) {
-  const config = getSavedConfig(session.sshRemoteId); // BAD
-  return connectAndSpawn(config);
-}
-```
-
-Always use `sessionSshRemoteConfig` for runtime operations. The `sshRemoteId` exists
-only for config lookup and detection (e.g., "is this session remote?").
-
----
-
-## Pattern 11: Hook Structure Patterns
-
-_New since Jan 31._
-
-### Domain subdirectories with barrel re-exports
-
-```
-src/renderer/hooks/
-  settings/
-    useSettings.ts
-    useSettingsValidation.ts
-    index.ts              // re-exports all hooks
-  sessions/
-    useSessionState.ts
-    useSessionLogs.ts
-    index.ts
-```
-
-### Naming conventions
-
-- Hook: `useHookName`
-- Deps type: `UseHookNameDeps`
-- Options type: `UseHookNameOptions`
-- Return type: `UseHookNameReturn`
-
-### Ref mirror pattern
-
-Prevents stale closures in callbacks that reference frequently-changing values:
+Agents can execute commands on remote hosts via SSH. **Critical:** There are two different SSH identifiers with different lifecycles:
 
 ```typescript
-function useMyHook(value: string, onChange: (v: string) => void) {
-  const valueRef = useRef(value);
-  valueRef.current = value;
+// Set AFTER AI agent spawns (via onSshRemote callback)
+session.sshRemoteId: string | undefined
 
-  const onChangeRef = useRef(onChange);
-  onChangeRef.current = onChange;
-
-  const handleUpdate = useCallback(() => {
-    // Always reads current value, never stale
-    onChangeRef.current(valueRef.current + ' updated');
-  }, []); // empty deps -- safe because refs are always current
-
-  return { handleUpdate };
+// Set BEFORE spawn (user configuration)
+session.sessionSshRemoteConfig: {
+  enabled: boolean;
+  remoteId: string | null;      // The SSH config ID
+  workingDirOverride?: string;
 }
 ```
 
-### Every returned function wrapped in useCallback
+**Common pitfall:** `sshRemoteId` is only populated after the AI agent spawns. For terminal-only SSH agents (no AI process), it remains `undefined`. Always use both as fallback:
 
 ```typescript
-function useMyFeature(): UseMyFeatureReturn {
-  const doSomething = useCallback(() => { /* ... */ }, [dep1, dep2]);
-  const doOther = useCallback(() => { /* ... */ }, [dep3]);
+// WRONG - fails for terminal-only SSH agents
+const sshId = session.sshRemoteId;
 
-  return { doSomething, doOther }; // all stable references
-}
+// CORRECT - works for all SSH agents
+const sshId = session.sshRemoteId || session.sessionSshRemoteConfig?.remoteId;
 ```
 
-### useReducer for complex state machines
+This applies to any operation that needs to run on the remote:
+
+- `window.maestro.fs.readDir(path, sshId)`
+- `gitService.isRepo(path, sshId)`
+- Directory existence checks for `cd` command tracking
+
+Similarly for checking if an agent is remote:
 
 ```typescript
-type State = { status: 'idle' | 'loading' | 'error'; data: Data | null };
-type Action = { type: 'FETCH' } | { type: 'SUCCESS'; data: Data } | { type: 'FAIL' };
+// WRONG
+const isRemote = !!session.sshRemoteId;
 
-function reducer(state: State, action: Action): State {
-  switch (action.type) {
-    case 'FETCH': return { ...state, status: 'loading' };
-    case 'SUCCESS': return { status: 'idle', data: action.data };
-    case 'FAIL': return { ...state, status: 'error' };
-  }
-}
-
-const [state, dispatch] = useReducer(reducer, { status: 'idle', data: null });
+// CORRECT
+const isRemote = !!session.sshRemoteId || !!session.sessionSshRemoteConfig?.enabled;
 ```
 
-### Four parameter patterns
+## 11. UI Bug Debugging Checklist
 
-1. **Deps object**: `useHook({ sessionId, tabId }: UseHookDeps)`
-2. **Options object**: `useHook(opts: UseHookOptions)`
-3. **Destructured**: `useHook({ enabled, interval }: { enabled: boolean; interval: number })`
-4. **Positional**: `useHook(sessionId: string, tabId: string)` (max 2-3 args)
+When debugging visual issues (tooltips clipped, elements not visible, scroll behavior):
 
----
+1. **CSS First:** Check parent container properties before code logic:
+   - `overflow: hidden` on ancestors (clipping issues)
+   - `z-index` stacking context conflicts
+   - `position` mismatches (fixed/absolute/relative)
 
-## Pattern 12: State Update Patterns
+2. **Scroll Issues:** Use `scrollIntoView({ block: 'nearest' })` not centering
 
-_New since Jan 31._
+3. **Portal Escape:** For overlays/tooltips that get clipped, use `createPortal(el, document.body)` to escape stacking context
 
-### Streaming batch: 150ms flush
+4. **Fixed Positioning:** Elements with `position: fixed` inside transformed parents won't position relative to viewport—check ancestor transforms
 
-Handles 100+ events/sec from agent streaming, batched into single setState calls:
+**Common fixes:**
 
 ```typescript
-function useBatchedSessionUpdates(sessionId: string) {
-  const pendingRef = useRef<LogEntry[]>([]);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
+// Tooltip/overlay escaping parent overflow
+import { createPortal } from 'react-dom';
+{isOpen && createPortal(<Overlay />, document.body)}
 
-  const addLogEntry = useCallback((entry: LogEntry) => {
-    pendingRef.current.push(entry);
-
-    if (!timerRef.current) {
-      timerRef.current = setTimeout(() => {
-        const batch = pendingRef.current;
-        pendingRef.current = [];
-        timerRef.current = null;
-
-        // Single setState for entire batch
-        updateSessionLogs(sessionId, (prev) => [...prev, ...batch]);
-      }, 150);
-    }
-  }, [sessionId]);
-
-  return { addLogEntry };
-}
+// Scroll element into view without centering
+element.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 ```
 
-### Per-session debounce: 200ms
+## 12. Encore Features (Feature Gating)
 
-```typescript
-function useSessionDebounce(sessionId: string) {
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
+Optional features that not all users need should be gated behind Encore Features — disabled by default, completely invisible when off (no shortcuts, menus, or command palette entries).
 
-  const debouncedUpdate = useCallback((updater: () => void) => {
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(updater, 200);
-  }, []);
+**Critical architecture detail:** `encoreFeatures` state lives in App.tsx's `useSettings()` and is passed to SettingsModal as **props** (not consumed via SettingsModal's own `useSettings()`). This ensures toggles propagate immediately to App.tsx for gating.
 
-  return { debouncedUpdate };
-}
-```
+### Gating Checklist
 
-### Persistence debounce: 2s with log truncation
+When adding a new Encore Feature, gate **all** access points:
 
-Logs are truncated to 100 entries per AI tab before persisting to avoid
-excessive storage and slow load times:
+1. **Type flag** — Add to `EncoreFeatureFlags` in `src/renderer/types/index.ts`
+2. **Default** — Set to `false` in `DEFAULT_ENCORE_FEATURES` in `useSettings.ts`
+3. **Toggle UI** — Add section in SettingsModal's Encore tab (follow Director's Notes pattern)
+4. **App.tsx** — Gate modal rendering and callback props on `encoreFeatures.yourFeature`
+5. **Keyboard shortcuts** — Guard with `ctx.encoreFeatures?.yourFeature` in `useMainKeyboardHandler.ts`
+6. **Hamburger menu** — Make the setter optional, conditionally render the menu item in `SessionList.tsx`
+7. **Command palette** — Pass `undefined` for the handler in `QuickActionsModal.tsx` (already conditionally renders based on handler existence)
 
-```typescript
-function useDebouncedPersistence(sessionId: string) {
-  const persist = useCallback((session: Session) => {
-    const truncated = {
-      ...session,
-      tabs: session.tabs.map((tab) => ({
-        ...tab,
-        logs: tab.logs.slice(-100), // keep last 100 entries
-      })),
-    };
-    ipcRenderer.invoke('session:persist', truncated);
-  }, []);
+### Reference Implementation: Director's Notes
 
-  // 2-second debounce
-  const debouncedPersist = useDebouncedCallback(persist, 2000);
+Director's Notes is the first Encore Feature and serves as the canonical example:
 
-  return { debouncedPersist };
-}
-```
+- **Flag:** `encoreFeatures.directorNotes` in `EncoreFeatureFlags`
+- **App.tsx gating:** Modal render wrapped in `{encoreFeatures.directorNotes && directorNotesOpen && (…)}`, callback passed as `encoreFeatures.directorNotes ? () => setDirectorNotesOpen(true) : undefined`
+- **Keyboard shortcut:** `ctx.encoreFeatures?.directorNotes` guard in `useMainKeyboardHandler.ts`
+- **Hamburger menu:** `setDirectorNotesOpen` made optional in `SessionList.tsx`, button conditionally rendered with `{setDirectorNotesOpen && (…)}`
+- **Command palette:** `onOpenDirectorNotes` already conditionally renders in `QuickActionsModal.tsx` — passing `undefined` from App.tsx is sufficient
 
-### Context + Ref anti-stale-closure pattern
+When adding a new Encore Feature, mirror this pattern across all access points.
 
-Combines React Context for reactivity with refs for stable callback access:
-
-```typescript
-const SessionContext = createContext<SessionState>(initialState);
-
-function SessionProvider({ children }) {
-  const [state, dispatch] = useReducer(sessionReducer, initialState);
-  const stateRef = useRef(state);
-  stateRef.current = state;
-
-  // Stable dispatch that always reads current state
-  const getState = useCallback(() => stateRef.current, []);
-
-  return (
-    <SessionContext.Provider value={{ state, dispatch, getState }}>
-      {children}
-    </SessionContext.Provider>
-  );
-}
-```
-
-### Memoized selector hooks
-
-Avoid unnecessary re-renders by selecting only the needed slice of state:
-
-```typescript
-function useSessionState(sessionId: string) {
-  const { state } = useContext(SessionContext);
-  return useMemo(
-    () => state.sessions.find((s) => s.id === sessionId),
-    [state.sessions, sessionId]
-  );
-}
-
-function useSessionLogs(sessionId: string, tabId?: string) {
-  const session = useSessionState(sessionId);
-  return useMemo(() => {
-    if (!session) return [];
-    if (tabId) {
-      const tab = session.tabs.find((t) => t.id === tabId);
-      return tab?.logs ?? [];
-    }
-    return session.tabs.flatMap((t) => t.logs);
-  }, [session, tabId]);
-}
-```
-
-### Subscription-based change notifications
-
-For cases where polling or context re-renders are too expensive:
-
-```typescript
-function useSessionSubscription(
-  sessionId: string,
-  onChange: (session: Session) => void
-) {
-  const onChangeRef = useRef(onChange);
-  onChangeRef.current = onChange;
-
-  useEffect(() => {
-    const unsubscribe = sessionStore.subscribe(sessionId, (session) => {
-      onChangeRef.current(session);
-    });
-    return unsubscribe;
-  }, [sessionId]);
-}
-```
+See [CONTRIBUTING.md → Encore Features](CONTRIBUTING.md#encore-features-feature-gating) for the full contributor guide.

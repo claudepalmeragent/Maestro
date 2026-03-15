@@ -13,12 +13,13 @@
  */
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { Check, X, Settings, ArrowLeft, AlertTriangle } from 'lucide-react';
+import { Check, X, Settings, ArrowLeft, AlertTriangle, Info, Wand2 } from 'lucide-react';
 import type { Theme, AgentConfig } from '../../../types';
 import type { SshRemoteConfig, AgentSshRemoteConfig } from '../../../../shared/types';
 import { useWizard } from '../WizardContext';
 import { ScreenReaderAnnouncement } from '../ScreenReaderAnnouncement';
 import { AgentConfigPanel } from '../../shared/AgentConfigPanel';
+import { isBetaAgent } from '../../../../shared/agentMetadata';
 
 interface AgentSelectionScreenProps {
 	theme: Theme;
@@ -63,14 +64,14 @@ export const AGENT_TILES: AgentTile[] = [
 		description: 'Open-source AI coding assistant',
 		brandColor: '#F97316', // Orange
 	},
-	// Coming soon agents at the bottom
 	{
-		id: 'aider',
-		name: 'Aider',
-		supported: false,
-		description: 'Coming soon',
-		brandColor: '#14B8A6', // Teal
+		id: 'factory-droid',
+		name: 'Factory Droid',
+		supported: true,
+		description: "Factory's AI coding assistant",
+		brandColor: '#3B82F6', // Factory blue
 	},
+	// Coming soon agents at the bottom
 	{
 		id: 'gemini-cli',
 		name: 'Gemini CLI',
@@ -87,7 +88,7 @@ export const AGENT_TILES: AgentTile[] = [
 	},
 ];
 
-// Grid dimensions for keyboard navigation (3 cols for 5 items)
+// Grid dimensions for keyboard navigation (3 cols for 6 items)
 const GRID_COLS = 3;
 const GRID_ROWS = 2;
 
@@ -145,33 +146,6 @@ export function AgentLogo({
 					{/* OpenAI hexagon-inspired logo */}
 					<path d="M24 6L40 15v18l-16 9-16-9V15l16-9z" stroke={color} strokeWidth="2" fill="none" />
 					<path d="M24 6v36M40 15L8 33M8 15l32 18" stroke={color} strokeWidth="2" />
-				</svg>
-			);
-
-		case 'aider':
-			// Aider - chat bubble with code brackets
-			return (
-				<svg
-					className="w-12 h-12"
-					viewBox="0 0 48 48"
-					fill="none"
-					xmlns="http://www.w3.org/2000/svg"
-					style={{ opacity }}
-				>
-					{/* Chat bubble with code brackets */}
-					<path
-						d="M8 12C8 9.79 9.79 8 12 8H36C38.21 8 40 9.79 40 12V28C40 30.21 38.21 32 36 32H20L12 40V32H12C9.79 32 8 30.21 8 28V12Z"
-						stroke={color}
-						strokeWidth="2"
-						fill="none"
-					/>
-					<path
-						d="M18 16L14 20L18 24M30 16L34 20L30 24"
-						stroke={color}
-						strokeWidth="2"
-						strokeLinecap="round"
-						strokeLinejoin="round"
-					/>
 				</svg>
 			);
 
@@ -247,6 +221,60 @@ export function AgentLogo({
 				</svg>
 			);
 
+		case 'factory-droid':
+			// Factory Droid - pinwheel/flower logo
+			return (
+				<svg
+					className="w-12 h-12"
+					viewBox="0 0 48 48"
+					fill="none"
+					xmlns="http://www.w3.org/2000/svg"
+					style={{ opacity }}
+				>
+					{/* Factory Droid pinwheel logo - 6 petals radiating from center */}
+					<circle cx="24" cy="24" r="3" fill={color} />
+					{/* Petals - elliptical shapes radiating outward */}
+					<ellipse cx="24" cy="12" rx="4" ry="8" fill={color} fillOpacity="0.9" />
+					<ellipse
+						cx="34.4"
+						cy="18"
+						rx="4"
+						ry="8"
+						fill={color}
+						fillOpacity="0.9"
+						transform="rotate(60 34.4 18)"
+					/>
+					<ellipse
+						cx="34.4"
+						cy="30"
+						rx="4"
+						ry="8"
+						fill={color}
+						fillOpacity="0.9"
+						transform="rotate(120 34.4 30)"
+					/>
+					<ellipse cx="24" cy="36" rx="4" ry="8" fill={color} fillOpacity="0.9" />
+					<ellipse
+						cx="13.6"
+						cy="30"
+						rx="4"
+						ry="8"
+						fill={color}
+						fillOpacity="0.9"
+						transform="rotate(60 13.6 30)"
+					/>
+					<ellipse
+						cx="13.6"
+						cy="18"
+						rx="4"
+						ry="8"
+						fill={color}
+						fillOpacity="0.9"
+						transform="rotate(120 13.6 18)"
+					/>
+				</svg>
+			);
+
 		default:
 			return (
 				<div className="w-12 h-12 rounded-full border-2" style={{ borderColor: color, opacity }} />
@@ -295,9 +323,13 @@ export function AgentSelectionScreen({ theme }: AgentSelectionScreenProps): JSX.
 	const setCustomEnvVars = (val: Record<string, string>) =>
 		setWizardCustomEnvVars(Object.keys(val).length > 0 ? val : undefined);
 	const [agentConfig, setAgentConfig] = useState<Record<string, any>>({});
+	const agentConfigRef = useRef<Record<string, any>>({});
 	const [availableModels, setAvailableModels] = useState<string[]>([]);
 	const [loadingModels, setLoadingModels] = useState(false);
 	const [refreshingAgent, setRefreshingAgent] = useState(false);
+
+	// Track if user has existing agents (to show/hide the note about in-tab wizard)
+	const [hasExistingAgents, setHasExistingAgents] = useState(false);
 
 	// SSH Remote configuration state
 	// Initialize from wizard context if already set (e.g., when SSH was configured before opening wizard)
@@ -361,7 +393,7 @@ export function AgentSelectionScreen({ theme }: AgentSelectionScreenProps): JSX.
 					const visibleAgents = agents.filter((a: AgentConfig) => !a.hidden);
 
 					// Check if all agents have connection errors (indicates SSH connection failure)
-					 
+
 					const connectionErrors = visibleAgents
 						.filter((a: any) => a.error)
 						.map((a: any) => a.error);
@@ -442,7 +474,6 @@ export function AgentSelectionScreen({ theme }: AgentSelectionScreenProps): JSX.
 		// Using JSON.stringify with 'null' fallback to ensure the effect runs when switching
 		// between remote and local (JSON.stringify(undefined) returns undefined, not 'null',
 		// so we need the fallback to ensure React sees it as a real string change)
-		 
 	}, [setAvailableAgents, setSelectedAgent, JSON.stringify(sshRemoteConfig) ?? 'null']);
 
 	// Load SSH remote configurations on mount
@@ -460,6 +491,27 @@ export function AgentSelectionScreen({ theme }: AgentSelectionScreenProps): JSX.
 			}
 		}
 		loadSshRemotes();
+
+		return () => {
+			mounted = false;
+		};
+	}, []);
+
+	// Check if user has existing agents on mount
+	useEffect(() => {
+		let mounted = true;
+
+		async function checkExistingAgents() {
+			try {
+				const sessions = await window.maestro.sessions.getAll();
+				if (mounted) {
+					setHasExistingAgents(sessions.length > 0);
+				}
+			} catch (error) {
+				console.error('Failed to check existing agents:', error);
+			}
+		}
+		checkExistingAgents();
 
 		return () => {
 			mounted = false;
@@ -653,6 +705,7 @@ export function AgentSelectionScreen({ theme }: AgentSelectionScreenProps): JSX.
 		async (agentId: string) => {
 			// Load agent config (model selection only - per-agent path/args/envVars are in wizard state)
 			const config = await window.maestro.agents.getConfig(agentId);
+			agentConfigRef.current = config || {};
 			setAgentConfig(config || {});
 			setConfiguringAgentId(agentId);
 
@@ -661,7 +714,10 @@ export function AgentSelectionScreen({ theme }: AgentSelectionScreenProps): JSX.
 			if (agent?.capabilities?.supportsModelSelection) {
 				setLoadingModels(true);
 				try {
-					const models = await window.maestro.agents.getModels(agentId);
+					const sshRemoteId = sshRemoteConfig?.enabled
+						? (sshRemoteConfig.remoteId ?? undefined)
+						: undefined;
+					const models = await window.maestro.agents.getModels(agentId, false, sshRemoteId);
 					setAvailableModels(models);
 				} catch (err) {
 					console.error('Failed to load models:', err);
@@ -685,7 +741,7 @@ export function AgentSelectionScreen({ theme }: AgentSelectionScreenProps): JSX.
 			setAnnouncement(`Configuring ${tile?.name || agentId}`);
 			setAnnouncementKey((prev) => prev + 1);
 		},
-		[detectedAgents, setSelectedAgent]
+		[detectedAgents, setSelectedAgent, sshRemoteConfig]
 	);
 
 	/**
@@ -752,14 +808,17 @@ export function AgentSelectionScreen({ theme }: AgentSelectionScreenProps): JSX.
 		if (!configuringAgentId) return;
 		setLoadingModels(true);
 		try {
-			const models = await window.maestro.agents.getModels(configuringAgentId, true);
+			const sshRemoteId = sshRemoteConfig?.enabled
+				? (sshRemoteConfig.remoteId ?? undefined)
+				: undefined;
+			const models = await window.maestro.agents.getModels(configuringAgentId, true, sshRemoteId);
 			setAvailableModels(models);
 		} catch (err) {
 			console.error('Failed to refresh models:', err);
 		} finally {
 			setLoadingModels(false);
 		}
-	}, [configuringAgentId]);
+	}, [configuringAgentId, sshRemoteConfig]);
 
 	// Get the agent being configured
 	// When SSH detection is in progress, detectedAgents may be stale or empty.
@@ -831,9 +890,54 @@ export function AgentSelectionScreen({ theme }: AgentSelectionScreenProps): JSX.
 						<ArrowLeft className="w-4 h-4" />
 						Back
 					</button>
-					<h3 className="text-xl font-semibold" style={{ color: theme.colors.textMain }}>
-						Configure {configuringTile.name}
-					</h3>
+					<div className="flex flex-col items-center gap-2">
+						<h3 className="text-xl font-semibold" style={{ color: theme.colors.textMain }}>
+							Configure {configuringTile.name}
+						</h3>
+						{/* SSH Remote Location Dropdown - only shown if remotes are configured */}
+						{sshRemotes.length > 0 && (
+							<div className="flex items-center gap-2 text-sm">
+								<span style={{ color: theme.colors.textDim }}>on</span>
+								<select
+									value={sshRemoteConfig?.enabled ? sshRemoteConfig.remoteId || '' : ''}
+									onChange={(e) => {
+										const remoteId = e.target.value;
+										if (remoteId === '') {
+											// Local machine selected
+											setSshRemoteConfig(undefined);
+											// Also update wizard context immediately
+											setWizardSessionSshRemoteConfig({ enabled: false, remoteId: null });
+										} else {
+											// Remote selected
+											setSshRemoteConfig({
+												enabled: true,
+												remoteId,
+											});
+											// Also update wizard context immediately
+											setWizardSessionSshRemoteConfig({
+												enabled: true,
+												remoteId,
+											});
+										}
+									}}
+									className="px-3 py-1 rounded border outline-none transition-all cursor-pointer text-xs"
+									style={{
+										backgroundColor: theme.colors.bgMain,
+										borderColor: theme.colors.border,
+										color: theme.colors.textMain,
+									}}
+									aria-label="Agent location"
+								>
+									<option value="">Local Machine</option>
+									{sshRemotes.map((remote) => (
+										<option key={remote.id} value={remote.id}>
+											{remote.name || remote.host}
+										</option>
+									))}
+								</select>
+							</div>
+						)}
+					</div>
 					<div className="w-20" /> {/* Spacer for centering */}
 				</div>
 
@@ -913,10 +1017,16 @@ export function AgentSelectionScreen({ theme }: AgentSelectionScreenProps): JSX.
 							}}
 							agentConfig={agentConfig}
 							onConfigChange={(key, value) => {
-								setAgentConfig((prev) => ({ ...prev, [key]: value }));
+								const updatedConfig = { ...agentConfigRef.current, [key]: value };
+								agentConfigRef.current = updatedConfig;
+								setAgentConfig(updatedConfig);
 							}}
-							onConfigBlur={async () => {
-								await window.maestro.agents.setConfig(configuringAgentId!, agentConfig);
+							onConfigBlur={async (key, value) => {
+								if (!configuringAgentId) return;
+								const updatedConfig = { ...agentConfigRef.current, [key]: value };
+								agentConfigRef.current = updatedConfig;
+								setAgentConfig(updatedConfig);
+								await window.maestro.agents.setConfig(configuringAgentId, updatedConfig);
 							}}
 							availableModels={availableModels}
 							loadingModels={loadingModels}
@@ -1039,16 +1149,47 @@ export function AgentSelectionScreen({ theme }: AgentSelectionScreenProps): JSX.
 						</div>
 					)}
 				</div>
-
-				<p className="text-sm" style={{ color: theme.colors.textDim }}>
-					Select the provider that will power your agent.
-				</p>
 			</div>
 
-			{/* Section 2: Agent Grid or Connection Error */}
+			{/* Section 2: Note box - only shown if user has existing agents */}
+			{hasExistingAgents && (
+				<div className="flex justify-center">
+					<div
+						className="flex items-start gap-2.5 px-4 py-3 rounded-lg max-w-3xl w-full text-xs"
+						style={{
+							backgroundColor: theme.colors.accent + '15',
+							border: `1px solid ${theme.colors.accent}30`,
+						}}
+					>
+						<Info className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: theme.colors.accent }} />
+						<span style={{ color: theme.colors.textDim }}>
+							<strong style={{ color: theme.colors.textMain }}>Note:</strong> The new agent wizard
+							captures application inputs until complete. For a lighter touch, create a new agent
+							then run{' '}
+							<code
+								className="px-1 py-0.5 rounded text-[11px]"
+								style={{ backgroundColor: theme.colors.border }}
+							>
+								/wizard
+							</code>{' '}
+							or click the{' '}
+							<Wand2
+								className="inline w-3.5 h-3.5 align-text-bottom"
+								style={{ color: theme.colors.accent }}
+							/>{' '}
+							button in the Auto Run panel. The in-tab wizard runs alongside your other work.
+						</span>
+					</div>
+				</div>
+			)}
+
+			{/* Section 3: Agent Grid or Connection Error */}
 			{sshConnectionError ? (
 				/* SSH Connection Error State */
-				<div className="flex justify-center">
+				<div className="flex flex-col items-center gap-4">
+					<p className="text-sm" style={{ color: theme.colors.textDim }}>
+						Select the provider that will power your agent.
+					</p>
 					<div
 						className="flex flex-col items-center justify-center p-8 rounded-xl border-2 max-w-lg text-center"
 						style={{
@@ -1070,7 +1211,10 @@ export function AgentSelectionScreen({ theme }: AgentSelectionScreenProps): JSX.
 				</div>
 			) : (
 				/* Agent Grid */
-				<div className="flex justify-center">
+				<div className="flex flex-col items-center gap-4">
+					<p className="text-sm" style={{ color: theme.colors.textDim }}>
+						Select the provider that will power your agent.
+					</p>
 					<div className="grid grid-cols-3 gap-4 max-w-3xl">
 						{AGENT_TILES.map((tile, index) => {
 							const isDetected = isAgentAvailable(tile.id);
@@ -1183,8 +1327,8 @@ export function AgentSelectionScreen({ theme }: AgentSelectionScreenProps): JSX.
 										</span>
 									)}
 
-									{/* "Beta" badge for Codex and OpenCode */}
-									{isSupported && (tile.id === 'codex' || tile.id === 'opencode') && (
+									{/* "Beta" badge for Codex, OpenCode, and Factory Droid */}
+									{isSupported && isBetaAgent(tile.id) && (
 										<span
 											className="absolute top-2 left-2 px-1.5 py-0.5 text-[9px] rounded font-bold uppercase"
 											style={{
@@ -1227,7 +1371,7 @@ export function AgentSelectionScreen({ theme }: AgentSelectionScreenProps): JSX.
 				</div>
 			)}
 
-			{/* Section 3: Continue Button + Keyboard hints */}
+			{/* Section 4: Continue Button + Keyboard hints */}
 			<div className="flex flex-col items-center gap-4">
 				<button
 					onClick={handleContinue}

@@ -12,11 +12,11 @@
  * - Theme-aware line color and grid
  */
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { memo, useState, useMemo, useCallback, useId } from 'react';
 import { createPortal } from 'react-dom';
 import { format, parseISO } from 'date-fns';
 import type { Theme } from '../../types';
-import type { StatsTimeRange, StatsAggregation } from '../../hooks/useStats';
+import type { StatsTimeRange, StatsAggregation } from '../../hooks/stats/useStats';
 import { COLORBLIND_LINE_COLORS } from '../../constants/colorblindPalettes';
 
 // Tooltip positioning constants
@@ -112,6 +112,8 @@ function getWindowSize(timeRange: StatsTimeRange): number {
 			return 3;
 		case 'month':
 			return 5;
+		case 'quarter':
+			return 7; // Weekly smoothing for quarter
 		case 'year':
 			return 7;
 		case 'all':
@@ -134,6 +136,8 @@ function formatXAxisDate(dateStr: string, timeRange: StatsTimeRange): string {
 			return format(date, 'EEE');
 		case 'month':
 			return format(date, 'MMM d');
+		case 'quarter':
+			return format(date, 'MMM d'); // Show month and day for quarter
 		case 'year':
 			return format(date, 'MMM');
 		case 'all':
@@ -143,7 +147,7 @@ function formatXAxisDate(dateStr: string, timeRange: StatsTimeRange): string {
 	}
 }
 
-export function DurationTrendsChart({
+export const DurationTrendsChart = memo(function DurationTrendsChart({
 	data,
 	timeRange,
 	theme,
@@ -293,11 +297,9 @@ export function DurationTrendsChart({
 		return { r: 100, g: 149, b: 237 }; // Default blue
 	}, [primaryColor]);
 
-	// Generate unique ID for gradient
-	const gradientId = useMemo(
-		() => `duration-gradient-${Math.random().toString(36).slice(2, 9)}`,
-		[]
-	);
+	// Stable unique ID for SVG gradient
+	const baseId = useId();
+	const gradientId = `duration-gradient-${baseId.replace(/:/g, '')}`;
 
 	return (
 		<div
@@ -548,6 +550,6 @@ export function DurationTrendsChart({
 			</div>
 		</div>
 	);
-}
+});
 
 export default DurationTrendsChart;

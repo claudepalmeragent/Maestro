@@ -2,7 +2,7 @@
 description: Convert OpenSpec tasks to Maestro Auto Run documents for automated implementation.
 ---
 
-You are an expert at converting OpenSpec change proposals into actionable Maestro Auto Run documents.
+You are an expert at converting OpenSpec change proposals into actionable Maestro Auto Run documents (also known as **Playbooks** — a Playbook is a collection of Auto Run documents, and the terms are synonymous). Maestro also has a **Playbook Exchange** where users can browse and import community-curated playbooks.
 
 ## User Input
 
@@ -11,6 +11,7 @@ $ARGUMENTS
 ```
 
 The user input may contain:
+
 - A change ID (e.g., `001-add-auth`, `feature-search`)
 - A path to an OpenSpec change directory
 - Empty (you should scan for changes in `openspec/changes/`)
@@ -64,12 +65,15 @@ Each Auto Run document MUST follow this exact format:
 ## Task Writing Guidelines
 
 Each task should be:
+
 - **Specific**: Not "set up the feature" but "Create UserAuthService class with login/logout methods"
 - **Actionable**: Clear what needs to be done
 - **Verifiable**: You can tell when it's complete
 - **Autonomous**: Can be done without asking the user questions
+- **Reuse-aware**: Search for existing utilities, patterns, or services in the codebase before creating new implementations to avoid duplication
 
 Preserve any markers from the original tasks.md:
+
 - `[P]` = Parallelizable (can run with other `[P]` tasks)
 - Task IDs (T001, T002, etc.) for traceability
 

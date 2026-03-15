@@ -12,9 +12,9 @@
  * - Hover tooltips
  */
 
-import React, { useState, useMemo } from 'react';
+import { memo, useState, useMemo } from 'react';
 import type { Theme } from '../../types';
-import type { StatsAggregation } from '../../hooks/useStats';
+import type { StatsAggregation } from '../../hooks/stats/useStats';
 
 type MetricMode = 'count' | 'duration';
 
@@ -54,7 +54,7 @@ function formatDuration(ms: number): string {
 	return `${totalSeconds}s`;
 }
 
-export function PeakHoursChart({
+export const PeakHoursChart = memo(function PeakHoursChart({
 	data,
 	theme,
 	colorBlindMode: _colorBlindMode = false,
@@ -103,7 +103,7 @@ export function PeakHoursChart({
 	}, [hourlyData, metricMode]);
 
 	// Check if there's any data
-	const hasData = hourlyData.some((h) => h.count > 0);
+	const hasData = useMemo(() => hourlyData.some((h) => h.count > 0), [hourlyData]);
 
 	// Chart dimensions
 	const chartHeight = 120;
@@ -252,6 +252,6 @@ export function PeakHoursChart({
 			)}
 		</div>
 	);
-}
+});
 
 export default PeakHoursChart;

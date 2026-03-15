@@ -1,3410 +1,1725 @@
-# Maestro v0.14.5 -- Deep Technical Architecture
+# Architecture Guide
 
-> **Regenerated**: 2026-02-17
-> **Archived version**: `__MD_ARCHIVE/ARCHITECTURE_20260217_182050.md`
-> **Cross-reference**: `Codebase_Context_20260217_180422.md`
-
----
+Deep technical documentation for Maestro's architecture and design patterns. For quick reference, see [CLAUDE.md](CLAUDE.md). For development setup, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Table of Contents
 
-1. [Dual-Process Architecture](#1-dual-process-architecture)
-2. [IPC Security Model](#2-ipc-security-model)
-3. [Process Manager](#3-process-manager)
-4. [Layer Stack System](#4-layer-stack-system)
-5. [Custom Hooks](#5-custom-hooks)
-6. [Services Layer](#6-services-layer)
-7. [Custom AI Commands](#7-custom-ai-commands)
-8. [Theme System](#8-theme-system)
-9. [Settings Persistence](#9-settings-persistence)
-10. [Agent Sessions API](#10-agent-sessions-api)
-11. [Auto Run System](#11-auto-run-system)
-12. [Achievement System](#12-achievement-system)
-13. [AI Tab System](#13-ai-tab-system)
-14. [Execution Queue](#14-execution-queue)
-15. [Navigation History](#15-navigation-history)
-16. [Group Chat System](#16-group-chat-system)
-17. [Web/Mobile Interface](#17-webmobile-interface)
-18. [CLI Tool](#18-cli-tool)
-19. [Usage Dashboard](#19-usage-dashboard)
-20. [Document Graph](#20-document-graph)
-21. [Stats Database](#21-stats-database)
-22. [Project Folders](#22-project-folders)
-23. [Knowledge Graph](#23-knowledge-graph)
-24. [Prompt Library](#24-prompt-library)
-25. [Anthropic Audit](#25-anthropic-audit)
-26. [Shared Module](#26-shared-module)
-27. [SSH Remote](#27-ssh-remote)
-28. [Error Handling Patterns](#28-error-handling-patterns)
-29. [Styling](#29-styling)
+- [Dual-Process Architecture](#dual-process-architecture)
+- [IPC Security Model](#ipc-security-model)
+- [Process Manager](#process-manager)
+- [Layer Stack System](#layer-stack-system)
+- [Custom Hooks](#custom-hooks)
+- [Services Layer](#services-layer)
+- [Custom AI Commands](#custom-ai-commands)
+- [Theme System](#theme-system)
+- [Settings Persistence](#settings-persistence)
+- [Claude Provider Sessions API](#claude-provider-sessions-api)
+- [Auto Run System](#auto-run-system)
+- [Achievement System](#achievement-system)
+- [AI Tab System](#ai-tab-system)
+- [File Preview Tab System](#file-preview-tab-system)
+- [Execution Queue](#execution-queue)
+- [Navigation History](#navigation-history)
+- [Group Chat System](#group-chat-system)
+- [Web/Mobile Interface](#webmobile-interface)
+- [CLI Tool](#cli-tool)
+- [Shared Module](#shared-module)
+- [Remote Access & Tunnels](#remote-access--tunnels)
+- [Error Handling Patterns](#error-handling-patterns)
 
 ---
 
-## 1. Dual-Process Architecture
+## Architecture
 
-Maestro follows the standard Electron dual-process model, separating privileged
-Node.js operations from the sandboxed Chromium renderer. This is the foundational
-architectural decision upon which every other subsystem is built.
+Maestro organizes work into **Agents** (workspaces), each with a **CLI Terminal** and multiple **AI Tabs**. Each tab can be connected to a **Provider Session** - either newly created or resumed from the session pool.
 
-### 1.1 Main Process (Node.js)
+```mermaid
+graph LR
+    subgraph Maestro["Maestro App"]
+        subgraph ProjectA["Agent A (workspace)"]
+            TermA[CLI Terminal]
+            subgraph TabsA["Agent Tabs"]
+                Tab1A[Tab 1]
+                Tab2A[Tab 2]
+            end
+        end
+        subgraph ProjectB["Agent B (workspace)"]
+            TermB[CLI Terminal]
+            subgraph TabsB["Agent Tabs"]
+                Tab1B[Tab 1]
+                Tab2B[Tab 2]
+            end
+        end
+    end
 
-The main process is the privileged half of the application. It has unrestricted
-access to the filesystem, network, and operating system APIs. Responsibilities
-include:
+    subgraph SessionPool["Provider Session Pool"]
+        direction TB
+        S1["Session α"]
+        S2["Session β"]
+        S3["Session γ"]
+        S4["Session δ"]
+        S5["..."]
+    end
 
-- **Window management**: Creating, positioning, and managing BrowserWindow
-  instances including window state persistence across restarts.
-- **IPC handler registration**: All `ipcMain.handle()` and `ipcMain.on()`
-  registrations live here, organized by domain.
-- **Process spawning**: PTY allocation for terminal shells, child_process
-  management for AI agent subprocesses.
-- **File system access**: All disk I/O operations are proxied through IPC
-  handlers in the main process.
-- **Native integrations**: System tray, native menus, global shortcuts,
-  auto-updater, power monitor, and system notifications.
-- **Store management**: Ten `electron-store` instances for persistent
-  configuration (see Section 9).
-- **SQLite database**: The stats database runs in the main process with WAL
-  mode enabled (see Section 21).
+    Tab1A -.->|"resume"| S1
+    Tab2A -.->|"resume"| S2
+    Tab1B -.->|"resume"| S3
+    Tab2B -.->|"new"| S4
 
+    style Maestro fill:#9b8cd6,stroke:#6b5b95
+    style ProjectA fill:#87ceeb,stroke:#4682b4
+    style ProjectB fill:#87ceeb,stroke:#4682b4
+    style TermA fill:#90ee90,stroke:#228b22
+    style TermB fill:#90ee90,stroke:#228b22
+    style TabsA fill:#ffe4a0,stroke:#daa520
+    style TabsB fill:#ffe4a0,stroke:#daa520
+    style SessionPool fill:#ffb6c1,stroke:#dc143c
 ```
-Main Process Lifecycle:
-  app.whenReady()
-    -> createBootstrapStore()
-    -> registerAllIpcHandlers()
-    -> createMainWindow()
-    -> initStatsDatabase()
-    -> initAutoUpdater()
-    -> startPowerMonitor()
-```
 
-### 1.2 Renderer Process (Chromium)
+## Dual-Process Architecture
 
-The renderer process runs in a sandboxed Chromium context. It has no direct
-access to Node.js APIs. All privileged operations are performed via IPC calls
-through the `window.maestro.*` bridge.
+Maestro uses Electron's main/renderer split with strict context isolation.
 
-- **React application**: The entire UI is a single React application with
-  component tree managed by React 18+.
-- **State management**: A combination of React Context, hooks, and local
-  component state. No external state library (Redux, Zustand, etc.).
-- **IPC consumption**: All main-process features are accessed exclusively
-  through the `window.maestro` namespace exposed by the preload script.
+### Main Process (`src/main/`)
 
-### 1.3 Preload Script and Context Bridge
+Node.js backend with full system access:
 
-The preload script is the critical security boundary. It runs in a special
-context that has access to a limited set of Electron APIs and can expose
-a controlled API surface to the renderer via `contextBridge.exposeInMainWorld`.
+| File                      | Purpose                                                       |
+| ------------------------- | ------------------------------------------------------------- |
+| `index.ts`                | App entry, IPC handlers, window management                    |
+| `process-manager.ts`      | PTY and child process spawning                                |
+| `web-server.ts`           | Fastify HTTP/WebSocket server for mobile remote control       |
+| `agent-detector.ts`       | Auto-detect CLI tools via PATH                                |
+| `preload.ts`              | Secure IPC bridge via contextBridge                           |
+| `tunnel-manager.ts`       | Cloudflare tunnel management for secure remote access         |
+| `themes.ts`               | Theme definitions for web interface (mirrors renderer themes) |
+| `utils/execFile.ts`       | Safe command execution utility                                |
+| `utils/logger.ts`         | System logging with levels                                    |
+| `utils/shellDetector.ts`  | Detect available shells                                       |
+| `utils/terminalFilter.ts` | Strip terminal control sequences                              |
+| `utils/cliDetection.ts`   | CLI tool detection (cloudflared, gh)                          |
+| `utils/networkUtils.ts`   | Network utilities for local IP detection                      |
+
+### Renderer Process (`src/renderer/`)
+
+React frontend with no direct Node.js access:
+
+| Directory     | Purpose                                                           |
+| ------------- | ----------------------------------------------------------------- |
+| `components/` | React UI components                                               |
+| `hooks/`      | Custom React hooks (15 hooks - see [Custom Hooks](#custom-hooks)) |
+| `services/`   | IPC wrappers (git.ts, process.ts)                                 |
+| `contexts/`   | React contexts (LayerStackContext, ToastContext)                  |
+| `constants/`  | Themes, shortcuts, modal priorities                               |
+| `types/`      | TypeScript definitions                                            |
+| `utils/`      | Frontend utilities                                                |
+
+### Agent Model (Session Interface)
+
+Each agent runs **two processes simultaneously**:
 
 ```typescript
-// preload.ts (simplified)
-contextBridge.exposeInMainWorld('maestro', {
-  settings: {
-    get: (key: string) => ipcRenderer.invoke('settings:get', key),
-    set: (key: string, value: unknown) => ipcRenderer.invoke('settings:set', key, value),
-    onChanged: (cb: SettingsCallback) => {
-      const subscription = (_: IpcRendererEvent, ...args: unknown[]) => cb(...args);
-      ipcRenderer.on('settings:changed', subscription);
-      return () => ipcRenderer.removeListener('settings:changed', subscription);
-    },
-  },
-  // ... 36 more namespaces
-});
+interface Session {
+	id: string; // Unique identifier
+	aiPid: number; // AI agent process (suffixed -ai)
+	terminalPid: number; // Terminal process (suffixed -terminal)
+	inputMode: 'ai' | 'terminal'; // Which process receives input
+	// ... other fields
+}
 ```
 
-### 1.4 Security Configuration
+This enables seamless switching between AI and terminal modes without process restarts.
 
-Maestro enforces strict security defaults on all BrowserWindow instances:
+---
+
+## IPC Security Model
+
+All renderer-to-main communication uses the preload script:
+
+- **Context isolation**: Enabled (renderer has no Node.js access)
+- **Node integration**: Disabled (no `require()` in renderer)
+- **Preload script**: Exposes minimal API via `contextBridge.exposeInMainWorld('maestro', ...)`
+
+### The `window.maestro` API
 
 ```typescript
-const windowOptions: BrowserWindowConstructorOptions = {
-  webPreferences: {
-    contextIsolation: true,       // Renderer cannot access preload scope
-    nodeIntegration: false,       // No require() in renderer
-    sandbox: true,                // OS-level sandboxing
-    webSecurity: true,            // Enforce same-origin policy
-    allowRunningInsecureContent: false,
-    preload: path.join(__dirname, 'preload.js'),
+window.maestro = {
+  // Core persistence
+  settings: { get, set, getAll },
+  sessions: { getAll, setAll },
+  groups: { getAll, setAll },
+  history: { getAll, setAll },  // Command history persistence
+
+  // Process management
+  process: { spawn, write, interrupt, kill, resize, runCommand, onData, onExit, onSessionId, onStderr, onCommandExit, onUsage },
+
+  // Git operations (expanded)
+  git: {
+    status, diff, isRepo, numstat,
+    branches, tags, branch, log, show, showFile,
+    // Worktree operations
+    worktreeInfo, worktreeSetup, worktreeCheckout, getRepoRoot,
+    // PR creation
+    createPR, getDefaultBranch, checkGhCli
   },
+
+  // File system
+  fs: { readDir, readFile },
+
+  // Agent management
+  agents: { detect, get, getConfig, setConfig, getConfigValue, setConfigValue },
+
+  // Claude Code integration
+  claude: { listSessions, readSessionMessages, searchSessions, getGlobalStats, onGlobalStatsUpdate },
+
+  // UI utilities
+  dialog: { selectFolder },
+  fonts: { detect },
+  shells: { detect },
+  shell: { openExternal },
+  devtools: { open, close, toggle },
+
+  // Logging
+  logger: { log, getLogs, clearLogs, setLogLevel, getLogLevel, setMaxLogBuffer, getMaxLogBuffer },
+
+  // Web/remote interface
+  webserver: { getUrl, getClientCount },
+  web: { broadcastUserInput, broadcastAutoRunState, broadcastTabChange },
+  live: { setSessionLive, getSessionLive },
+  tunnel: { start, stop, getStatus, onStatusChange },
+
+  // Auto Run
+  autorun: { listDocs, readDoc, writeDoc, saveImage, deleteImage, listImages },
+  playbooks: { list, create, update, delete },
+
+  // Attachments & temp files
+  attachments: { save, list, delete, clear },
+  tempfile: { write, read, delete },
+
+  // Activity & notifications
+  cli: { trackActivity, getActivity },
+  notification: { show, speak },
+}
+```
+
+---
+
+## Process Manager
+
+The `ProcessManager` class (`src/main/process-manager.ts`) handles two process types:
+
+### PTY Processes (via `node-pty`)
+
+Used for terminal sessions with full shell emulation:
+
+- `toolType: 'terminal'`
+- Supports resize, ANSI escape codes, interactive shell
+- Spawned with shell (zsh, bash, fish, etc.)
+
+### Child Processes (via `child_process.spawn`)
+
+Used for AI assistants:
+
+- All non-terminal tool types
+- Direct stdin/stdout/stderr capture
+- **Security**: Uses `spawn()` with `shell: false`
+
+### Batch Mode (Claude Code)
+
+Claude Code runs in batch mode with `--print --output-format json`:
+
+- Prompt passed as CLI argument
+- Process exits after response
+- JSON response parsed for result and usage stats
+
+### Stream-JSON Mode (with images)
+
+When images are attached:
+
+- Uses `--input-format stream-json --output-format stream-json`
+- Message sent via stdin as JSONL
+- Supports multimodal input
+
+### Process Events
+
+```typescript
+processManager.on('data', (sessionId, data) => { ... });
+processManager.on('exit', (sessionId, code) => { ... });
+processManager.on('usage', (sessionId, usageStats) => { ... });
+processManager.on('session-id', (sessionId, agentSessionId) => { ... });
+processManager.on('stderr', (sessionId, data) => { ... });
+processManager.on('command-exit', (sessionId, code) => { ... });
+```
+
+---
+
+## Layer Stack System
+
+Centralized modal/overlay management with predictable Escape key handling.
+
+### Problem Solved
+
+- Previously had 9+ scattered Escape handlers
+- Brittle modal detection with massive boolean checks
+- Inconsistent focus management
+
+### Architecture
+
+| File                             | Purpose                               |
+| -------------------------------- | ------------------------------------- |
+| `hooks/useLayerStack.ts`         | Core layer management hook            |
+| `contexts/LayerStackContext.tsx` | Global Escape handler (capture phase) |
+| `constants/modalPriorities.ts`   | Priority values for all modals        |
+| `types/layer.ts`                 | Layer type definitions                |
+
+### Modal Priority Hierarchy
+
+```typescript
+const MODAL_PRIORITIES = {
+	STANDING_OVATION: 1100, // Achievement celebration overlay
+	CONFIRM: 1000, // Highest - confirmation dialogs
+	PLAYBOOK_DELETE_CONFIRM: 950,
+	PLAYBOOK_NAME: 940,
+	RENAME_INSTANCE: 900,
+	RENAME_TAB: 880,
+	RENAME_GROUP: 850,
+	CREATE_GROUP: 800,
+	NEW_INSTANCE: 750,
+	AGENT_PROMPT_COMPOSER: 730,
+	PROMPT_COMPOSER: 710,
+	QUICK_ACTION: 700, // Command palette (Cmd+K)
+	TAB_SWITCHER: 690,
+	AGENT_SESSIONS: 680,
+	EXECUTION_QUEUE_BROWSER: 670,
+	BATCH_RUNNER: 660,
+	SHORTCUTS_HELP: 650,
+	HISTORY_HELP: 640,
+	AUTORUNNER_HELP: 630,
+	HISTORY_DETAIL: 620,
+	ABOUT: 600,
+	PROCESS_MONITOR: 550,
+	LOG_VIEWER: 500,
+	SETTINGS: 450,
+	GIT_DIFF: 200,
+	GIT_LOG: 190,
+	LIGHTBOX: 150,
+	FILE_PREVIEW: 100,
+	SLASH_AUTOCOMPLETE: 50,
+	TEMPLATE_AUTOCOMPLETE: 40,
+	FILE_TREE_FILTER: 30, // Lowest
 };
 ```
 
-**macOS Hardened Runtime**: On macOS, the application is signed with hardened
-runtime entitlements. This enables:
-
-- Library validation (only Apple-signed or team-signed dylibs load)
-- Restricted access to camera, microphone, location (not used)
-- DYLD environment variable restrictions
-- Debugging restrictions in production builds
-
-**CSP Headers**: Content Security Policy headers are set to restrict inline
-scripts and limit resource loading origins.
-
-### 1.5 Inter-Process Communication Flow
-
-```
-Renderer (React)                    Main (Node.js)
-    |                                     |
-    |-- window.maestro.foo.bar() -------->|
-    |   (ipcRenderer.invoke)              |
-    |                                     |-- ipcMain.handle('foo:bar')
-    |                                     |   executes handler
-    |<-------- result/error --------------|
-    |                                     |
-    |<-- window.maestro.foo.onEvent() ----|
-    |   (ipcRenderer.on)                  |
-    |                                     |-- webContents.send('foo:event')
-    |   callback fires                    |
-```
-
-All IPC communication is asynchronous. The `invoke`/`handle` pattern provides
-request-response semantics with automatic error propagation. Event subscriptions
-use the `on`/`send` pattern for push-based updates from main to renderer.
-
----
-
-## 2. IPC Security Model
-
-The `window.maestro.*` API surface is the sole communication channel between
-the renderer and main process. It currently exposes **37 namespaces** organized
-by functional domain. Each namespace groups related IPC calls behind a typed
-interface.
-
-### 2.1 Full Namespace Catalog
-
-#### Core Namespaces (14)
-
-| Namespace | Purpose | Key Methods |
-|-----------|---------|-------------|
-| `settings` | Application preferences | `get`, `set`, `getAll`, `onChanged`, `reset` |
-| `sessions` | Session lifecycle management | `create`, `list`, `delete`, `rename`, `getActive`, `setActive`, `export`, `import` |
-| `process` | Process spawning and management | `spawn`, `kill`, `write`, `resize`, `onData`, `onExit`, `list` |
-| `fs` | Filesystem operations | `readFile`, `writeFile`, `readDir`, `stat`, `exists`, `mkdir`, `remove`, `watch`, `unwatch` |
-| `dialog` | Native dialog windows | `showOpen`, `showSave`, `showMessage`, `showError` |
-| `shells` | Shell environment detection | `getAvailable`, `getDefault`, `getEnvironment` |
-| `shell` | OS shell integration | `openExternal`, `openPath`, `showItemInFolder`, `beep` |
-| `logger` | Structured logging | `info`, `warn`, `error`, `debug`, `getLogPath` |
-| `sync` | Settings sync across devices | `getStatus`, `enable`, `disable`, `getSyncPath`, `setSyncPath`, `resolve` |
-| `power` | Power/sleep management | `onSuspend`, `onResume`, `getIdleTime`, `preventSleep`, `allowSleep` |
-| `app` | Application metadata | `getVersion`, `getPath`, `getPlatform`, `getArch`, `quit`, `relaunch` |
-| `fonts` | System font enumeration | `getInstalled`, `getMonospace` |
-| `devtools` | Developer tools control | `open`, `close`, `toggle`, `isOpen` |
-| `updates` | Auto-update management | `check`, `download`, `install`, `onStatus`, `getChannel`, `setChannel` |
-
-#### Agent Namespaces (4)
-
-| Namespace | Purpose | Key Methods |
-|-----------|---------|-------------|
-| `agents` | Agent configuration registry | `list`, `get`, `create`, `update`, `delete`, `getDefault`, `setDefault` |
-| `agentSessions` | Agent conversation sessions | `create`, `send`, `cancel`, `getHistory`, `clearHistory`, `onMessage`, `onStatus`, `onError`, `getStorageInfo` |
-| `agentError` | Agent error tracking | `report`, `getRecent`, `clear`, `onError`, `getTypes` |
-| `claude` | **DEPRECATED** - Legacy Claude API | `send`, `cancel`, `getHistory` -- Forwards to `agentSessions` internally |
-
-> **Deprecation Notice**: The `claude` namespace is maintained solely for
-> backward compatibility. All new code must use `agentSessions`. The `claude`
-> namespace proxies all calls to the equivalent `agentSessions` methods and
-> will be removed in v0.16.0.
-
-#### Git Namespace (1)
-
-| Namespace | Purpose | Key Methods |
-|-----------|---------|-------------|
-| `git` | Full Git integration | `status`, `diff`, `diffStaged`, `log`, `branches`, `currentBranch`, `checkout`, `commit`, `push`, `pull`, `fetch`, `stash`, `stashPop`, `worktreeAdd`, `worktreeRemove`, `worktreeList`, `prCreate`, `prList`, `prView`, `remotes`, `getConfig` |
-
-The Git namespace is one of the largest single namespaces, reflecting the deep
-integration of version control into the Maestro workflow. Worktree operations
-are particularly important for the Auto Run system (Section 11).
-
-#### Web Namespaces (4)
-
-| Namespace | Purpose | Key Methods |
-|-----------|---------|-------------|
-| `web` | Web interface server | `start`, `stop`, `getStatus`, `getUrl`, `onConnection`, `onDisconnect` |
-| `live` | Live preview/hot reload | `start`, `stop`, `refresh`, `getUrl`, `onUpdate` |
-| `webserver` | Static file serving | `start`, `stop`, `setRoot`, `getPort`, `addRoute` |
-| `tunnel` | Secure tunnel management | `create`, `destroy`, `getUrl`, `getStatus`, `onStatusChange` |
-
-#### Automation Namespaces (5)
-
-| Namespace | Purpose | Key Methods |
-|-----------|---------|-------------|
-| `autorun` | Batch execution orchestration | `start`, `stop`, `pause`, `resume`, `getState`, `onStateChange`, `onProgress`, `getResults` |
-| `playbooks` | Playbook definitions | `list`, `get`, `create`, `update`, `delete`, `execute`, `validate` |
-| `history` | Execution history | `list`, `get`, `search`, `delete`, `export`, `getStats` |
-| `cli` | CLI integration | `execute`, `getCommands`, `onOutput`, `isAvailable` |
-| `tempfile` | Temporary file management | `create`, `read`, `write`, `delete`, `cleanup` |
-
-#### Analytics Namespaces (5)
-
-| Namespace | Purpose | Key Methods |
-|-----------|---------|-------------|
-| `stats` | Usage statistics database | `query`, `getUsage`, `getCosts`, `getTimeSeries`, `getDailyBreakdown`, `export`, `vacuum` |
-| `documentGraph` | Document relationship mapping | `build`, `getNodes`, `getEdges`, `search`, `getLayout`, `setMaxNodes` |
-| `audit` | Anthropic billing audit | `run`, `schedule`, `getResults`, `compare`, `getSchedule`, `setSchedule` |
-| `reconstruction` | Session reconstruction | `reconstruct`, `getTimeline`, `getDiff`, `export` |
-| `leaderboard` | Team usage leaderboard | `get`, `getByPeriod`, `getAchievements` |
-
-#### Feature Namespaces (7)
-
-| Namespace | Purpose | Key Methods |
-|-----------|---------|-------------|
-| `groupChat` | Multi-agent group conversations | `create`, `send`, `addParticipant`, `removeParticipant`, `getMessages`, `onMessage`, `getModerator`, `setModerator` |
-| `projectFolders` | Project organization | `list`, `get`, `create`, `update`, `delete`, `addGroup`, `removeGroup`, `reorder` |
-| `promptLibrary` | Prompt template management | `list`, `get`, `create`, `update`, `delete`, `search`, `import`, `export`, `getCategories` |
-| `knowledgeGraph` | Persistent learning storage | `save`, `get`, `list`, `search`, `delete`, `getPath` |
-| `feedback` | User feedback collection | `submit`, `getHistory`, `onRequest` |
-| `context` | Context window management | `get`, `summarize`, `groom`, `getSize`, `getMax`, `onUpdate` |
-| `marketplace` | Extension marketplace | `browse`, `install`, `uninstall`, `update`, `getInstalled`, `search`, `rate` |
-
-#### Command Namespaces (2)
-
-| Namespace | Purpose | Key Methods |
-|-----------|---------|-------------|
-| `speckit` | Spec-Kit generation | `generate`, `validate`, `getTemplate`, `listTemplates`, `export` |
-| `openspec` | OpenSpec execution | `parse`, `execute`, `validate`, `getSchema`, `listSpecs` |
-
-#### UI Namespaces (3)
-
-| Namespace | Purpose | Key Methods |
-|-----------|---------|-------------|
-| `attachments` | File attachment handling | `add`, `remove`, `get`, `list`, `getPreview`, `getSize` |
-| `notification` | System notifications | `show`, `clear`, `getPermission`, `requestPermission`, `onAction` |
-| `debug` | Debug tooling | `getState`, `getMemory`, `getProcessInfo`, `exportDiagnostics`, `toggleOverlay` |
-
-### 2.2 IPC Handler Registration Pattern
-
-All IPC handlers in the main process follow a consistent factory pattern that
-provides automatic error wrapping, logging, and type safety:
+### Registering a Modal
 
 ```typescript
-// ipc-handler-factory.ts
-function createIpcHandler<TArgs extends unknown[], TResult>(
-  channel: string,
-  handler: (...args: TArgs) => Promise<TResult>,
-  options?: {
-    timeout?: number;
-    retries?: number;
-    logLevel?: 'debug' | 'info' | 'warn';
-  }
-): void {
-  ipcMain.handle(channel, async (event, ...args: TArgs) => {
-    const startTime = Date.now();
-    const requestId = generateRequestId();
+import { useLayerStack } from '../contexts/LayerStackContext';
+import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 
-    logger.log(options?.logLevel ?? 'debug', `IPC ${channel}`, {
-      requestId,
-      args: sanitizeArgs(args),
-    });
+const { registerLayer, unregisterLayer, updateLayerHandler } = useLayerStack();
+const layerIdRef = useRef<string>();
 
-    try {
-      const result = await withTimeout(
-        handler(...args),
-        options?.timeout ?? 30_000
-      );
+// Use ref to avoid re-registration when callback identity changes
+const onCloseRef = useRef(onClose);
+onCloseRef.current = onClose;
 
-      logger.debug(`IPC ${channel} completed`, {
-        requestId,
-        duration: Date.now() - startTime,
-      });
-
-      return result;
-    } catch (error) {
-      logger.error(`IPC ${channel} failed`, {
-        requestId,
-        error: serializeError(error),
-        duration: Date.now() - startTime,
-      });
-
-      throw serializeError(error); // Must be serializable across IPC
-    }
-  });
-}
-```
-
-### 2.3 Subscription Cleanup Pattern
-
-Event-based IPC subscriptions return unsubscribe functions to prevent memory
-leaks. The renderer side enforces cleanup:
-
-```typescript
-// In preload.ts - every onXxx method returns a cleanup function
-onData: (processId: string, cb: DataCallback): (() => void) => {
-  const channel = `process:data:${processId}`;
-  const handler = (_: IpcRendererEvent, data: Buffer) => cb(data);
-  ipcRenderer.on(channel, handler);
-  return () => {
-    ipcRenderer.removeListener(channel, handler);
-  };
-},
-```
-
-```typescript
-// In React components - cleanup in useEffect
 useEffect(() => {
-  const unsubscribe = window.maestro.process.onData(processId, (data) => {
-    appendToBuffer(data);
-  });
-  return () => unsubscribe();
-}, [processId]);
+	if (modalOpen) {
+		const id = registerLayer({
+			type: 'modal',
+			priority: MODAL_PRIORITIES.YOUR_MODAL,
+			blocksLowerLayers: true,
+			capturesFocus: true,
+			focusTrap: 'strict', // 'strict' | 'lenient' | 'none'
+			ariaLabel: 'Your Modal Name',
+			onEscape: () => onCloseRef.current(),
+		});
+		layerIdRef.current = id;
+		return () => unregisterLayer(id);
+	}
+}, [modalOpen, registerLayer, unregisterLayer]); // onClose NOT in deps
+```
+
+### Layer Types
+
+```typescript
+type ModalLayer = {
+	type: 'modal';
+	priority: number;
+	blocksLowerLayers: boolean;
+	capturesFocus: boolean;
+	focusTrap: 'strict' | 'lenient' | 'none';
+	ariaLabel?: string;
+	onEscape: () => void;
+	onBeforeClose?: () => Promise<boolean>;
+	isDirty?: boolean;
+	parentModalId?: string;
+};
+
+type OverlayLayer = {
+	type: 'overlay';
+	priority: number;
+	blocksLowerLayers: boolean;
+	capturesFocus: boolean;
+	focusTrap: 'strict' | 'lenient' | 'none';
+	ariaLabel?: string;
+	onEscape: () => void;
+	allowClickOutside: boolean;
+};
+```
+
+### Internal Search Layers
+
+Components like FilePreview handle internal search in their onEscape:
+
+```typescript
+onEscape: () => {
+	if (searchOpen) {
+		setSearchOpen(false); // First Escape closes search
+	} else {
+		closePreview(); // Second Escape closes preview
+	}
+};
 ```
 
 ---
 
-## 3. Process Manager
+## Custom Hooks
 
-The Process Manager is the subsystem responsible for spawning, managing, and
-monitoring all child processes. This includes interactive terminal shells (via
-PTY) and AI agent subprocesses (via child_process).
+Maestro uses 15 custom hooks for state management and functionality.
 
-### 3.1 Architecture Overview
+### Core Hooks
 
-```
-process-manager/
-  index.ts                  -- Public API and ProcessManager class
-  types.ts                  -- Shared type definitions
-  spawners/
-    pty-spawner.ts          -- PTY allocation for terminal shells
-    agent-spawner.ts        -- AI agent process spawning
-    remote-spawner.ts       -- SSH remote process spawning
-  runners/
-    shell-runner.ts         -- Interactive shell session management
-    agent-runner.ts         -- Agent process lifecycle
-    batch-runner.ts         -- Batch execution runner
-  handlers/
-    stdout-handler.ts       -- Raw stdout processing
-    stderr-handler.ts       -- Error stream handling
-    exit-handler.ts         -- Process exit code interpretation
-    signal-handler.ts       -- Signal forwarding (SIGTERM, SIGINT, etc.)
-  utils/
-    buffer-manager.ts       -- DataBufferManager implementation
-    env-resolver.ts         -- Environment variable resolution
-    path-resolver.ts        -- Executable path resolution
-    platform-utils.ts       -- Platform-specific behaviors
-```
+#### useSettings (`src/renderer/hooks/useSettings.ts`)
 
-### 3.2 PTY Spawning (Terminals)
+Manages all application settings with automatic persistence.
 
-Terminal shells are spawned using `node-pty`, which allocates a real
-pseudo-terminal. This provides full terminal emulation including ANSI escape
-codes, cursor positioning, and interactive program support.
+**What it manages:**
 
-```typescript
-interface PtySpawnOptions {
-  shell: string;           // e.g., '/bin/zsh', 'powershell.exe'
-  cwd: string;             // Working directory
-  env: Record<string, string>;  // Environment variables
-  cols: number;            // Terminal columns
-  rows: number;            // Terminal rows
-}
+- LLM settings (provider, model, API key)
+- Agent settings (default agent, custom agent paths)
+- Shell settings (default shell)
+- Font settings (family, size, custom fonts)
+- UI settings (theme, enter-to-send modes, panel widths, markdown mode)
+- Terminal settings (width)
+- Logging settings (level, buffer size)
+- Output settings (max lines)
+- Keyboard shortcuts
+- Custom AI commands
 
-class PtySpawner {
-  spawn(options: PtySpawnOptions): ManagedProcess {
-    const pty = nodePty.spawn(options.shell, [], {
-      name: 'xterm-256color',
-      cols: options.cols,
-      rows: options.rows,
-      cwd: options.cwd,
-      env: { ...process.env, ...options.env },
-    });
+#### useSessionManager (`src/renderer/hooks/useSessionManager.ts`)
 
-    return new ManagedProcess(pty, 'pty');
-  }
-}
-```
+Manages agents and groups with CRUD operations.
 
-### 3.3 Agent Process Spawning
+**Key methods:**
 
-AI agent subprocesses use Node.js `child_process.spawn()` rather than PTY.
-This is intentional: agent processes produce structured output (JSON lines)
-rather than terminal-formatted text, and do not need terminal emulation.
+- `createNewSession(agentId, workingDir, name)` - Creates new agent with dual processes
+- `deleteSession(id, showConfirmation)` - Delete agent with confirmation
+- `toggleInputMode()` - Switch between AI and terminal mode
+- `updateScratchPad(content)` - Update session scratchpad
+- `createNewGroup(name, emoji, moveSession, activeSessionId)`
+- Drag and drop handlers
 
-```typescript
-class AgentSpawner {
-  spawn(config: AgentConfig, sessionId: string): ManagedProcess {
-    const child = spawn(config.executable, config.args, {
-      cwd: config.workingDirectory,
-      env: {
-        ...process.env,
-        ...config.env,
-        MAESTRO_SESSION_ID: sessionId,
-        MAESTRO_AGENT_ID: config.id,
-      },
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+#### useFileTreeManagement (`src/renderer/hooks/useFileTreeManagement.ts`)
 
-    return new ManagedProcess(child, 'agent');
-  }
-}
-```
+Manages file tree refresh/filter state and git-related file metadata.
 
-### 3.4 Three-Layer Error Detection
+**Key methods:**
 
-The Process Manager implements three layers of error detection to maximize
-reliability:
+- `refreshFileTree(sessionId)` - Reload directory tree and return change stats
+- `refreshGitFileState(sessionId)` - Refresh tree + git repo metadata
+- `filteredFileTree` - Derived tree based on filter string
 
-**Layer 1: Exit Code Analysis**
-```typescript
-function interpretExitCode(code: number | null, signal: string | null): ProcessExitReason {
-  if (signal === 'SIGTERM') return 'terminated';
-  if (signal === 'SIGKILL') return 'killed';
-  if (code === 0) return 'success';
-  if (code === 1) return 'general-error';
-  if (code === 127) return 'command-not-found';
-  if (code === 126) return 'permission-denied';
-  if (code !== null && code > 128) return 'signal';
-  return 'unknown';
-}
-```
+#### useBatchProcessor (`src/renderer/hooks/useBatchProcessor.ts`)
 
-**Layer 2: Stderr Pattern Matching**
-```typescript
-const ERROR_PATTERNS = [
-  { pattern: /ENOENT/, type: 'file-not-found' },
-  { pattern: /EACCES/, type: 'permission-denied' },
-  { pattern: /ETIMEDOUT/, type: 'timeout' },
-  { pattern: /rate.?limit/i, type: 'rate-limited' },
-  { pattern: /authentication/i, type: 'auth-error' },
-  { pattern: /out of memory/i, type: 'oom' },
-];
-```
+Manages Auto Run batch execution logic.
 
-**Layer 3: Heartbeat Monitoring**
-For long-running agent processes, a heartbeat mechanism detects stuck processes:
+**Key methods:**
 
-```typescript
-class HeartbeatMonitor {
-  private lastActivity: number = Date.now();
-  private readonly timeout: number = 120_000; // 2 minutes
+- `startBatchRun(config)` - Start batch document processing
+- `stopBatchRun()` - Stop current batch run
+- `pauseBatchRun()` / `resumeBatchRun()` - Pause/resume execution
 
-  recordActivity(): void {
-    this.lastActivity = Date.now();
-  }
+### UI Management Hooks
 
-  isStale(): boolean {
-    return Date.now() - this.lastActivity > this.timeout;
-  }
-}
-```
+#### useLayerStack (`src/renderer/hooks/useLayerStack.ts`)
 
-### 3.5 Output Pipeline
+Core layer management for modals and overlays.
 
-The output pipeline processes raw stdout from child processes through a
-multi-stage chain before emitting events to the renderer:
+**Key methods:**
 
-```
-stdout (raw bytes)
-  -> StdoutHandler (decoding, line splitting)
-    -> DataBufferManager (batching: 50ms window OR 8KB threshold)
-      -> IPC emit to renderer (webContents.send)
-```
+- `registerLayer(config)` - Register a modal/overlay
+- `unregisterLayer(id)` - Remove a layer
+- `updateLayerHandler(id, handler)` - Update escape handler
 
-#### DataBufferManager
+#### useNavigationHistory (`src/renderer/hooks/useNavigationHistory.ts`)
 
-The DataBufferManager is a critical performance component. Without it, a fast-
-producing process (e.g., `cat` on a large file) would flood the IPC channel
-with thousands of tiny messages per second, causing UI jank.
+Back/forward navigation through sessions and tabs. See [Navigation History](#navigation-history).
 
-```typescript
-class DataBufferManager {
-  private buffer: string = '';
-  private timer: NodeJS.Timeout | null = null;
+### Input & Autocomplete Hooks
 
-  private readonly FLUSH_INTERVAL_MS = 50;
-  private readonly FLUSH_SIZE_BYTES = 8192; // 8KB
+#### useAtMentionCompletion (`src/renderer/hooks/useAtMentionCompletion.ts`)
 
-  append(data: string): void {
-    this.buffer += data;
+Handles @-mention autocomplete for file references in prompts.
 
-    if (Buffer.byteLength(this.buffer) >= this.FLUSH_SIZE_BYTES) {
-      this.flush();
-      return;
-    }
+#### useTabCompletion (`src/renderer/hooks/useTabCompletion.ts`)
 
-    if (!this.timer) {
-      this.timer = setTimeout(() => this.flush(), this.FLUSH_INTERVAL_MS);
-    }
-  }
+Tab completion utilities for terminal-style input.
 
-  private flush(): void {
-    if (this.timer) {
-      clearTimeout(this.timer);
-      this.timer = null;
-    }
+#### useTemplateAutocomplete (`src/renderer/hooks/useTemplateAutocomplete.ts`)
 
-    if (this.buffer.length > 0) {
-      this.emit('data', this.buffer);
-      this.buffer = '';
-    }
-  }
-}
-```
+Template variable autocomplete (e.g., `{{date}}`, `{{time}}`).
 
-The dual-threshold approach ensures:
-- **Low-latency for interactive use**: The 50ms timer ensures keystrokes and
-  small outputs appear promptly.
-- **High-throughput for bulk output**: The 8KB size threshold batches large
-  outputs efficiently without waiting for the timer.
+### Feature Hooks
+
+#### useAchievements (`src/renderer/hooks/useAchievements.ts`)
+
+Achievement/badge system for Auto Run usage. See [Achievement System](#achievement-system).
+
+#### useActivityTracker (`src/renderer/hooks/useActivityTracker.ts`)
+
+User activity tracking for agent idle detection and status.
+
+#### useMobileLandscape (`src/renderer/hooks/useMobileLandscape.ts`)
+
+Mobile landscape orientation detection for responsive layouts.
 
 ---
 
-## 4. Layer Stack System
+## Services Layer
 
-The Layer Stack is Maestro's centralized modal and overlay management system.
-It solves the common problem of z-index conflicts and focus trapping in
-applications with many overlapping UI elements.
+Services provide clean wrappers around IPC calls.
 
-### 4.1 Priority Range Architecture
-
-Every modal, overlay, panel, and dialog in Maestro is assigned a priority
-from the `modalPriorities.ts` file. Priorities determine stacking order and
-focus behavior.
-
-```
-Priority Range    Category           Examples
----------------------------------------------------------------------------
-1 - 99            Search             CommandPalette, GlobalSearch,
-                                     FileSearch, SymbolSearch
-100 - 399         Overlays           SettingsOverlay, ProjectFolders,
-                                     PromptLibrary, KnowledgeGraph,
-                                     Marketplace, GroupChatSetup
-400 - 699         Information        UsageDashboard, DocumentGraph,
-                                     Leaderboard, AuditResults,
-                                     SessionReconstruction
-700 - 899         Standard Modals    ConfirmDialog, RenameDialog,
-                                     ExportDialog, ImportDialog,
-                                     AgentConfigEditor, ThemePicker
-900 - 999         High Priority      ErrorModal, UpdateAvailable,
-                                     LicenseExpired, CriticalWarning
-1000+             Critical           CrashRecovery, DataLoss,
-                                     ForceUpdate, SecurityAlert
-```
-
-### 4.2 Layer Stack Manager
+### Git Service (`src/renderer/services/git.ts`)
 
 ```typescript
-interface LayerEntry {
-  id: string;
-  priority: number;
-  component: React.ComponentType;
-  props: Record<string, unknown>;
-  onClose: () => void;
-  trapFocus: boolean;
-  closeOnEscape: boolean;
-  closeOnBackdrop: boolean;
-}
+import { gitService } from '../services/git';
 
-class LayerStackManager {
-  private stack: LayerEntry[] = [];
+const isRepo = await gitService.isRepo(cwd);
+const status = await gitService.getStatus(cwd);
+// Returns: { files: [{ path: string, status: string }] }
 
-  push(entry: LayerEntry): void {
-    this.stack.push(entry);
-    this.stack.sort((a, b) => a.priority - b.priority);
-    this.notifyListeners();
-  }
+const diff = await gitService.getDiff(cwd, ['file1.ts']);
+// Returns: { diff: string }
 
-  pop(id: string): void {
-    this.stack = this.stack.filter(e => e.id !== id);
-    this.notifyListeners();
-  }
-
-  getTopLayer(): LayerEntry | undefined {
-    return this.stack[this.stack.length - 1];
-  }
-
-  isTopLayer(id: string): boolean {
-    return this.getTopLayer()?.id === id;
-  }
-}
+const numstat = await gitService.getNumstat(cwd);
+// Returns: { files: [{ path, additions, deletions }] }
 ```
 
-### 4.3 modalPriorities.ts
-
-The `modalPriorities.ts` file contains approximately **55 entries** that define
-the priority for every layer-managed component in the application:
+### Process Service (`src/renderer/services/process.ts`)
 
 ```typescript
-export const modalPriorities = {
-  // Search (1-99)
-  commandPalette: 10,
-  globalSearch: 20,
-  fileSearch: 30,
-  symbolSearch: 40,
-  gotoLine: 50,
-
-  // Overlays (100-399)
-  settingsOverlay: 100,
-  projectFoldersOverlay: 110,
-  promptLibraryOverlay: 120,
-  knowledgeGraphOverlay: 130,
-  marketplaceOverlay: 140,
-  groupChatSetup: 150,
-  agentConfigOverlay: 160,
-  sessionManagerOverlay: 170,
-  gitOverlay: 180,
-  webInterfaceOverlay: 190,
-  tunnelConfigOverlay: 200,
-  syncConfigOverlay: 210,
-  cliConfigOverlay: 220,
-  autorunConfigOverlay: 230,
-  playbookEditorOverlay: 240,
-  feedbackOverlay: 250,
-
-  // Information (400-699)
-  usageDashboard: 400,
-  documentGraph: 410,
-  leaderboard: 420,
-  auditResults: 430,
-  sessionReconstruction: 440,
-  achievementUnlocked: 450,
-  historyBrowser: 460,
-  statsExport: 470,
-
-  // Standard Modals (700-899)
-  confirmDialog: 700,
-  renameDialog: 710,
-  deleteConfirm: 720,
-  exportDialog: 730,
-  importDialog: 740,
-  agentConfigEditor: 750,
-  themePicker: 760,
-  fontPicker: 770,
-  shortcutEditor: 780,
-  templateEditor: 790,
-  contextViewer: 800,
-
-  // High Priority (900-999)
-  errorModal: 900,
-  updateAvailable: 910,
-  licenseExpired: 920,
-  criticalWarning: 930,
-  connectionLost: 940,
-  sessionRecovery: 950,
-
-  // Critical (1000+)
-  crashRecovery: 1000,
-  dataLossWarning: 1010,
-  forceUpdate: 1020,
-  securityAlert: 1030,
-} as const;
-```
-
-### 4.4 Focus Management
-
-When a layer is the top-most entry and has `trapFocus: true`, keyboard
-focus is constrained within that layer. Tab and Shift+Tab cycle through
-focusable elements within the layer boundary. Escape handling respects
-the `closeOnEscape` flag and always targets the top-most layer first.
-
----
-
-## 5. Custom Hooks
-
-Maestro employs **98 custom React hooks** organized across **12 directories**
-by functional domain. These hooks encapsulate reusable stateful logic, IPC
-interactions, and domain-specific behaviors.
-
-### 5.1 Hook Directory Structure
-
-```
-hooks/
-  agent/           -- 15 hooks for AI agent interaction
-  batch/           -- 16 hooks for batch/autorun operations
-  session/         -- 8 hooks for session management
-  input/           -- 5 hooks for input handling
-  props/           -- 3 hooks for prop computation
-  keyboard/        -- 4 hooks for keyboard shortcuts
-  settings/        -- 3 hooks for settings access
-  git/             -- 2 hooks for Git operations
-  remote/          -- 6 hooks for SSH remote
-  ui/              -- 10 hooks for UI state
-  utils/           -- 3 hooks for general utilities
-  prompt-library/  -- 1 hook for prompt library
-  (root level)     -- 3 hooks (useApp, useTheme, useAuth)
-```
-
-### 5.2 Agent Hooks (15)
-
-| Hook | Purpose |
-|------|---------|
-| `useAgentSession` | Manages a single agent conversation session lifecycle |
-| `useAgentMessages` | Message history with optimistic updates |
-| `useAgentStatus` | Real-time agent status (idle, thinking, responding, error) |
-| `useAgentConfig` | Agent configuration loading and editing |
-| `useAgentList` | Enumeration of available agent configurations |
-| `useAgentError` | Error state management with auto-clear on success |
-| `useAgentStreaming` | Streaming response handling with partial message assembly |
-| `useAgentCancel` | Cancellation of in-flight requests |
-| `useAgentUsage` | Token usage tracking for current session |
-| `useAgentContext` | Context window state and grooming triggers |
-| `useAgentWizard` | First-run wizard state for agent setup |
-| `useAgentRating` | Response quality rating interface |
-| `useAgentHistory` | Cross-session agent history browsing |
-| `useAgentExport` | Session export to various formats |
-| `useAgentRetry` | Failed message retry with backoff |
-
-### 5.3 Batch/Autorun Hooks (16)
-
-| Hook | Purpose |
-|------|---------|
-| `useBatchProcessor` | Core batch orchestration (2076 lines) |
-| `useBatchState` | Batch state machine subscription |
-| `useBatchProgress` | Progress tracking with ETA estimation |
-| `useBatchResults` | Result aggregation and display |
-| `useBatchConfig` | Batch configuration management |
-| `useBatchQueue` | Queue management for pending items |
-| `useAutorunTrigger` | Auto-run trigger configuration |
-| `useAutorunSchedule` | Scheduled execution management |
-| `useAutorunHistory` | Execution history for auto-runs |
-| `usePlaybook` | Single playbook loading and execution |
-| `usePlaybookList` | Playbook enumeration and search |
-| `usePlaybookEditor` | Playbook editing with validation |
-| `useWorktree` | Git worktree management for isolation |
-| `useLoopExecution` | Loop/repeat execution support |
-| `useDocumentPolling` | Document change polling (10-15s interval) |
-| `useBatchRecovery` | Batch execution recovery after failure |
-
-### 5.4 Session Hooks (8)
-
-| Hook | Purpose |
-|------|---------|
-| `useSession` | Current session state and operations |
-| `useSessionList` | Session enumeration with filtering |
-| `useSessionCreate` | Session creation with defaults |
-| `useSessionNavigation` | Back/forward navigation between sessions |
-| `useSessionTabs` | Multi-tab management within sessions |
-| `useSessionExport` | Session export functionality |
-| `useSessionImport` | Session import with validation |
-| `useSessionRecovery` | Crash recovery for active sessions |
-
-### 5.5 Input Hooks (5)
-
-| Hook | Purpose |
-|------|---------|
-| `useInputHistory` | Input history with up/down arrow navigation |
-| `useInputCompletion` | Tab completion for commands and paths |
-| `useInputValidation` | Real-time input validation |
-| `useInputResize` | Auto-resizing textarea management |
-| `useInputFocus` | Focus management across input elements |
-
-### 5.6 Props Hooks (3)
-
-| Hook | Purpose |
-|------|---------|
-| `useComputedProps` | Memoized derived props computation |
-| `usePropsDiff` | Prop change detection for debugging |
-| `usePropsValidation` | Runtime prop type validation (dev mode) |
-
-### 5.7 Keyboard Hooks (4)
-
-| Hook | Purpose |
-|------|---------|
-| `useKeyboardShortcuts` | Global keyboard shortcut registration |
-| `useKeyboardNavigation` | Arrow key navigation in lists |
-| `useKeySequence` | Multi-key sequence detection (e.g., `gg`, `dd`) |
-| `useKeyboardMastery` | Keyboard usage tracking for achievements |
-
-### 5.8 Settings Hooks (3)
-
-| Hook | Purpose |
-|------|---------|
-| `useSettings` | Settings read/write with reactivity |
-| `useSettingsSync` | Sync status and conflict resolution |
-| `useSettingsMigration` | Settings schema migration |
-
-### 5.9 Git Hooks (2)
-
-| Hook | Purpose |
-|------|---------|
-| `useGitStatus` | Real-time Git status with polling |
-| `useGitBranch` | Branch management operations |
-
-### 5.10 Remote Hooks (6)
-
-| Hook | Purpose |
-|------|---------|
-| `useRemoteConnection` | SSH connection lifecycle |
-| `useRemoteFileSystem` | Remote filesystem operations |
-| `useRemoteProcess` | Remote process spawning |
-| `useRemoteSync` | File synchronization with remote |
-| `useRemoteStatus` | Connection health monitoring |
-| `useRemoteConfig` | Remote host configuration |
-
-### 5.11 UI Hooks (10)
-
-| Hook | Purpose |
-|------|---------|
-| `useLayerStack` | Layer stack interaction |
-| `useToast` | Toast notification management |
-| `useContextMenu` | Right-click context menu |
-| `useResize` | Resizable panel management |
-| `useDragDrop` | Drag and drop behavior |
-| `useVirtualScroll` | Virtualized list scrolling |
-| `useClipboard` | System clipboard interaction |
-| `useMediaQuery` | Responsive breakpoint detection |
-| `useAnimation` | Animation state management |
-| `useScrollPosition` | Scroll position tracking and restoration |
-
-### 5.12 Utils Hooks (3)
-
-| Hook | Purpose |
-|------|---------|
-| `useDebounce` | Debounced value updates |
-| `useThrottle` | Throttled callback execution |
-| `usePrevious` | Previous render value retention |
-
-### 5.13 Prompt Library Hook (1)
-
-| Hook | Purpose |
-|------|---------|
-| `usePromptLibrary` | Prompt CRUD with search and categorization |
-
-### 5.14 Root-Level Hooks (3)
-
-| Hook | Purpose |
-|------|---------|
-| `useApp` | Application-level state and lifecycle |
-| `useTheme` | Theme state and switching |
-| `useAuth` | Authentication state for web/remote features |
-
----
-
-## 6. Services Layer
-
-The Services Layer provides abstracted interfaces to complex subsystems,
-shielding components and hooks from implementation details.
-
-### 6.1 Git Service
-
-The Git Service wraps all Git operations behind a clean async API. It handles:
-
-- **Command construction**: Building git command-line arguments safely
-- **Output parsing**: Parsing porcelain and machine-readable Git output formats
-- **Error normalization**: Converting Git error messages into typed errors
-- **Worktree management**: Creating and managing Git worktrees for isolation
-
-```typescript
-class GitService {
-  async getStatus(cwd: string): Promise<GitStatus> {
-    const raw = await this.exec(['status', '--porcelain=v2', '--branch'], cwd);
-    return parseGitStatus(raw);
-  }
-
-  async getDiff(cwd: string, options?: DiffOptions): Promise<GitDiff> {
-    const args = ['diff'];
-    if (options?.staged) args.push('--staged');
-    if (options?.file) args.push('--', options.file);
-    const raw = await this.exec(args, cwd);
-    return parseGitDiff(raw);
-  }
-
-  async worktreeAdd(cwd: string, path: string, branch: string): Promise<void> {
-    await this.exec(['worktree', 'add', path, branch], cwd);
-  }
-
-  async worktreeList(cwd: string): Promise<GitWorktree[]> {
-    const raw = await this.exec(['worktree', 'list', '--porcelain'], cwd);
-    return parseWorktreeList(raw);
-  }
-}
-```
-
-### 6.2 Process Service
-
-The Process Service is the high-level interface to the Process Manager
-(Section 3). It provides:
-
-- Process lifecycle management (spawn, kill, resize)
-- Event subscription and forwarding to renderer
-- Process health monitoring
-- Resource cleanup on window close
-
-### 6.3 Context Groomer
-
-The Context Groomer manages the AI context window to prevent overflow.
-When the context approaches the model's token limit, the groomer:
-
-1. Identifies low-value messages (old, system-generated, redundant)
-2. Summarizes sequences of messages into condensed representations
-3. Removes or collapses messages while preserving coherence
-4. Maintains a minimum set of recent messages for continuity
-
-```typescript
-interface GroomingStrategy {
-  maxTokens: number;
-  reserveTokens: number;      // Reserved for next response
-  minRecentMessages: number;   // Always keep this many recent messages
-  summarizeThreshold: number;  // Summarize when above this ratio
-}
-
-class ContextGroomer {
-  async groom(
-    messages: Message[],
-    strategy: GroomingStrategy
-  ): Promise<GroomedContext> {
-    const currentTokens = await this.countTokens(messages);
-
-    if (currentTokens < strategy.maxTokens * strategy.summarizeThreshold) {
-      return { messages, wasTrimmed: false };
-    }
-
-    const recent = messages.slice(-strategy.minRecentMessages);
-    const older = messages.slice(0, -strategy.minRecentMessages);
-    const summary = await this.summarize(older);
-
-    return {
-      messages: [summary, ...recent],
-      wasTrimmed: true,
-      removedCount: older.length,
-      summarizedTokens: await this.countTokens([summary]),
-    };
-  }
-}
-```
-
-### 6.4 Context Summarizer
-
-The Context Summarizer generates condensed representations of message
-sequences. It uses the configured AI agent to produce summaries, with
-fallback to extractive summarization if the agent is unavailable.
-
-### 6.5 IPC Wrapper with 30s Cache
-
-The IPC Wrapper provides a caching layer for frequently-read IPC calls.
-This reduces IPC round-trips for data that changes infrequently (e.g.,
-system fonts, shell list, app version).
-
-```typescript
-class IpcCache {
-  private cache = new Map<string, { value: unknown; expires: number }>();
-  private readonly TTL_MS = 30_000; // 30 seconds
-
-  async invoke<T>(channel: string, ...args: unknown[]): Promise<T> {
-    const key = `${channel}:${JSON.stringify(args)}`;
-    const cached = this.cache.get(key);
-
-    if (cached && cached.expires > Date.now()) {
-      return cached.value as T;
-    }
-
-    const result = await ipcRenderer.invoke(channel, ...args);
-    this.cache.set(key, { value: result, expires: Date.now() + this.TTL_MS });
-    return result;
-  }
-
-  invalidate(channel?: string): void {
-    if (channel) {
-      for (const key of this.cache.keys()) {
-        if (key.startsWith(channel)) {
-          this.cache.delete(key);
-        }
-      }
-    } else {
-      this.cache.clear();
-    }
-  }
-}
+import { processService } from '../services/process';
+
+await processService.spawn(config);
+await processService.write(sessionId, 'input\n');
+await processService.interrupt(sessionId);  // SIGINT/Ctrl+C
+await processService.kill(sessionId);
+await processService.resize(sessionId, cols, rows);
+
+const unsubscribe = processService.onData((sessionId, data) => { ... });
 ```
 
 ---
 
-## 7. Custom AI Commands
+## Custom AI Commands
 
-Maestro provides two systems for extending AI capabilities with structured
-command interfaces: **Spec-Kit** and **OpenSpec**.
+User-defined prompt macros that expand when typed. The built-in slash commands (`/clear`, `/jump`, `/history`) have been deprecated in favor of fully customizable commands defined in Settings.
 
-### 7.1 Spec-Kit
+### Overview
 
-Spec-Kit is a template-based code generation system. Users define specification
-templates that describe desired output structures, and the AI agent generates
-code conforming to those specifications.
+Custom AI Commands are prompt templates that:
+
+- Start with `/` prefix
+- Expand to full prompts when selected
+- Support template variables (e.g., `{{date}}`, `{{time}}`, `{{cwd}}`)
+- Can be AI-only, terminal-only, or both modes
+
+### Configuration
+
+Commands are defined in Settings → Custom AI Commands:
 
 ```typescript
-interface SpecKitTemplate {
-  id: string;
-  name: string;
-  description: string;
-  version: string;
-  schema: {
-    inputs: SpecKitInput[];
-    outputs: SpecKitOutput[];
-    constraints: string[];
-  };
-  prompt: string;  // Template with {{variable}} placeholders
-}
-
-interface SpecKitInput {
-  name: string;
-  type: 'string' | 'number' | 'boolean' | 'file' | 'directory';
-  description: string;
-  required: boolean;
-  default?: unknown;
-}
-
-interface SpecKitOutput {
-  name: string;
-  type: 'file' | 'directory' | 'stdout';
-  path?: string;
-  description: string;
+interface CustomAICommand {
+	command: string; // e.g., "/review"
+	description: string; // Shown in autocomplete
+	prompt: string; // The expanded prompt text
+	aiOnly?: boolean; // Only show in AI mode
+	terminalOnly?: boolean; // Only show in terminal mode
 }
 ```
 
-**Workflow**:
-1. User selects a Spec-Kit template
-2. Template inputs are presented as a form
-3. User fills in inputs; template variables are resolved
-4. The resolved prompt is sent to the agent
-5. Agent output is validated against the output schema
-6. Generated files are written to the specified paths
+### Template Variables
 
-### 7.2 OpenSpec
+Commands support these template variables:
 
-OpenSpec is a declarative specification format for defining complex AI
-workflows. Unlike Spec-Kit's single-prompt approach, OpenSpec supports
-multi-step execution with conditional logic.
+- `{{date}}` - Current date (YYYY-MM-DD)
+- `{{time}}` - Current time (HH:MM:SS)
+- `{{datetime}}` - Combined date and time
+- `{{cwd}}` - Current working directory
+- `{{session}}` - Session name
+- `{{agent}}` - Agent type (claude-code, etc.)
+
+### Example Commands
 
 ```typescript
-interface OpenSpec {
-  version: '1.0';
-  name: string;
-  description: string;
-  steps: OpenSpecStep[];
-  variables: Record<string, OpenSpecVariable>;
+// Code review command
+{
+  command: '/review',
+  description: 'Review staged changes',
+  prompt: 'Review the staged git changes and provide feedback on code quality, potential bugs, and improvements.',
+  aiOnly: true
 }
 
-interface OpenSpecStep {
-  id: string;
-  type: 'prompt' | 'validate' | 'transform' | 'condition';
-  prompt?: string;
-  validation?: OpenSpecValidation;
-  transform?: OpenSpecTransform;
-  condition?: {
-    if: string;    // Expression
-    then: string;  // Step ID
-    else: string;  // Step ID
-  };
-  dependsOn?: string[];  // Step IDs
+// Status check
+{
+  command: '/status',
+  description: 'Project status summary',
+  prompt: 'Give me a brief status of this project as of {{datetime}}. What files have been modified recently?',
+  aiOnly: true
 }
+```
+
+### Claude Code CLI Commands
+
+Maestro also fetches slash commands from Claude Code CLI when available, making Claude Code's built-in commands accessible through the same autocomplete interface.
+
+---
+
+## Theme System
+
+Themes defined in `src/renderer/constants/themes.ts`.
+
+### Theme Structure
+
+```typescript
+interface Theme {
+	id: ThemeId;
+	name: string;
+	mode: 'light' | 'dark' | 'vibe';
+	colors: {
+		bgMain: string; // Main content background
+		bgSidebar: string; // Sidebar background
+		bgActivity: string; // Accent background
+		border: string; // Border colors
+		textMain: string; // Primary text
+		textDim: string; // Secondary text
+		accent: string; // Accent color
+		accentDim: string; // Dimmed accent
+		accentText: string; // Accent text color
+		accentForeground: string; // Text ON accent backgrounds (contrast)
+		success: string; // Success state (green)
+		warning: string; // Warning state (yellow)
+		error: string; // Error state (red)
+	};
+}
+```
+
+### Available Themes
+
+**Dark themes:** Dracula, Monokai, Nord, Tokyo Night, Catppuccin Mocha, Gruvbox Dark
+
+**Light themes:** GitHub, Solarized, One Light, Gruvbox Light, Catppuccin Latte, Ayu Light
+
+### Usage
+
+Use inline styles for theme colors:
+
+```typescript
+style={{ color: theme.colors.textMain }}  // Correct
+```
+
+Use Tailwind for layout:
+
+```typescript
+className = 'flex items-center gap-2'; // Correct
 ```
 
 ---
 
-## 8. Theme System
+## Settings Persistence
 
-Maestro's theme system supports **17 built-in themes** with user customization
-capabilities.
+Settings stored via `electron-store`:
 
-### 8.1 Theme Categories
+**Locations:**
 
-| Category | Count | Themes |
-|----------|-------|--------|
-| Dark | 6 | Default Dark, Midnight, Dracula, Nord Dark, Solarized Dark, Monokai |
-| Light | 6 | Default Light, Paper, Solarized Light, Nord Light, GitHub Light, Sepia |
-| Vibes | 4 | Synthwave, Cyberpunk, Forest, Ocean |
-| Custom | 1 | User-defined theme |
+- **macOS**: `~/Library/Application Support/maestro/`
+- **Windows**: `%APPDATA%/maestro/`
+- **Linux**: `~/.config/maestro/`
 
-### 8.2 ThemeMode
+**Files:**
 
-```typescript
-type ThemeMode = 'light' | 'dark' | 'vibe';
-```
+- `maestro-settings.json` - User preferences
+- `maestro-sessions.json` - Agent persistence
+- `maestro-groups.json` - Agent groups
+- `maestro-agent-configs.json` - Per-agent configuration
 
-The application stores separate theme selections for light and dark modes,
-plus an optional vibe theme:
+### Adding New Settings
+
+1. Add state in `useSettings.ts`:
 
 ```typescript
-interface ThemeSettings {
-  mode: ThemeMode;
-  lightThemeId: string;    // Used when mode === 'light' or system prefers light
-  darkThemeId: string;     // Used when mode === 'dark' or system prefers dark
-  vibeThemeId?: string;    // Used when mode === 'vibe'
-  systemSync: boolean;     // Sync with OS dark/light preference
-}
+const [mySetting, setMySettingState] = useState<MyType>(defaultValue);
 ```
 
-When `systemSync` is enabled, Maestro listens to `prefers-color-scheme` media
-query changes and automatically switches between `lightThemeId` and
-`darkThemeId` based on the operating system's appearance setting.
-
-### 8.3 ThemeColors Interface
-
-Each theme defines **14 color properties** through the `ThemeColors` interface:
+2. Create wrapper function:
 
 ```typescript
-interface ThemeColors {
-  // Backgrounds
-  bgPrimary: string;       // Main background
-  bgSecondary: string;     // Secondary/sidebar background
-  bgTertiary: string;      // Tertiary/card background
-  bgAccent: string;        // Accent background (selections, highlights)
-
-  // Text
-  textPrimary: string;     // Primary text color
-  textSecondary: string;   // Secondary/muted text
-  textAccent: string;      // Accent text (links, highlights)
-
-  // Borders
-  borderPrimary: string;   // Primary border color
-  borderAccent: string;    // Accent border color
-
-  // Semantic
-  success: string;         // Success/positive color
-  warning: string;         // Warning color
-  error: string;           // Error/destructive color
-  info: string;            // Informational color
-
-  // Interactive
-  interactive: string;     // Primary interactive element color
-}
+const setMySetting = (value: MyType) => {
+	setMySettingState(value);
+	window.maestro.settings.set('mySetting', value);
+};
 ```
 
-### 8.4 Theme Propagation (Prop Drilling)
-
-**Important architectural decision**: The theme is propagated via **prop
-drilling**, not React Context. This is intentional.
-
-Rationale:
-- **Explicitness**: Every component that uses theme colors receives them as
-  explicit props, making data flow traceable.
-- **Performance**: Avoids Context-triggered re-renders across the entire tree
-  when the theme changes. Only components that receive the theme prop re-render.
-- **Testing**: Components are easier to test in isolation when theme is a prop
-  rather than requiring a Context provider wrapper.
+3. Load in useEffect:
 
 ```typescript
-// Theme flows down from the root
-function App() {
-  const theme = useTheme();
-  return (
-    <MainLayout theme={theme}>
-      <Sidebar theme={theme} />
-      <Content theme={theme}>
-        <ChatPanel theme={theme} />
-        <Terminal theme={theme} />
-      </Content>
-    </MainLayout>
-  );
-}
+const saved = await window.maestro.settings.get('mySetting');
+if (saved !== undefined) setMySettingState(saved);
 ```
 
-### 8.5 CSS Variable Integration
-
-Theme colors are also mapped to CSS custom properties for use in Tailwind
-utilities and plain CSS:
-
-```typescript
-function applyThemeToCss(theme: ThemeColors): void {
-  const root = document.documentElement;
-  root.style.setProperty('--bg-primary', theme.bgPrimary);
-  root.style.setProperty('--bg-secondary', theme.bgSecondary);
-  root.style.setProperty('--bg-tertiary', theme.bgTertiary);
-  root.style.setProperty('--bg-accent', theme.bgAccent);
-  root.style.setProperty('--text-primary', theme.textPrimary);
-  root.style.setProperty('--text-secondary', theme.textSecondary);
-  root.style.setProperty('--text-accent', theme.textAccent);
-  root.style.setProperty('--border-primary', theme.borderPrimary);
-  root.style.setProperty('--border-accent', theme.borderAccent);
-  root.style.setProperty('--success', theme.success);
-  root.style.setProperty('--warning', theme.warning);
-  root.style.setProperty('--error', theme.error);
-  root.style.setProperty('--info', theme.info);
-  root.style.setProperty('--interactive', theme.interactive);
-}
-```
+4. Add to return object and export.
 
 ---
 
-## 9. Settings Persistence
+## Claude Provider Sessions API
 
-Maestro uses **10 separate `electron-store` instances** to persist application
-state. Each store has its own file, schema, and migration logic.
+Browse and resume Claude Code provider sessions from `~/.claude/projects/`.
 
-### 9.1 Store Inventory
+### Path Encoding
 
-| Store Name | File | Purpose |
-|------------|------|---------|
-| `maestro-bootstrap` | `maestro-bootstrap.json` | First-run flags, installation ID, telemetry consent |
-| `maestro-settings` | `maestro-settings.json` | User preferences (theme, font, keybindings, editor config) |
-| `maestro-sessions` | `maestro-sessions.json` | Session metadata (not content -- content is in agent storage) |
-| `maestro-groups` | `maestro-groups.json` | Session group definitions and ordering |
-| `maestro-project-folders` | `maestro-project-folders.json` | Project folder configuration and group associations |
-| `maestro-agent-configs` | `maestro-agent-configs.json` | AI agent configurations (models, API keys, parameters) |
-| `maestro-window-state` | `maestro-window-state.json` | Window position, size, maximized state, display |
-| `maestro-claude-session-origins` | `maestro-claude-session-origins.json` | Legacy Claude session origin tracking |
-| `maestro-agent-session-origins` | `maestro-agent-session-origins.json` | Agent session origin mapping |
-| `maestro-model-registry` | `maestro-model-registry.json` | Claude model pricing, aliases, and metadata (runtime-updateable) |
+Claude Code encodes project paths by replacing `/` with `-`:
 
-### 9.2 Store Configuration
+- `/Users/pedram/Projects/Maestro` → `-Users-pedram-Projects-Maestro`
+
+### IPC Handlers
 
 ```typescript
-interface StoreOptions<T> {
-  name: string;
-  defaults: T;
-  schema?: JSONSchema;
-  migrations?: Record<string, (store: Store<T>) => void>;
-  encryptionKey?: string;  // Used for API key storage
-  watch?: boolean;         // Enable file watching for sync
-  cwd?: string;            // Custom storage directory
-}
+// List sessions for a project
+const sessions = await window.maestro.claude.listSessions(projectPath);
+// Returns: [{ sessionId, projectPath, timestamp, modifiedAt, firstMessage, messageCount, sizeBytes }]
+
+// Read messages with pagination
+const { messages, total, hasMore } = await window.maestro.claude.readSessionMessages(
+	projectPath,
+	sessionId,
+	{ offset: 0, limit: 20 }
+);
+
+// Search sessions
+const results = await window.maestro.claude.searchSessions(
+	projectPath,
+	'query',
+	'all' // 'title' | 'user' | 'assistant' | 'all'
+);
+
+// Get global stats across all Claude projects (with streaming updates)
+const stats = await window.maestro.claude.getGlobalStats();
+// Returns: { totalSessions, totalMessages, totalInputTokens, totalOutputTokens,
+//            totalCacheReadTokens, totalCacheCreationTokens, totalCostUsd, totalSizeBytes }
+
+// Subscribe to streaming updates during stats calculation
+const unsubscribe = window.maestro.claude.onGlobalStatsUpdate((stats) => {
+	console.log(`Progress: ${stats.totalSessions} sessions, $${stats.totalCostUsd.toFixed(2)}`);
+	if (stats.isComplete) console.log('Stats calculation complete');
+});
+// Call unsubscribe() to stop listening
 ```
 
-### 9.3 Sync Path Support
+### UI Access
 
-When settings sync is enabled, stores can be configured to read/write from
-a shared directory (e.g., Dropbox, iCloud Drive, or a custom sync folder):
-
-```typescript
-class SyncableStore<T> extends Store<T> {
-  private syncPath: string | null = null;
-
-  enableSync(syncPath: string): void {
-    this.syncPath = syncPath;
-    // Copy current data to sync location
-    fs.copyFileSync(this.path, path.join(syncPath, this.name + '.json'));
-    // Watch sync location for changes from other machines
-    this.watcher = fs.watch(path.join(syncPath, this.name + '.json'), () => {
-      this.reloadFromSync();
-    });
-  }
-
-  private reloadFromSync(): void {
-    const syncData = JSON.parse(
-      fs.readFileSync(path.join(this.syncPath!, this.name + '.json'), 'utf-8')
-    );
-    // Merge strategy: last-write-wins with timestamp comparison
-    const merged = this.mergeWithTimestamps(this.store, syncData);
-    this.store = merged;
-    this.emit('sync', merged);
-  }
-}
-```
-
-### 9.4 Encryption
-
-The `maestro-agent-configs` store uses `electron-store`'s built-in encryption
-for API keys. The encryption key is derived from the machine ID using the
-`safeStorage` API when available, falling back to a hardcoded key (with a
-warning in logs).
+- Shortcut: `Cmd+Shift+L`
+- Quick Actions: `Cmd+K` → "View Agent Sessions"
+- Button in main panel header
 
 ---
 
-## 10. Agent Sessions API
+## Auto Run System
 
-The `agentSessions` namespace is the primary API for AI agent conversations.
-It replaces the deprecated `claude` namespace and supports multiple AI
-provider backends.
+File-based document runner for automating multi-step tasks. Users configure a folder of markdown documents containing checkbox tasks that are processed sequentially by AI agents.
 
-### 10.1 API Surface
+### Component Architecture
+
+| Component                        | Purpose                                                     |
+| -------------------------------- | ----------------------------------------------------------- |
+| `AutoRun.tsx`                    | Main panel showing current document with edit/preview modes |
+| `AutoRunSetupModal.tsx`          | First-time setup for selecting the Runner Docs folder       |
+| `AutoRunDocumentSelector.tsx`    | Dropdown for switching between markdown documents           |
+| `BatchRunnerModal.tsx`           | Configuration modal for running multiple Auto Run documents |
+| `PlaybookNameModal.tsx`          | Modal for naming saved playbook configurations              |
+| `PlaybookDeleteConfirmModal.tsx` | Confirmation modal for playbook deletion                    |
+| `useBatchProcessor.ts`           | Hook managing batch execution logic                         |
+
+### Data Types
 
 ```typescript
-interface AgentSessionsAPI {
-  // Lifecycle
-  create(config: AgentSessionConfig): Promise<AgentSessionId>;
-  destroy(sessionId: AgentSessionId): Promise<void>;
-
-  // Communication
-  send(sessionId: AgentSessionId, message: AgentMessage): Promise<void>;
-  cancel(sessionId: AgentSessionId): Promise<void>;
-
-  // History
-  getHistory(sessionId: AgentSessionId): Promise<AgentMessage[]>;
-  clearHistory(sessionId: AgentSessionId): Promise<void>;
-
-  // Events
-  onMessage(sessionId: AgentSessionId, cb: MessageCallback): Unsubscribe;
-  onStatus(sessionId: AgentSessionId, cb: StatusCallback): Unsubscribe;
-  onError(sessionId: AgentSessionId, cb: ErrorCallback): Unsubscribe;
-
-  // Storage
-  getStorageInfo(sessionId: AgentSessionId): Promise<StorageInfo>;
+// Document entry in the batch run queue (supports duplicates)
+interface BatchDocumentEntry {
+	id: string; // Unique ID for drag-drop and duplicates
+	filename: string; // Document filename (without .md)
+	resetOnCompletion: boolean; // Uncheck all boxes when done
+	isDuplicate: boolean; // True if this is a duplicate entry
 }
-```
 
-### 10.2 Storage Implementations
-
-Three storage backends exist to support different agent types:
-
-#### ClaudeSessionStorage (JSONL)
-
-The default storage for Claude/Anthropic sessions. Messages are stored as
-newline-delimited JSON (JSONL), one message per line:
-
-```typescript
-class ClaudeSessionStorage implements SessionStorage {
-  private filePath: string;
-
-  async append(message: AgentMessage): Promise<void> {
-    const line = JSON.stringify(message) + '\n';
-    await fs.appendFile(this.filePath, line, 'utf-8');
-  }
-
-  async readAll(): Promise<AgentMessage[]> {
-    const content = await fs.readFile(this.filePath, 'utf-8');
-    return content
-      .split('\n')
-      .filter(Boolean)
-      .map(line => JSON.parse(line));
-  }
-
-  async getStorageInfo(): Promise<StorageInfo> {
-    const stat = await fs.stat(this.filePath);
-    return {
-      format: 'jsonl',
-      sizeBytes: stat.size,
-      messageCount: (await this.readAll()).length,
-      path: this.filePath,
-    };
-  }
+// Git worktree configuration for parallel work
+interface WorktreeConfig {
+	enabled: boolean; // Whether to use a worktree
+	path: string; // Absolute path for the worktree
+	branchName: string; // Branch name to use/create
+	createPROnCompletion: boolean; // Create PR when Auto Run finishes
 }
-```
 
-#### CodexSessionStorage (Dual JSONL)
-
-Codex sessions use a dual-file JSONL format. One file stores user messages,
-another stores agent responses. This supports Codex's specific replay
-requirements:
-
-```typescript
-class CodexSessionStorage implements SessionStorage {
-  private userPath: string;
-  private agentPath: string;
-
-  async append(message: AgentMessage): Promise<void> {
-    const target = message.role === 'user' ? this.userPath : this.agentPath;
-    const line = JSON.stringify(message) + '\n';
-    await fs.appendFile(target, line, 'utf-8');
-  }
-
-  async readAll(): Promise<AgentMessage[]> {
-    const users = await this.readFile(this.userPath);
-    const agents = await this.readFile(this.agentPath);
-    return this.interleave(users, agents);
-  }
-
-  private interleave(users: AgentMessage[], agents: AgentMessage[]): AgentMessage[] {
-    const all = [...users, ...agents];
-    return all.sort((a, b) => a.timestamp - b.timestamp);
-  }
+// Configuration for starting a batch run
+interface BatchRunConfig {
+	documents: BatchDocumentEntry[]; // Ordered list of docs to run
+	prompt: string; // Agent prompt template
+	loopEnabled: boolean; // Loop back to first doc when done
+	worktree?: WorktreeConfig; // Optional worktree configuration
 }
-```
 
-#### OpenCodeSessionStorage (Individual JSON)
-
-OpenCode sessions store each message as a separate JSON file in a directory.
-This supports OpenCode's file-per-message architecture:
-
-```typescript
-class OpenCodeSessionStorage implements SessionStorage {
-  private dirPath: string;
-
-  async append(message: AgentMessage): Promise<void> {
-    const filename = `${message.timestamp}_${message.role}.json`;
-    const filePath = path.join(this.dirPath, filename);
-    await fs.writeFile(filePath, JSON.stringify(message, null, 2), 'utf-8');
-  }
-
-  async readAll(): Promise<AgentMessage[]> {
-    const files = await fs.readdir(this.dirPath);
-    const messages: AgentMessage[] = [];
-
-    for (const file of files.sort()) {
-      if (file.endsWith('.json')) {
-        const content = await fs.readFile(path.join(this.dirPath, file), 'utf-8');
-        messages.push(JSON.parse(content));
-      }
-    }
-
-    return messages;
-  }
+// Runtime batch processing state
+interface BatchRunState {
+	isRunning: boolean;
+	isStopping: boolean;
+	documents: string[]; // Document filenames in order
+	currentDocumentIndex: number; // Which document we're on (0-based)
+	currentDocTasksTotal: number;
+	currentDocTasksCompleted: number;
+	totalTasksAcrossAllDocs: number;
+	completedTasksAcrossAllDocs: number;
+	loopEnabled: boolean;
+	loopIteration: number; // How many times we've looped
+	folderPath: string;
+	worktreeActive: boolean;
+	worktreePath?: string;
+	worktreeBranch?: string;
 }
-```
 
----
-
-## 11. Auto Run System
-
-The Auto Run system provides batch orchestration for executing sequences of
-AI agent prompts across one or more sessions, with optional Git worktree
-isolation.
-
-### 11.1 State Machine
-
-The Auto Run state machine governs the lifecycle of batch execution:
-
-```
-                     +----------------+
-                     |                |
-           start()   |     IDLE       |<---+
-          +--------->|                |    |
-          |          +-------+--------+    |
-          |                  |             |
-          |            INITIALIZING        |
-          |                  |             |
-          |                  v             |
-          |          +-------+--------+    |
-          |          |                |    |
-          |          |    RUNNING     +----+ complete()
-          |          |                |    |
-          |          +---+------+-----+    |
-          |              |      |          |
-          |        error |      | pause()  |
-          |              v      v          |
-          |     +--------+-+ +--+-------+  |
-          |     |          | |          |  |
-          |     | PAUSED_  | | COMPLETING  |
-          |     | ERROR    | |          +--+
-          |     |          | +----------+
-          |     +----+-----+
-          |          |
-          |    stop() |
-          |          v
-          |   +------+-------+
-          |   |              |
-          +---+   STOPPING   |
-              |              |
-              +--------------+
-```
-
-**States**:
-- `IDLE`: No batch execution in progress
-- `INITIALIZING`: Setting up worktrees, validating configuration
-- `RUNNING`: Actively processing batch items
-- `COMPLETING`: Finalizing results, cleaning up worktrees
-- `PAUSED_ERROR`: Paused due to an error, awaiting user decision
-- `STOPPING`: User-initiated stop, cleaning up
-
-**Action Types (18)**:
-```typescript
-type BatchAction =
-  | { type: 'START'; payload: BatchConfig }
-  | { type: 'INITIALIZE_COMPLETE' }
-  | { type: 'INITIALIZE_ERROR'; payload: Error }
-  | { type: 'PROCESS_NEXT' }
-  | { type: 'ITEM_START'; payload: { index: number } }
-  | { type: 'ITEM_PROGRESS'; payload: { index: number; progress: number } }
-  | { type: 'ITEM_COMPLETE'; payload: { index: number; result: BatchItemResult } }
-  | { type: 'ITEM_ERROR'; payload: { index: number; error: Error } }
-  | { type: 'PAUSE' }
-  | { type: 'RESUME' }
-  | { type: 'STOP' }
-  | { type: 'STOP_COMPLETE' }
-  | { type: 'COMPLETE' }
-  | { type: 'RETRY_ITEM'; payload: { index: number } }
-  | { type: 'SKIP_ITEM'; payload: { index: number } }
-  | { type: 'WORKTREE_CREATED'; payload: { path: string } }
-  | { type: 'WORKTREE_CLEANUP' }
-  | { type: 'LOOP_ITERATION'; payload: { iteration: number } };
-```
-
-### 11.2 Worktree Integration
-
-When batch execution requires isolation (e.g., running multiple prompts that
-may modify the same files), the Auto Run system creates Git worktrees:
-
-```typescript
-async function setupWorktree(config: BatchConfig): Promise<WorktreeInfo> {
-  const branchName = `maestro/autorun/${Date.now()}`;
-  const worktreePath = path.join(config.cwd, '.maestro-worktrees', branchName);
-
-  await gitService.worktreeAdd(config.cwd, worktreePath, branchName);
-
-  return {
-    path: worktreePath,
-    branch: branchName,
-    cleanup: async () => {
-      await gitService.worktreeRemove(config.cwd, worktreePath);
-    },
-  };
-}
-```
-
-### 11.3 Playbooks
-
-Playbooks are reusable batch execution configurations:
-
-```typescript
+// Saved playbook configuration
 interface Playbook {
-  id: string;
-  name: string;
-  description: string;
-  steps: PlaybookStep[];
-  variables: Record<string, PlaybookVariable>;
-  options: {
-    useWorktree: boolean;
-    continueOnError: boolean;
-    maxRetries: number;
-    loopCount?: number;
-  };
-}
-
-interface PlaybookStep {
-  id: string;
-  prompt: string;           // May contain {{variables}}
-  agentConfig?: string;     // Override agent config for this step
-  timeout?: number;
-  validation?: string;      // Validation expression
-  dependsOn?: string[];     // Step IDs
+	id: string;
+	name: string;
+	createdAt: number;
+	updatedAt: number;
+	documents: PlaybookDocumentEntry[];
+	loopEnabled: boolean;
+	prompt: string;
+	worktreeSettings?: {
+		branchNameTemplate: string;
+		createPROnCompletion: boolean;
+	};
 }
 ```
 
-### 11.4 Loop Support
+### Session Fields
 
-The Auto Run system supports repeating batch execution in a loop:
+Auto Run state is stored per-agent:
 
 ```typescript
-interface LoopConfig {
-  count: number;            // Number of iterations (0 = infinite)
-  delayMs: number;          // Delay between iterations
-  stopOnError: boolean;     // Stop looping on first error
-  aggregateResults: boolean; // Combine results across iterations
-}
+// In Session interface
+autoRunFolderPath?: string;      // Persisted folder path for Runner Docs
+autoRunSelectedFile?: string;     // Currently selected markdown filename
+autoRunMode?: 'edit' | 'preview'; // Current editing mode
+autoRunEditScrollPos?: number;    // Scroll position in edit mode
+autoRunPreviewScrollPos?: number; // Scroll position in preview mode
+autoRunCursorPosition?: number;   // Cursor position in edit mode
+batchRunnerPrompt?: string;       // Custom batch runner prompt
+batchRunnerPromptModifiedAt?: number;
 ```
 
-### 11.5 Document Polling
-
-During batch execution, the system polls for document changes at
-10-15 second intervals. This allows the UI to reflect file changes
-made by the agent in near-real-time:
+### IPC Handlers
 
 ```typescript
-class DocumentPoller {
-  private interval: NodeJS.Timeout | null = null;
-  private readonly MIN_INTERVAL_MS = 10_000;
-  private readonly MAX_INTERVAL_MS = 15_000;
+// List markdown files in a directory
+'autorun:listDocs': (folderPath: string) => Promise<{ success, files, error? }>
 
-  start(cwd: string, onChange: (changes: FileChange[]) => void): void {
-    const poll = async () => {
-      const changes = await this.detectChanges(cwd);
-      if (changes.length > 0) {
-        onChange(changes);
-      }
-      const nextInterval = this.MIN_INTERVAL_MS +
-        Math.random() * (this.MAX_INTERVAL_MS - this.MIN_INTERVAL_MS);
-      this.interval = setTimeout(poll, nextInterval);
-    };
-    poll();
-  }
+// Read a markdown document
+'autorun:readDoc': (folderPath: string, filename: string) => Promise<{ success, content, error? }>
 
-  stop(): void {
-    if (this.interval) {
-      clearTimeout(this.interval);
-      this.interval = null;
-    }
-  }
-}
+// Write a markdown document
+'autorun:writeDoc': (folderPath: string, filename: string, content: string) => Promise<{ success, error? }>
+
+// Save image to folder
+'autorun:saveImage': (folderPath: string, docName: string, base64Data: string, extension: string) =>
+  Promise<{ success, relativePath, error? }>
+
+// Delete image
+'autorun:deleteImage': (folderPath: string, relativePath: string) => Promise<{ success, error? }>
+
+// List images for a document
+'autorun:listImages': (folderPath: string, docName: string) => Promise<{ success, images, error? }>
+
+// Playbook CRUD operations
+'playbooks:list': (sessionId: string) => Promise<{ success, playbooks, error? }>
+'playbooks:create': (sessionId: string, playbook) => Promise<{ success, playbook, error? }>
+'playbooks:update': (sessionId: string, playbookId: string, updates) => Promise<{ success, playbook, error? }>
+'playbooks:delete': (sessionId: string, playbookId: string) => Promise<{ success, error? }>
 ```
 
-### 11.6 useBatchProcessor
+### Git Worktree Integration
 
-The `useBatchProcessor` hook is the largest single hook in the codebase at
-**2076 lines**. It encapsulates the entire batch orchestration logic including:
+When worktree is enabled, Auto Run operates in an isolated directory:
 
-- State machine management
-- Worktree setup/teardown
-- Sequential and parallel item processing
-- Error handling with retry/skip
-- Progress tracking and ETA estimation
-- Result aggregation
-- Loop iteration management
-- Playbook variable resolution
-- Document polling coordination
-- IPC event forwarding
+```typescript
+// Check if worktree exists and get branch info
+'git:worktreeInfo': (worktreePath: string) => Promise<{
+  success: boolean;
+  exists: boolean;
+  isWorktree: boolean;
+  currentBranch?: string;
+  repoRoot?: string;
+}>
+
+// Create or reuse a worktree
+'git:worktreeSetup': (mainRepoCwd: string, worktreePath: string, branchName: string) => Promise<{
+  success: boolean;
+  created: boolean;
+  currentBranch: string;
+  branchMismatch: boolean;
+}>
+
+// Checkout a branch in a worktree
+'git:worktreeCheckout': (worktreePath: string, branchName: string, createIfMissing: boolean) => Promise<{
+  success: boolean;
+  hasUncommittedChanges: boolean;
+}>
+
+// Create PR from worktree branch
+'git:createPR': (worktreePath: string, baseBranch: string, title: string, body: string) => Promise<{
+  success: boolean;
+  prUrl?: string;
+}>
+```
+
+### Execution Flow
+
+1. **Setup**: User selects Runner Docs folder via `AutoRunSetupModal`
+2. **Document Selection**: Documents appear in `AutoRunDocumentSelector` dropdown
+3. **Editing**: `AutoRun` component provides edit/preview modes with auto-save (5s debounce)
+4. **Batch Configuration**: `BatchRunnerModal` allows ordering documents, enabling loop/reset, configuring worktree
+5. **Playbooks**: Save/load configurations for repeated batch runs
+6. **Execution**: `useBatchProcessor` hook processes documents sequentially
+7. **Progress**: RightPanel shows document and task-level progress
+
+### Write Queue Integration
+
+Without worktree mode, Auto Run tasks queue through the existing execution queue:
+
+- Auto Run tasks are marked as write operations (`readOnlyMode: false`)
+- Manual write messages queue behind Auto Run (sequential)
+- Read-only operations from other tabs can run in parallel
+
+With worktree mode:
+
+- Auto Run operates in a separate directory
+- No queue conflicts with main workspace
+- True parallelization enabled
 
 ---
 
-## 12. Achievement System
+## Achievement System
 
-Maestro includes a gamification layer that tracks user proficiency and awards
-badges based on usage patterns.
+Gamification system that rewards Auto Run usage with conductor-themed badges.
 
-### 12.1 Badge Hierarchy (11 Levels)
+### Components
 
-```typescript
-const BADGE_LEVELS = [
-  { level: 1,  name: 'Apprentice',          threshold: 0 },
-  { level: 2,  name: 'Journeyman',          threshold: 100 },
-  { level: 3,  name: 'Practitioner',        threshold: 500 },
-  { level: 4,  name: 'Skilled Artisan',     threshold: 1500 },
-  { level: 5,  name: 'Expert',              threshold: 4000 },
-  { level: 6,  name: 'Master',              threshold: 8000 },
-  { level: 7,  name: 'Grand Master',        threshold: 15000 },
-  { level: 8,  name: 'Virtuoso',            threshold: 25000 },
-  { level: 9,  name: 'Sage',                threshold: 40000 },
-  { level: 10, name: 'Transcendent Maestro', threshold: 60000 },
-  { level: 11, name: 'Legendary Maestro',    threshold: 100000 },
-] as const;
-```
+| Component                    | Purpose                                      |
+| ---------------------------- | -------------------------------------------- |
+| `conductorBadges.ts`         | Badge definitions and progression levels     |
+| `useAchievements.ts`         | Achievement tracking and unlock logic        |
+| `AchievementCard.tsx`        | Individual badge display component           |
+| `StandingOvationOverlay.tsx` | Celebration overlay with confetti animations |
 
-Thresholds are based on cumulative interaction points earned through:
-- Sending messages to AI agents
-- Completing batch runs
-- Using keyboard shortcuts
-- Creating and using playbooks
-- Exploring features (knowledge graph, document graph, etc.)
+### Badge Progression
 
-### 12.2 Keyboard Mastery (5 Levels)
+15 conductor levels based on cumulative Auto Run time:
 
-A separate progression track for keyboard shortcut proficiency:
+| Level | Badge                   | Time Required |
+| ----- | ----------------------- | ------------- |
+| 1     | Apprentice Conductor    | 1 minute      |
+| 2     | Junior Conductor        | 5 minutes     |
+| 3     | Assistant Conductor     | 15 minutes    |
+| 4     | Associate Conductor     | 30 minutes    |
+| 5     | Conductor               | 1 hour        |
+| 6     | Senior Conductor        | 2 hours       |
+| 7     | Principal Conductor     | 4 hours       |
+| 8     | Master Conductor        | 8 hours       |
+| 9     | Chief Conductor         | 16 hours      |
+| 10    | Distinguished Conductor | 24 hours      |
+| 11    | Elite Conductor         | 48 hours      |
+| 12    | Virtuoso Conductor      | 72 hours      |
+| 13    | Legendary Conductor     | 100 hours     |
+| 14    | Mythic Conductor        | 150 hours     |
+| 15    | Transcendent Maestro    | 200 hours     |
 
-```typescript
-const KEYBOARD_MASTERY_LEVELS = [
-  { level: 1, name: 'Novice',       shortcutsUsed: 0 },
-  { level: 2, name: 'Familiar',     shortcutsUsed: 10 },
-  { level: 3, name: 'Proficient',   shortcutsUsed: 25 },
-  { level: 4, name: 'Expert',       shortcutsUsed: 50 },
-  { level: 5, name: 'Keyboard Zen', shortcutsUsed: 100 },
-] as const;
-```
+### Standing Ovation
 
-Keyboard mastery tracks unique keyboard shortcuts used (not repetitions).
-Each unique shortcut discovered counts toward the next level.
+When a new badge is unlocked:
+
+1. `StandingOvationOverlay` displays with confetti animation
+2. Badge details shown with celebration message
+3. Share functionality available
+4. Acknowledgment persisted to prevent re-showing
 
 ---
 
-## 13. AI Tab System
+## AI Tab System
 
-Maestro supports multiple simultaneous AI conversations within a single
-session through the tab system.
+Multi-tab support within each agent, allowing parallel conversations with separate provider sessions.
 
-### 13.1 AITab Interface
+### Features
+
+- **Multiple tabs per agent**: Each tab maintains its own provider session ID
+- **Tab management**: Create, close, rename, star tabs
+- **Read-only mode**: Per-tab toggle to prevent accidental input
+- **Save-to-history toggle**: Per-tab control over history persistence
+- **Tab switcher modal**: Quick navigation via `Alt+Cmd+T`
+- **Unread filtering**: Filter to show only tabs with unread messages
+
+### Tab Interface
 
 ```typescript
 interface AITab {
-  id: string;
-  sessionId: string;         // Parent session
-  agentSessionId: string;    // Agent session for this tab
-  name: string;              // User-visible tab name
-  logs: LogEntry[];          // Conversation log entries
-  usageStats: UsageStats;    // Token/cost tracking for this tab
-  wizardState: WizardState;  // First-run wizard progress
-  rating: TabRating | null;  // User quality rating
-  createdAt: number;
-  lastActiveAt: number;
-  isPinned: boolean;
+	id: string;
+	name: string;
+	agentSessionId?: string; // Separate provider session per tab
+	aiLogs: LogEntry[]; // Tab-specific conversation history
+	isStarred: boolean;
+	readOnlyMode: boolean;
+	saveToHistory: boolean;
+	unreadCount: number;
+	createdAt: number;
 }
-
-interface UsageStats {
-  inputTokens: number;
-  outputTokens: number;
-  totalCost: number;         // Calculated using active pricing model
-  messageCount: number;
-  averageResponseTime: number;
-}
-
-interface WizardState {
-  completed: boolean;
-  currentStep: number;
-  totalSteps: number;
-  skipped: boolean;
-}
-
-type TabRating = 1 | 2 | 3 | 4 | 5;
 ```
 
-### 13.2 Tab Lifecycle
+### Session Fields
 
-1. **Creation**: New tabs spawn a fresh agent session with the configured default agent
-2. **Activation**: Switching tabs activates the tab's agent session and loads its logs
-3. **Background**: Inactive tabs continue receiving messages (agent keeps running)
-4. **Destruction**: Closing a tab destroys the agent session and cleans up storage
-5. **Pinning**: Pinned tabs are protected from accidental closure
+```typescript
+// In Session interface
+aiTabs: AITab[];              // Array of AI tabs
+activeAITabId: string;        // Currently active tab ID
+```
+
+### Shortcuts
+
+| Shortcut      | Action            |
+| ------------- | ----------------- |
+| `Cmd+T`       | New tab           |
+| `Cmd+W`       | Close current tab |
+| `Alt+Cmd+T`   | Open tab switcher |
+| `Cmd+Shift+]` | Next tab          |
+| `Cmd+Shift+[` | Previous tab      |
 
 ---
 
-## 14. Execution Queue
+## File Preview Tab System
 
-The Execution Queue provides sequential prompt delivery to ensure ordered
-processing of user inputs.
+In-tab file viewing that integrates file previews alongside AI conversation tabs. Files open as separate tabs within the tab bar, maintaining their own state and scroll positions.
+
+### Features
+
+- **Unified tab bar**: File tabs appear alongside AI tabs with consistent styling
+- **Deduplication**: Same file opened twice within a session activates existing tab
+- **Multi-session support**: Same file can be open in multiple sessions simultaneously
+- **State persistence**: Scroll position, search query, and edit mode preserved across restarts
+- **SSH remote files**: Supports viewing files from remote SSH hosts with loading states
+- **Extension badges**: Color-coded file extension badges with theme-aware and colorblind-safe palettes
+- **Overlay menu**: Right-click or hover menu for file operations (copy path, reveal in finder, etc.)
+
+### File Tab Interface
+
+```typescript
+interface FilePreviewTab {
+	id: string; // Unique tab ID (UUID)
+	path: string; // Full file path
+	name: string; // Filename without extension (tab display name)
+	extension: string; // File extension with dot (e.g., '.md', '.ts')
+	content: string; // File content (loaded on open)
+	scrollTop: number; // Preserved scroll position
+	searchQuery: string; // Preserved search query
+	editMode: boolean; // Whether tab was in edit mode
+	editContent?: string; // Unsaved edit content (if pending changes)
+	createdAt: number; // Timestamp for ordering
+	lastModified: number; // File modification time (for refresh detection)
+	sshRemoteId?: string; // SSH remote ID for remote files
+	isLoading?: boolean; // True while content is being fetched
+}
+```
+
+### Unified Tab System
+
+AI and file tabs share a unified tab order managed by `unifiedTabOrder`:
+
+```typescript
+// Reference to any tab type
+type UnifiedTabRef = { type: 'ai' | 'file'; id: string };
+
+// Discriminated union for rendering
+type UnifiedTab =
+	| { type: 'ai'; id: string; data: AITab }
+	| { type: 'file'; id: string; data: FilePreviewTab };
+```
+
+### Session Fields
+
+```typescript
+// In Session interface
+filePreviewTabs: FilePreviewTab[];   // Array of file preview tabs
+activeFileTabId: string | null;      // Active file tab (null if AI tab active)
+unifiedTabOrder: UnifiedTabRef[];    // Visual order of all tabs
+unifiedClosedTabHistory: ClosedTabEntry[]; // Undo stack for Cmd+Shift+T
+```
+
+### Critical Invariant
+
+**`unifiedTabOrder` is the source of truth for the TabBar.** Every tab in `aiTabs` or `filePreviewTabs` must have a corresponding `UnifiedTabRef` in `unifiedTabOrder`. Tabs missing from this array will have content that renders (via `activeTabId`/`activeFileTabId` lookups) but will be invisible in the TabBar.
+
+When adding or activating tabs, always update `unifiedTabOrder`. Use `ensureInUnifiedTabOrder()` from `tabHelpers.ts` when activating existing tabs defensively. See [[CLAUDE-PATTERNS.md]] section 6 for code examples.
+
+The shared `buildUnifiedTabs(session)` function in `tabHelpers.ts` is the canonical way to compute the tab list for rendering. It follows `unifiedTabOrder` and appends any orphaned tabs as a safety net.
+
+### Behavior
+
+- **Opening files**: Double-click in file explorer, click file links in AI output, or use Go to File (`Cmd+P`)
+- **Tab switching**: Click tab or use `Cmd+Shift+[`/`]` to navigate
+- **Tab closing**: Click X button, use `Cmd+W`, or right-click → Close
+- **Restore closed**: `Cmd+Shift+T` restores recently closed tabs (both AI and file)
+- **Edit mode**: Toggle edit mode in file preview; unsaved changes prompt on close
+
+### Extension Color Mapping
+
+File tabs display a colored badge based on file extension. Colors are theme-aware (light/dark) and support colorblind-safe palettes:
+
+| Extensions           | Light Theme | Dark Theme   | Colorblind (Wong palette) |
+| -------------------- | ----------- | ------------ | ------------------------- |
+| .ts, .tsx, .js, .jsx | Blue        | Light Blue   | #0077BB                   |
+| .md, .mdx, .txt      | Green       | Light Green  | #009988                   |
+| .json, .yaml, .toml  | Amber       | Yellow       | #EE7733                   |
+| .css, .scss, .less   | Purple      | Light Purple | #AA4499                   |
+| .html, .xml, .svg    | Orange      | Light Orange | #CC3311                   |
+| .py                  | Teal        | Cyan         | #33BBEE                   |
+| .rs                  | Rust        | Light Rust   | #EE3377                   |
+| .go                  | Cyan        | Light Cyan   | #44AA99                   |
+| .sh, .bash, .zsh     | Gray        | Light Gray   | #BBBBBB                   |
+
+### Key Files
+
+| File                         | Purpose                                                                                             |
+| ---------------------------- | --------------------------------------------------------------------------------------------------- |
+| `TabBar.tsx`                 | Unified tab rendering with AI and file tabs                                                         |
+| `FilePreview.tsx`            | File content viewer with edit mode                                                                  |
+| `MainPanel.tsx`              | Coordinates tab display and file loading                                                            |
+| `tabHelpers.ts`              | Shared tab utilities (`buildUnifiedTabs`, `ensureInUnifiedTabOrder`, `createTab`, `closeTab`, etc.) |
+| `useTabHandlers.ts`          | Tab operation hooks including `handleOpenFileTab`                                                   |
+| `tabStore.ts`                | Zustand selectors for tab state (`selectUnifiedTabs`, `selectActiveTab`)                            |
+| `useDebouncedPersistence.ts` | Persists file tabs across sessions                                                                  |
+
+---
+
+## Execution Queue
+
+Sequential message processing system that prevents race conditions when multiple operations target the same agent.
+
+### Components
+
+| Component                     | Purpose                          |
+| ----------------------------- | -------------------------------- |
+| `ExecutionQueueIndicator.tsx` | Shows queue status in tab bar    |
+| `ExecutionQueueBrowser.tsx`   | Modal for viewing/managing queue |
+
+### Queue Item Types
 
 ```typescript
 interface QueuedItem {
-  id: string;
-  prompt: string;
-  priority: 'normal' | 'high';
-  createdAt: number;
-  metadata?: Record<string, unknown>;
-}
-
-class ExecutionQueue {
-  private queue: QueuedItem[] = [];
-  private processing: boolean = false;
-
-  enqueue(item: QueuedItem): void {
-    if (item.priority === 'high') {
-      // Insert at front of queue (after any currently processing item)
-      this.queue.unshift(item);
-    } else {
-      this.queue.push(item);
-    }
-    this.processNext();
-  }
-
-  private async processNext(): Promise<void> {
-    if (this.processing || this.queue.length === 0) return;
-
-    this.processing = true;
-    const item = this.queue.shift()!;
-
-    try {
-      await this.executeItem(item);
-    } finally {
-      this.processing = false;
-      this.processNext(); // Continue with next item
-    }
-  }
-
-  getQueueLength(): number {
-    return this.queue.length;
-  }
-
-  clear(): void {
-    this.queue = [];
-  }
+	id: string;
+	type: 'message' | 'command';
+	content: string;
+	tabId: string;
+	readOnlyMode: boolean;
+	timestamp: number;
+	source: 'user' | 'autorun';
 }
 ```
 
-The queue ensures that even if a user submits multiple prompts rapidly,
-they are processed one at a time in order. High-priority items (e.g.,
-system-generated prompts for error recovery) can jump the queue.
+### Behavior
+
+- **Write operations** (readOnlyMode: false) queue sequentially
+- **Read-only operations** can run in parallel
+- Auto Run tasks queue with regular messages
+- Queue visible via indicator in tab bar
+- Users can cancel pending items via queue browser
+
+### Session Fields
+
+```typescript
+// In Session interface
+executionQueue: QueuedItem[];  // Pending operations
+isProcessingQueue: boolean;    // Currently processing
+```
 
 ---
 
-## 15. Navigation History
+## Navigation History
 
-Maestro maintains a navigation history stack for session-to-session movement,
-similar to browser back/forward navigation.
+Back/forward navigation through agents and tabs, similar to browser history.
+
+### Implementation
+
+`useNavigationHistory` hook maintains a stack of navigation entries:
 
 ```typescript
-interface NavigationState {
-  backStack: NavigationEntry[];
-  forwardStack: NavigationEntry[];
-  current: NavigationEntry;
-}
-
 interface NavigationEntry {
-  sessionId: string;
-  tabId?: string;
-  scrollPosition?: number;
-  timestamp: number;
-}
-
-class NavigationHistory {
-  private state: NavigationState;
-
-  navigate(entry: NavigationEntry): void {
-    this.state.backStack.push(this.state.current);
-    this.state.current = entry;
-    this.state.forwardStack = []; // Clear forward on new navigation
-  }
-
-  goBack(): NavigationEntry | null {
-    if (this.state.backStack.length === 0) return null;
-    this.state.forwardStack.push(this.state.current);
-    this.state.current = this.state.backStack.pop()!;
-    return this.state.current;
-  }
-
-  goForward(): NavigationEntry | null {
-    if (this.state.forwardStack.length === 0) return null;
-    this.state.backStack.push(this.state.current);
-    this.state.current = this.state.forwardStack.pop()!;
-    return this.state.current;
-  }
-
-  canGoBack(): boolean {
-    return this.state.backStack.length > 0;
-  }
-
-  canGoForward(): boolean {
-    return this.state.forwardStack.length > 0;
-  }
+	sessionId: string;
+	tabId?: string;
+	timestamp: number;
 }
 ```
 
-The navigation history preserves scroll positions so that returning to a
-previous session restores the user's viewport to where they left off.
+### Behavior
+
+- Maximum 50 entries in history
+- Automatic cleanup of invalid entries (deleted agents/tabs)
+- Skips duplicate consecutive entries
+
+### Shortcuts
+
+| Shortcut      | Action           |
+| ------------- | ---------------- |
+| `Cmd+Shift+,` | Navigate back    |
+| `Cmd+Shift+.` | Navigate forward |
 
 ---
 
-## 16. Group Chat System
+## Group Chat System
 
-Group Chat enables multi-agent conversations where a moderator orchestrates
-interactions between multiple AI agents.
+Multi-agent coordination system where a moderator AI orchestrates conversations between multiple Maestro agents, synthesizing their responses into cohesive answers.
 
-### 16.1 Architecture
+### Architecture Overview
 
 ```
-User Message
-    |
-    v
-Moderator (non-persistent, spawned fresh per message)
-    |
-    +-- Analyzes message for @mentions and intent
-    |
-    +-- Routes to participants based on:
-    |     - Explicit @mentions
-    |     - Topic/expertise matching
-    |     - Round-robin (if no clear target)
-    |
-    v
-Participant Agents (parallel execution)
-    |
-    +-- Each agent receives:
-    |     - The user message
-    |     - Relevant conversation context
-    |     - Their role description
-    |
-    v
-Moderator Synthesis
-    |
-    +-- Collects all participant responses
-    +-- Synthesizes into coherent response
-    +-- Resolves conflicts between agents
-    +-- Formats final response
-    |
-    v
-User sees synthesized response
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         GROUP CHAT FLOW                                  │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│   User sends message                                                     │
+│          │                                                               │
+│          ▼                                                               │
+│   ┌─────────────┐                                                        │
+│   │  MODERATOR  │ ◄─── Receives user message + chat history              │
+│   └──────┬──────┘                                                        │
+│          │                                                               │
+│          ▼                                                               │
+│   Has @mentions? ───No───► Return directly to user                       │
+│          │                                                               │
+│         Yes                                                              │
+│          │                                                               │
+│          ▼                                                               │
+│   ┌──────────────────────────────────────┐                               │
+│   │      Route to mentioned agents       │                               │
+│   │  @AgentA  @AgentB  @AgentC  ...      │                               │
+│   └──────────────────────────────────────┘                               │
+│          │         │         │                                           │
+│          ▼         ▼         ▼                                           │
+│   ┌─────────┐ ┌─────────┐ ┌─────────┐                                    │
+│   │ Agent A │ │ Agent B │ │ Agent C │  (work in parallel)                │
+│   └────┬────┘ └────┬────┘ └────┬────┘                                    │
+│        │           │           │                                         │
+│        └───────────┴───────────┘                                         │
+│                    │                                                     │
+│                    ▼                                                     │
+│          All agents responded                                            │
+│                    │                                                     │
+│                    ▼                                                     │
+│   ┌─────────────────────────────┐                                        │
+│   │  MODERATOR reviews results  │ ◄─── Synthesis round                   │
+│   └──────────────┬──────────────┘                                        │
+│                  │                                                       │
+│                  ▼                                                       │
+│   Need more info? ───Yes───► @mention agents again (loop back)           │
+│                  │                                                       │
+│                 No                                                       │
+│                  │                                                       │
+│                  ▼                                                       │
+│   ┌─────────────────────────────┐                                        │
+│   │  Final synthesis to user   │ ◄─── No @mentions = conversation ends  │
+│   └─────────────────────────────┘                                        │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 16.2 Moderator Design
+### Key Design Principle: Moderator Controls the Flow
 
-The moderator is **non-persistent**: a new moderator instance is spawned for
-every incoming message and destroyed after synthesis. This design choice:
+The moderator is the traffic controller. After agents respond, the **moderator decides** what happens next:
 
-- Prevents moderator state from drifting over time
-- Ensures consistent routing behavior
-- Avoids context accumulation in the moderator
-- Simplifies error recovery (no stale moderator state)
+1. **Continue with agents** - If responses are incomplete or unclear, @mention agents for follow-up
+2. **Return to user** - If the question is fully answered, provide a synthesis WITHOUT any @mentions
+
+This allows the moderator to go back and forth with agents as many times as needed until the user's question is properly answered.
+
+### Component Architecture
+
+```
+src/main/group-chat/
+├── group-chat-storage.ts      # Persistence (JSON files in app data)
+├── group-chat-log.ts          # Chat history logging
+├── group-chat-moderator.ts    # Moderator process management & prompts
+├── group-chat-router.ts       # Message routing logic
+└── group-chat-agent.ts        # Participant agent management
+```
+
+| Component                 | Purpose                                                        |
+| ------------------------- | -------------------------------------------------------------- |
+| `group-chat-storage.ts`   | CRUD operations for group chats, participants, history entries |
+| `group-chat-log.ts`       | Append-only log of all messages (user, moderator, agents)      |
+| `group-chat-moderator.ts` | Spawns moderator AI, defines system prompts                    |
+| `group-chat-router.ts`    | Routes messages between user, moderator, and agents            |
+| `group-chat-agent.ts`     | Adds/removes participant agents                                |
+
+### Message Routing
+
+#### Session ID Patterns
+
+The router uses session ID patterns to identify message sources:
+
+| Pattern                                              | Source            |
+| ---------------------------------------------------- | ----------------- |
+| `group-chat-{chatId}-moderator-{timestamp}`          | Moderator process |
+| `group-chat-{chatId}-participant-{name}-{timestamp}` | Agent participant |
+
+#### Routing Functions
 
 ```typescript
-interface ModeratorConfig {
-  model: string;
-  systemPrompt: string;
-  routingStrategy: 'mention' | 'topic' | 'round-robin' | 'auto';
-  synthesisStyle: 'merged' | 'attributed' | 'ranked';
-  maxParticipantsPerMessage: number;
-}
+// User → Moderator
+routeUserMessage(groupChatId, message, processManager, agentDetector, readOnly);
 
-async function moderateMessage(
-  message: UserMessage,
-  participants: AgentConfig[],
-  config: ModeratorConfig,
-  history: GroupMessage[]
-): Promise<SynthesizedResponse> {
-  // 1. Spawn fresh moderator
-  const moderator = await spawnModerator(config);
+// Moderator → Agents (extracts @mentions, spawns agent processes)
+routeModeratorResponse(groupChatId, message, processManager, agentDetector, readOnly);
 
-  // 2. Determine routing
-  const mentions = extractMentions(message.text); // @agent-name detection
-  const targets = mentions.length > 0
-    ? participants.filter(p => mentions.includes(p.name))
-    : await moderator.routeMessage(message, participants);
+// Agent → Back to moderator (triggers synthesis when all agents respond)
+routeAgentResponse(groupChatId, participantName, message, processManager);
 
-  // 3. Fan out to participants (parallel)
-  const responses = await Promise.allSettled(
-    targets.map(agent =>
-      sendToParticipant(agent, message, history)
-    )
-  );
-
-  // 4. Synthesize
-  const synthesis = await moderator.synthesize(responses, config.synthesisStyle);
-
-  // 5. Destroy moderator
-  await moderator.destroy();
-
-  return synthesis;
-}
+// Synthesis round (after all agents respond)
+spawnModeratorSynthesis(groupChatId, processManager, agentDetector);
 ```
 
-### 16.3 @Mention Detection
+### The Synthesis Flow
+
+When all agents finish responding:
+
+1. `markParticipantResponded()` tracks pending responses
+2. When last agent responds, `spawnModeratorSynthesis()` is called
+3. Moderator receives all agent responses in chat history
+4. Moderator either:
+   - **@mentions agents** → Routes back to agents (loop continues)
+   - **No @mentions** → Final response to user (loop ends)
+
+This is enforced by `routeModeratorResponse()` which checks for @mentions:
 
 ```typescript
-function extractMentions(text: string): string[] {
-  const mentionRegex = /@([a-zA-Z0-9_-]+)/g;
-  const mentions: string[] = [];
-  let match: RegExpExecArray | null;
-
-  while ((match = mentionRegex.exec(text)) !== null) {
-    mentions.push(match[1]);
-  }
-
-  return mentions;
+// Extract mentions and route to agents
+const mentions = extractMentions(message, participants);
+if (mentions.length > 0) {
+	// Spawn agent processes, track pending responses
+	for (const participantName of mentions) {
+		// ... spawn batch process for agent
+		participantsToRespond.add(participantName);
+	}
+	pendingParticipantResponses.set(groupChatId, participantsToRespond);
 }
+// If no mentions, message is logged but no agents are spawned
+// = conversation turn complete, ball is back with user
 ```
 
-### 16.4 Stale Cleanup
+### Moderator Prompts
 
-Group chat sessions implement a 10-minute stale detection timer. If no
-messages are sent for 10 minutes, participant sessions are cleaned up to
-free resources:
+Two key prompts control moderator behavior:
+
+**MODERATOR_SYSTEM_PROMPT** - Base instructions for all moderator interactions:
+
+- Assist user directly for simple questions
+- Coordinate agents via @mentions when needed
+- Control conversation flow
+- Return to user only when answer is complete
+
+**MODERATOR_SYNTHESIS_PROMPT** - Used when reviewing agent responses:
+
+- Synthesize if responses are complete (NO @mentions)
+- @mention agents if more info needed
+- Keep going until user's question is answered
+
+### Data Flow Example
+
+```
+User: "How does @Maestro and @RunMaestro.ai relate?"
+
+1. routeUserMessage()
+   - Logs message as "user"
+   - Auto-adds @Maestro and @RunMaestro.ai as participants
+   - Spawns moderator process with user message
+
+2. Moderator responds: "Let me ask the agents. @Maestro @RunMaestro.ai explain..."
+   routeModeratorResponse()
+   - Logs message as "moderator"
+   - Extracts mentions: ["Maestro", "RunMaestro.ai"]
+   - Spawns batch processes for each agent
+   - Sets pendingParticipantResponses = {"Maestro", "RunMaestro.ai"}
+
+3. Agent "Maestro" responds
+   routeAgentResponse()
+   - Logs message as "Maestro"
+   - markParticipantResponded() → pendingParticipantResponses = {"RunMaestro.ai"}
+   - Not last agent, so no synthesis yet
+
+4. Agent "RunMaestro.ai" responds
+   routeAgentResponse()
+   - Logs message as "RunMaestro.ai"
+   - markParticipantResponded() → pendingParticipantResponses = {} (empty)
+   - Last agent! Triggers spawnModeratorSynthesis()
+
+5. Moderator synthesis
+   - Receives all agent responses in chat history
+   - Decision point:
+     a) If needs more info: "@Maestro can you clarify..." → back to step 2
+     b) If satisfied: "Here's how they relate..." (no @mentions) → done
+
+6. Final response to user (no @mentions = turn complete)
+```
+
+### IPC Handlers
 
 ```typescript
-class GroupChatGarbageCollector {
-  private readonly STALE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
+// Group chat management
+'groupchat:create': (name, moderatorAgentId) => Promise<GroupChat>
+'groupchat:get': (id) => Promise<GroupChat | null>
+'groupchat:list': () => Promise<GroupChat[]>
+'groupchat:delete': (id) => Promise<void>
 
-  checkStale(session: GroupChatSession): boolean {
-    const lastActivity = session.lastMessageTimestamp;
-    return Date.now() - lastActivity > this.STALE_TIMEOUT_MS;
-  }
+// Participant management
+'groupchat:addParticipant': (chatId, name, agentId, cwd) => Promise<void>
+'groupchat:removeParticipant': (chatId, name) => Promise<void>
 
-  async cleanup(session: GroupChatSession): Promise<void> {
-    for (const participant of session.participants) {
-      try {
-        await participant.destroy();
-      } catch (error) {
-        logger.warn('Failed to cleanup participant', {
-          participantId: participant.id,
-          error,
-        });
-      }
-    }
-  }
-}
+// Messaging
+'groupchat:sendMessage': (chatId, message, readOnly?) => Promise<void>
+
+// State
+'groupchat:getMessages': (chatId, limit?) => Promise<GroupChatMessage[]>
+'groupchat:getHistory': (chatId) => Promise<GroupChatHistoryEntry[]>
 ```
 
-### 16.5 Session Recovery
-
-When a participant agent returns `session_not_found`, the Group Chat system
-automatically recovers by spawning a new session for that participant:
+### Events
 
 ```typescript
-async function sendWithRecovery(
-  participant: AgentSession,
-  message: AgentMessage,
-  retries: number = 1
-): Promise<AgentMessage> {
-  try {
-    return await participant.send(message);
-  } catch (error) {
-    if (error.code === 'session_not_found' && retries > 0) {
-      logger.info('Recovering participant session', { id: participant.id });
-      await participant.reinitialize();
-      return sendWithRecovery(participant, message, retries - 1);
-    }
-    throw error;
-  }
-}
+// Real-time updates to renderer
+groupChatEmitters.emitMessage(chatId, message); // New message
+groupChatEmitters.emitStateChange(chatId, state); // 'idle' | 'agent-working'
+groupChatEmitters.emitParticipantsChanged(chatId, list); // Participant list updated
+groupChatEmitters.emitHistoryEntry(chatId, entry); // New history entry
+groupChatEmitters.emitModeratorUsage(chatId, usage); // Token usage stats
 ```
 
----
-
-## 17. Web/Mobile Interface
-
-Maestro exposes a web interface for remote access from browsers and mobile
-devices, built on Fastify and WebSocket.
-
-### 17.1 Server Architecture
+### Storage Structure
 
 ```
-Electron Main Process
-    |
-    +-- Fastify HTTP Server
-    |     |
-    |     +-- REST API (rate-limited)
-    |     |     +-- GET  /api/sessions
-    |     |     +-- POST /api/sessions/:id/messages
-    |     |     +-- GET  /api/status
-    |     |     +-- ...
-    |     |
-    |     +-- Static File Server
-    |     |     +-- Mobile-optimized SPA
-    |     |
-    |     +-- WebSocket Server
-    |           +-- Real-time subscriptions
-    |           +-- Bi-directional messaging
-    |
-    +-- Token Auth Manager
-          +-- UUID token (regenerated on restart)
-          +-- Token validation middleware
-```
-
-### 17.2 Authentication
-
-The web interface uses token-based authentication. A UUID token is generated
-when the server starts and regenerated on every restart:
-
-```typescript
-class WebAuthManager {
-  private token: string;
-
-  constructor() {
-    this.token = crypto.randomUUID();
-  }
-
-  regenerate(): void {
-    this.token = crypto.randomUUID();
-  }
-
-  validate(request: FastifyRequest): boolean {
-    const header = request.headers.authorization;
-    if (!header) return false;
-    const [scheme, token] = header.split(' ');
-    return scheme === 'Bearer' && token === this.token;
-  }
-
-  getToken(): string {
-    return this.token;
-  }
-}
-```
-
-The token is displayed in the Maestro UI and can be shared via QR code for
-easy mobile device setup.
-
-### 17.3 Rate Limiting
-
-REST API endpoints are rate-limited to prevent abuse:
-
-```typescript
-const rateLimitConfig = {
-  global: {
-    max: 100,
-    timeWindow: '1 minute',
-  },
-  message: {
-    max: 20,
-    timeWindow: '1 minute',
-  },
-};
-```
-
-### 17.4 WebSocket Subscriptions
-
-Clients can subscribe to real-time events via WebSocket:
-
-```typescript
-interface WebSocketMessage {
-  type: 'subscribe' | 'unsubscribe' | 'message' | 'event';
-  channel?: string;
-  payload?: unknown;
-}
-
-// Channels:
-// - session:{sessionId}:messages  -- New messages in a session
-// - session:{sessionId}:status    -- Session status changes
-// - agent:{agentId}:output        -- Agent output stream
-// - system:notifications          -- System-level notifications
-```
-
-### 17.5 Mobile-Optimized Views
-
-The web interface serves a mobile-optimized single-page application with:
-- Responsive layout adapting to screen size
-- Touch-friendly controls
-- Simplified navigation
-- Optimized data transfer (compressed responses)
-
-### 17.6 Renderer as Source of Truth
-
-All mutations from the web interface are forwarded to the Electron renderer
-process, which serves as the single source of truth. The web server never
-directly modifies state. Flow:
-
-```
-Mobile Client
-    |
-    +-- REST/WebSocket mutation request
-    |
-    v
-Fastify Server (Main Process)
-    |
-    +-- Validates request
-    +-- Forwards to renderer via IPC
-    |
-    v
-Renderer Process
-    |
-    +-- Applies mutation (same as local UI)
-    +-- State update propagates to all subscribers
-    |
-    v
-Fastify Server
-    |
-    +-- Sends WebSocket events to connected clients
-    +-- Returns REST response
+~/Library/Application Support/maestro/group-chats/
+├── {chatId}/
+│   ├── chat.json           # Group chat metadata
+│   ├── log.jsonl           # Append-only message log
+│   └── history.json        # Summarized history entries
 ```
 
 ---
 
-## 18. CLI Tool
+## Web/Mobile Interface
 
-Maestro includes a command-line interface accessible via the `maestro-cli`
-binary. It provides **7 commands** for headless and scripted usage.
+Progressive Web App (PWA) for remote control of Maestro from mobile devices.
 
-### 18.1 Commands
+### Architecture
 
 ```
-maestro-cli <command> [options]
-
-Commands:
-  send <prompt>        Send a prompt to the active session
-  sessions             List all sessions
-  status               Show application status
-  run <playbook>       Execute a playbook
-  export <session-id>  Export a session
-  config               View/edit configuration
-  version              Show version information
-
-Global Options:
-  --format <json|text>  Output format (default: text)
-  --quiet               Suppress non-essential output
-  --token <token>       Authentication token (for remote)
-  --host <host>         Remote host (default: localhost)
-  --port <port>         Remote port (default: auto-detect)
+src/web/
+├── index.ts              # Entry point
+├── main.tsx              # React entry
+├── index.html            # HTML template
+├── index.css             # Global styles
+├── components/           # Shared components (Button, Card, Input, Badge)
+├── hooks/                # Web-specific hooks
+├── mobile/               # Mobile-optimized components
+├── utils/                # Web utilities
+└── public/               # PWA assets (manifest, icons, service worker)
 ```
 
-### 18.2 IPC Communication
+### Mobile Components (`src/web/mobile/`)
 
-When run locally, the CLI communicates with the running Maestro instance
-via a Unix domain socket (macOS/Linux) or named pipe (Windows). For remote
-operation, it uses the HTTP REST API with token authentication.
+| Component                       | Purpose                          |
+| ------------------------------- | -------------------------------- |
+| `App.tsx`                       | Main mobile app shell            |
+| `TabBar.tsx`                    | Bottom navigation bar            |
+| `SessionPillBar.tsx`            | Horizontal session selector      |
+| `CommandInputBar.tsx`           | Message input with voice support |
+| `MessageHistory.tsx`            | Conversation display             |
+| `ResponseViewer.tsx`            | AI response viewer               |
+| `AutoRunIndicator.tsx`          | Auto Run status display          |
+| `MobileHistoryPanel.tsx`        | Command history browser          |
+| `QuickActionsMenu.tsx`          | Quick action shortcuts           |
+| `SlashCommandAutocomplete.tsx`  | Command autocomplete             |
+| `ConnectionStatusIndicator.tsx` | WebSocket connection status      |
+| `OfflineQueueBanner.tsx`        | Offline message queue indicator  |
+
+### Web Hooks (`src/web/hooks/`)
+
+| Hook                      | Purpose                         |
+| ------------------------- | ------------------------------- |
+| `useWebSocket.ts`         | WebSocket connection management |
+| `useSessions.ts`          | Session state synchronization   |
+| `useCommandHistory.ts`    | Command history management      |
+| `useSwipeGestures.ts`     | Touch gesture handling          |
+| `usePullToRefresh.ts`     | Pull-to-refresh functionality   |
+| `useOfflineQueue.ts`      | Offline message queuing         |
+| `useNotifications.ts`     | Push notification handling      |
+| `useDeviceColorScheme.ts` | System theme detection          |
+| `useUnreadBadge.ts`       | Unread message badge            |
+| `useSwipeUp.ts`           | Swipe-up gesture detection      |
+
+### Communication
+
+The web interface communicates with the desktop app via WebSocket:
+
+```typescript
+// Desktop broadcasts to web clients
+window.maestro.web.broadcastUserInput(sessionId, input);
+window.maestro.web.broadcastAutoRunState(sessionId, state);
+window.maestro.web.broadcastTabChange(sessionId, tabId);
+
+// Web client sends commands back
+websocket.send({ type: 'command', sessionId, content });
+```
+
+### PWA Features
+
+- Installable as standalone app
+- Service worker for offline support
+- Push notifications
+- Responsive design for phones and tablets
 
 ---
 
-## 19. Usage Dashboard
+## CLI Tool
 
-The Usage Dashboard provides comprehensive analytics on AI usage, costs,
-and productivity metrics.
+Command-line interface for headless Maestro operations.
 
-### 19.1 SQLite Stats Database
+### Architecture
 
-The stats database uses SQLite with WAL mode enabled for concurrent reads.
-It has gone through **9 migrations** and contains **7 tables** (see
-Section 21 for full schema).
-
-### 19.2 Dual-Cost Model
-
-The dashboard supports two simultaneous cost calculations:
-
-- **Anthropic Pricing**: Direct API costs based on Anthropic's published
-  token pricing, loaded from the `maestro-model-registry` store
-- **Maestro Pricing**: Maestro's own pricing model (may differ for bundled
-  or enterprise plans)
-
-Model pricing data is externalized to the `maestro-model-registry.json`
-electron-store (see Section 9.1). Rates are loaded at runtime via
-`getPricingForModel(modelId)` which reads from the store. New models
-detected on the Anthropic pricing page are auto-added to the registry
-by the model checker on app startup.
-
-```typescript
-interface CostCalculation {
-  inputTokens: number;
-  outputTokens: number;
-  anthropicCost: number;    // Based on Anthropic's rates (from model registry store)
-  maestroCost: number;      // Based on Maestro's rates
-  savings: number;          // anthropicCost - maestroCost
-  savingsPercent: number;
-}
-
-function calculateDualCost(
-  model: string,
-  inputTokens: number,
-  outputTokens: number
-): CostCalculation {
-  // Rates loaded from maestro-model-registry.json via getPricingForModel()
-  const anthropicRates = getAnthropicRates(model);
-  const maestroRates = getMaestroRates(model);
-
-  const anthropicCost =
-    (inputTokens * anthropicRates.inputPerToken) +
-    (outputTokens * anthropicRates.outputPerToken);
-
-  const maestroCost =
-    (inputTokens * maestroRates.inputPerToken) +
-    (outputTokens * maestroRates.outputPerToken);
-
-  return {
-    inputTokens,
-    outputTokens,
-    anthropicCost,
-    maestroCost,
-    savings: anthropicCost - maestroCost,
-    savingsPercent: ((anthropicCost - maestroCost) / anthropicCost) * 100,
-  };
-}
+```
+src/cli/
+├── index.ts              # CLI entry point
+├── commands/             # Command implementations
+│   ├── list-agents.ts
+│   ├── list-groups.ts
+│   ├── list-playbooks.ts
+│   ├── run-playbook.ts
+│   ├── show-agent.ts
+│   └── show-playbook.ts
+├── output/               # Output formatters
+│   ├── formatter.ts      # Human-readable output
+│   └── jsonl.ts          # JSONL streaming output
+└── services/             # CLI-specific services
+    ├── agent-spawner.ts  # Agent process management
+    ├── batch-processor.ts # Batch execution logic
+    ├── playbooks.ts      # Playbook operations
+    └── storage.ts        # Data persistence
 ```
 
-### 19.3 Chart Components (16)
+### Available Commands
 
-The dashboard includes 16 chart components for data visualization:
+| Command                      | Description                 |
+| ---------------------------- | --------------------------- |
+| `maestro list-agents`        | List available AI agents    |
+| `maestro list-groups`        | List session groups         |
+| `maestro list-playbooks`     | List saved playbooks        |
+| `maestro show-agent <id>`    | Show agent details          |
+| `maestro show-playbook <id>` | Show playbook configuration |
+| `maestro run-playbook <id>`  | Execute a playbook          |
 
-| Component | Type | Purpose |
-|-----------|------|---------|
-| `TokenUsageChart` | Line | Token usage over time |
-| `CostBreakdownChart` | Stacked Bar | Cost by model/provider |
-| `DailyUsageChart` | Bar | Daily message/token counts |
-| `ModelDistributionChart` | Pie | Usage distribution across models |
-| `ResponseTimeChart` | Line | Average response latency |
-| `SessionActivityChart` | Heatmap | Activity by hour/day |
-| `CostComparisonChart` | Grouped Bar | Anthropic vs Maestro costs |
-| `TokenEfficiencyChart` | Line | Tokens per task over time |
-| `CumulativeCostChart` | Area | Cumulative spending |
-| `TopSessionsChart` | Horizontal Bar | Most active sessions |
-| `ErrorRateChart` | Line | Error frequency |
-| `UsageTrendChart` | Line + Moving Average | Long-term trends |
-| `BudgetGaugeChart` | Gauge | Budget utilization |
-| `ProviderSplitChart` | Donut | Multi-provider usage split |
-| `HourlyPatternChart` | Polar Area | Usage by hour of day |
-| `WeeklyComparisonChart` | Grouped Bar | Week-over-week comparison |
+### Output Formats
 
-### 19.4 Colorblind Palettes
-
-All charts support colorblind-accessible palettes:
-
-```typescript
-const COLOR_PALETTES = {
-  default: ['#4F46E5', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'],
-  deuteranopia: ['#0077BB', '#33BBEE', '#009988', '#EE7733', '#CC3311', '#EE3377'],
-  protanopia: ['#004488', '#DDAA33', '#BB5566', '#000000', '#AAAAAA', '#66CCEE'],
-  tritanopia: ['#332288', '#88CCEE', '#44AA99', '#117733', '#999933', '#CC6677'],
-};
-```
-
-### 19.5 Real-Time IPC Updates
-
-The dashboard subscribes to real-time usage events via IPC:
-
-```typescript
-useEffect(() => {
-  const unsubscribes = [
-    window.maestro.stats.onUpdate('usage', handleUsageUpdate),
-    window.maestro.stats.onUpdate('cost', handleCostUpdate),
-    window.maestro.stats.onUpdate('session', handleSessionUpdate),
-  ];
-  return () => unsubscribes.forEach(fn => fn());
-}, []);
-```
+- **Human-readable**: Formatted tables and text (default)
+- **JSONL**: Streaming JSON lines for programmatic use (`--format jsonl`)
 
 ---
 
-## 20. Document Graph
+## Shared Module
 
-The Document Graph visualizes relationships between files and documents
-in the project workspace.
+Cross-platform code shared between main process, renderer, web, and CLI.
 
-### 20.1 Canvas-Based Rendering
+### Files
 
-**Important**: The Document Graph uses a **custom Canvas-based MindMap
-component**, NOT React Flow or any third-party graph library. This was
-a deliberate choice for performance with large graphs.
+```
+src/shared/
+├── index.ts              # Re-exports
+├── types.ts              # Shared type definitions
+├── theme-types.ts        # Theme interface shared across platforms
+├── cli-activity.ts       # CLI activity tracking types
+└── templateVariables.ts  # Template variable utilities
+```
+
+### Theme Types
 
 ```typescript
-interface MindMapConfig {
-  canvas: HTMLCanvasElement;
-  maxNodes: number;          // Default: 200
-  layout: 'force-directed' | 'hierarchical';
-  physics: PhysicsConfig;
-  interaction: InteractionConfig;
-}
-
-class MindMapRenderer {
-  private canvas: HTMLCanvasElement;
-  private ctx: CanvasRenderingContext2D;
-  private nodes: MindMapNode[] = [];
-  private edges: MindMapEdge[] = [];
-  private animationFrame: number | null = null;
-
-  render(): void {
-    this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-    this.drawEdges();
-    this.drawNodes();
-    this.drawLabels();
-    this.animationFrame = requestAnimationFrame(() => this.render());
-  }
+// Shared theme interface used by renderer, main (web server), and web client
+interface Theme {
+	id: ThemeId;
+	name: string;
+	mode: 'light' | 'dark' | 'vibe';
+	colors: ThemeColors;
 }
 ```
 
-### 20.2 Layout Algorithms
+### Template Variables
 
-**Force-Directed Layout**: Simulates physical forces (attraction along edges,
-repulsion between nodes) to produce organic-looking layouts. Uses Barnes-Hut
-approximation for O(n log n) performance.
-
-**Hierarchical Layout**: Arranges nodes in levels based on dependency depth.
-Uses the Sugiyama algorithm for layer assignment and crossing minimization.
+Utilities for processing template variables in Custom AI Commands:
 
 ```typescript
-interface PhysicsConfig {
-  repulsionForce: number;     // Default: 1000
-  attractionForce: number;    // Default: 0.01
-  dampingFactor: number;      // Default: 0.95
-  maxVelocity: number;        // Default: 50
-  stabilizationThreshold: number; // Default: 0.1
-  barnesHutTheta: number;     // Default: 0.8
-}
-```
-
-### 20.3 Keyboard Navigation
-
-The Document Graph supports full keyboard navigation:
-
-- Arrow keys: Move focus between connected nodes
-- Enter: Select/expand focused node
-- Escape: Deselect current node
-- `+`/`-`: Zoom in/out
-- `0`: Reset zoom
-- `f`: Fit graph to viewport
-- `h`: Switch to hierarchical layout
-- `d`: Switch to force-directed layout
-
-### 20.4 Node Limit
-
-The default maximum of 200 nodes prevents performance degradation on large
-projects. Users can adjust this limit, but a warning is shown above 500 nodes.
-
----
-
-## 21. Stats Database
-
-The Stats Database provides persistent storage for usage analytics using SQLite.
-
-### 21.1 Configuration
-
-```typescript
-const DB_CONFIG = {
-  filename: 'maestro-stats.db',
-  wal: true,                    // Write-Ahead Logging for concurrent reads
-  statementCache: true,         // Prepared statement caching
-  vacuumThreshold: 100 * 1024 * 1024, // 100MB -- auto-VACUUM above this size
-  vacuumSchedule: 'weekly',     // Weekly VACUUM check
-};
-```
-
-### 21.2 Schema (7 Tables)
-
-```sql
--- Table 1: Usage events (primary analytics table)
-CREATE TABLE usage_events (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  session_id TEXT NOT NULL,
-  agent_id TEXT NOT NULL,
-  model TEXT NOT NULL,
-  input_tokens INTEGER NOT NULL DEFAULT 0,
-  output_tokens INTEGER NOT NULL DEFAULT 0,
-  anthropic_cost REAL,
-  maestro_cost REAL,
-  response_time_ms INTEGER,
-  error_type TEXT,
-  created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
-);
-
--- Table 2: Session summaries (aggregated per session)
-CREATE TABLE session_summaries (
-  session_id TEXT PRIMARY KEY,
-  total_messages INTEGER NOT NULL DEFAULT 0,
-  total_input_tokens INTEGER NOT NULL DEFAULT 0,
-  total_output_tokens INTEGER NOT NULL DEFAULT 0,
-  total_anthropic_cost REAL NOT NULL DEFAULT 0,
-  total_maestro_cost REAL NOT NULL DEFAULT 0,
-  avg_response_time_ms REAL,
-  first_message_at INTEGER,
-  last_message_at INTEGER,
-  updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
-);
-
--- Table 3: Daily aggregates (for dashboard charts)
-CREATE TABLE daily_aggregates (
-  date TEXT NOT NULL,          -- YYYY-MM-DD
-  agent_id TEXT NOT NULL,
-  model TEXT NOT NULL,
-  message_count INTEGER NOT NULL DEFAULT 0,
-  input_tokens INTEGER NOT NULL DEFAULT 0,
-  output_tokens INTEGER NOT NULL DEFAULT 0,
-  anthropic_cost REAL NOT NULL DEFAULT 0,
-  maestro_cost REAL NOT NULL DEFAULT 0,
-  error_count INTEGER NOT NULL DEFAULT 0,
-  PRIMARY KEY (date, agent_id, model)
-);
-
--- Table 4: Achievements
-CREATE TABLE achievements (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  description TEXT,
-  level INTEGER NOT NULL DEFAULT 1,
-  points INTEGER NOT NULL DEFAULT 0,
-  unlocked_at INTEGER,
-  progress REAL NOT NULL DEFAULT 0  -- 0.0 to 1.0
-);
-
--- Table 5: Keyboard shortcuts usage
-CREATE TABLE keyboard_usage (
-  shortcut TEXT PRIMARY KEY,
-  use_count INTEGER NOT NULL DEFAULT 0,
-  first_used_at INTEGER,
-  last_used_at INTEGER
-);
-
--- Table 6: Audit records
-CREATE TABLE audit_records (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  period TEXT NOT NULL,         -- 'daily', 'weekly', 'monthly'
-  start_date TEXT NOT NULL,
-  end_date TEXT NOT NULL,
-  anthropic_billed REAL,
-  maestro_calculated REAL,
-  difference REAL,
-  difference_percent REAL,
-  details TEXT,                 -- JSON blob
-  created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
-);
-
--- Table 7: Migrations tracking
-CREATE TABLE migrations (
-  id INTEGER PRIMARY KEY,
-  name TEXT NOT NULL,
-  applied_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
-);
-```
-
-### 21.3 Dual-Cost COALESCE
-
-Queries use COALESCE to handle NULL cost values gracefully:
-
-```sql
-SELECT
-  date,
-  SUM(message_count) as total_messages,
-  SUM(input_tokens) as total_input_tokens,
-  SUM(output_tokens) as total_output_tokens,
-  SUM(COALESCE(anthropic_cost, 0)) as total_anthropic_cost,
-  SUM(COALESCE(maestro_cost, 0)) as total_maestro_cost,
-  SUM(COALESCE(anthropic_cost, 0)) - SUM(COALESCE(maestro_cost, 0)) as savings
-FROM daily_aggregates
-WHERE date BETWEEN ? AND ?
-GROUP BY date
-ORDER BY date;
-```
-
-### 21.4 Statement Caching
-
-Frequently-used SQL statements are prepared once and cached:
-
-```typescript
-class StatsDatabase {
-  private stmtCache = new Map<string, Statement>();
-
-  private getStatement(sql: string): Statement {
-    let stmt = this.stmtCache.get(sql);
-    if (!stmt) {
-      stmt = this.db.prepare(sql);
-      this.stmtCache.set(sql, stmt);
-    }
-    return stmt;
-  }
-
-  recordUsage(event: UsageEvent): void {
-    const stmt = this.getStatement(`
-      INSERT INTO usage_events
-        (session_id, agent_id, model, input_tokens, output_tokens,
-         anthropic_cost, maestro_cost, response_time_ms, error_type)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    stmt.run(
-      event.sessionId, event.agentId, event.model,
-      event.inputTokens, event.outputTokens,
-      event.anthropicCost, event.maestroCost,
-      event.responseTimeMs, event.errorType
-    );
-  }
-}
-```
-
-### 21.5 Weekly VACUUM
-
-A scheduled task checks the database size weekly and runs VACUUM if it
-exceeds 100MB:
-
-```typescript
-class VacuumScheduler {
-  private readonly THRESHOLD_BYTES = 100 * 1024 * 1024; // 100MB
-
-  async checkAndVacuum(): Promise<void> {
-    const stat = await fs.stat(this.dbPath);
-
-    if (stat.size > this.THRESHOLD_BYTES) {
-      logger.info('Running VACUUM', { sizeMB: (stat.size / 1024 / 1024).toFixed(1) });
-      this.db.exec('VACUUM');
-      logger.info('VACUUM complete', {
-        newSizeMB: ((await fs.stat(this.dbPath)).size / 1024 / 1024).toFixed(1),
-      });
-    }
-  }
-}
-```
-
-### 21.6 Migrations
-
-The 9 migrations track schema evolution:
-
-| Migration | Description |
-|-----------|-------------|
-| 001 | Initial schema (usage_events, migrations) |
-| 002 | Add session_summaries table |
-| 003 | Add daily_aggregates table |
-| 004 | Add achievements and keyboard_usage tables |
-| 005 | Add audit_records table |
-| 006 | Add maestro_cost column to usage_events |
-| 007 | Add error_type column to usage_events |
-| 008 | Add response_time_ms to usage_events |
-| 009 | Add indexes for common query patterns |
-
----
-
-## 22. Project Folders
-
-Project Folders are the top-level organizational container in Maestro's
-hierarchy, sitting above Groups.
-
-### 22.1 Hierarchy
-
-```
-Project Folder
-  +-- Group A
-  |     +-- Session 1
-  |     +-- Session 2
-  |
-  +-- Group B
-        +-- Session 3
-        +-- Session 4
-
-(Ungrouped Sessions)
-  +-- Session 5
-```
-
-### 22.2 IPC Operations
-
-```typescript
-interface ProjectFoldersAPI {
-  list(): Promise<ProjectFolder[]>;
-  get(id: string): Promise<ProjectFolder>;
-  create(data: CreateProjectFolderInput): Promise<ProjectFolder>;
-  update(id: string, data: UpdateProjectFolderInput): Promise<ProjectFolder>;
-  delete(id: string): Promise<void>;
-  addGroup(folderId: string, groupId: string): Promise<void>;
-  removeGroup(folderId: string, groupId: string): Promise<void>;
-  reorder(folderId: string, groupIds: string[]): Promise<void>;
-}
-
-interface ProjectFolder {
-  id: string;
-  name: string;
-  description?: string;
-  color?: string;
-  icon?: string;
-  groupIds: string[];
-  createdAt: number;
-  updatedAt: number;
-}
-```
-
-### 22.3 Persistence
-
-Project folders are stored in the `maestro-project-folders` electron-store
-instance. The store schema supports an ordered array of folder definitions
-with embedded group ID references.
-
----
-
-## 23. Knowledge Graph
-
-The Knowledge Graph persists learnings extracted from AI sessions as markdown
-files for long-term knowledge retention.
-
-### 23.1 Storage
-
-Knowledge entries are stored as individual `.md` files in the `userData`
-directory:
-
-```
-userData/
-  knowledge_graph/
-    2024-01-15_react-hooks-patterns.md
-    2024-01-16_typescript-generics.md
-    2024-01-17_electron-ipc-security.md
-    ...
-```
-
-### 23.2 Entry Format
-
-```markdown
----
-id: kg_abc123
-title: React Hooks Patterns
-tags: [react, hooks, patterns]
-sessionId: session_xyz
-createdAt: 2024-01-15T10:30:00Z
-source: ai-extraction
-confidence: 0.85
----
-
-# React Hooks Patterns
-
-## Key Learnings
-
-1. Custom hooks should start with `use` prefix...
-2. useEffect cleanup runs before re-execution...
-
-## Code Examples
-
-...
-```
-
-### 23.3 Search
-
-The Knowledge Graph supports full-text search across entries:
-
-```typescript
-interface KnowledgeSearchOptions {
-  query: string;
-  tags?: string[];
-  dateRange?: { start: number; end: number };
-  limit?: number;
-}
+// Available variables
+{
+	{
+		date;
+	}
+} // YYYY-MM-DD
+{
+	{
+		time;
+	}
+} // HH:MM:SS
+{
+	{
+		datetime;
+	}
+} // Combined
+{
+	{
+		cwd;
+	}
+} // Working directory
+{
+	{
+		session;
+	}
+} // Session name
+{
+	{
+		agent;
+	}
+} // Agent type
 ```
 
 ---
 
-## 24. Prompt Library
+## Remote Access & Tunnels
 
-The Prompt Library provides template management for reusable AI prompts.
+Secure remote access to Maestro via Cloudflare Tunnels.
 
-### 24.1 IPC Methods (9)
+### Architecture
+
+| Component               | Purpose                               |
+| ----------------------- | ------------------------------------- |
+| `tunnel-manager.ts`     | Manages cloudflared process lifecycle |
+| `utils/cliDetection.ts` | Detects cloudflared installation      |
+| `utils/networkUtils.ts` | Local IP detection for LAN access     |
+
+### Tunnel Manager
 
 ```typescript
-interface PromptLibraryAPI {
-  list(options?: ListOptions): Promise<PromptTemplate[]>;
-  get(id: string): Promise<PromptTemplate>;
-  create(data: CreatePromptInput): Promise<PromptTemplate>;
-  update(id: string, data: UpdatePromptInput): Promise<PromptTemplate>;
-  delete(id: string): Promise<void>;
-  search(query: string): Promise<PromptTemplate[]>;
-  import(data: ExportedPrompts): Promise<number>;  // Returns imported count
-  export(ids?: string[]): Promise<ExportedPrompts>;
-  getCategories(): Promise<string[]>;
+interface TunnelStatus {
+	active: boolean;
+	url?: string; // Public tunnel URL
+	error?: string;
 }
 
-interface PromptTemplate {
-  id: string;
-  name: string;
-  description?: string;
-  prompt: string;             // Template text with {{variables}}
-  variables: PromptVariable[];
-  category: string;
-  tags: string[];
-  usageCount: number;
-  lastUsedAt?: number;
-  createdAt: number;
-  updatedAt: number;
-}
-
-interface PromptVariable {
-  name: string;
-  description?: string;
-  type: 'string' | 'number' | 'boolean' | 'select';
-  required: boolean;
-  default?: unknown;
-  options?: string[];         // For 'select' type
-}
+// IPC API
+window.maestro.tunnel.start();
+window.maestro.tunnel.stop();
+window.maestro.tunnel.getStatus();
+window.maestro.tunnel.onStatusChange(callback);
 ```
+
+### Access Methods
+
+1. **Local Network**: Direct IP access on same network
+2. **Cloudflare Tunnel**: Secure public URL for remote access
+
+### Security
+
+- Tunnels require cloudflared CLI installed
+- URLs are temporary and change on restart
+- No authentication by default (consider network security)
 
 ---
 
-## 25. Anthropic Audit
+## Error Handling Patterns
 
-The Anthropic Audit system compares Maestro-calculated costs against
-Anthropic's billing to detect discrepancies.
+### IPC Handlers (Main Process)
 
-### 25.1 Scheduled Audits
-
-```typescript
-interface AuditSchedule {
-  daily: boolean;    // Run at midnight local time
-  weekly: boolean;   // Run on Sunday midnight
-  monthly: boolean;  // Run on 1st of month
-}
-
-interface AuditResult {
-  period: 'daily' | 'weekly' | 'monthly';
-  startDate: string;
-  endDate: string;
-  maestroCalculated: {
-    inputTokens: number;
-    outputTokens: number;
-    totalCost: number;
-  };
-  anthropicBilled: {
-    totalCost: number;       // From Anthropic billing API
-  };
-  difference: number;
-  differencePercent: number;
-  status: 'match' | 'minor-discrepancy' | 'major-discrepancy';
-  details: AuditDetail[];
-}
-
-interface AuditDetail {
-  model: string;
-  maestroCost: number;
-  anthropicCost: number;
-  difference: number;
-  possibleReason?: string;
-}
-```
-
-### 25.2 Discrepancy Thresholds
-
-| Status | Threshold |
-|--------|-----------|
-| `match` | < 1% difference |
-| `minor-discrepancy` | 1% - 5% difference |
-| `major-discrepancy` | > 5% difference |
-
-Major discrepancies trigger a notification in the Maestro UI.
-
----
-
-## 26. Shared Module
-
-The shared module (`shared/`) contains **20 files** of code shared between
-the main process, renderer, and preload script.
-
-### 26.1 File Inventory
-
-| File | Purpose |
-|------|---------|
-| `types.ts` | Core application type definitions |
-| `stats-types.ts` | Statistics and analytics types |
-| `theme-types.ts` | Theme system type definitions |
-| `themes.ts` | Built-in theme color definitions |
-| `formatters.ts` | Number, date, token, and cost formatting |
-| `marketplace-types.ts` | Extension marketplace types |
-| `group-chat-types.ts` | Group chat system types |
-| `logger-types.ts` | Structured logging type definitions |
-| `performance-metrics.ts` | Performance measurement utilities |
-| `cli-activity.ts` | CLI activity tracking types |
-| `synopsis.ts` | Session synopsis generation |
-| `emojiUtils.ts` | Emoji detection and rendering utilities |
-| `history.ts` | History entry types and utilities |
-| `gitUtils.ts` | Git output parsing utilities |
-| `pathUtils.ts` | Cross-platform path manipulation |
-| `stringUtils.ts` | String manipulation (truncation, slugify, etc.) |
-| `treeUtils.ts` | Tree data structure utilities |
-| `templateVariables.ts` | Template variable resolution |
-| `uuid.ts` | UUID generation (v4) |
-| `constants.ts` | Shared constants and enums |
-
-### 26.2 Key Shared Types
+**Pattern 1: Throw for critical failures**
 
 ```typescript
-// types.ts (excerpt)
-interface Session {
-  id: string;
-  name: string;
-  groupId?: string;
-  agentConfigId: string;
-  createdAt: number;
-  updatedAt: number;
-  lastActiveAt: number;
-  metadata: SessionMetadata;
-}
-
-interface AgentConfig {
-  id: string;
-  name: string;
-  provider: 'anthropic' | 'openai' | 'codex' | 'opencode' | 'custom';
-  model: string;
-  apiKey?: string;           // Encrypted in store
-  baseUrl?: string;
-  maxTokens: number;
-  temperature: number;
-  systemPrompt?: string;
-  tools: AgentTool[];
-  env: Record<string, string>;
-}
-
-interface AgentMessage {
-  id: string;
-  role: 'user' | 'assistant' | 'system';
-  content: string;
-  timestamp: number;
-  tokens?: { input: number; output: number };
-  model?: string;
-  metadata?: Record<string, unknown>;
-}
-```
-
----
-
-## 27. SSH Remote
-
-Maestro supports full remote execution over SSH, allowing users to run
-AI agents on remote machines.
-
-### 27.1 Architecture
-
-```
-Local Maestro                          Remote Machine
-    |                                       |
-    +-- SSH ControlMaster Connection ------>|
-    |   (persistent multiplexed)            |
-    |                                       |
-    +-- File Sync (rsync over SSH) -------->|
-    |                                       |
-    +-- Remote Process Spawn -------------->|
-    |   (ssh command execution)             |-- Agent process
-    |                                       |
-    +<-- stdout/stderr streaming -----------+
-    |                                       |
-    +-- Remote FS Operations -------------->|
-        (sftp)                              |
-```
-
-### 27.2 SSH ControlMaster Pooling
-
-Maestro uses SSH ControlMaster to maintain persistent, multiplexed connections:
-
-```typescript
-class SSHConnectionPool {
-  private controlPath: string;
-
-  async connect(config: SSHConfig): Promise<void> {
-    const args = [
-      '-o', 'ControlMaster=auto',
-      '-o', `ControlPath=${this.controlPath}`,
-      '-o', 'ControlPersist=600',      // 10 minutes
-      '-o', 'ServerAliveInterval=30',
-      '-o', 'ServerAliveCountMax=3',
-      '-o', 'StrictHostKeyChecking=accept-new',
-      '-N',                             // No command, just connection
-      `${config.user}@${config.host}`,
-    ];
-
-    if (config.port !== 22) {
-      args.unshift('-p', String(config.port));
-    }
-
-    if (config.identityFile) {
-      args.unshift('-i', config.identityFile);
-    }
-
-    await this.spawn('ssh', args);
-  }
-
-  async execute(command: string): Promise<ExecResult> {
-    return this.spawn('ssh', [
-      '-o', `ControlPath=${this.controlPath}`,
-      '-o', 'ControlMaster=no',
-      this.hostString,
-      command,
-    ]);
-  }
-}
-```
-
-### 27.3 Exponential Backoff Retry
-
-Connection failures trigger exponential backoff retry:
-
-```typescript
-class RetryPolicy {
-  private readonly BASE_DELAY_MS = 1000;
-  private readonly MAX_DELAY_MS = 30_000;
-  private readonly MAX_RETRIES = 5;
-
-  async executeWithRetry<T>(
-    operation: () => Promise<T>,
-    context: string
-  ): Promise<T> {
-    let lastError: Error | undefined;
-
-    for (let attempt = 0; attempt < this.MAX_RETRIES; attempt++) {
-      try {
-        return await operation();
-      } catch (error) {
-        lastError = error as Error;
-        const delay = Math.min(
-          this.BASE_DELAY_MS * Math.pow(2, attempt),
-          this.MAX_DELAY_MS
-        );
-        logger.warn(`Retry ${attempt + 1}/${this.MAX_RETRIES}: ${context}`, {
-          error: lastError.message,
-          nextRetryMs: delay,
-        });
-        await sleep(delay);
-      }
-    }
-
-    throw lastError;
-  }
-}
-```
-
-### 27.4 SSH Utility Files (5)
-
-| File | Purpose |
-|------|---------|
-| `ssh-connection.ts` | SSH connection management and ControlMaster |
-| `ssh-exec.ts` | Remote command execution |
-| `ssh-fs.ts` | Remote filesystem operations (SFTP) |
-| `ssh-sync.ts` | File synchronization (rsync wrapper) |
-| `ssh-config.ts` | SSH configuration parsing and host resolution |
-
----
-
-## 28. Error Handling Patterns
-
-Maestro implements multiple layers of error handling to prevent crashes and
-provide useful error information.
-
-### 28.1 Global Handlers (Never Crash)
-
-The main process installs global handlers that catch all unhandled errors:
-
-```typescript
-// Main process - never crash
-process.on('uncaughtException', (error) => {
-  logger.error('Uncaught exception', { error: serializeError(error) });
-  // Do NOT call process.exit() - keep running
-});
-
-process.on('unhandledRejection', (reason) => {
-  logger.error('Unhandled rejection', { reason: serializeError(reason) });
-  // Do NOT call process.exit() - keep running
+ipcMain.handle('process:spawn', async (_, config) => {
+	if (!processManager) throw new Error('Process manager not initialized');
+	return processManager.spawn(config);
 });
 ```
 
-### 28.2 IPC Handler Factory Wrapping
-
-All IPC handlers are wrapped by the handler factory (Section 2.2), which
-catches and serializes errors before they cross the IPC boundary. This
-prevents unserializable error objects from crashing the IPC channel.
-
-### 28.3 React ErrorBoundary
-
-An ErrorBoundary component wraps the entire application at the root level:
+**Pattern 2: Try-catch with boolean return**
 
 ```typescript
-class AppErrorBoundary extends React.Component<Props, State> {
-  state = { hasError: false, error: null };
-
-  static getDerivedStateFromError(error: Error) {
-    return { hasError: true, error };
-  }
-
-  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    logger.error('React error boundary caught error', {
-      error: error.message,
-      stack: error.stack,
-      componentStack: errorInfo.componentStack,
-    });
-  }
-
-  render() {
-    if (this.state.hasError) {
-      return <CrashRecoveryScreen error={this.state.error} onRetry={this.reset} />;
-    }
-    return this.props.children;
-  }
-
-  private reset = () => {
-    this.setState({ hasError: false, error: null });
-  };
-}
+ipcMain.handle('git:isRepo', async (_, cwd) => {
+	try {
+		const result = await execFileNoThrow('git', ['rev-parse', '--is-inside-work-tree'], cwd);
+		return result.exitCode === 0;
+	} catch {
+		return false;
+	}
+});
 ```
 
-### 28.4 ChartErrorBoundary with Retry
+### Services (Renderer)
 
-Chart components have their own error boundary with automatic retry:
-
-```typescript
-class ChartErrorBoundary extends React.Component<Props, State> {
-  state = { hasError: false, retryCount: 0 };
-  private readonly MAX_RETRIES = 3;
-
-  static getDerivedStateFromError() {
-    return { hasError: true };
-  }
-
-  componentDidCatch(error: Error) {
-    if (this.state.retryCount < this.MAX_RETRIES) {
-      setTimeout(() => {
-        this.setState(prev => ({
-          hasError: false,
-          retryCount: prev.retryCount + 1,
-        }));
-      }, 1000 * (this.state.retryCount + 1)); // Increasing delay
-    }
-  }
-
-  render() {
-    if (this.state.hasError && this.state.retryCount >= this.MAX_RETRIES) {
-      return <ChartFallback message="Chart failed to render" />;
-    }
-    return this.props.children;
-  }
-}
-```
-
-### 28.5 Agent Error Types (8)
+**Pattern: Never throw, return safe defaults**
 
 ```typescript
-enum AgentErrorType {
-  NETWORK_ERROR = 'network_error',           // Connection failures
-  AUTH_ERROR = 'auth_error',                 // API key invalid/expired
-  RATE_LIMIT = 'rate_limit',                 // API rate limiting
-  CONTEXT_OVERFLOW = 'context_overflow',     // Token limit exceeded
-  INVALID_RESPONSE = 'invalid_response',     // Malformed agent output
-  TIMEOUT = 'timeout',                       // Response timeout
-  PROVIDER_ERROR = 'provider_error',         // Provider-side errors
-  UNKNOWN = 'unknown',                       // Catch-all
-}
-```
-
-### 28.6 Auto-Clear on Success
-
-Agent errors are automatically cleared when the next successful response
-is received. This prevents stale error states from persisting:
-
-```typescript
-function useAgentErrorWithAutoClear(sessionId: string) {
-  const [error, setError] = useState<AgentError | null>(null);
-
-  useEffect(() => {
-    const unsubError = window.maestro.agentError.onError(sessionId, (err) => {
-      setError(err);
-    });
-
-    const unsubMessage = window.maestro.agentSessions.onMessage(sessionId, () => {
-      // Success clears any previous error
-      setError(null);
-    });
-
-    return () => {
-      unsubError();
-      unsubMessage();
-    };
-  }, [sessionId]);
-
-  return error;
-}
-```
-
----
-
-## 29. Styling
-
-Maestro uses Tailwind CSS as the primary styling framework, augmented with
-custom CSS for specialized components.
-
-### 29.1 Tailwind Configuration
-
-Tailwind is configured with custom extensions that integrate with the theme
-system:
-
-```typescript
-// tailwind.config.ts (excerpt)
-module.exports = {
-  content: ['./src/**/*.{ts,tsx}'],
-  theme: {
-    extend: {
-      colors: {
-        'bg-primary': 'var(--bg-primary)',
-        'bg-secondary': 'var(--bg-secondary)',
-        'bg-tertiary': 'var(--bg-tertiary)',
-        'bg-accent': 'var(--bg-accent)',
-        'text-primary': 'var(--text-primary)',
-        'text-secondary': 'var(--text-secondary)',
-        'text-accent': 'var(--text-accent)',
-        'border-primary': 'var(--border-primary)',
-        'border-accent': 'var(--border-accent)',
-      },
-      fontFamily: {
-        mono: ['JetBrains Mono', 'Fira Code', 'Cascadia Code', 'monospace'],
-        sans: ['Inter', 'system-ui', 'sans-serif'],
-      },
-    },
-  },
+export const gitService = {
+	async isRepo(cwd: string): Promise<boolean> {
+		try {
+			return await window.maestro.git.isRepo(cwd);
+		} catch (error) {
+			console.error('Git isRepo error:', error);
+			return false;
+		}
+	},
 };
 ```
 
-### 29.2 JetBrains Mono Font
+### React Components
 
-JetBrains Mono is the default monospace font used throughout the application
-for code display, terminal output, and the AI conversation interface. It is
-bundled with the application to ensure consistent rendering across platforms.
-
-### 29.3 CSS Variables for Theming
-
-All theme colors are exposed as CSS custom properties (see Section 8.5).
-This enables both Tailwind utility classes and custom CSS to reference
-theme colors consistently:
-
-```css
-/* Custom CSS using theme variables */
-.chat-message {
-  background-color: var(--bg-tertiary);
-  color: var(--text-primary);
-  border-left: 3px solid var(--border-accent);
-}
-
-.chat-message.error {
-  border-left-color: var(--error);
-  background-color: color-mix(in srgb, var(--error) 10%, var(--bg-tertiary));
-}
-```
-
-### 29.4 Prefers-Reduced-Motion Support
-
-Maestro respects the `prefers-reduced-motion` media query. When enabled,
-all animations and transitions are disabled or reduced:
-
-```css
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
-  }
-}
-```
-
-This applies to:
-- Page transitions
-- Modal open/close animations
-- Chart animations
-- Loading spinners (replaced with static indicators)
-- Document graph physics (instant layout, no animation)
-
-### 29.5 Component Styling Patterns
-
-Maestro follows these styling conventions:
-
-1. **Layout**: Tailwind utility classes (`flex`, `grid`, `p-4`, `gap-2`)
-2. **Theme colors**: Tailwind theme extensions (`bg-bg-primary`, `text-text-secondary`)
-3. **Complex styles**: CSS modules or inline styles for dynamic/computed values
-4. **Animations**: CSS keyframes defined in global CSS, triggered via className
-5. **Responsive**: Tailwind breakpoints (`sm:`, `md:`, `lg:`)
-
-```tsx
-// Typical component styling pattern
-function ChatBubble({ message, theme }: ChatBubbleProps) {
-  return (
-    <div
-      className={cn(
-        'rounded-lg p-3 mb-2 max-w-[80%]',
-        message.role === 'user'
-          ? 'ml-auto bg-bg-accent text-text-primary'
-          : 'mr-auto bg-bg-tertiary text-text-primary',
-      )}
-    >
-      <div className="text-sm font-mono whitespace-pre-wrap">
-        {message.content}
-      </div>
-      <div className="text-xs text-text-secondary mt-1">
-        {formatTimestamp(message.timestamp)}
-      </div>
-    </div>
-  );
-}
-```
-
----
-
-## Appendix A: Key TypeScript Interfaces Reference
+**Pattern: Try-catch with user-friendly errors**
 
 ```typescript
-// Complete collection of critical interfaces referenced throughout this document
-
-interface MaestroWindow {
-  maestro: {
-    settings: SettingsAPI;
-    sessions: SessionsAPI;
-    process: ProcessAPI;
-    fs: FileSystemAPI;
-    dialog: DialogAPI;
-    shells: ShellsAPI;
-    shell: ShellAPI;
-    logger: LoggerAPI;
-    sync: SyncAPI;
-    power: PowerAPI;
-    app: AppAPI;
-    fonts: FontsAPI;
-    devtools: DevtoolsAPI;
-    updates: UpdatesAPI;
-    agents: AgentsAPI;
-    agentSessions: AgentSessionsAPI;
-    agentError: AgentErrorAPI;
-    claude: DeprecatedClaudeAPI;
-    git: GitAPI;
-    web: WebAPI;
-    live: LiveAPI;
-    webserver: WebserverAPI;
-    tunnel: TunnelAPI;
-    autorun: AutorunAPI;
-    playbooks: PlaybooksAPI;
-    history: HistoryAPI;
-    cli: CliAPI;
-    tempfile: TempfileAPI;
-    stats: StatsAPI;
-    documentGraph: DocumentGraphAPI;
-    audit: AuditAPI;
-    reconstruction: ReconstructionAPI;
-    leaderboard: LeaderboardAPI;
-    groupChat: GroupChatAPI;
-    projectFolders: ProjectFoldersAPI;
-    promptLibrary: PromptLibraryAPI;
-    knowledgeGraph: KnowledgeGraphAPI;
-    feedback: FeedbackAPI;
-    context: ContextAPI;
-    marketplace: MarketplaceAPI;
-    speckit: SpeckitAPI;
-    openspec: OpenspecAPI;
-    attachments: AttachmentsAPI;
-    notification: NotificationAPI;
-    debug: DebugAPI;
-  };
-}
+const handleFileLoad = async (path: string) => {
+	try {
+		const content = await window.maestro.fs.readFile(path);
+		setFileContent(content);
+	} catch (error) {
+		console.error('Failed to load file:', error);
+		setError('Failed to load file');
+	}
+};
 ```
 
----
+### Summary
 
-## Appendix B: Data Flow Diagrams
-
-### B.1 Message Send Flow
-
-```
-User types message
-    |
-    v
-InputComponent (React)
-    |
-    +-- useInputValidation()
-    +-- useInputHistory() -- store in history
-    |
-    v
-ExecutionQueue.enqueue()
-    |
-    v
-ExecutionQueue.processNext()
-    |
-    v
-window.maestro.agentSessions.send(sessionId, message)
-    |
-    v
-ipcRenderer.invoke('agentSessions:send')
-    |
-    v
-[IPC boundary - main process]
-    |
-    v
-AgentSessionHandler.send()
-    |
-    +-- Append to SessionStorage
-    +-- Forward to agent process (stdin)
-    |
-    v
-Agent process generates response (streaming)
-    |
-    v
-stdout -> StdoutHandler -> DataBufferManager -> IPC emit
-    |
-    v
-[IPC boundary - renderer process]
-    |
-    v
-window.maestro.agentSessions.onMessage() callback
-    |
-    v
-useAgentMessages() -- update message list
-    |
-    v
-ChatPanel re-renders with new message
-    |
-    v
-window.maestro.stats.record() -- track usage
-```
-
-### B.2 Theme Change Flow
-
-```
-User selects new theme
-    |
-    v
-ThemePicker component
-    |
-    v
-window.maestro.settings.set('darkThemeId', newThemeId)
-    |
-    v
-[IPC -> main process]
-    |
-    v
-maestro-settings store updated
-    |
-    v
-[IPC event -> renderer]
-    |
-    v
-settings:changed event fires
-    |
-    v
-useTheme() hook recomputes
-    |
-    v
-applyThemeToCss(newTheme) -- update CSS variables
-    |
-    v
-Theme prop propagates down component tree (prop drilling)
-    |
-    v
-All themed components re-render
-    |
-    v
-[IPC event -> web interface]
-    |
-    v
-WebSocket broadcast to connected clients
-```
-
----
-
-## Appendix C: Performance Considerations
-
-### C.1 IPC Batching
-
-When multiple IPC calls need to be made in rapid succession (e.g., loading
-a dashboard with 16 charts), calls are batched using `Promise.all` to avoid
-sequential round-trip latency.
-
-### C.2 Virtual Scrolling
-
-Long lists (session list, message history, file browser) use virtual
-scrolling via `useVirtualScroll` to render only visible items. This keeps
-DOM node count constant regardless of list length.
-
-### C.3 Canvas Rendering
-
-The Document Graph uses Canvas (not DOM/SVG) for rendering, enabling
-smooth 60fps interaction with up to 200+ nodes. DOM-based graph libraries
-struggle above 50-100 nodes.
-
-### C.4 WAL Mode SQLite
-
-The stats database uses Write-Ahead Logging, allowing concurrent reads
-from the renderer (via IPC) while the main process writes usage events.
-This eliminates read-write contention.
-
-### C.5 DataBufferManager
-
-As detailed in Section 3.5, the dual-threshold buffer prevents IPC flooding
-from fast-producing processes while maintaining low latency for interactive
-use.
-
----
-
-*End of Architecture Documentation -- Maestro v0.14.5*
+| Layer          | Pattern                                   |
+| -------------- | ----------------------------------------- |
+| IPC Handlers   | Throw critical, catch optional            |
+| Services       | Never throw, safe defaults                |
+| ProcessManager | Throw spawn failures, emit runtime events |
+| Components     | Try-catch async, show UI errors           |
+| Hooks          | Internal catch, expose error state        |

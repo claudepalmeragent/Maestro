@@ -14,11 +14,11 @@
  * - Limits display to top 10 agents by query count
  */
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { memo, useState, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { format, parseISO } from 'date-fns';
 import type { Theme, Session } from '../../types';
-import type { StatsTimeRange, StatsAggregation } from '../../hooks/useStats';
+import type { StatsTimeRange, StatsAggregation } from '../../hooks/stats/useStats';
 import { COLORBLIND_AGENT_PALETTE } from '../../constants/colorblindPalettes';
 
 // Tooltip positioning constants
@@ -118,6 +118,8 @@ function formatXAxisDate(dateStr: string, timeRange: StatsTimeRange): string {
 			return format(date, 'EEE');
 		case 'month':
 			return format(date, 'MMM d');
+		case 'quarter':
+			return format(date, 'MMM d'); // Show month and day for quarter
 		case 'year':
 			return format(date, 'MMM');
 		case 'all':
@@ -155,7 +157,7 @@ function getAgentDisplayName(agentId: string, sessions?: Session[]): string {
 	return agentId.substring(0, 8).toUpperCase();
 }
 
-export function AgentUsageChart({
+export const AgentUsageChart = memo(function AgentUsageChart({
 	data,
 	timeRange,
 	theme,
@@ -551,6 +553,6 @@ export function AgentUsageChart({
 			</div>
 		</div>
 	);
-}
+});
 
 export default AgentUsageChart;

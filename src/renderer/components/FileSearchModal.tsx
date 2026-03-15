@@ -18,6 +18,7 @@ export interface FlatFileItem {
 interface FileSearchModalProps {
 	theme: Theme;
 	fileTree: FileNode[];
+	expandedFolders?: string[];
 	shortcut?: Shortcut;
 	onFileSelect: (item: FlatFileItem) => void;
 	onClose: () => void;
@@ -151,13 +152,6 @@ function isPreviewableFile(filename: string): boolean {
 }
 
 /**
- * Check if a file is a hidden file (starts with .)
- */
-function isHiddenFile(fullPath: string): boolean {
-	return fullPath.split('/').some((part) => part.startsWith('.'));
-}
-
-/**
  * Get the appropriate icon for a file
  */
 function getFileIconType(filename: string): 'image' | 'text' | 'file' {
@@ -169,16 +163,23 @@ function getFileIconType(filename: string): 'image' | 'text' | 'file' {
 
 /**
  * Recursively flatten the file tree, filtering to only previewable files.
+ * When expandedSet is provided, only recurses into expanded folders (matching file explorer visibility).
  */
-function flattenPreviewableFiles(nodes: FileNode[], currentPath = '', depth = 0): FlatFileItem[] {
+export function flattenPreviewableFiles(
+	nodes: FileNode[],
+	currentPath = '',
+	depth = 0,
+	expandedSet?: Set<string>
+): FlatFileItem[] {
 	const result: FlatFileItem[] = [];
 
 	for (const node of nodes) {
 		const fullPath = currentPath ? `${currentPath}/${node.name}` : node.name;
 
 		if (node.type === 'folder' && node.children) {
-			// Recurse into folders but don't add the folder itself
-			result.push(...flattenPreviewableFiles(node.children, fullPath, depth + 1));
+			// When expandedSet is provided, only recurse into expanded folders
+			if (expandedSet && !expandedSet.has(fullPath)) continue;
+			result.push(...flattenPreviewableFiles(node.children, fullPath, depth + 1, expandedSet));
 		} else if (node.type === 'file' && isPreviewableFile(node.name)) {
 			// Only add files that can be previewed/opened
 			result.push({
@@ -202,6 +203,7 @@ type ViewMode = 'visible' | 'all';
 export function FileSearchModal({
 	theme,
 	fileTree,
+	expandedFolders,
 	shortcut,
 	onFileSelect,
 	onClose,
@@ -215,6 +217,18 @@ export function FileSearchModal({
 	const scrollContainerRef = useRef<HTMLDivElement>(null);
 	const layerIdRef = useRef<string>();
 	const onCloseRef = useRef(onClose);
+
+	const handleSearchChange = useCallback((value: string) => {
+		setSearch(value);
+		setSelectedIndex(0);
+		setFirstVisibleIndex(0);
+	}, []);
+
+	const handleViewModeChange = useCallback((mode: ViewMode) => {
+		setViewMode(mode);
+		setSelectedIndex(0);
+		setFirstVisibleIndex(0);
+	}, []);
 
 	// Keep onClose ref up to date
 	useEffect(() => {
@@ -262,18 +276,22 @@ export function FileSearchModal({
 		return flattenPreviewableFiles(fileTree);
 	}, [fileTree]);
 
+	// Flatten only files visible in the file explorer (in expanded folders)
+	const visibleFiles = useMemo(() => {
+		if (!expandedFolders) return allFiles;
+		const expandedSet = new Set(expandedFolders);
+		return flattenPreviewableFiles(fileTree, '', 0, expandedSet);
+	}, [fileTree, expandedFolders, allFiles]);
+
 	// Count files by visibility for tab badges
 	const fileCounts = useMemo(() => {
-		const visible = allFiles.filter((f) => !isHiddenFile(f.fullPath)).length;
-		const all = allFiles.length;
-		return { visible, all };
-	}, [allFiles]);
+		return { visible: visibleFiles.length, all: allFiles.length };
+	}, [visibleFiles, allFiles]);
 
 	// Filter files based on view mode and search query
 	const filteredFiles = useMemo(() => {
-		// First filter by view mode (hidden files)
-		const files =
-			viewMode === 'visible' ? allFiles.filter((f) => !isHiddenFile(f.fullPath)) : allFiles;
+		// First filter by view mode (expanded folder visibility)
+		const files = viewMode === 'visible' ? visibleFiles : allFiles;
 
 		if (!search.trim()) {
 			// No search - show files sorted alphabetically by path
@@ -294,17 +312,11 @@ export function FileSearchModal({
 			.filter((r) => r.matches)
 			.sort((a, b) => b.score - a.score)
 			.map((r) => r.file);
-	}, [allFiles, search, viewMode]);
-
-	// Reset selection when search or view mode changes
-	useEffect(() => {
-		setSelectedIndex(0);
-		setFirstVisibleIndex(0);
-	}, [search, viewMode]);
+	}, [allFiles, visibleFiles, search, viewMode]);
 
 	const toggleViewMode = useCallback(() => {
-		setViewMode((prev) => (prev === 'visible' ? 'all' : 'visible'));
-	}, []);
+		handleViewModeChange(viewMode === 'visible' ? 'all' : 'visible');
+	}, [handleViewModeChange, viewMode]);
 
 	// Scroll selected item into view
 	useEffect(() => {
@@ -387,7 +399,7 @@ export function FileSearchModal({
 						placeholder="Search files..."
 						style={{ color: theme.colors.textMain }}
 						value={search}
-						onChange={(e) => setSearch(e.target.value)}
+						onChange={(e) => handleSearchChange(e.target.value)}
 						onKeyDown={handleKeyDown}
 					/>
 					<div className="flex items-center gap-2">
@@ -414,7 +426,7 @@ export function FileSearchModal({
 					style={{ borderColor: theme.colors.border }}
 				>
 					<button
-						onClick={() => setViewMode('visible')}
+						onClick={() => handleViewModeChange('visible')}
 						className="px-3 py-1 rounded-full text-xs font-medium transition-colors"
 						style={{
 							backgroundColor: viewMode === 'visible' ? theme.colors.accent : theme.colors.bgMain,
@@ -424,7 +436,7 @@ export function FileSearchModal({
 						Visible Files ({fileCounts.visible})
 					</button>
 					<button
-						onClick={() => setViewMode('all')}
+						onClick={() => handleViewModeChange('all')}
 						className="px-3 py-1 rounded-full text-xs font-medium transition-colors"
 						style={{
 							backgroundColor: viewMode === 'all' ? theme.colors.accent : theme.colors.bgMain,
@@ -533,7 +545,7 @@ export function FileSearchModal({
 					style={{ borderColor: theme.colors.border, color: theme.colors.textDim }}
 				>
 					<span>{filteredFiles.length} files</span>
-					<span>↑↓ navigate • Enter select • ⌘1-9 quick select</span>
+					<span>{`↑↓ navigate • Enter select • ${formatShortcutKeys(['Meta'])}1-9 quick select`}</span>
 				</div>
 			</div>
 		</div>

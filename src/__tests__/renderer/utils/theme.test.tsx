@@ -36,6 +36,7 @@ const mockTheme: Theme = {
 		success: '#00ff00',
 		warning: '#ffff00',
 		error: '#ff0000',
+		accent: '#6366f1',
 	},
 };
 
@@ -57,6 +58,7 @@ const alternativeTheme: Theme = {
 		success: '#22c55e',
 		warning: '#f59e0b',
 		error: '#ef4444',
+		accent: '#8b5cf6',
 	},
 };
 
@@ -130,6 +132,34 @@ describe('theme utilities', () => {
 
 			it('uses alternative theme error color', () => {
 				expect(getContextColor(90, alternativeTheme)).toBe(alternativeTheme.colors.error);
+			});
+		});
+
+		describe('custom thresholds', () => {
+			it('uses custom yellow threshold', () => {
+				// With yellow=55, 55% should be warning (not success)
+				expect(getContextColor(55, mockTheme, 55, 70)).toBe(mockTheme.colors.warning);
+				// 54% should still be success
+				expect(getContextColor(54, mockTheme, 55, 70)).toBe(mockTheme.colors.success);
+			});
+
+			it('uses custom red threshold', () => {
+				// With red=70, 70% should be error (not warning)
+				expect(getContextColor(70, mockTheme, 55, 70)).toBe(mockTheme.colors.error);
+				// 69% should still be warning
+				expect(getContextColor(69, mockTheme, 55, 70)).toBe(mockTheme.colors.warning);
+			});
+
+			it('returns success below custom yellow threshold', () => {
+				expect(getContextColor(40, mockTheme, 50, 90)).toBe(mockTheme.colors.success);
+			});
+
+			it('returns warning between custom thresholds', () => {
+				expect(getContextColor(60, mockTheme, 50, 90)).toBe(mockTheme.colors.warning);
+			});
+
+			it('returns error at or above custom red threshold', () => {
+				expect(getContextColor(90, mockTheme, 50, 90)).toBe(mockTheme.colors.error);
 			});
 		});
 	});
@@ -404,18 +434,18 @@ describe('theme utilities', () => {
 				expect(svg).toBeInTheDocument();
 			});
 
-			it('applies textDim color to undefined file type icon', () => {
+			it('applies accent color to undefined file type icon', () => {
 				const icon = getFileIcon(undefined, mockTheme);
 				const { container } = render(icon);
 				const svg = container.querySelector('svg');
-				expect(svg).toHaveStyle({ color: mockTheme.colors.textDim });
+				expect(svg).toHaveStyle({ color: mockTheme.colors.accent });
 			});
 
-			it('uses alternative theme textDim color', () => {
+			it('uses alternative theme accent color', () => {
 				const icon = getFileIcon(undefined, alternativeTheme);
 				const { container } = render(icon);
 				const svg = container.querySelector('svg');
-				expect(svg).toHaveStyle({ color: alternativeTheme.colors.textDim });
+				expect(svg).toHaveStyle({ color: alternativeTheme.colors.accent });
 			});
 		});
 
@@ -433,13 +463,13 @@ describe('theme utilities', () => {
 		});
 
 		describe('unknown file type', () => {
-			it('treats unknown file type as default (textDim color)', () => {
+			it('treats unknown file type as default (accent color)', () => {
 				// Cast to test the default case with an invalid type
 				const unknownType = 'unknown' as FileChangeType;
 				const icon = getFileIcon(unknownType, mockTheme);
 				const { container } = render(icon);
 				const svg = container.querySelector('svg');
-				expect(svg).toHaveStyle({ color: mockTheme.colors.textDim });
+				expect(svg).toHaveStyle({ color: mockTheme.colors.accent });
 			});
 		});
 	});

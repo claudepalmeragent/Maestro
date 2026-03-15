@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { Search, Star } from 'lucide-react';
-import type { AITab, ClosedTab, Theme, Shortcut, ToolType } from '../types';
+import { Search, Star, FileText } from 'lucide-react';
+import type { AITab, ClosedTab, FilePreviewTab, Theme, Shortcut, ToolType } from '../types';
 import { fuzzyMatchWithScore } from '../utils/search';
 import { useLayerStack } from '../contexts/LayerStackContext';
 import { useListNavigation } from '../hooks';
@@ -14,7 +14,8 @@ import {
 	getCostTooltip,
 } from '../utils/formatters';
 import { useBillingMode } from '../hooks';
-import { calculateContextTokens } from '../utils/contextUsage';
+import { calculateContextDisplay } from '../utils/contextUsage';
+import { getExtensionColor } from '../utils/extensionColors';
 
 /** Named session from the store (not currently open) */
 interface NamedSession {
@@ -29,18 +30,25 @@ interface NamedSession {
 /** Union type for items in the list */
 type ListItem =
 	| { type: 'open'; tab: AITab }
+	| { type: 'file'; tab: FilePreviewTab }
 	| { type: 'named'; session: NamedSession }
 	| { type: 'closed'; entry: ClosedTab; displayIndex: number };
 
 interface TabSwitcherModalProps {
 	theme: Theme;
 	tabs: AITab[];
+	/** File preview tabs to include in "Open Tabs" view */
+	fileTabs?: FilePreviewTab[];
 	activeTabId: string;
+	/** Currently active file tab ID (if a file tab is active) */
+	activeFileTabId?: string | null;
 	projectRoot: string; // The initial project directory (used for Claude session storage)
 	agentId?: string;
 	shortcut?: Shortcut;
 	closedTabHistory?: ClosedTab[];
 	onTabSelect: (tabId: string) => void;
+	/** Handler to select a file tab */
+	onFileTabSelect?: (tabId: string) => void;
 	onNamedSessionSelect: (
 		agentSessionId: string,
 		projectPath: string,
@@ -49,6 +57,8 @@ interface TabSwitcherModalProps {
 	) => void;
 	onReopenClosedTab?: (closedTabIndex: number) => void;
 	onClose: () => void;
+	/** Whether colorblind-friendly colors should be used for extension badges */
+	colorBlindMode?: boolean;
 }
 
 // formatTokensCompact, formatRelativeTime, and formatCost imported from ../utils/formatters
@@ -63,23 +73,23 @@ function getTabLastActivity(tab: AITab): number | undefined {
 }
 
 /**
- * Get context usage percentage from usage stats
- * Uses agent-specific calculation (Codex includes output tokens, Claude doesn't)
+ * Get context usage percentage from usage stats.
+ * Uses calculateContextDisplay() which handles accumulated multi-tool token overflow.
  */
 function getContextPercentage(tab: AITab, agentId?: ToolType): number {
 	if (!tab.usageStats) return 0;
 	const { contextWindow } = tab.usageStats;
 	if (!contextWindow || contextWindow === 0) return 0;
-	const contextTokens = calculateContextTokens(
+	return calculateContextDisplay(
 		{
 			inputTokens: tab.usageStats.inputTokens,
 			outputTokens: tab.usageStats.outputTokens,
 			cacheCreationInputTokens: tab.usageStats.cacheCreationInputTokens ?? 0,
 			cacheReadInputTokens: tab.usageStats.cacheReadInputTokens ?? 0,
 		},
+		contextWindow,
 		agentId
-	);
-	return Math.min(100, Math.round((contextTokens / contextWindow) * 100));
+	).percentage;
 }
 
 /**
@@ -184,23 +194,30 @@ function ContextGauge({
 
 type ViewMode = 'open' | 'all-named' | 'starred' | 'recently-closed';
 
+const EMPTY_FILE_TABS: FilePreviewTab[] = [];
+
 /**
- * Tab Switcher Modal - Quick navigation between AI tabs with fuzzy search.
- * Shows context window consumption, cost, custom name, and UUID pill for each tab.
- * Supports switching between "Open Tabs" and "All Named" sessions.
+ * Tab Switcher Modal - Quick navigation between AI and file tabs with fuzzy search.
+ * Shows context window consumption, cost, custom name, and UUID pill for AI tabs.
+ * Shows filename, extension badge, and file icon for file tabs.
+ * Supports switching between "Open Tabs", "All Named" sessions, and "Starred".
  */
 export function TabSwitcherModal({
 	theme,
 	tabs,
+	fileTabs = EMPTY_FILE_TABS,
 	activeTabId,
+	activeFileTabId,
 	projectRoot,
 	agentId = 'claude-code',
 	shortcut,
 	closedTabHistory = [],
 	onTabSelect,
+	onFileTabSelect,
 	onNamedSessionSelect,
 	onReopenClosedTab,
 	onClose,
+	colorBlindMode,
 }: TabSwitcherModalProps) {
 	const [search, setSearch] = useState('');
 	const [firstVisibleIndex, setFirstVisibleIndex] = useState(0);
@@ -215,6 +232,18 @@ export function TabSwitcherModal({
 	const scrollContainerRef = useRef<HTMLDivElement>(null);
 	const layerIdRef = useRef<string>();
 	const onCloseRef = useRef(onClose);
+
+	const handleSearchChange = useCallback((value: string) => {
+		setSearch(value);
+		setSelectedIndex(0);
+		setFirstVisibleIndex(0);
+	}, []);
+
+	const handleViewModeChange = useCallback((mode: ViewMode) => {
+		setViewMode(mode);
+		setSelectedIndex(0);
+		setFirstVisibleIndex(0);
+	}, []);
 
 	// Keep onClose ref up to date
 	useEffect(() => {
@@ -306,13 +335,37 @@ export function TabSwitcherModal({
 	// Build the list items based on view mode
 	const listItems: ListItem[] = useMemo(() => {
 		if (viewMode === 'open') {
-			// Open tabs mode - show all currently open tabs
-			const sorted = [...tabs].sort((a, b) => {
-				const nameA = getTabDisplayName(a).toLowerCase();
-				const nameB = getTabDisplayName(b).toLowerCase();
+			// Open tabs mode - show all currently open tabs (AI and file tabs)
+			const items: ListItem[] = [];
+
+			// Add AI tabs
+			for (const tab of tabs) {
+				items.push({ type: 'open' as const, tab });
+			}
+
+			// Add file tabs
+			for (const tab of fileTabs) {
+				items.push({ type: 'file' as const, tab });
+			}
+
+			// Sort alphabetically by display name
+			items.sort((a, b) => {
+				const nameA =
+					a.type === 'open'
+						? getTabDisplayName(a.tab).toLowerCase()
+						: a.type === 'file'
+							? a.tab.name.toLowerCase()
+							: '';
+				const nameB =
+					b.type === 'open'
+						? getTabDisplayName(b.tab).toLowerCase()
+						: b.type === 'file'
+							? b.tab.name.toLowerCase()
+							: '';
 				return nameA.localeCompare(nameB);
 			});
-			return sorted.map((tab) => ({ type: 'open' as const, tab }));
+
+			return items;
 		} else if (viewMode === 'starred') {
 			// Starred mode - show all starred sessions (open or closed) for the current project
 			const items: ListItem[] = [];
@@ -417,7 +470,7 @@ export function TabSwitcherModal({
 
 			return items;
 		}
-	}, [viewMode, tabs, namedSessions, openTabSessionIds, projectRoot, closedTabHistory]);
+	}, [viewMode, tabs, fileTabs, namedSessions, openTabSessionIds, projectRoot, closedTabHistory]);
 
 	// Filter items based on search query
 	const filteredItems = useMemo(() => {
@@ -428,24 +481,28 @@ export function TabSwitcherModal({
 		// Fuzzy search
 		const results = listItems.map((item) => {
 			let displayName: string;
-			let uuid: string;
+			let searchableId: string;
 
 			if (item.type === 'open') {
 				displayName = getTabDisplayName(item.tab);
-				uuid = item.tab.agentSessionId || '';
+				searchableId = item.tab.agentSessionId || '';
+			} else if (item.type === 'file') {
+				// For file tabs, search by name and extension
+				displayName = item.tab.name;
+				searchableId = item.tab.extension + ' ' + item.tab.path;
 			} else if (item.type === 'closed') {
 				displayName = getClosedTabDisplayName(item.entry);
 				uuid = item.entry.tab.agentSessionId || '';
 			} else {
 				displayName = item.session.sessionName;
-				uuid = item.session.agentSessionId;
+				searchableId = item.session.agentSessionId;
 			}
 
 			const nameResult = fuzzyMatchWithScore(displayName, search);
-			const uuidResult = fuzzyMatchWithScore(uuid, search);
+			const idResult = fuzzyMatchWithScore(searchableId, search);
 
-			const bestScore = Math.max(nameResult.score, uuidResult.score);
-			const matches = nameResult.matches || uuidResult.matches;
+			const bestScore = Math.max(nameResult.score, idResult.score);
+			const matches = nameResult.matches || idResult.matches;
 
 			return { item, score: bestScore, matches };
 		});
@@ -463,6 +520,8 @@ export function TabSwitcherModal({
 			if (item) {
 				if (item.type === 'open') {
 					onTabSelect(item.tab.id);
+				} else if (item.type === 'file') {
+					onFileTabSelect?.(item.tab.id);
 				} else if (item.type === 'closed') {
 					if (onReopenClosedTab) {
 						onReopenClosedTab(item.displayIndex);
@@ -478,7 +537,7 @@ export function TabSwitcherModal({
 				onClose();
 			}
 		},
-		[filteredItems, onTabSelect, onNamedSessionSelect, onReopenClosedTab, onClose]
+		[filteredItems, onTabSelect, onFileTabSelect, onNamedSessionSelect, onReopenClosedTab, onClose]
 	);
 
 	// Use the list navigation hook for keyboard navigation
@@ -498,13 +557,9 @@ export function TabSwitcherModal({
 		selectedItemRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 	}, [selectedIndex]);
 
-	// Reset selection and scroll tracking when search or mode changes
-	useEffect(() => {
+	const toggleViewMode = useCallback((reverse = false) => {
 		setSelectedIndex(0);
 		setFirstVisibleIndex(0);
-	}, [search, viewMode, setSelectedIndex]);
-
-	const toggleViewMode = useCallback((reverse = false) => {
 		setViewMode((prev) => {
 			if (reverse) {
 				if (prev === 'open') return 'recently-closed';
@@ -567,7 +622,7 @@ export function TabSwitcherModal({
 						}
 						style={{ color: theme.colors.textMain }}
 						value={search}
-						onChange={(e) => setSearch(e.target.value)}
+						onChange={(e) => handleSearchChange(e.target.value)}
 						onKeyDown={handleKeyDown}
 					/>
 					<div className="flex items-center gap-2">
@@ -594,17 +649,17 @@ export function TabSwitcherModal({
 					style={{ borderColor: theme.colors.border }}
 				>
 					<button
-						onClick={() => setViewMode('open')}
+						onClick={() => handleViewModeChange('open')}
 						className="px-3 py-1 rounded-full text-xs font-medium transition-colors"
 						style={{
 							backgroundColor: viewMode === 'open' ? theme.colors.accent : theme.colors.bgMain,
 							color: viewMode === 'open' ? theme.colors.accentForeground : theme.colors.textDim,
 						}}
 					>
-						Open Tabs ({tabs.length})
+						Open Tabs ({tabs.length + fileTabs.length})
 					</button>
 					<button
-						onClick={() => setViewMode('all-named')}
+						onClick={() => handleViewModeChange('all-named')}
 						className="px-3 py-1 rounded-full text-xs font-medium transition-colors"
 						style={{
 							backgroundColor: viewMode === 'all-named' ? theme.colors.accent : theme.colors.bgMain,
@@ -625,7 +680,7 @@ export function TabSwitcherModal({
 						)
 					</button>
 					<button
-						onClick={() => setViewMode('starred')}
+						onClick={() => handleViewModeChange('starred')}
 						className="px-3 py-1 rounded-full text-xs font-medium transition-colors flex items-center gap-1"
 						style={{
 							backgroundColor: viewMode === 'starred' ? theme.colors.accent : theme.colors.bgMain,
@@ -777,6 +832,90 @@ export function TabSwitcherModal({
 											<ContextGauge percentage={contextPct} theme={theme} />
 										</div>
 									)}
+								</button>
+							);
+						} else if (item.type === 'file') {
+							// File preview tab
+							const { tab } = item;
+							const isActive = tab.id === activeFileTabId;
+							const extColors = getExtensionColor(tab.extension, theme, colorBlindMode);
+							const hasUnsavedEdits = !!tab.editContent;
+
+							return (
+								<button
+									key={tab.id}
+									ref={isSelected ? selectedItemRef : null}
+									onClick={() => handleSelectByIndex(i)}
+									className="w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-opacity-10"
+									style={{
+										backgroundColor: isSelected ? theme.colors.accent : 'transparent',
+										color: isSelected ? theme.colors.accentForeground : theme.colors.textMain,
+									}}
+								>
+									{/* Number Badge */}
+									{showNumber ? (
+										<div
+											className="flex-shrink-0 w-5 h-5 rounded flex items-center justify-center text-xs font-bold"
+											style={{ backgroundColor: theme.colors.bgMain, color: theme.colors.textDim }}
+										>
+											{numberBadge}
+										</div>
+									) : (
+										<div className="flex-shrink-0 w-5 h-5" />
+									)}
+
+									{/* File Icon - shows active indicator or file icon */}
+									<div className="flex-shrink-0 w-4 h-4 flex items-center justify-center">
+										{isActive ? (
+											<div
+												className="w-2 h-2 rounded-full"
+												style={{ backgroundColor: theme.colors.success }}
+											/>
+										) : (
+											<FileText className="w-3.5 h-3.5" style={{ color: theme.colors.textDim }} />
+										)}
+									</div>
+
+									{/* File Info */}
+									<div className="flex flex-col flex-1 min-w-0">
+										<div className="flex items-center gap-2">
+											<span className="font-medium truncate">{tab.name}</span>
+											{/* Extension badge - uppercase without leading dot */}
+											<span
+												className="text-[9px] px-1 py-0.5 rounded font-semibold uppercase flex-shrink-0"
+												style={{
+													backgroundColor: isSelected ? 'rgba(255,255,255,0.2)' : extColors.bg,
+													color: isSelected ? theme.colors.accentForeground : extColors.text,
+												}}
+											>
+												{tab.extension.replace(/^\./, '').toUpperCase()}
+											</span>
+											{/* Unsaved indicator */}
+											{hasUnsavedEdits && (
+												<span
+													className="text-[10px] opacity-80"
+													style={{ color: theme.colors.warning }}
+												>
+													●
+												</span>
+											)}
+										</div>
+										{/* File path (truncated) */}
+										<div className="flex items-center gap-3 text-[10px] opacity-60 truncate">
+											<span className="truncate">{tab.path}</span>
+										</div>
+									</div>
+
+									{/* File indicator instead of gauge */}
+									<div
+										className="flex-shrink-0 text-[10px] px-2 py-1 rounded"
+										style={{
+											backgroundColor: isSelected ? 'rgba(255,255,255,0.2)' : theme.colors.bgMain,
+											color: isSelected ? theme.colors.accentForeground : theme.colors.textDim,
+										}}
+									>
+										File
+									</div>
 								</button>
 							);
 						} else if (item.type === 'named') {
@@ -967,7 +1106,7 @@ export function TabSwitcherModal({
 									? 'closed'
 									: 'sessions'}
 					</span>
-					<span>↑↓ navigate • Enter select • ⌘1-9 quick select</span>
+					<span>{`↑↓ navigate • Enter select • ${formatShortcutKeys(['Meta'])}1-9 quick select`}</span>
 				</div>
 			</div>
 		</div>

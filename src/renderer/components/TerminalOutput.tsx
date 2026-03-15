@@ -4,10 +4,7 @@ import {
 	ChevronUp,
 	Trash2,
 	Copy,
-	Volume2,
-	Square,
 	Check,
-	ArrowDown,
 	Eye,
 	FileText,
 	RotateCcw,
@@ -16,8 +13,9 @@ import {
 	ThumbsUp,
 	ThumbsDown,
 	Pin,
+	Save,
 } from 'lucide-react';
-import type { Session, Theme, LogEntry, FocusArea } from '../types';
+import type { Session, Theme, LogEntry, FocusArea, AgentError } from '../types';
 import type { FileNode } from '../types/fileTree';
 import Convert from 'ansi-to-html';
 import DOMPurify from 'dompurify';
@@ -29,12 +27,48 @@ import {
 	processLogTextHelper,
 	filterTextByLinesHelper,
 	getCachedAnsiHtml,
-	stripMarkdown,
 } from '../utils/textProcessing';
+import { formatShortcutKeys } from '../utils/shortcutFormatter';
 import { MarkdownRenderer } from './MarkdownRenderer';
 import { QueuedItemsList } from './QueuedItemsList';
 import { LogFilterControls } from './LogFilterControls';
+import { SaveMarkdownModal } from './SaveMarkdownModal';
 import { generateTerminalProseStyles } from '../utils/markdownConfig';
+import { safeClipboardWrite } from '../utils/clipboard';
+
+// ============================================================================
+// Tool display helpers (pure functions, hoisted out of render path)
+// ============================================================================
+
+/** Type-safe string extraction — returns null for non-strings */
+const safeStr = (v: unknown): string | null => (typeof v === 'string' ? v : null);
+
+/** Handle command values that may be strings or string arrays (Codex uses arrays) */
+const safeCommand = (v: unknown): string | null => {
+	if (typeof v === 'string') return v;
+	if (Array.isArray(v) && v.length > 0 && v.every((x) => typeof x === 'string')) {
+		return v.join(' ');
+	}
+	return null;
+};
+
+/** Truncate a value to max length with ellipsis, returns null for non-strings */
+const truncateStr = (v: unknown, max: number): string | null => {
+	const s = safeStr(v);
+	if (!s) return null;
+	return s.length > max ? s.substring(0, max) + '\u2026' : s;
+};
+
+/** Summarize TodoWrite todos array — shows in-progress task and progress count */
+const summarizeTodos = (v: unknown): string | null => {
+	if (!Array.isArray(v) || v.length === 0) return null;
+	const todos = v as Array<{ content?: string; status?: string; activeForm?: string }>;
+	const completed = todos.filter((t) => t.status === 'completed').length;
+	const inProgress = todos.find((t) => t.status === 'in_progress');
+	const label = inProgress?.activeForm || inProgress?.content || todos[0]?.content;
+	if (!label) return `${todos.length} tasks`;
+	return `${label} (${completed}/${todos.length})`;
+};
 
 // ============================================================================
 // LiveElapsedCounter - Live streaming counter for AI responses
@@ -107,10 +141,6 @@ interface LogItemProps {
 		source?: 'staged' | 'history'
 	) => void;
 	copyToClipboard: (text: string) => void;
-	speakText?: (text: string, logId: string) => void;
-	stopSpeaking?: () => void;
-	speakingLogId: string | null;
-	audioFeedbackCommand?: string;
 	// ANSI converter
 	ansiConverter: Convert;
 	// Markdown rendering mode for AI responses (when true, shows raw text)
@@ -125,11 +155,15 @@ interface LogItemProps {
 	cwd?: string;
 	projectRoot?: string;
 	onFileClick?: (path: string) => void;
-	// Error details callback
-	onShowErrorDetails?: () => void;
+	// Error details callback - receives the specific AgentError from the log entry
+	onShowErrorDetails?: (error: AgentError) => void;
 	// Rate AI response callback
 	onRateResponse?: (logId: string, rating: 'liked' | 'disliked' | null) => void;
 	onPinMessage?: (logId: string) => void;
+	// Save to file callback (AI mode only, non-user messages)
+	onSaveToFile?: (text: string) => void;
+	// Message alignment
+	userMessageAlignment: 'left' | 'right';
 }
 
 const LogItemComponent = memo(
@@ -158,10 +192,6 @@ const LogItemComponent = memo(
 		scrollContainerRef,
 		setLightboxImage,
 		copyToClipboard,
-		speakText,
-		stopSpeaking,
-		speakingLogId,
-		audioFeedbackCommand,
 		ansiConverter,
 		markdownEditMode,
 		onToggleMarkdownEditMode,
@@ -174,6 +204,8 @@ const LogItemComponent = memo(
 		onShowErrorDetails,
 		onRateResponse,
 		onPinMessage,
+		onSaveToFile,
+		userMessageAlignment,
 	}: LogItemProps) => {
 		// Ref for the log item container - used for scroll-into-view on expand
 		const logItemRef = useRef<HTMLDivElement>(null);
@@ -218,16 +250,16 @@ const LogItemComponent = memo(
 			let searchIndex = 0;
 
 			while (searchIndex < lowerText.length) {
-				const idx = lowerText.indexOf(lowerQuery, searchIndex);
-				if (idx === -1) break;
+				const matchStart = lowerText.indexOf(lowerQuery, searchIndex);
+				if (matchStart === -1) break;
 
-				if (idx > lastIndex) {
-					parts.push(text.substring(lastIndex, idx));
+				if (matchStart > lastIndex) {
+					parts.push(text.substring(lastIndex, matchStart));
 				}
 
 				parts.push(
 					<span
-						key={`match-${idx}`}
+						key={`match-${matchStart}`}
 						style={{
 							backgroundColor: theme.colors.warning,
 							color: theme.mode === 'light' ? '#fff' : '#000',
@@ -235,11 +267,11 @@ const LogItemComponent = memo(
 							borderRadius: '2px',
 						}}
 					>
-						{text.substring(idx, idx + query.length)}
+						{text.substring(matchStart, matchStart + query.length)}
 					</span>
 				);
 
-				lastIndex = idx + query.length;
+				lastIndex = matchStart + query.length;
 				searchIndex = lastIndex;
 			}
 
@@ -261,15 +293,15 @@ const LogItemComponent = memo(
 			let searchIndex = 0;
 
 			while (searchIndex < lowerText.length) {
-				const idx = lowerText.indexOf(lowerQuery, searchIndex);
-				if (idx === -1) break;
+				const matchStart = lowerText.indexOf(lowerQuery, searchIndex);
+				if (matchStart === -1) break;
 
-				result += text.substring(lastIndex, idx);
+				result += text.substring(lastIndex, matchStart);
 				result += `<mark style="background-color: ${theme.colors.warning}; color: ${theme.mode === 'light' ? '#fff' : '#000'}; padding: 1px 2px; border-radius: 2px;">`;
-				result += text.substring(idx, idx + query.length);
+				result += text.substring(matchStart, matchStart + query.length);
 				result += '</mark>';
 
-				lastIndex = idx + query.length;
+				lastIndex = matchStart + query.length;
 				searchIndex = lastIndex;
 			}
 
@@ -372,16 +404,19 @@ const LogItemComponent = memo(
 				: htmlContent;
 
 		const isUserMessage = log.source === 'user';
+		const isReversed = isUserMessage
+			? userMessageAlignment === 'left'
+			: userMessageAlignment === 'right';
 
 		return (
 			<div
 				ref={logItemRef}
-				className={`flex gap-4 group ${isUserMessage ? 'flex-row-reverse' : ''} px-6 py-2`}
+				className={`flex gap-4 group ${isReversed ? 'flex-row-reverse' : ''} px-6 py-2`}
 				data-log-index={index}
 				data-message-timestamp={log.timestamp}
 			>
 				<div
-					className={`w-20 shrink-0 text-[10px] pt-2 ${isUserMessage ? 'text-right' : 'text-left'}`}
+					className={`w-20 shrink-0 text-[10px] pt-2 ${isReversed ? 'text-right' : 'text-left'}`}
 					style={{ fontFamily, color: theme.colors.textDim, opacity: 0.6 }}
 				>
 					{(() => {
@@ -426,7 +461,7 @@ const LogItemComponent = memo(
 						)}
 				</div>
 				<div
-					className={`flex-1 min-w-0 p-4 pb-10 rounded-xl border ${isUserMessage ? 'rounded-tr-none' : 'rounded-tl-none'} relative overflow-hidden`}
+					className={`flex-1 min-w-0 p-4 pb-10 rounded-xl border ${isReversed ? 'rounded-tr-none' : 'rounded-tl-none'} relative overflow-hidden`}
 					style={{
 						backgroundColor: isUserMessage
 							? isAIMode
@@ -468,13 +503,19 @@ const LogItemComponent = memo(
 							style={{ overscrollBehavior: 'contain' }}
 						>
 							{log.images.map((img, imgIdx) => (
-								<img
-									key={imgIdx}
-									src={img}
-									className="h-20 rounded border cursor-zoom-in shrink-0"
-									style={{ objectFit: 'contain', maxWidth: '200px' }}
+								<button
+									key={`${img}-${imgIdx}`}
+									type="button"
+									className="shrink-0 p-0 bg-transparent outline-none focus:ring-2 focus:ring-accent rounded"
 									onClick={() => setLightboxImage(img, log.images, 'history')}
-								/>
+								>
+									<img
+										src={img}
+										alt={`Terminal output image ${imgIdx + 1}`}
+										className="h-20 rounded border cursor-zoom-in block"
+										style={{ objectFit: 'contain', maxWidth: '200px' }}
+									/>
+								</button>
 							))}
 						</div>
 					)}
@@ -505,7 +546,7 @@ const LogItemComponent = memo(
 							</p>
 							{!!log.agentError?.parsedJson && onShowErrorDetails && (
 								<button
-									onClick={onShowErrorDetails}
+									onClick={() => onShowErrorDetails(log.agentError!)}
 									className="self-start flex items-center gap-2 px-3 py-1.5 text-xs rounded border hover:opacity-80 transition-opacity"
 									style={{
 										backgroundColor: theme.colors.error + '15',
@@ -524,7 +565,7 @@ const LogItemComponent = memo(
 						<div
 							className="px-4 py-2 text-sm font-mono border-l-2"
 							style={{
-								color: theme.colors.textDim,
+								color: theme.colors.textMain,
 								borderColor: theme.colors.accent,
 							}}
 						>
@@ -539,8 +580,20 @@ const LogItemComponent = memo(
 									thinking
 								</span>
 							</div>
-							<div className="whitespace-pre-wrap" style={{ opacity: 0.7 }}>
-								{log.text}
+							<div className="whitespace-pre-wrap text-sm break-words">
+								{isAIMode && !markdownEditMode ? (
+									<MarkdownRenderer
+										content={log.text}
+										theme={theme}
+										onCopy={copyToClipboard}
+										fileTree={fileTree}
+										cwd={cwd}
+										projectRoot={projectRoot}
+										onFileClick={onFileClick}
+									/>
+								) : (
+									log.text
+								)}
 							</div>
 						</div>
 					)}
@@ -548,16 +601,24 @@ const LogItemComponent = memo(
 					{log.source === 'tool' &&
 						(() => {
 							// Extract tool input details for display
-							// Use type checks to ensure we only render strings (prevents React error #31)
 							const toolInput = log.metadata?.toolState?.input as
 								| Record<string, unknown>
 								| undefined;
-							const safeStr = (v: unknown): string | null => (typeof v === 'string' ? v : null);
 							const toolDetail = toolInput
-								? safeStr(toolInput.command) ||
+								? safeCommand(toolInput.command) ||
 									safeStr(toolInput.pattern) ||
 									safeStr(toolInput.file_path) ||
+									safeStr(toolInput.filePath) || // OpenCode read tool
 									safeStr(toolInput.query) ||
+									safeStr(toolInput.description) || // Task tool
+									safeStr(toolInput.prompt) || // Task tool fallback
+									safeStr(toolInput.task_id) || // TaskOutput tool
+									summarizeTodos(toolInput.todos) || // TodoWrite tool
+									// Codex-specific tool arg patterns
+									safeStr(toolInput.path) || // Codex file operations
+									safeStr(toolInput.cmd) || // Codex shell commands
+									safeStr(toolInput.code) || // Codex code execution
+									truncateStr(toolInput.content, 100) || // Codex write operations (truncated)
 									null
 								: null;
 
@@ -565,7 +626,7 @@ const LogItemComponent = memo(
 								<div
 									className="px-4 py-1.5 text-xs font-mono border-l-2"
 									style={{
-										color: theme.colors.textDim,
+										color: theme.colors.textMain,
 										borderColor: theme.colors.accent,
 									}}
 								>
@@ -594,7 +655,7 @@ const LogItemComponent = memo(
 										)}
 										{toolDetail && (
 											<span
-												className="opacity-70 break-all whitespace-pre-wrap"
+												className="opacity-70 break-words whitespace-pre-wrap"
 												style={{ color: theme.colors.textMain }}
 											>
 												{toolDetail}
@@ -617,13 +678,13 @@ const LogItemComponent = memo(
 						) : shouldCollapse && !isExpanded ? (
 							<div>
 								<div
-									className={`${isTerminal && log.source !== 'user' ? 'whitespace-pre text-sm' : 'whitespace-pre-wrap text-sm break-all'}`}
+									className={`${isTerminal && log.source !== 'user' ? 'whitespace-pre text-sm' : 'whitespace-pre-wrap text-sm break-words'}`}
 									style={{
 										maxHeight: `${maxOutputLines * 1.5}em`,
 										overflow: isTerminal && log.source !== 'user' ? 'hidden' : 'hidden',
 										color: theme.colors.textMain,
 										fontFamily,
-										wordBreak: isTerminal && log.source !== 'user' ? undefined : 'break-all',
+										overflowWrap: isTerminal && log.source !== 'user' ? undefined : 'break-word',
 									}}
 								>
 									{isTerminal && log.source !== 'user' ? (
@@ -664,14 +725,14 @@ const LogItemComponent = memo(
 						) : shouldCollapse && isExpanded ? (
 							<div>
 								<div
-									className={`${isTerminal && log.source !== 'user' ? 'whitespace-pre text-sm scrollbar-thin' : 'whitespace-pre-wrap text-sm break-all'}`}
+									className={`${isTerminal && log.source !== 'user' ? 'whitespace-pre text-sm scrollbar-thin' : 'whitespace-pre-wrap text-sm break-words'}`}
 									style={{
 										maxHeight: '600px',
 										overflow: 'auto',
 										overscrollBehavior: 'contain',
 										color: theme.colors.textMain,
 										fontFamily,
-										wordBreak: isTerminal && log.source !== 'user' ? undefined : 'break-all',
+										overflowWrap: isTerminal && log.source !== 'user' ? undefined : 'break-word',
 									}}
 									onWheel={(e) => {
 										// Prevent scroll from propagating to parent when this container can scroll
@@ -759,7 +820,7 @@ const LogItemComponent = memo(
 									/>
 								) : log.source === 'user' && isTerminal ? (
 									<div
-										className="whitespace-pre-wrap text-sm break-all"
+										className="whitespace-pre-wrap text-sm break-words"
 										style={{ color: theme.colors.textMain, fontFamily }}
 									>
 										<span style={{ color: theme.colors.accent }}>$ </span>
@@ -785,7 +846,7 @@ const LogItemComponent = memo(
 											</span>
 										</div>
 										<div
-											className="whitespace-pre-wrap text-sm break-all"
+											className="whitespace-pre-wrap text-sm break-words"
 											style={{ color: theme.colors.textMain }}
 										>
 											{highlightMatches(filteredText, outputSearchQuery)}
@@ -803,15 +864,12 @@ const LogItemComponent = memo(
 										onFileClick={onFileClick}
 									/>
 								) : (
-									// Plain text mode (strip markdown formatting for readability)
+									// Raw markdown source mode (show original text with markdown syntax visible)
 									<div
-										className="whitespace-pre-wrap text-sm break-all"
+										className="whitespace-pre-wrap text-sm break-words"
 										style={{ color: theme.colors.textMain }}
 									>
-										{highlightMatches(
-											isAIMode ? stripMarkdown(filteredText) : filteredText,
-											outputSearchQuery
-										)}
+										{highlightMatches(filteredText, outputSearchQuery)}
 									</div>
 								)}
 							</>
@@ -827,33 +885,15 @@ const LogItemComponent = memo(
 								onClick={onToggleMarkdownEditMode}
 								className="p-1.5 rounded opacity-0 group-hover:opacity-50 hover:!opacity-100"
 								style={{ color: markdownEditMode ? theme.colors.accent : theme.colors.textDim }}
-								title={markdownEditMode ? 'Show formatted (⌘E)' : 'Show plain text (⌘E)'}
+								title={
+									markdownEditMode
+										? `Show formatted (${formatShortcutKeys(['Meta', 'e'])})`
+										: `Show plain text (${formatShortcutKeys(['Meta', 'e'])})`
+								}
 							>
 								{markdownEditMode ? <Eye className="w-4 h-4" /> : <FileText className="w-4 h-4" />}
 							</button>
 						)}
-						{/* Speak/Stop Button - only show for non-user messages when TTS is configured */}
-						{audioFeedbackCommand &&
-							log.source !== 'user' &&
-							(speakingLogId === log.id ? (
-								<button
-									onClick={stopSpeaking}
-									className="p-1.5 rounded opacity-100"
-									style={{ color: theme.colors.error }}
-									title="Stop speaking"
-								>
-									<Square className="w-3.5 h-3.5" fill="currentColor" />
-								</button>
-							) : (
-								<button
-									onClick={() => speakText?.(log.text, log.id)}
-									className="p-1.5 rounded opacity-0 group-hover:opacity-50 hover:!opacity-100"
-									style={{ color: theme.colors.textDim }}
-									title="Speak text"
-								>
-									<Volume2 className="w-3.5 h-3.5" />
-								</button>
-							))}
 						{/* Replay button for user messages in AI mode */}
 						{isUserMessage && isAIMode && onReplayMessage && (
 							<button
@@ -934,6 +974,17 @@ const LogItemComponent = memo(
 								title={log.pinned ? 'Pinned to sidebar' : 'Pin to sidebar'}
 							>
 								<Pin className="w-3.5 h-3.5" fill={log.pinned ? 'currentColor' : 'none'} />
+							</button>
+						)}
+						{/* Save to File Button - only for AI responses */}
+						{log.source !== 'user' && isAIMode && onSaveToFile && (
+							<button
+								onClick={() => onSaveToFile(log.text)}
+								className="p-1.5 rounded opacity-0 group-hover:opacity-50 hover:!opacity-100"
+								style={{ color: theme.colors.textDim }}
+								title="Save to file"
+							>
+								<Save className="w-3.5 h-3.5" />
 							</button>
 						)}
 						{/* Delete button for user messages (both AI and terminal modes) */}
@@ -1019,13 +1070,13 @@ const LogItemComponent = memo(
 			prevProps.filterMode.regex === nextProps.filterMode.regex &&
 			prevProps.activeLocalFilter === nextProps.activeLocalFilter &&
 			prevProps.deleteConfirmLogId === nextProps.deleteConfirmLogId &&
-			prevProps.speakingLogId === nextProps.speakingLogId &&
 			prevProps.outputSearchQuery === nextProps.outputSearchQuery &&
 			prevProps.theme === nextProps.theme &&
 			prevProps.maxOutputLines === nextProps.maxOutputLines &&
 			prevProps.markdownEditMode === nextProps.markdownEditMode &&
 			prevProps.log.pinned === nextProps.log.pinned &&
-			prevProps.fontFamily === nextProps.fontFamily
+			prevProps.fontFamily === nextProps.fontFamily &&
+			prevProps.userMessageAlignment === nextProps.userMessageAlignment
 		);
 	}
 );
@@ -1039,7 +1090,7 @@ LogItemComponent.displayName = 'LogItemComponent';
 // Separate component for elapsed time to prevent re-renders of the entire list
 const ElapsedTimeDisplay = memo(
 	({ thinkingStartTime, textColor }: { thinkingStartTime: number; textColor: string }) => {
-		const [elapsedSeconds, setElapsedSeconds] = useState(
+		const [elapsedSeconds, setElapsedSeconds] = useState(() =>
 			Math.floor((Date.now() - thinkingStartTime) / 1000)
 		);
 
@@ -1093,7 +1144,6 @@ interface TerminalOutputProps {
 	onDeleteLog?: (logId: string) => number | null; // Returns the index to scroll to after deletion
 	onRemoveQueuedItem?: (itemId: string) => void; // Callback to remove a queued item from execution queue
 	onInterrupt?: () => void; // Callback to interrupt the current process
-	audioFeedbackCommand?: string; // TTS command for speech synthesis
 	onScrollPositionChange?: (scrollTop: number) => void; // Callback to save scroll position
 	onAtBottomChange?: (isAtBottom: boolean) => void; // Callback when user scrolls to/away from bottom
 	initialScrollTop?: number; // Initial scroll position to restore
@@ -1105,9 +1155,18 @@ interface TerminalOutputProps {
 	cwd?: string; // Current working directory for proximity-based matching
 	projectRoot?: string; // Project root absolute path for converting absolute paths to relative
 	onFileClick?: (path: string) => void; // Callback when a file link is clicked
-	onShowErrorDetails?: () => void; // Callback to show the error modal (for error log entries)
+	onShowErrorDetails?: (error: AgentError) => void; // Callback to show the error modal (for error log entries)
 	onRateResponse?: (logId: string, rating: 'liked' | 'disliked' | null) => void; // Rate AI response
 	onPinMessage?: (logId: string) => void; // Pin/unpin message to sidebar
+	onFileSaved?: () => void; // Callback when markdown content is saved to file (e.g., to refresh file list)
+	autoScrollAiMode?: boolean; // Whether to auto-scroll in AI mode (like terminal mode)
+	userMessageAlignment?: 'left' | 'right'; // User message bubble alignment (default: right)
+	onOpenInTab?: (file: {
+		path: string;
+		name: string;
+		content: string;
+		sshRemoteId?: string;
+	}) => void; // Callback to open saved file in a tab
 }
 
 // PERFORMANCE: Wrap in React.memo to prevent re-renders when parent re-renders
@@ -1132,7 +1191,6 @@ export const TerminalOutput = memo(
 			onDeleteLog,
 			onRemoveQueuedItem,
 			onInterrupt: _onInterrupt,
-			audioFeedbackCommand,
 			onScrollPositionChange,
 			onAtBottomChange,
 			initialScrollTop,
@@ -1147,6 +1205,10 @@ export const TerminalOutput = memo(
 			onShowErrorDetails,
 			onRateResponse,
 			onPinMessage,
+			onFileSaved,
+			autoScrollAiMode,
+			userMessageAlignment = 'right',
+			onOpenInTab,
 		} = props;
 
 		// Use the forwarded ref if provided, otherwise create a local one
@@ -1192,17 +1254,22 @@ export const TerminalOutput = memo(
 		// Copy to clipboard notification state
 		const [showCopiedNotification, setShowCopiedNotification] = useState(false);
 
-		// TTS state - track which log is currently speaking and its TTS ID
-		const [speakingLogId, setSpeakingLogId] = useState<string | null>(null);
-		const [activeTtsId, setActiveTtsId] = useState<number | null>(null);
+		// Save markdown modal state
+		const [saveModalContent, setSaveModalContent] = useState<string | null>(null);
 
 		// New message indicator state
 		const [isAtBottom, setIsAtBottom] = useState(true);
-		const [hasNewMessages, setHasNewMessages] = useState(false);
-		const [newMessageCount, setNewMessageCount] = useState(0);
 		const lastLogCountRef = useRef(0);
 		// Track previous isAtBottom to detect changes for callback
 		const prevIsAtBottomRef = useRef(true);
+		// Ref mirror of isAtBottom for MutationObserver closure (avoids stale state)
+		const isAtBottomRef = useRef(true);
+		isAtBottomRef.current = isAtBottom;
+		// Track whether auto-scroll is paused because user scrolled up (state so button re-renders)
+		const [autoScrollPaused, setAutoScrollPaused] = useState(false);
+		// Guard flag: prevents the scroll handler from pausing auto-scroll
+		// during programmatic scrollTo() calls from the MutationObserver effect.
+		const isProgrammaticScrollRef = useRef(false);
 
 		// Track read state per tab - stores the log count when user scrolled to bottom
 		const tabReadStateRef = useRef<Map<string, number>>(new Map());
@@ -1217,80 +1284,17 @@ export const TerminalOutput = memo(
 
 		// Copy text to clipboard with notification
 		const copyToClipboard = useCallback(async (text: string) => {
-			try {
-				await navigator.clipboard.writeText(text);
+			const ok = await safeClipboardWrite(text);
+			if (ok) {
 				setShowCopiedNotification(true);
 				setTimeout(() => setShowCopiedNotification(false), 1500);
-			} catch (err) {
-				console.error('Failed to copy to clipboard:', err);
 			}
 		}, []);
 
-		// Speak text using TTS command
-		const speakText = useCallback(
-			async (text: string, logId: string) => {
-				console.log(
-					'[TTS] speakText called, text length:',
-					text.length,
-					'command:',
-					audioFeedbackCommand,
-					'logId:',
-					logId
-				);
-				if (!audioFeedbackCommand) {
-					console.log('[TTS] No audioFeedbackCommand configured, skipping');
-					return;
-				}
-				try {
-					// Set the speaking state before starting
-					setSpeakingLogId(logId);
-					const result = await window.maestro.notification.speak(text, audioFeedbackCommand);
-					console.log('[TTS] Speak result:', result);
-					if (result.success && result.ttsId) {
-						setActiveTtsId(result.ttsId);
-					} else {
-						// If speak failed, clear the speaking state
-						setSpeakingLogId(null);
-					}
-				} catch (err) {
-					console.error('[TTS] Failed to speak text:', err);
-					setSpeakingLogId(null);
-				}
-			},
-			[audioFeedbackCommand]
-		);
-
-		// Stop the currently speaking TTS
-		const stopSpeaking = useCallback(async () => {
-			console.log('[TTS] stopSpeaking called, activeTtsId:', activeTtsId);
-			if (activeTtsId === null) {
-				console.log('[TTS] No active TTS to stop');
-				setSpeakingLogId(null);
-				return;
-			}
-			try {
-				const result = await window.maestro.notification.stopSpeak(activeTtsId);
-				console.log('[TTS] Stop result:', result);
-			} catch (err) {
-				console.error('[TTS] Failed to stop speaking:', err);
-			}
-			// Always clear state after stopping
-			setSpeakingLogId(null);
-			setActiveTtsId(null);
-		}, [activeTtsId]);
-
-		// Listen for TTS completion events from main process
-		useEffect(() => {
-			const cleanup = window.maestro.notification.onTtsCompleted((completedTtsId: number) => {
-				console.log('[TTS] TTS completed event received for ID:', completedTtsId);
-				// Only clear if this is the currently active TTS
-				if (completedTtsId === activeTtsId) {
-					setSpeakingLogId(null);
-					setActiveTtsId(null);
-				}
-			});
-			return cleanup;
-		}, [activeTtsId]);
+		// Open save modal for markdown content
+		const handleSaveToFile = useCallback((text: string) => {
+			setSaveModalContent(text);
+		}, []);
 
 		// Layer stack integration for search overlay
 		const { registerLayer, unregisterLayer, updateLayerHandler } = useLayerStack();
@@ -1515,11 +1519,22 @@ export const TerminalOutput = memo(
 
 			// Clear new message indicator when user scrolls to bottom
 			if (atBottom) {
-				setHasNewMessages(false);
-				setNewMessageCount(0);
+				// Resume auto-scroll when user scrolls back to bottom
+				setAutoScrollPaused(false);
 				// Save read state for current tab
 				if (activeTabId) {
 					tabReadStateRef.current.set(activeTabId, filteredLogs.length);
+				}
+			} else if (autoScrollAiMode) {
+				if (isProgrammaticScrollRef.current) {
+					// This scroll event was triggered by our own scrollTo() call —
+					// consume the guard flag here inside the throttled handler to avoid
+					// the race where queueMicrotask clears the flag before a deferred
+					// throttled invocation fires (throttle delay is 16ms > microtask).
+					isProgrammaticScrollRef.current = false;
+				} else {
+					// Genuine user scroll away from bottom — pause auto-scroll
+					setAutoScrollPaused(true);
 				}
 			}
 
@@ -1533,7 +1548,13 @@ export const TerminalOutput = memo(
 					scrollSaveTimerRef.current = null;
 				}, 200);
 			}
-		}, [activeTabId, filteredLogs.length, onScrollPositionChange, onAtBottomChange]);
+		}, [
+			activeTabId,
+			filteredLogs.length,
+			onScrollPositionChange,
+			onAtBottomChange,
+			autoScrollAiMode,
+		]);
 
 		// PERF: Throttle at 16ms (60fps) instead of 4ms to reduce state updates during scroll
 		const handleScroll = useThrottledCallback(handleScrollInner, 16);
@@ -1541,9 +1562,6 @@ export const TerminalOutput = memo(
 		// Restore read state when switching tabs
 		useEffect(() => {
 			if (!activeTabId) {
-				// Terminal mode - just reset
-				setHasNewMessages(false);
-				setNewMessageCount(0);
 				setIsAtBottom(true);
 				lastLogCountRef.current = filteredLogs.length;
 				return;
@@ -1557,26 +1575,24 @@ export const TerminalOutput = memo(
 				// Tab was visited before - check for new messages since last read
 				const unreadCount = currentCount - savedReadCount;
 				if (unreadCount > 0) {
-					setHasNewMessages(true);
-					setNewMessageCount(unreadCount);
 					setIsAtBottom(false);
 				} else {
-					setHasNewMessages(false);
-					setNewMessageCount(0);
 					setIsAtBottom(true);
 				}
 			} else {
 				// First visit to this tab - mark all as read
 				tabReadStateRef.current.set(activeTabId, currentCount);
-				setHasNewMessages(false);
-				setNewMessageCount(0);
 				setIsAtBottom(true);
 			}
 
 			lastLogCountRef.current = currentCount;
 		}, [activeTabId]); // Only run when tab changes, not when filteredLogs changes
 
-		// Detect new messages when user is not at bottom (while staying on same tab)
+		// Detect new messages when user is not at bottom (while staying on same tab).
+		// NOTE: This intentionally uses filteredLogs.length (not the MutationObserver) because
+		// unread badge counts should only increment on NEW log entries, not on in-place text
+		// updates (thinking stream growth). The MutationObserver handles scroll triggering;
+		// this effect handles the unread badge.
 		useEffect(() => {
 			const currentCount = filteredLogs.length;
 			if (currentCount > lastLogCountRef.current) {
@@ -1589,10 +1605,7 @@ export const TerminalOutput = memo(
 				}
 
 				if (!actuallyAtBottom) {
-					const newCount = currentCount - lastLogCountRef.current;
-					setHasNewMessages(true);
-					setNewMessageCount((prev) => prev + newCount);
-					// Also update isAtBottom state to match reality
+					// Update isAtBottom state to match reality
 					setIsAtBottom(false);
 				} else {
 					// At bottom, update read state
@@ -1604,21 +1617,70 @@ export const TerminalOutput = memo(
 			lastLogCountRef.current = currentCount;
 		}, [filteredLogs.length, isAtBottom, activeTabId]);
 
-		// Auto-scroll to bottom in terminal mode when new output arrives
-		// Terminal mode should always auto-scroll since users expect to see command output immediately
+		// Reset auto-scroll pause when user explicitly re-enables auto-scroll (button or shortcut)
 		useEffect(() => {
-			if (session.inputMode === 'terminal' && scrollContainerRef.current) {
-				// Use requestAnimationFrame to ensure DOM has updated with new content
+			if (autoScrollAiMode) {
+				setAutoScrollPaused(false);
+			}
+		}, [autoScrollAiMode]);
+
+		// Auto-scroll to bottom when DOM content changes in the scroll container.
+		// Uses MutationObserver to detect ALL content mutations — new nodes (log entries),
+		// text changes (thinking stream growth), and attribute changes (tool status updates).
+		// This replaces the previous filteredLogs.length dependency, which missed in-place
+		// text updates during thinking/tool streaming (GitHub issue #402).
+		useEffect(() => {
+			const container = scrollContainerRef.current;
+			if (!container) return;
+
+			const shouldAutoScroll = () =>
+				session.inputMode === 'terminal' ||
+				(session.inputMode === 'ai' && autoScrollAiMode && !autoScrollPaused) ||
+				(session.inputMode === 'ai' && isAtBottomRef.current);
+
+			const scrollToBottom = () => {
+				if (!scrollContainerRef.current) return;
 				requestAnimationFrame(() => {
 					if (scrollContainerRef.current) {
+						// Set guard flag BEFORE scrollTo — the throttled scroll handler
+						// checks this flag and consumes it (clears it) when it fires,
+						// preventing the programmatic scroll from being misinterpreted
+						// as a user scroll-up that should pause auto-scroll.
+						isProgrammaticScrollRef.current = true;
 						scrollContainerRef.current.scrollTo({
 							top: scrollContainerRef.current.scrollHeight,
-							behavior: 'smooth',
+							behavior: 'auto',
 						});
+						// Fallback: if scrollTo is a no-op (already at bottom), the browser
+						// won't fire a scroll event, so the handler never consumes the guard.
+						// Clear it after 32ms (2x the 16ms throttle window) to prevent a
+						// stale true from eating the next genuine user scroll-up.
+						setTimeout(() => {
+							isProgrammaticScrollRef.current = false;
+						}, 32);
 					}
 				});
+			};
+
+			// Initial scroll on mount/dep change
+			if (shouldAutoScroll()) {
+				scrollToBottom();
 			}
-		}, [session.inputMode, session.shellLogs.length]);
+
+			const observer = new MutationObserver(() => {
+				if (shouldAutoScroll()) {
+					scrollToBottom();
+				}
+			});
+
+			observer.observe(container, {
+				childList: true, // New/removed DOM nodes (new log entries, tool events)
+				subtree: true, // Watch all descendants, not just direct children
+				characterData: true, // Text node mutations (thinking stream text growth)
+			});
+
+			return () => observer.disconnect();
+		}, [session.inputMode, autoScrollAiMode, autoScrollPaused]);
 
 		// Restore scroll position when component mounts or initialScrollTop changes
 		// Uses requestAnimationFrame to ensure DOM is ready
@@ -1652,18 +1714,6 @@ export const TerminalOutput = memo(
 			};
 		}, []);
 
-		// Scroll to bottom function
-		const scrollToBottom = useCallback(() => {
-			if (scrollContainerRef.current) {
-				scrollContainerRef.current.scrollTo({
-					top: scrollContainerRef.current.scrollHeight,
-					behavior: 'smooth',
-				});
-				setHasNewMessages(false);
-				setNewMessageCount(0);
-			}
-		}, []);
-
 		// Helper to find last user command for echo stripping in terminal mode
 		const getLastUserCommand = useCallback(
 			(index: number): string | undefined => {
@@ -1692,6 +1742,8 @@ export const TerminalOutput = memo(
 			<div
 				ref={terminalOutputRef}
 				tabIndex={0}
+				role="region"
+				aria-label="Terminal output"
 				className="terminal-output flex-1 flex flex-col overflow-hidden transition-colors outline-none relative"
 				style={{
 					backgroundColor:
@@ -1773,17 +1825,24 @@ export const TerminalOutput = memo(
 								color: theme.colors.textMain,
 								backgroundColor: theme.colors.bgSidebar,
 							}}
-							autoFocus
 						/>
 					</div>
 				)}
 				{/* Prose styles for markdown rendering - injected once at container level for performance */}
 				<style>{proseStyles}</style>
 				{/* Native scroll log list */}
+				{/* overflow-anchor: disabled in AI mode when auto-scroll is off to prevent
+				    browser from automatically keeping viewport pinned to bottom on new content */}
 				<div
 					ref={scrollContainerRef}
 					data-terminal-scroll-container
 					className="flex-1 overflow-y-auto scrollbar-thin"
+					style={{
+						overflowAnchor:
+							session.inputMode === 'ai' && (!autoScrollAiMode || autoScrollPaused)
+								? 'none'
+								: undefined,
+					}}
 					onScroll={handleScroll}
 				>
 					{/* Log entries */}
@@ -1816,10 +1875,6 @@ export const TerminalOutput = memo(
 							scrollContainerRef={scrollContainerRef}
 							setLightboxImage={setLightboxImage}
 							copyToClipboard={copyToClipboard}
-							speakText={speakText}
-							stopSpeaking={stopSpeaking}
-							speakingLogId={speakingLogId}
-							audioFeedbackCommand={audioFeedbackCommand}
 							ansiConverter={ansiConverter}
 							markdownEditMode={markdownEditMode}
 							onToggleMarkdownEditMode={toggleMarkdownEditMode}
@@ -1832,6 +1887,8 @@ export const TerminalOutput = memo(
 							onShowErrorDetails={onShowErrorDetails}
 							onRateResponse={onRateResponse}
 							onPinMessage={onPinMessage}
+							onSaveToFile={handleSaveToFile}
+							userMessageAlignment={userMessageAlignment}
 						/>
 					))}
 
@@ -1880,26 +1937,7 @@ export const TerminalOutput = memo(
 					<div ref={logsEndRef} />
 				</div>
 
-				{/* New Message Indicator - floating arrow button (AI mode only, terminal auto-scrolls) */}
-				{hasNewMessages && !isAtBottom && session.inputMode === 'ai' && (
-					<button
-						onClick={scrollToBottom}
-						className="absolute bottom-4 right-6 flex items-center gap-2 px-3 py-2 rounded-full shadow-lg transition-all hover:scale-105 z-20"
-						style={{
-							backgroundColor: theme.colors.accent,
-							color: theme.colors.accentForeground,
-							animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
-						}}
-						title="Scroll to new messages"
-					>
-						<ArrowDown className="w-4 h-4" />
-						{newMessageCount > 0 && (
-							<span className="text-xs font-bold">
-								{newMessageCount > 99 ? '99+' : newMessageCount}
-							</span>
-						)}
-					</button>
-				)}
+				{/* Auto-scroll toggle removed — was too noisy */}
 
 				{/* Copied to Clipboard Notification */}
 				{showCopiedNotification && (
@@ -1913,6 +1951,26 @@ export const TerminalOutput = memo(
 					>
 						Copied to Clipboard
 					</div>
+				)}
+
+				{/* Save Markdown Modal */}
+				{saveModalContent !== null && (
+					<SaveMarkdownModal
+						theme={theme}
+						content={saveModalContent}
+						onClose={() => setSaveModalContent(null)}
+						defaultFolder={cwd || session.cwd || ''}
+						isRemoteSession={
+							session.sessionSshRemoteConfig?.enabled && !!session.sessionSshRemoteConfig?.remoteId
+						}
+						sshRemoteId={
+							session.sessionSshRemoteConfig?.enabled
+								? (session.sessionSshRemoteConfig?.remoteId ?? undefined)
+								: undefined
+						}
+						onFileSaved={onFileSaved}
+						onOpenInTab={onOpenInTab}
+					/>
 				)}
 			</div>
 		);

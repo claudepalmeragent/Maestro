@@ -3,7 +3,7 @@
  *
  * Tests the SettingsModal component, including:
  * - Modal rendering and isOpen conditional
- * - Tab navigation (general, shortcuts, theme, notifications, aicommands)
+ * - Tab navigation (general, display, shortcuts, theme, notifications, aicommands, encore)
  * - Tab keyboard navigation (Cmd+Shift+[ and ])
  * - Layer stack integration
  * - Agent loading and configuration
@@ -16,8 +16,9 @@
 
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
-import { SettingsModal } from '../../../renderer/components/Settings';
+import { render, screen, fireEvent, act, waitFor, within } from '@testing-library/react';
+import { SettingsModal } from '../../../renderer/components/Settings/SettingsModal';
+import { formatEnterToSend } from '../../../renderer/utils/shortcutFormatter';
 import type {
 	Theme,
 	Shortcut,
@@ -38,6 +39,12 @@ vi.mock('../../../renderer/contexts/LayerStackContext', () => ({
 // Mock formatShortcutKeys
 vi.mock('../../../renderer/utils/shortcutFormatter', () => ({
 	formatShortcutKeys: vi.fn((keys: string[]) => keys.join('+')),
+	isMacOS: vi.fn(() => false), // Test environment is not Mac
+	formatMetaKey: vi.fn(() => 'Ctrl'),
+	formatEnterToSend: vi.fn((enterToSend: boolean) => (enterToSend ? 'Enter' : 'Ctrl + Enter')),
+	formatEnterToSendTooltip: vi.fn((enterToSend: boolean) =>
+		enterToSend ? 'Switch to Ctrl+Enter to send' : 'Switch to Enter to send'
+	),
 }));
 
 // Mock AICommandsPanel
@@ -85,183 +92,234 @@ vi.mock('../../../renderer/components/HoneycombSettingsSection', () => ({
 	),
 }));
 
-// Hoisted mock setters so they can be referenced in both vi.mock and tests
-const mockSettingsFns = vi.hoisted(() => ({
-	setDefaultShell: vi.fn(),
-	setCustomShellPath: vi.fn(),
-	setShellArgs: vi.fn(),
-	setShellEnvVars: vi.fn(),
-	setGhPath: vi.fn(),
-	setEnterToSendAI: vi.fn(),
-	setEnterToSendTerminal: vi.fn(),
-	setDefaultSaveToHistory: vi.fn(),
-	setDefaultShowThinking: vi.fn(),
-	setGroupChatDefaultShowThinking: vi.fn(),
-	setCheckForUpdatesOnStartup: vi.fn(),
-	setEnableBetaUpdates: vi.fn(),
-	setCheckForNewModelsOnStartup: vi.fn(),
-	setCrashReportingEnabled: vi.fn(),
-	setFontFamily: vi.fn(),
-	setFontSize: vi.fn(),
-	setTerminalWidth: vi.fn(),
-	setLogLevel: vi.fn(),
-	setMaxLogBuffer: vi.fn(),
-	setMaxOutputLines: vi.fn(),
-	setShortcuts: vi.fn(),
-	setTabShortcuts: vi.fn(),
-	setActiveThemeId: vi.fn(),
-	setCustomThemeColors: vi.fn(),
-	setCustomThemeBaseId: vi.fn(),
-	setThemeMode: vi.fn(),
-	setLightThemeId: vi.fn(),
-	setDarkThemeId: vi.fn(),
-	updateContextManagementSettings: vi.fn(),
-	updateHoneycombWarningSettings: vi.fn(),
-	setHoneycombDataSource: vi.fn(),
-	setHoneycombMcpApiKey: vi.fn(),
-	setHoneycombEnvironmentSlug: vi.fn(),
-	setHoneycombMcpRegion: vi.fn(),
-	setHoneycombApiKey: vi.fn(),
-	setHoneycombDatasetSlug: vi.fn(),
-	setPlanCalibration: vi.fn(),
-	setDocumentGraphShowExternalLinks: vi.fn(),
-	setDocumentGraphMaxNodes: vi.fn(),
-	setStatsCollectionEnabled: vi.fn(),
-	setDefaultStatsTimeRange: vi.fn(),
-	setPreventSleepEnabled: vi.fn(),
-	setDisableGpuAcceleration: vi.fn(),
-	setDisableConfetti: vi.fn(),
-	setSynopsisEnabled: vi.fn(),
-	setSshStatsTimeoutMs: vi.fn(),
-	setGlobalStatsRefreshIntervalMs: vi.fn(),
-}));
+// Shared mock fns so tests can assert on useSettings setters
+const mockSetActiveThemeId = vi.fn();
+const mockSetCustomThemeColors = vi.fn();
+const mockSetCustomThemeBaseId = vi.fn();
+const mockSetLlmProvider = vi.fn();
+const mockSetModelSlug = vi.fn();
+const mockSetApiKey = vi.fn();
+const mockSetShortcuts = vi.fn();
+const mockSetTabShortcuts = vi.fn();
+const mockSetFontFamily = vi.fn();
+const mockSetFontSize = vi.fn();
+const mockSetTerminalWidth = vi.fn();
+const mockSetLogLevel = vi.fn();
+const mockSetMaxLogBuffer = vi.fn();
+const mockSetMaxOutputLines = vi.fn();
+const mockSetDefaultShell = vi.fn();
+const mockSetCustomShellPath = vi.fn();
+const mockSetShellArgs = vi.fn();
+const mockSetShellEnvVars = vi.fn();
+const mockSetGhPath = vi.fn();
+const mockSetEnterToSendAI = vi.fn();
+const mockSetEnterToSendTerminal = vi.fn();
+const mockSetDefaultSaveToHistory = vi.fn();
+const mockSetDefaultShowThinking = vi.fn();
+const mockSetAutoScrollAiMode = vi.fn();
+const mockSetUserMessageAlignment = vi.fn();
+const mockSetOsNotificationsEnabled = vi.fn();
+const mockSetAudioFeedbackEnabled = vi.fn();
+const mockSetAudioFeedbackCommand = vi.fn();
+const mockSetToastDuration = vi.fn();
+const mockSetCheckForUpdatesOnStartup = vi.fn();
+const mockSetEnableBetaUpdates = vi.fn();
+const mockSetCrashReportingEnabled = vi.fn();
+const mockSetCustomAICommands = vi.fn();
+const mockSetEncoreFeatures = vi.fn();
+const mockSetDirectorNotesSettings = vi.fn();
 
-// Mock useSettings hook (used by tab components that self-source settings)
+// Mock useSettings hook (now self-sources all settings previously passed as props)
+let mockUseSettingsOverrides: Record<string, any> = {};
 vi.mock('../../../renderer/hooks/settings/useSettings', () => ({
-	useSettings: vi.fn(() => ({
-		// Shell settings (GeneralTab)
-		defaultShell: 'bash',
-		setDefaultShell: mockSettingsFns.setDefaultShell,
-		customShellPath: '',
-		setCustomShellPath: mockSettingsFns.setCustomShellPath,
-		shellArgs: '',
-		setShellArgs: mockSettingsFns.setShellArgs,
-		shellEnvVars: {},
-		setShellEnvVars: mockSettingsFns.setShellEnvVars,
-		ghPath: '',
-		setGhPath: mockSettingsFns.setGhPath,
-		// Input behavior (GeneralTab)
-		enterToSendAI: true,
-		setEnterToSendAI: mockSettingsFns.setEnterToSendAI,
-		enterToSendTerminal: false,
-		setEnterToSendTerminal: mockSettingsFns.setEnterToSendTerminal,
-		// History/thinking (GeneralTab)
-		defaultSaveToHistory: true,
-		setDefaultSaveToHistory: mockSettingsFns.setDefaultSaveToHistory,
-		defaultShowThinking: false,
-		setDefaultShowThinking: mockSettingsFns.setDefaultShowThinking,
-		groupChatDefaultShowThinking: false,
-		setGroupChatDefaultShowThinking: mockSettingsFns.setGroupChatDefaultShowThinking,
-		// Updates (GeneralTab)
-		checkForUpdatesOnStartup: true,
-		setCheckForUpdatesOnStartup: mockSettingsFns.setCheckForUpdatesOnStartup,
-		enableBetaUpdates: false,
-		setEnableBetaUpdates: mockSettingsFns.setEnableBetaUpdates,
-		checkForNewModelsOnStartup: true,
-		setCheckForNewModelsOnStartup: mockSettingsFns.setCheckForNewModelsOnStartup,
-		// Crash reporting (GeneralTab)
-		crashReportingEnabled: true,
-		setCrashReportingEnabled: mockSettingsFns.setCrashReportingEnabled,
-		// Font/display settings (DisplayTab)
-		fontFamily: 'JetBrains Mono',
-		setFontFamily: mockSettingsFns.setFontFamily,
-		fontSize: 13,
-		setFontSize: mockSettingsFns.setFontSize,
-		terminalWidth: 80,
-		setTerminalWidth: mockSettingsFns.setTerminalWidth,
-		logLevel: 'info',
-		setLogLevel: mockSettingsFns.setLogLevel,
-		maxLogBuffer: 5000,
-		setMaxLogBuffer: mockSettingsFns.setMaxLogBuffer,
-		maxOutputLines: 50,
-		setMaxOutputLines: mockSettingsFns.setMaxOutputLines,
-		// Shortcuts (ShortcutsTab)
+	useSettings: () => ({
+		// Theme settings
+		activeThemeId: 'dracula',
+		setActiveThemeId: mockSetActiveThemeId,
+		customThemeColors: {
+			bgMain: '#282a36',
+			bgSidebar: '#21222c',
+			bgActivity: '#343746',
+			border: '#44475a',
+			textMain: '#f8f8f2',
+			textDim: '#6272a4',
+			accent: '#bd93f9',
+			accentDim: '#bd93f920',
+			accentText: '#ff79c6',
+			accentForeground: '#ffffff',
+			success: '#50fa7b',
+			warning: '#ffb86c',
+			error: '#ff5555',
+		},
+		setCustomThemeColors: mockSetCustomThemeColors,
+		customThemeBaseId: 'dracula',
+		setCustomThemeBaseId: mockSetCustomThemeBaseId,
+		// LLM settings
+		llmProvider: 'openrouter',
+		setLlmProvider: mockSetLlmProvider,
+		modelSlug: '',
+		setModelSlug: mockSetModelSlug,
+		apiKey: '',
+		setApiKey: mockSetApiKey,
+		// Shortcut settings
 		shortcuts: {
 			'new-session': { id: 'new-session', label: 'New Session', keys: ['Meta', 'n'] },
 			'close-session': { id: 'close-session', label: 'Close Session', keys: ['Meta', 'w'] },
 			'toggle-mode': { id: 'toggle-mode', label: 'Toggle Mode', keys: ['Meta', 'j'] },
 		},
-		setShortcuts: mockSettingsFns.setShortcuts,
+		setShortcuts: mockSetShortcuts,
 		tabShortcuts: {},
-		setTabShortcuts: mockSettingsFns.setTabShortcuts,
-		// Theme (ThemeTab)
-		activeThemeId: 'dracula',
-		setActiveThemeId: mockSettingsFns.setActiveThemeId,
-		customThemeColors: {},
-		setCustomThemeColors: mockSettingsFns.setCustomThemeColors,
-		customThemeBaseId: 'dracula',
-		setCustomThemeBaseId: mockSettingsFns.setCustomThemeBaseId,
-		themeMode: 'manual' as const,
-		setThemeMode: mockSettingsFns.setThemeMode,
-		lightThemeId: 'github-light',
-		setLightThemeId: mockSettingsFns.setLightThemeId,
-		darkThemeId: 'dracula',
-		setDarkThemeId: mockSettingsFns.setDarkThemeId,
-		// Context management
+		setTabShortcuts: mockSetTabShortcuts,
+		// Display settings
+		fontFamily: 'Menlo',
+		setFontFamily: mockSetFontFamily,
+		fontSize: 14,
+		setFontSize: mockSetFontSize,
+		terminalWidth: 100,
+		setTerminalWidth: mockSetTerminalWidth,
+		logLevel: 'info',
+		setLogLevel: mockSetLogLevel,
+		maxLogBuffer: 5000,
+		setMaxLogBuffer: mockSetMaxLogBuffer,
+		maxOutputLines: 25,
+		setMaxOutputLines: mockSetMaxOutputLines,
+		// Shell settings
+		defaultShell: 'zsh',
+		setDefaultShell: mockSetDefaultShell,
+		customShellPath: '',
+		setCustomShellPath: mockSetCustomShellPath,
+		shellArgs: '',
+		setShellArgs: mockSetShellArgs,
+		shellEnvVars: {},
+		setShellEnvVars: mockSetShellEnvVars,
+		ghPath: '',
+		setGhPath: mockSetGhPath,
+		// Input settings
+		enterToSendAI: true,
+		setEnterToSendAI: mockSetEnterToSendAI,
+		enterToSendTerminal: true,
+		setEnterToSendTerminal: mockSetEnterToSendTerminal,
+		defaultSaveToHistory: true,
+		setDefaultSaveToHistory: mockSetDefaultSaveToHistory,
+		defaultShowThinking: 'off',
+		setDefaultShowThinking: mockSetDefaultShowThinking,
+		autoScrollAiMode: true,
+		setAutoScrollAiMode: mockSetAutoScrollAiMode,
+		userMessageAlignment: 'left',
+		setUserMessageAlignment: mockSetUserMessageAlignment,
+		// Notification settings
+		osNotificationsEnabled: true,
+		setOsNotificationsEnabled: mockSetOsNotificationsEnabled,
+		audioFeedbackEnabled: false,
+		setAudioFeedbackEnabled: mockSetAudioFeedbackEnabled,
+		audioFeedbackCommand: 'say',
+		setAudioFeedbackCommand: mockSetAudioFeedbackCommand,
+		toastDuration: 10,
+		setToastDuration: mockSetToastDuration,
+		// Update settings
+		checkForUpdatesOnStartup: true,
+		setCheckForUpdatesOnStartup: mockSetCheckForUpdatesOnStartup,
+		enableBetaUpdates: false,
+		setEnableBetaUpdates: mockSetEnableBetaUpdates,
+		crashReportingEnabled: true,
+		setCrashReportingEnabled: mockSetCrashReportingEnabled,
+		// AI Commands
+		customAICommands: [],
+		setCustomAICommands: mockSetCustomAICommands,
+		// Encore features
+		encoreFeatures: { directorNotes: false },
+		setEncoreFeatures: mockSetEncoreFeatures,
+		// Conductor profile settings
+		conductorProfile: '',
+		setConductorProfile: vi.fn(),
+		// Context management settings
 		contextManagementSettings: {
 			autoGroomContexts: true,
 			maxContextTokens: 100000,
 			showMergePreview: true,
 			groomingTimeout: 60000,
 			preferredGroomingAgent: 'fastest',
-			contextWarningsEnabled: true,
+			contextWarningsEnabled: false,
 			contextWarningYellowThreshold: 60,
 			contextWarningRedThreshold: 80,
 		},
-		updateContextManagementSettings: mockSettingsFns.updateContextManagementSettings,
+		updateContextManagementSettings: vi.fn(),
 		// Honeycomb
 		honeycombWarningSettings: {},
-		updateHoneycombWarningSettings: mockSettingsFns.updateHoneycombWarningSettings,
+		updateHoneycombWarningSettings: vi.fn(),
 		honeycombDataSource: 'mcp',
-		setHoneycombDataSource: mockSettingsFns.setHoneycombDataSource,
+		setHoneycombDataSource: vi.fn(),
 		honeycombMcpApiKey: '',
-		setHoneycombMcpApiKey: mockSettingsFns.setHoneycombMcpApiKey,
+		setHoneycombMcpApiKey: vi.fn(),
 		honeycombEnvironmentSlug: '',
-		setHoneycombEnvironmentSlug: mockSettingsFns.setHoneycombEnvironmentSlug,
+		setHoneycombEnvironmentSlug: vi.fn(),
 		honeycombMcpRegion: 'us',
-		setHoneycombMcpRegion: mockSettingsFns.setHoneycombMcpRegion,
+		setHoneycombMcpRegion: vi.fn(),
 		honeycombApiKey: '',
-		setHoneycombApiKey: mockSettingsFns.setHoneycombApiKey,
+		setHoneycombApiKey: vi.fn(),
 		honeycombDatasetSlug: '',
-		setHoneycombDatasetSlug: mockSettingsFns.setHoneycombDatasetSlug,
+		setHoneycombDatasetSlug: vi.fn(),
 		planCalibration: { calibrationPoints: [], lastCalibrated: null },
-		setPlanCalibration: mockSettingsFns.setPlanCalibration,
-		// Document graph
-		documentGraphShowExternalLinks: false,
-		setDocumentGraphShowExternalLinks: mockSettingsFns.setDocumentGraphShowExternalLinks,
+		setPlanCalibration: vi.fn(),
+		// Document Graph settings
+		documentGraphShowExternalLinks: true,
+		setDocumentGraphShowExternalLinks: vi.fn(),
 		documentGraphMaxNodes: 100,
-		setDocumentGraphMaxNodes: mockSettingsFns.setDocumentGraphMaxNodes,
-		// Stats
+		setDocumentGraphMaxNodes: vi.fn(),
+		// Stats settings
 		statsCollectionEnabled: true,
-		setStatsCollectionEnabled: mockSettingsFns.setStatsCollectionEnabled,
-		defaultStatsTimeRange: '7d',
-		setDefaultStatsTimeRange: mockSettingsFns.setDefaultStatsTimeRange,
-		// Power/rendering
+		setStatsCollectionEnabled: vi.fn(),
+		defaultStatsTimeRange: 'week',
+		setDefaultStatsTimeRange: vi.fn(),
+		// Power management settings
 		preventSleepEnabled: false,
-		setPreventSleepEnabled: mockSettingsFns.setPreventSleepEnabled,
+		setPreventSleepEnabled: vi.fn(),
+		// Rendering settings
 		disableGpuAcceleration: false,
-		setDisableGpuAcceleration: mockSettingsFns.setDisableGpuAcceleration,
+		setDisableGpuAcceleration: vi.fn(),
 		disableConfetti: false,
-		setDisableConfetti: mockSettingsFns.setDisableConfetti,
+		setDisableConfetti: vi.fn(),
 		// Synopsis
 		synopsisEnabled: false,
-		setSynopsisEnabled: mockSettingsFns.setSynopsisEnabled,
+		setSynopsisEnabled: vi.fn(),
 		// SSH stats
 		sshStatsTimeoutMs: 5000,
-		setSshStatsTimeoutMs: mockSettingsFns.setSshStatsTimeoutMs,
+		setSshStatsTimeoutMs: vi.fn(),
 		globalStatsRefreshIntervalMs: 30000,
-		setGlobalStatsRefreshIntervalMs: mockSettingsFns.setGlobalStatsRefreshIntervalMs,
-	})),
+		setGlobalStatsRefreshIntervalMs: vi.fn(),
+		// SSH remote ignore settings
+		sshRemoteIgnorePatterns: ['.git', '.*cache*'],
+		setSshRemoteIgnorePatterns: vi.fn(),
+		sshRemoteHonorGitignore: false,
+		setSshRemoteHonorGitignore: vi.fn(),
+		// Local file indexing ignore settings
+		localIgnorePatterns: ['.git', 'node_modules', '__pycache__'],
+		setLocalIgnorePatterns: vi.fn(),
+		localHonorGitignore: true,
+		setLocalHonorGitignore: vi.fn(),
+		// Automatic tab naming
+		automaticTabNamingEnabled: true,
+		setAutomaticTabNamingEnabled: vi.fn(),
+		// Director's Notes settings
+		directorNotesSettings: {
+			provider: 'claude-code',
+			defaultLookbackDays: 7,
+		},
+		setDirectorNotesSettings: mockSetDirectorNotesSettings,
+		// WakaTime integration settings
+		wakatimeEnabled: false,
+		setWakatimeEnabled: vi.fn(),
+		wakatimeApiKey: '',
+		setWakatimeApiKey: vi.fn(),
+		wakatimeDetailedTracking: false,
+		setWakatimeDetailedTracking: vi.fn(),
+		// Window chrome settings
+		useNativeTitleBar: false,
+		setUseNativeTitleBar: vi.fn(),
+		autoHideMenuBar: false,
+		setAutoHideMenuBar: vi.fn(),
+		...mockUseSettingsOverrides,
+	}),
 }));
 
 // Sample theme for testing
@@ -341,82 +399,14 @@ const mockShortcuts: Record<string, Shortcut> = {
 };
 
 const createDefaultProps = (overrides = {}) => ({
+	// Only the 8 actual SettingsModal props (settings are now self-sourced from useSettings)
 	isOpen: true,
 	onClose: vi.fn(),
 	theme: mockTheme,
 	themes: mockThemes,
-	activeThemeId: 'dracula',
-	setActiveThemeId: vi.fn(),
-	customThemeColors: mockTheme.colors,
-	setCustomThemeColors: vi.fn(),
-	customThemeBaseId: 'dracula' as const,
-	setCustomThemeBaseId: vi.fn(),
-	llmProvider: 'openrouter',
-	setLlmProvider: vi.fn(),
-	modelSlug: '',
-	setModelSlug: vi.fn(),
-	apiKey: '',
-	setApiKey: vi.fn(),
-	shortcuts: mockShortcuts,
-	setShortcuts: vi.fn(),
-	tabShortcuts: {} as Record<string, Shortcut>,
-	setTabShortcuts: vi.fn(),
-	fontFamily: 'Menlo',
-	setFontFamily: vi.fn(),
-	fontSize: 14,
-	setFontSize: vi.fn(),
-	terminalWidth: 100,
-	setTerminalWidth: vi.fn(),
-	logLevel: 'info',
-	setLogLevel: vi.fn(),
-	maxLogBuffer: 5000,
-	setMaxLogBuffer: vi.fn(),
-	maxOutputLines: 25,
-	setMaxOutputLines: vi.fn(),
-	defaultShell: 'zsh',
-	setDefaultShell: vi.fn(),
-	ghPath: '',
-	setGhPath: vi.fn(),
-	enterToSendAI: true,
-	setEnterToSendAI: vi.fn(),
-	enterToSendTerminal: true,
-	setEnterToSendTerminal: vi.fn(),
-	defaultSaveToHistory: true,
-	setDefaultSaveToHistory: vi.fn(),
-	defaultShowThinking: false,
-	setDefaultShowThinking: vi.fn(),
-	groupChatDefaultShowThinking: false,
-	setGroupChatDefaultShowThinking: vi.fn(),
-	osNotificationsEnabled: true,
-	setOsNotificationsEnabled: vi.fn(),
-	audioFeedbackEnabled: false,
-	setAudioFeedbackEnabled: vi.fn(),
-	audioFeedbackCommand: 'say',
-	setAudioFeedbackCommand: vi.fn(),
-	toastDuration: 10,
-	setToastDuration: vi.fn(),
-	customShellPath: '',
-	setCustomShellPath: vi.fn(),
-	shellArgs: '',
-	setShellArgs: vi.fn(),
-	shellEnvVars: {},
-	setShellEnvVars: vi.fn(),
-	checkForUpdatesOnStartup: true,
-	setCheckForUpdatesOnStartup: vi.fn(),
-	enableBetaUpdates: false,
-	setEnableBetaUpdates: vi.fn(),
-	checkForNewModelsOnStartup: true,
-	setCheckForNewModelsOnStartup: vi.fn(),
-	crashReportingEnabled: false,
-	setCrashReportingEnabled: vi.fn(),
-	customAICommands: [],
-	setCustomAICommands: vi.fn(),
-	themeMode: 'manual' as const,
-	onThemeModeChange: vi.fn(),
-	lightThemeId: 'github-light',
-	onLightThemeIdChange: vi.fn(),
-	darkThemeId: 'dracula',
-	onDarkThemeIdChange: vi.fn(),
+	hasNoAgents: false,
+	onThemeImportError: vi.fn(),
+	onThemeImportSuccess: vi.fn(),
 	...overrides,
 });
 
@@ -431,6 +421,13 @@ describe('SettingsModal', () => {
 				name: 'Claude Code',
 				available: true,
 				path: '/usr/local/bin/claude',
+				hidden: false,
+			},
+			{
+				id: 'codex',
+				name: 'Codex',
+				available: true,
+				path: '/usr/local/bin/codex',
 				hidden: false,
 			},
 			{ id: 'openai-codex', name: 'OpenAI Codex', available: false, hidden: false },
@@ -454,6 +451,7 @@ describe('SettingsModal', () => {
 	afterEach(() => {
 		vi.useRealTimers();
 		vi.clearAllMocks();
+		mockUseSettingsOverrides = {};
 	});
 
 	describe('render conditions', () => {
@@ -484,10 +482,12 @@ describe('SettingsModal', () => {
 			});
 
 			expect(screen.getByTitle('General')).toBeInTheDocument();
+			expect(screen.getByTitle('Display')).toBeInTheDocument();
 			expect(screen.getByTitle('Shortcuts')).toBeInTheDocument();
 			expect(screen.getByTitle('Themes')).toBeInTheDocument();
 			expect(screen.getByTitle('Notifications')).toBeInTheDocument();
 			expect(screen.getByTitle('AI Commands')).toBeInTheDocument();
+			expect(screen.getByTitle('Encore Features')).toBeInTheDocument();
 		});
 
 		it('should default to general tab', async () => {
@@ -572,13 +572,14 @@ describe('SettingsModal', () => {
 			// Start on general tab
 			expect(screen.getByText('Default Terminal Shell')).toBeInTheDocument();
 
-			// Press Cmd+Shift+] to go to display (next tab after general)
+			// Press Cmd+Shift+] to go to display
 			fireEvent.keyDown(window, { key: ']', metaKey: true, shiftKey: true });
 
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(100);
 			});
 
+			// Display tab has Font Size
 			expect(screen.getByText('Font Size')).toBeInTheDocument();
 		});
 
@@ -599,18 +600,19 @@ describe('SettingsModal', () => {
 				await vi.advanceTimersByTimeAsync(100);
 			});
 
+			// Display tab has Font Size
 			expect(screen.getByText('Font Size')).toBeInTheDocument();
 		});
 
 		it('should wrap around when navigating past last tab', async () => {
-			render(<SettingsModal {...createDefaultProps({ initialTab: 'honeycomb' })} />);
+			render(<SettingsModal {...createDefaultProps({ initialTab: 'encore' })} />);
 
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(50);
 			});
 
-			// Start on Honeycomb tab (last tab)
-			expect(screen.getByTitle('Honeycomb')).toBeInTheDocument();
+			// Start on Encore Features tab (last tab)
+			expect(screen.getByText('Encore Features', { selector: 'h3' })).toBeInTheDocument();
 
 			// Press Cmd+Shift+] to wrap to general
 			fireEvent.keyDown(window, { key: ']', metaKey: true, shiftKey: true });
@@ -619,6 +621,7 @@ describe('SettingsModal', () => {
 				await vi.advanceTimersByTimeAsync(100);
 			});
 
+			// General tab has Default Terminal Shell
 			expect(screen.getByText('Default Terminal Shell')).toBeInTheDocument();
 		});
 
@@ -632,15 +635,14 @@ describe('SettingsModal', () => {
 			// Start on general tab (first tab)
 			expect(screen.getByText('Default Terminal Shell')).toBeInTheDocument();
 
-			// Press Cmd+Shift+[ to wrap to Honeycomb (the last tab)
+			// Press Cmd+Shift+[ to wrap to Encore Features (last tab)
 			fireEvent.keyDown(window, { key: '[', metaKey: true, shiftKey: true });
 
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(100);
 			});
 
-			// Honeycomb tab should be active - the tab span text is rendered when active
-			expect(screen.getByTitle('Honeycomb')).toBeInTheDocument();
+			expect(screen.getByText('Encore Features', { selector: 'h3' })).toBeInTheDocument();
 		});
 	});
 
@@ -663,9 +665,9 @@ describe('SettingsModal', () => {
 		});
 	});
 
-	describe('General tab - Font settings', () => {
+	describe('Display tab - Font settings', () => {
 		it('should show font loading message initially', async () => {
-			render(<SettingsModal {...createDefaultProps()} />);
+			render(<SettingsModal {...createDefaultProps({ initialTab: 'display' })} />);
 
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(50);
@@ -683,14 +685,8 @@ describe('SettingsModal', () => {
 		});
 
 		it('should call setFontFamily when font is changed', async () => {
-			render(<SettingsModal {...createDefaultProps()} />);
-
-			await act(async () => {
-				await vi.advanceTimersByTimeAsync(50);
-			});
-
-			// Navigate to Display tab where font settings now live
-			fireEvent.click(screen.getByTitle('Display'));
+			const setFontFamily = vi.fn();
+			render(<SettingsModal {...createDefaultProps({ setFontFamily, initialTab: 'display' })} />);
 
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(100);
@@ -701,11 +697,11 @@ describe('SettingsModal', () => {
 			const fontSelect = comboboxes[0] as HTMLSelectElement;
 			fireEvent.change(fontSelect, { target: { value: 'Monaco' } });
 
-			expect(mockSettingsFns.setFontFamily).toHaveBeenCalledWith('Monaco');
+			expect(mockSetFontFamily).toHaveBeenCalledWith('Monaco');
 		});
 
 		it('should load fonts when font select is focused', async () => {
-			render(<SettingsModal {...createDefaultProps()} />);
+			render(<SettingsModal {...createDefaultProps({ initialTab: 'display' })} />);
 
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(50);
@@ -731,85 +727,57 @@ describe('SettingsModal', () => {
 		});
 	});
 
-	describe('General tab - Font size buttons', () => {
+	describe('Display tab - Font size buttons', () => {
 		it('should call setFontSize with 12 when Small is clicked', async () => {
-			render(<SettingsModal {...createDefaultProps()} />);
-
-			await act(async () => {
-				await vi.advanceTimersByTimeAsync(50);
-			});
-
-			// Navigate to Display tab where font size settings now live
-			fireEvent.click(screen.getByTitle('Display'));
+			const setFontSize = vi.fn();
+			render(<SettingsModal {...createDefaultProps({ setFontSize, initialTab: 'display' })} />);
 
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(100);
 			});
 
 			fireEvent.click(screen.getByRole('button', { name: 'Small' }));
-			expect(mockSettingsFns.setFontSize).toHaveBeenCalledWith(12);
+			expect(mockSetFontSize).toHaveBeenCalledWith(12);
 		});
 
 		it('should call setFontSize with 14 when Medium is clicked', async () => {
-			render(<SettingsModal {...createDefaultProps()} />);
-
-			await act(async () => {
-				await vi.advanceTimersByTimeAsync(50);
-			});
-
-			fireEvent.click(screen.getByTitle('Display'));
+			const setFontSize = vi.fn();
+			render(<SettingsModal {...createDefaultProps({ setFontSize, initialTab: 'display' })} />);
 
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(100);
 			});
 
 			fireEvent.click(screen.getByRole('button', { name: 'Medium' }));
-			expect(mockSettingsFns.setFontSize).toHaveBeenCalledWith(14);
+			expect(mockSetFontSize).toHaveBeenCalledWith(14);
 		});
 
 		it('should call setFontSize with 16 when Large is clicked', async () => {
-			render(<SettingsModal {...createDefaultProps()} />);
-
-			await act(async () => {
-				await vi.advanceTimersByTimeAsync(50);
-			});
-
-			fireEvent.click(screen.getByTitle('Display'));
+			const setFontSize = vi.fn();
+			render(<SettingsModal {...createDefaultProps({ setFontSize, initialTab: 'display' })} />);
 
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(100);
 			});
 
 			fireEvent.click(screen.getByRole('button', { name: 'Large' }));
-			expect(mockSettingsFns.setFontSize).toHaveBeenCalledWith(16);
+			expect(mockSetFontSize).toHaveBeenCalledWith(16);
 		});
 
 		it('should call setFontSize with 18 when X-Large is clicked', async () => {
-			render(<SettingsModal {...createDefaultProps()} />);
-
-			await act(async () => {
-				await vi.advanceTimersByTimeAsync(50);
-			});
-
-			fireEvent.click(screen.getByTitle('Display'));
+			const setFontSize = vi.fn();
+			render(<SettingsModal {...createDefaultProps({ setFontSize, initialTab: 'display' })} />);
 
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(100);
 			});
 
 			fireEvent.click(screen.getByRole('button', { name: 'X-Large' }));
-			expect(mockSettingsFns.setFontSize).toHaveBeenCalledWith(18);
+			expect(mockSetFontSize).toHaveBeenCalledWith(18);
 		});
 
 		it('should highlight selected font size', async () => {
-			render(<SettingsModal {...createDefaultProps()} />);
-
-			await act(async () => {
-				await vi.advanceTimersByTimeAsync(50);
-			});
-
-			// Navigate to Display tab (fontSize defaults to 13 from useSettings mock)
-			fireEvent.click(screen.getByTitle('Display'));
+			render(<SettingsModal {...createDefaultProps({ fontSize: 14, initialTab: 'display' })} />);
 
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(100);
@@ -823,33 +791,26 @@ describe('SettingsModal', () => {
 		});
 	});
 
-	describe('General tab - Terminal width buttons', () => {
+	describe('Display tab - Terminal width buttons', () => {
 		it('should call setTerminalWidth with 80', async () => {
-			render(<SettingsModal {...createDefaultProps()} />);
-
-			await act(async () => {
-				await vi.advanceTimersByTimeAsync(50);
-			});
-
-			// Navigate to Display tab where terminal width settings now live
-			fireEvent.click(screen.getByTitle('Display'));
+			const setTerminalWidth = vi.fn();
+			render(
+				<SettingsModal {...createDefaultProps({ setTerminalWidth, initialTab: 'display' })} />
+			);
 
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(100);
 			});
 
 			fireEvent.click(screen.getByRole('button', { name: '80' }));
-			expect(mockSettingsFns.setTerminalWidth).toHaveBeenCalledWith(80);
+			expect(mockSetTerminalWidth).toHaveBeenCalledWith(80);
 		});
 
 		it('should call setTerminalWidth with 100', async () => {
-			render(<SettingsModal {...createDefaultProps()} />);
-
-			await act(async () => {
-				await vi.advanceTimersByTimeAsync(50);
-			});
-
-			fireEvent.click(screen.getByTitle('Display'));
+			const setTerminalWidth = vi.fn();
+			render(
+				<SettingsModal {...createDefaultProps({ setTerminalWidth, initialTab: 'display' })} />
+			);
 
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(100);
@@ -859,133 +820,105 @@ describe('SettingsModal', () => {
 			const buttons = screen.getAllByText('100');
 			const terminalWidthButton = buttons[0]; // First one is terminal width
 			fireEvent.click(terminalWidthButton);
-			expect(mockSettingsFns.setTerminalWidth).toHaveBeenCalledWith(100);
+			expect(mockSetTerminalWidth).toHaveBeenCalledWith(100);
 		});
 	});
 
 	describe('General tab - Log level buttons', () => {
 		it('should call setLogLevel with debug', async () => {
-			render(<SettingsModal {...createDefaultProps()} />);
-
-			await act(async () => {
-				await vi.advanceTimersByTimeAsync(50);
-			});
-
-			fireEvent.click(screen.getByTitle('Display'));
+			const setLogLevel = vi.fn();
+			render(<SettingsModal {...createDefaultProps({ setLogLevel, initialTab: 'general' })} />);
 
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(100);
 			});
 
 			fireEvent.click(screen.getByRole('button', { name: 'Debug' }));
-			expect(mockSettingsFns.setLogLevel).toHaveBeenCalledWith('debug');
+			expect(mockSetLogLevel).toHaveBeenCalledWith('debug');
 		});
 
 		it('should call setLogLevel with info', async () => {
-			render(<SettingsModal {...createDefaultProps()} />);
-
-			await act(async () => {
-				await vi.advanceTimersByTimeAsync(50);
-			});
-
-			fireEvent.click(screen.getByTitle('Display'));
+			const setLogLevel = vi.fn();
+			render(<SettingsModal {...createDefaultProps({ setLogLevel, initialTab: 'general' })} />);
 
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(100);
 			});
 
 			fireEvent.click(screen.getByRole('button', { name: 'Info' }));
-			expect(mockSettingsFns.setLogLevel).toHaveBeenCalledWith('info');
+			expect(mockSetLogLevel).toHaveBeenCalledWith('info');
 		});
 
 		it('should call setLogLevel with warn', async () => {
-			render(<SettingsModal {...createDefaultProps()} />);
-
-			await act(async () => {
-				await vi.advanceTimersByTimeAsync(50);
-			});
-
-			fireEvent.click(screen.getByTitle('Display'));
+			const setLogLevel = vi.fn();
+			render(<SettingsModal {...createDefaultProps({ setLogLevel, initialTab: 'general' })} />);
 
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(100);
 			});
 
 			fireEvent.click(screen.getByRole('button', { name: 'Warn' }));
-			expect(mockSettingsFns.setLogLevel).toHaveBeenCalledWith('warn');
+			expect(mockSetLogLevel).toHaveBeenCalledWith('warn');
 		});
 
 		it('should call setLogLevel with error', async () => {
-			render(<SettingsModal {...createDefaultProps()} />);
-
-			await act(async () => {
-				await vi.advanceTimersByTimeAsync(50);
-			});
-
-			fireEvent.click(screen.getByTitle('Display'));
+			const setLogLevel = vi.fn();
+			render(<SettingsModal {...createDefaultProps({ setLogLevel, initialTab: 'general' })} />);
 
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(100);
 			});
 
 			fireEvent.click(screen.getByRole('button', { name: 'Error' }));
-			expect(mockSettingsFns.setLogLevel).toHaveBeenCalledWith('error');
+			expect(mockSetLogLevel).toHaveBeenCalledWith('error');
 		});
 	});
 
-	describe('General tab - Max log buffer buttons', () => {
+	describe('Display tab - Max log buffer buttons', () => {
 		it('should call setMaxLogBuffer with various values', async () => {
-			render(<SettingsModal {...createDefaultProps()} />);
-
-			await act(async () => {
-				await vi.advanceTimersByTimeAsync(50);
-			});
-
-			fireEvent.click(screen.getByTitle('Display'));
+			const setMaxLogBuffer = vi.fn();
+			render(<SettingsModal {...createDefaultProps({ setMaxLogBuffer, initialTab: 'display' })} />);
 
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(100);
 			});
 
 			fireEvent.click(screen.getByRole('button', { name: '1000' }));
-			expect(mockSettingsFns.setMaxLogBuffer).toHaveBeenCalledWith(1000);
+			expect(mockSetMaxLogBuffer).toHaveBeenCalledWith(1000);
 
 			fireEvent.click(screen.getByRole('button', { name: '5000' }));
-			expect(mockSettingsFns.setMaxLogBuffer).toHaveBeenCalledWith(5000);
+			expect(mockSetMaxLogBuffer).toHaveBeenCalledWith(5000);
 
 			fireEvent.click(screen.getByRole('button', { name: '10000' }));
-			expect(mockSettingsFns.setMaxLogBuffer).toHaveBeenCalledWith(10000);
+			expect(mockSetMaxLogBuffer).toHaveBeenCalledWith(10000);
 
 			fireEvent.click(screen.getByRole('button', { name: '25000' }));
-			expect(mockSettingsFns.setMaxLogBuffer).toHaveBeenCalledWith(25000);
+			expect(mockSetMaxLogBuffer).toHaveBeenCalledWith(25000);
 		});
 	});
 
-	describe('General tab - Max output lines buttons', () => {
+	describe('Display tab - Max output lines buttons', () => {
 		it('should call setMaxOutputLines with various values', async () => {
-			render(<SettingsModal {...createDefaultProps()} />);
-
-			await act(async () => {
-				await vi.advanceTimersByTimeAsync(50);
-			});
-
-			fireEvent.click(screen.getByTitle('Display'));
+			const setMaxOutputLines = vi.fn();
+			render(
+				<SettingsModal {...createDefaultProps({ setMaxOutputLines, initialTab: 'display' })} />
+			);
 
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(100);
 			});
 
 			fireEvent.click(screen.getByRole('button', { name: '15' }));
-			expect(mockSettingsFns.setMaxOutputLines).toHaveBeenCalledWith(15);
+			expect(mockSetMaxOutputLines).toHaveBeenCalledWith(15);
 
 			fireEvent.click(screen.getByRole('button', { name: '25' }));
-			expect(mockSettingsFns.setMaxOutputLines).toHaveBeenCalledWith(25);
+			expect(mockSetMaxOutputLines).toHaveBeenCalledWith(25);
 
 			fireEvent.click(screen.getByRole('button', { name: '50' }));
-			expect(mockSettingsFns.setMaxOutputLines).toHaveBeenCalledWith(50);
+			expect(mockSetMaxOutputLines).toHaveBeenCalledWith(50);
 
 			fireEvent.click(screen.getByRole('button', { name: 'All' }));
-			expect(mockSettingsFns.setMaxOutputLines).toHaveBeenCalledWith(Infinity);
+			expect(mockSetMaxOutputLines).toHaveBeenCalledWith(Infinity);
 		});
 	});
 
@@ -1036,7 +969,7 @@ describe('SettingsModal', () => {
 			const bashButton = screen.getByText('Bash').closest('button');
 			fireEvent.click(bashButton!);
 
-			expect(mockSettingsFns.setDefaultShell).toHaveBeenCalledWith('bash');
+			expect(mockSetDefaultShell).toHaveBeenCalledWith('bash');
 		});
 	});
 
@@ -1054,8 +987,7 @@ describe('SettingsModal', () => {
 			const toggleButton = aiModeSection?.querySelector('button');
 			fireEvent.click(toggleButton!);
 
-			// useSettings mock has enterToSendAI: true, so toggling should call with false
-			expect(mockSettingsFns.setEnterToSendAI).toHaveBeenCalledWith(false);
+			expect(mockSetEnterToSendAI).toHaveBeenCalledWith(false);
 		});
 
 		it('should call setEnterToSendTerminal when toggled', async () => {
@@ -1071,18 +1003,18 @@ describe('SettingsModal', () => {
 			const toggleButton = terminalModeSection?.querySelector('button');
 			fireEvent.click(toggleButton!);
 
-			// useSettings mock has enterToSendTerminal: false, so toggling should call with true
-			expect(mockSettingsFns.setEnterToSendTerminal).toHaveBeenCalledWith(true);
+			expect(mockSetEnterToSendTerminal).toHaveBeenCalledWith(false);
 		});
 
-		it('should display Cmd+Enter when enter-to-send is false', async () => {
-			render(<SettingsModal {...createDefaultProps({ enterToSendAI: false })} />);
+		it('should display Cmd+Enter (or Ctrl+Enter on non-Mac) when enter-to-send is false', async () => {
+			mockUseSettingsOverrides = { enterToSendAI: false };
+			render(<SettingsModal {...createDefaultProps()} />);
 
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(100);
 			});
 
-			expect(screen.getByText('⌘ + Enter')).toBeInTheDocument();
+			expect(screen.getByText(formatEnterToSend(false))).toBeInTheDocument();
 		});
 	});
 
@@ -1101,8 +1033,7 @@ describe('SettingsModal', () => {
 			expect(toggleSwitch).toBeDefined();
 
 			fireEvent.click(toggleSwitch!);
-			// useSettings mock has defaultSaveToHistory: true, so toggling calls with false
-			expect(mockSettingsFns.setDefaultSaveToHistory).toHaveBeenCalledWith(false);
+			expect(mockSetDefaultSaveToHistory).toHaveBeenCalledWith(false);
 		});
 	});
 
@@ -1117,7 +1048,7 @@ describe('SettingsModal', () => {
 			const ghPathInput = screen.getByPlaceholderText('/opt/homebrew/bin/gh');
 			fireEvent.change(ghPathInput, { target: { value: '/usr/local/bin/gh' } });
 
-			expect(mockSettingsFns.setGhPath).toHaveBeenCalledWith('/usr/local/bin/gh');
+			expect(mockSetGhPath).toHaveBeenCalledWith('/usr/local/bin/gh');
 		});
 
 		it('should show clear button when ghPath has value', async () => {
@@ -1131,6 +1062,7 @@ describe('SettingsModal', () => {
 		});
 
 		it('should call setGhPath with empty string when clear is clicked', async () => {
+			mockUseSettingsOverrides = { ghPath: '/usr/local/bin/gh' };
 			render(<SettingsModal {...createDefaultProps()} />);
 
 			await act(async () => {
@@ -1143,11 +1075,7 @@ describe('SettingsModal', () => {
 			fireEvent.change(ghPathInput, { target: { value: '/usr/local/bin/gh' } });
 			expect(mockSettingsFns.setGhPath).toHaveBeenCalledWith('/usr/local/bin/gh');
 
-			// Since GeneralTab reads from useSettings() (which still returns ''),
-			// the Clear button won't appear without real state updates.
-			// Verify setGhPath can be called with empty string
-			mockSettingsFns.setGhPath('');
-			expect(mockSettingsFns.setGhPath).toHaveBeenCalledWith('');
+			expect(mockSetGhPath).toHaveBeenCalledWith('');
 		});
 	});
 
@@ -1241,7 +1169,7 @@ describe('SettingsModal', () => {
 				stopPropagation: vi.fn(),
 			});
 
-			expect(mockSettingsFns.setShortcuts).toHaveBeenCalledWith({
+			expect(mockSetShortcuts).toHaveBeenCalledWith({
 				...mockShortcuts,
 				'new-session': { ...mockShortcuts['new-session'], keys: ['Meta', 'k'] },
 			});
@@ -1268,7 +1196,7 @@ describe('SettingsModal', () => {
 			});
 
 			// Should exit recording mode without calling setShortcuts
-			expect(mockSettingsFns.setShortcuts).not.toHaveBeenCalled();
+			expect(mockSetShortcuts).not.toHaveBeenCalled();
 			expect(screen.getByText('Meta+n')).toBeInTheDocument();
 		});
 	});
@@ -1307,7 +1235,7 @@ describe('SettingsModal', () => {
 			});
 
 			fireEvent.click(screen.getByRole('button', { name: 'GitHub Light' }));
-			expect(setActiveThemeId).toHaveBeenCalledWith('github-light');
+			expect(mockSetActiveThemeId).toHaveBeenCalledWith('github-light');
 		});
 
 		it('should highlight active theme', async () => {
@@ -1346,7 +1274,7 @@ describe('SettingsModal', () => {
 			fireEvent.keyDown(themePickerContainer!, { key: 'Tab' });
 
 			// Should move to next theme (github-light in this case, or next in the list)
-			expect(setActiveThemeId).toHaveBeenCalled();
+			expect(mockSetActiveThemeId).toHaveBeenCalled();
 		});
 
 		it('should display Follow System Appearance toggle', async () => {
@@ -1493,16 +1421,14 @@ describe('SettingsModal', () => {
 			const toggleSwitch = toggleContainer?.querySelector('button[role="switch"]');
 			fireEvent.click(toggleSwitch!);
 
-			expect(setOsNotificationsEnabled).toHaveBeenCalledWith(false);
+			expect(mockSetOsNotificationsEnabled).toHaveBeenCalledWith(false);
 		});
 
-		it('should update toggle state when prop changes (regression test for memo bug)', async () => {
-			// This test ensures the component re-renders when props change
-			// A previous bug had an overly restrictive memo comparator that prevented re-renders
+		it('should update toggle state when useSettings changes (regression test for memo bug)', async () => {
+			// This test ensures the component re-renders when useSettings values change
+			mockUseSettingsOverrides = { osNotificationsEnabled: true };
 			const { rerender } = render(
-				<SettingsModal
-					{...createDefaultProps({ initialTab: 'notifications', osNotificationsEnabled: true })}
-				/>
+				<SettingsModal {...createDefaultProps({ initialTab: 'notifications' })} />
 			);
 
 			await act(async () => {
@@ -1517,12 +1443,9 @@ describe('SettingsModal', () => {
 			) as HTMLButtonElement;
 			expect(toggleSwitch.getAttribute('aria-checked')).toBe('true');
 
-			// Rerender with changed prop (simulating what happens after onChange)
-			rerender(
-				<SettingsModal
-					{...createDefaultProps({ initialTab: 'notifications', osNotificationsEnabled: false })}
-				/>
-			);
+			// Update the useSettings override to simulate a change
+			mockUseSettingsOverrides = { osNotificationsEnabled: false };
+			rerender(<SettingsModal {...createDefaultProps({ initialTab: 'notifications' })} />);
 
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(50);
@@ -1546,14 +1469,14 @@ describe('SettingsModal', () => {
 			);
 		});
 
-		it('should display audio feedback setting', async () => {
+		it('should display custom notification setting', async () => {
 			render(<SettingsModal {...createDefaultProps({ initialTab: 'notifications' })} />);
 
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(100);
 			});
 
-			expect(screen.getByText('Enable Audio Feedback')).toBeInTheDocument();
+			expect(screen.getByText('Enable Custom Notification')).toBeInTheDocument();
 		});
 
 		it('should call setAudioFeedbackEnabled when toggle switch is changed', async () => {
@@ -1573,15 +1496,15 @@ describe('SettingsModal', () => {
 			});
 
 			// SettingCheckbox uses a button with role="switch" instead of input[type="checkbox"]
-			const titleElement = screen.getByText('Enable Audio Feedback');
+			const titleElement = screen.getByText('Enable Custom Notification');
 			const toggleContainer = titleElement.closest('[role="button"]');
 			const toggleSwitch = toggleContainer?.querySelector('button[role="switch"]');
 			fireEvent.click(toggleSwitch!);
 
-			expect(setAudioFeedbackEnabled).toHaveBeenCalledWith(true);
+			expect(mockSetAudioFeedbackEnabled).toHaveBeenCalledWith(true);
 		});
 
-		it('should call setAudioFeedbackCommand when TTS command is changed', async () => {
+		it('should call setAudioFeedbackCommand when Command Chain is changed', async () => {
 			const setAudioFeedbackCommand = vi.fn();
 			render(
 				<SettingsModal
@@ -1596,10 +1519,10 @@ describe('SettingsModal', () => {
 			const ttsInput = screen.getByPlaceholderText('say');
 			fireEvent.change(ttsInput, { target: { value: 'espeak' } });
 
-			expect(setAudioFeedbackCommand).toHaveBeenCalledWith('espeak');
+			expect(mockSetAudioFeedbackCommand).toHaveBeenCalledWith('espeak');
 		});
 
-		it('should test TTS when test button is clicked', async () => {
+		it('should test Command Chain when test button is clicked', async () => {
 			render(<SettingsModal {...createDefaultProps({ initialTab: 'notifications' })} />);
 
 			await act(async () => {
@@ -1636,22 +1559,22 @@ describe('SettingsModal', () => {
 			});
 
 			fireEvent.click(screen.getByRole('button', { name: 'Off' }));
-			expect(setToastDuration).toHaveBeenCalledWith(-1);
+			expect(mockSetToastDuration).toHaveBeenCalledWith(-1);
 
 			fireEvent.click(screen.getByRole('button', { name: '5s' }));
-			expect(setToastDuration).toHaveBeenCalledWith(5);
+			expect(mockSetToastDuration).toHaveBeenCalledWith(5);
 
 			fireEvent.click(screen.getByRole('button', { name: '10s' }));
-			expect(setToastDuration).toHaveBeenCalledWith(10);
+			expect(mockSetToastDuration).toHaveBeenCalledWith(10);
 
 			fireEvent.click(screen.getByRole('button', { name: '20s' }));
-			expect(setToastDuration).toHaveBeenCalledWith(20);
+			expect(mockSetToastDuration).toHaveBeenCalledWith(20);
 
 			fireEvent.click(screen.getByRole('button', { name: '30s' }));
-			expect(setToastDuration).toHaveBeenCalledWith(30);
+			expect(mockSetToastDuration).toHaveBeenCalledWith(30);
 
 			fireEvent.click(screen.getByRole('button', { name: 'Never' }));
-			expect(setToastDuration).toHaveBeenCalledWith(0);
+			expect(mockSetToastDuration).toHaveBeenCalledWith(0);
 		});
 	});
 
@@ -1669,7 +1592,7 @@ describe('SettingsModal', () => {
 
 	describe('custom fonts', () => {
 		it('should add custom font when input is submitted', async () => {
-			render(<SettingsModal {...createDefaultProps()} />);
+			render(<SettingsModal {...createDefaultProps({ initialTab: 'display' })} />);
 
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(50);
@@ -1684,7 +1607,9 @@ describe('SettingsModal', () => {
 
 			const customFontInput = screen.getByPlaceholderText('Add custom font name...');
 			fireEvent.change(customFontInput, { target: { value: 'My Custom Font' } });
-			fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+			// Scope to the font input's parent container to avoid ambiguous "Add" button matches
+			const fontContainer = customFontInput.closest('div')!.parentElement!;
+			fireEvent.click(within(fontContainer).getByRole('button', { name: 'Add' }));
 
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(50);
@@ -1694,7 +1619,7 @@ describe('SettingsModal', () => {
 		});
 
 		it('should add custom font on Enter key', async () => {
-			render(<SettingsModal {...createDefaultProps()} />);
+			render(<SettingsModal {...createDefaultProps({ initialTab: 'display' })} />);
 
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(50);
@@ -1718,7 +1643,7 @@ describe('SettingsModal', () => {
 		});
 
 		it('should not add empty custom font', async () => {
-			render(<SettingsModal {...createDefaultProps()} />);
+			render(<SettingsModal {...createDefaultProps({ initialTab: 'display' })} />);
 
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(50);
@@ -1732,7 +1657,9 @@ describe('SettingsModal', () => {
 
 			const customFontInput = screen.getByPlaceholderText('Add custom font name...');
 			fireEvent.change(customFontInput, { target: { value: '   ' } });
-			fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+			// Scope to the font input's parent container to avoid ambiguous "Add" button matches
+			const fontContainer = customFontInput.closest('div')!.parentElement!;
+			fireEvent.click(within(fontContainer).getByRole('button', { name: 'Add' }));
 
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(50);
@@ -1751,7 +1678,7 @@ describe('SettingsModal', () => {
 
 			const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-			render(<SettingsModal {...createDefaultProps()} />);
+			render(<SettingsModal {...createDefaultProps({ initialTab: 'display' })} />);
 
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(50);
@@ -1817,6 +1744,7 @@ describe('SettingsModal', () => {
 				},
 			});
 
+			mockUseSettingsOverrides = { shortcuts: customShortcuts };
 			render(<SettingsModal {...createDefaultProps({ initialTab: 'shortcuts' })} />);
 
 			await act(async () => {
@@ -1841,6 +1769,7 @@ describe('SettingsModal', () => {
 				},
 			});
 
+			mockUseSettingsOverrides = { shortcuts: customShortcuts };
 			render(<SettingsModal {...createDefaultProps({ initialTab: 'shortcuts' })} />);
 
 			await act(async () => {
@@ -1912,41 +1841,58 @@ describe('SettingsModal', () => {
 	});
 
 	describe('recording state and escape handling', () => {
-		it('should cancel recording instead of closing modal when Escape is pressed during recording', async () => {
-			render(<SettingsModal {...createDefaultProps({ initialTab: 'shortcuts' })} />);
+		it('should not close modal when Escape is pressed during shortcut recording', async () => {
+			const onClose = vi.fn();
+			const { useLayerStack } = await import('../../../renderer/contexts/LayerStackContext');
+
+			let capturedEscapeHandler: (() => void) | undefined;
+			vi.mocked(useLayerStack).mockReturnValue({
+				registerLayer: vi.fn((config) => {
+					capturedEscapeHandler = config.onEscape;
+					return 'layer-123';
+				}),
+				unregisterLayer: vi.fn(),
+				getTopLayer: vi.fn(),
+				closeTopLayer: vi.fn(),
+				getLayers: vi.fn(),
+				hasOpenLayers: vi.fn(),
+				hasOpenModal: vi.fn(),
+				layerCount: 0,
+			});
+
+			render(<SettingsModal {...createDefaultProps({ initialTab: 'shortcuts', onClose })} />);
 
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(100);
 			});
 
-			// Enter recording mode
+			// Enter recording mode (this triggers onRecordingChange(true) on the shell's ref)
 			const shortcutButton = screen.getByText('Meta+n');
 			fireEvent.click(shortcutButton);
 
 			expect(screen.getByText('Press keys...')).toBeInTheDocument();
 
-			// Press Escape directly on the shortcut button (ShortcutsTab handles this internally)
-			fireEvent.keyDown(shortcutButton, {
-				key: 'Escape',
-				preventDefault: vi.fn(),
-				stopPropagation: vi.fn(),
-			});
+			// Call the escape handler (simulating layer stack escape)
+			// ShortcutsTab handles its own escape via onKeyDownCapture, so
+			// the shell just ignores the escape when recording is active
+			capturedEscapeHandler?.();
 
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(50);
 			});
 
-			// Should exit recording mode
-			expect(screen.getByText('Meta+n')).toBeInTheDocument();
-			// Modal should still be open
-			expect(screen.getByRole('dialog')).toBeInTheDocument();
+			// Modal should still be open — onClose should NOT have been called
+			expect(onClose).not.toHaveBeenCalled();
 		});
 	});
 
-	describe('TTS Stop button', () => {
-		it('should show Stop button when TTS is playing and handle click', async () => {
-			// Mock speak to return a ttsId
-			vi.mocked(window.maestro.notification.speak).mockResolvedValue({ success: true, ttsId: 123 });
+	describe('Custom notification Stop button', () => {
+		it('should show Stop button when Command Chain is running and handle click', async () => {
+			// Mock speak to return a notificationId
+			vi.mocked(window.maestro.notification.speak).mockResolvedValue({
+				success: true,
+				notificationId: 123,
+			});
 			vi.mocked(window.maestro.notification.stopSpeak).mockResolvedValue({ success: true });
 
 			render(<SettingsModal {...createDefaultProps({ initialTab: 'notifications' })} />);
@@ -1955,7 +1901,7 @@ describe('SettingsModal', () => {
 				await vi.advanceTimersByTimeAsync(100);
 			});
 
-			// Click Test button to start TTS
+			// Click Test button to start Command Chain
 			fireEvent.click(screen.getByRole('button', { name: 'Test' }));
 
 			await act(async () => {
@@ -1976,7 +1922,10 @@ describe('SettingsModal', () => {
 		});
 
 		it('should handle stopSpeak error gracefully', async () => {
-			vi.mocked(window.maestro.notification.speak).mockResolvedValue({ success: true, ttsId: 456 });
+			vi.mocked(window.maestro.notification.speak).mockResolvedValue({
+				success: true,
+				notificationId: 456,
+			});
 			vi.mocked(window.maestro.notification.stopSpeak).mockRejectedValue(new Error('Stop failed'));
 
 			const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -1987,7 +1936,7 @@ describe('SettingsModal', () => {
 				await vi.advanceTimersByTimeAsync(100);
 			});
 
-			// Click Test button to start TTS
+			// Click Test button to start Command Chain
 			fireEvent.click(screen.getByRole('button', { name: 'Test' }));
 
 			await act(async () => {
@@ -2027,8 +1976,19 @@ describe('SettingsModal', () => {
 			consoleSpy.mockRestore();
 		});
 
-		it('should auto-clear TTS state after timeout', async () => {
-			vi.mocked(window.maestro.notification.speak).mockResolvedValue({ success: true, ttsId: 789 });
+		it('should return to Test button when command completes', async () => {
+			// Set up a mock that captures the onCommandCompleted callback
+			let capturedCallback: ((notificationId: number) => void) | null = null;
+			vi.mocked(window.maestro.notification.onCommandCompleted).mockImplementation((callback) => {
+				capturedCallback = callback;
+				return () => {
+					capturedCallback = null;
+				};
+			});
+			vi.mocked(window.maestro.notification.speak).mockResolvedValue({
+				success: true,
+				notificationId: 789,
+			});
 
 			render(<SettingsModal {...createDefaultProps({ initialTab: 'notifications' })} />);
 
@@ -2036,19 +1996,30 @@ describe('SettingsModal', () => {
 				await vi.advanceTimersByTimeAsync(100);
 			});
 
-			// Click Test button to start TTS
+			// Click Test button to start Command Chain
 			fireEvent.click(screen.getByRole('button', { name: 'Test' }));
 
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(100);
 			});
 
-			// Stop button should be visible
+			// Stop button should be visible while command is running
 			expect(screen.getByText('Stop')).toBeInTheDocument();
 
-			// Advance timer to trigger auto-clear (8000ms)
+			// Simulate the command completing
 			await act(async () => {
-				await vi.advanceTimersByTimeAsync(8000);
+				if (capturedCallback) {
+					capturedCallback(789);
+				}
+				await vi.advanceTimersByTimeAsync(100);
+			});
+
+			// Should show Success state briefly
+			expect(screen.getByText('Success')).toBeInTheDocument();
+
+			// Advance timer to clear success state (3000ms)
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(3000);
 			});
 
 			// Test button should be back
@@ -2058,13 +2029,11 @@ describe('SettingsModal', () => {
 
 	describe('Theme picker - Shift+Tab navigation', () => {
 		it('should navigate to previous theme with Shift+Tab', async () => {
-			const setActiveThemeId = vi.fn();
+			mockUseSettingsOverrides = { activeThemeId: 'github-light' };
 			render(
 				<SettingsModal
 					{...createDefaultProps({
 						initialTab: 'theme',
-						setActiveThemeId,
-						activeThemeId: 'github-light',
 					})}
 				/>
 			);
@@ -2084,7 +2053,7 @@ describe('SettingsModal', () => {
 			});
 
 			// Should navigate to previous theme (dracula, since github-light is after dracula)
-			expect(setActiveThemeId).toHaveBeenCalledWith('dracula');
+			expect(mockSetActiveThemeId).toHaveBeenCalledWith('dracula');
 		});
 	});
 
@@ -2108,7 +2077,7 @@ describe('SettingsModal', () => {
 				stopPropagation: vi.fn(),
 			});
 
-			expect(mockSettingsFns.setShortcuts).toHaveBeenCalledWith(
+			expect(mockSetShortcuts).toHaveBeenCalledWith(
 				expect.objectContaining({
 					'new-session': expect.objectContaining({ keys: ['Ctrl', 'k'] }),
 				})
@@ -2134,7 +2103,7 @@ describe('SettingsModal', () => {
 				stopPropagation: vi.fn(),
 			});
 
-			expect(mockSettingsFns.setShortcuts).toHaveBeenCalledWith(
+			expect(mockSetShortcuts).toHaveBeenCalledWith(
 				expect.objectContaining({
 					'new-session': expect.objectContaining({ keys: ['Alt', 'k'] }),
 				})
@@ -2160,7 +2129,7 @@ describe('SettingsModal', () => {
 				stopPropagation: vi.fn(),
 			});
 
-			expect(mockSettingsFns.setShortcuts).toHaveBeenCalledWith(
+			expect(mockSetShortcuts).toHaveBeenCalledWith(
 				expect.objectContaining({
 					'new-session': expect.objectContaining({ keys: ['Shift', 'k'] }),
 				})
@@ -2187,7 +2156,7 @@ describe('SettingsModal', () => {
 			});
 
 			// Should not call setShortcuts for modifier-only key
-			expect(mockSettingsFns.setShortcuts).not.toHaveBeenCalled();
+			expect(mockSetShortcuts).not.toHaveBeenCalled();
 			// Should still be in recording mode
 			expect(screen.getByText('Press keys...')).toBeInTheDocument();
 		});
@@ -2198,7 +2167,7 @@ describe('SettingsModal', () => {
 			// Preload custom fonts
 			vi.mocked(window.maestro.settings.get).mockResolvedValue(['MyCustomFont', 'AnotherFont']);
 
-			render(<SettingsModal {...createDefaultProps()} />);
+			render(<SettingsModal {...createDefaultProps({ initialTab: 'display' })} />);
 
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(50);
@@ -2238,59 +2207,50 @@ describe('SettingsModal', () => {
 
 	describe('Terminal width 120 and 160 buttons', () => {
 		it('should call setTerminalWidth with 120', async () => {
-			render(<SettingsModal {...createDefaultProps()} />);
-
-			await act(async () => {
-				await vi.advanceTimersByTimeAsync(50);
-			});
-
-			fireEvent.click(screen.getByTitle('Display'));
+			const setTerminalWidth = vi.fn();
+			render(
+				<SettingsModal {...createDefaultProps({ setTerminalWidth, initialTab: 'display' })} />
+			);
 
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(100);
 			});
 
 			fireEvent.click(screen.getByRole('button', { name: '120' }));
-			expect(mockSettingsFns.setTerminalWidth).toHaveBeenCalledWith(120);
+			expect(mockSetTerminalWidth).toHaveBeenCalledWith(120);
 		});
 
 		it('should call setTerminalWidth with 160', async () => {
-			render(<SettingsModal {...createDefaultProps()} />);
-
-			await act(async () => {
-				await vi.advanceTimersByTimeAsync(50);
-			});
-
-			fireEvent.click(screen.getByTitle('Display'));
+			const setTerminalWidth = vi.fn();
+			render(
+				<SettingsModal {...createDefaultProps({ setTerminalWidth, initialTab: 'display' })} />
+			);
 
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(100);
 			});
 
 			fireEvent.click(screen.getByRole('button', { name: '160' }));
-			expect(mockSettingsFns.setTerminalWidth).toHaveBeenCalledWith(160);
+			expect(mockSetTerminalWidth).toHaveBeenCalledWith(160);
 		});
 	});
 
 	describe('Max output lines 100 button', () => {
 		it('should call setMaxOutputLines with 100', async () => {
-			render(<SettingsModal {...createDefaultProps()} />);
-
-			await act(async () => {
-				await vi.advanceTimersByTimeAsync(50);
-			});
-
-			fireEvent.click(screen.getByTitle('Display'));
+			render(<SettingsModal {...createDefaultProps({ initialTab: 'display' })} />);
 
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(100);
 			});
 
-			// Find the 100 buttons (terminal width and max output lines)
-			const buttons100 = screen.getAllByRole('button', { name: '100' });
-			// The second button with text "100" is for max output lines
-			fireEvent.click(buttons100[1]);
-			expect(mockSettingsFns.setMaxOutputLines).toHaveBeenCalledWith(100);
+			// Find the Max Output Lines section by its label, then find the 100 button within it
+			const maxOutputLabel = screen.getByText('Max Output Lines per Response');
+			const maxOutputSection = maxOutputLabel.closest('div')?.parentElement;
+			const buttons = maxOutputSection?.querySelectorAll('button') ?? [];
+			const button100 = Array.from(buttons).find((btn) => btn.textContent === '100');
+			expect(button100).toBeDefined();
+			fireEvent.click(button100!);
+			expect(mockSetMaxOutputLines).toHaveBeenCalledWith(100);
 		});
 	});
 
@@ -2298,7 +2258,7 @@ describe('SettingsModal', () => {
 		it('should check font availability using normalized names', async () => {
 			(window.maestro as any).fonts.detect.mockResolvedValue(['JetBrains Mono', 'Fira Code']);
 
-			render(<SettingsModal {...createDefaultProps()} />);
+			render(<SettingsModal {...createDefaultProps({ initialTab: 'display' })} />);
 
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(50);
@@ -2324,6 +2284,143 @@ describe('SettingsModal', () => {
 			// JetBrains Mono is in the list, so it should be available
 			const options = fontSelect.querySelectorAll('option');
 			expect(options.length).toBeGreaterThan(0);
+		});
+	});
+
+	describe('WakaTime CLI status', () => {
+		it('should not check CLI when WakaTime is disabled', async () => {
+			render(<SettingsModal {...createDefaultProps()} />);
+
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(100);
+			});
+
+			expect(window.maestro.wakatime.checkCli).not.toHaveBeenCalled();
+		});
+
+		it('should check CLI when WakaTime is enabled', async () => {
+			mockUseSettingsOverrides = { wakatimeEnabled: true };
+			vi.mocked(window.maestro.wakatime.checkCli).mockResolvedValue({
+				available: true,
+				version: '1.0.0',
+			});
+
+			render(<SettingsModal {...createDefaultProps()} />);
+
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(100);
+			});
+
+			expect(window.maestro.wakatime.checkCli).toHaveBeenCalled();
+		});
+
+		it('should show auto-install message when CLI is not available', async () => {
+			mockUseSettingsOverrides = { wakatimeEnabled: true };
+			vi.mocked(window.maestro.wakatime.checkCli).mockResolvedValue({ available: false });
+
+			render(<SettingsModal {...createDefaultProps()} />);
+
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(100);
+			});
+
+			expect(
+				screen.getByText('WakaTime CLI is being installed automatically...')
+			).toBeInTheDocument();
+		});
+
+		it('should retry CLI check after 3 seconds when first check returns unavailable', async () => {
+			mockUseSettingsOverrides = { wakatimeEnabled: true };
+			vi.mocked(window.maestro.wakatime.checkCli)
+				.mockResolvedValueOnce({ available: false })
+				.mockResolvedValueOnce({ available: true, version: '1.0.0' });
+
+			render(<SettingsModal {...createDefaultProps()} />);
+
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(100);
+			});
+
+			// First check should have been called
+			expect(window.maestro.wakatime.checkCli).toHaveBeenCalledTimes(1);
+
+			// Advance to trigger retry
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(3000);
+			});
+
+			// Second check should have been called
+			expect(window.maestro.wakatime.checkCli).toHaveBeenCalledTimes(2);
+		});
+
+		it('should not retry CLI check when first check returns available', async () => {
+			mockUseSettingsOverrides = { wakatimeEnabled: true };
+			vi.mocked(window.maestro.wakatime.checkCli).mockResolvedValue({
+				available: true,
+				version: '1.0.0',
+			});
+
+			render(<SettingsModal {...createDefaultProps()} />);
+
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(100);
+			});
+
+			expect(window.maestro.wakatime.checkCli).toHaveBeenCalledTimes(1);
+
+			// Advance past retry timeout
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(3000);
+			});
+
+			// Should still be 1 — no retry needed
+			expect(window.maestro.wakatime.checkCli).toHaveBeenCalledTimes(1);
+		});
+
+		it('should not show auto-install message when CLI is available', async () => {
+			mockUseSettingsOverrides = { wakatimeEnabled: true };
+			vi.mocked(window.maestro.wakatime.checkCli).mockResolvedValue({
+				available: true,
+				version: '1.0.0',
+			});
+
+			render(<SettingsModal {...createDefaultProps()} />);
+
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(100);
+			});
+
+			expect(
+				screen.queryByText('WakaTime CLI is being installed automatically...')
+			).not.toBeInTheDocument();
+		});
+
+		it('should retry on error and update status after retry succeeds', async () => {
+			mockUseSettingsOverrides = { wakatimeEnabled: true };
+			vi.mocked(window.maestro.wakatime.checkCli)
+				.mockRejectedValueOnce(new Error('Network error'))
+				.mockResolvedValueOnce({ available: true, version: '1.0.0' });
+
+			render(<SettingsModal {...createDefaultProps()} />);
+
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(100);
+			});
+
+			// Should show the auto-install message after error
+			expect(
+				screen.getByText('WakaTime CLI is being installed automatically...')
+			).toBeInTheDocument();
+
+			// Advance to trigger retry
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(3000);
+			});
+
+			// After retry succeeds, message should disappear
+			expect(
+				screen.queryByText('WakaTime CLI is being installed automatically...')
+			).not.toBeInTheDocument();
 		});
 	});
 
@@ -2358,6 +2455,281 @@ describe('SettingsModal', () => {
 
 			// shells.detect should only have been called once
 			expect(window.maestro.shells.detect).toHaveBeenCalledTimes(1);
+		});
+	});
+
+	describe('Encore Features settings tab', () => {
+		it('should render Encore Features tab button', async () => {
+			render(<SettingsModal {...createDefaultProps()} />);
+
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(50);
+			});
+
+			expect(screen.getByTitle('Encore Features')).toBeInTheDocument();
+		});
+
+		it('should switch to Encore Features tab when clicked', async () => {
+			render(<SettingsModal {...createDefaultProps()} />);
+
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(50);
+			});
+
+			const tab = screen.getByTitle('Encore Features');
+			fireEvent.click(tab);
+
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(50);
+			});
+
+			expect(screen.getByText('Encore Features', { selector: 'h3' })).toBeInTheDocument();
+		});
+
+		it('should show description text for Encore Features', async () => {
+			render(<SettingsModal {...createDefaultProps()} />);
+
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(50);
+			});
+
+			fireEvent.click(screen.getByTitle('Encore Features'));
+
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(50);
+			});
+
+			expect(
+				screen.getByText(/Optional features that extend Maestro's capabilities/)
+			).toBeInTheDocument();
+			expect(
+				screen.getByText(/Contributors building new features should consider gating them here/)
+			).toBeInTheDocument();
+		});
+
+		it("should show Director's Notes feature toggle defaulting to off", async () => {
+			render(<SettingsModal {...createDefaultProps()} />);
+
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(50);
+			});
+
+			fireEvent.click(screen.getByTitle('Encore Features'));
+
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(50);
+			});
+
+			// Director's Notes section is visible but DN settings are hidden
+			expect(screen.getByText("Director's Notes")).toBeInTheDocument();
+			expect(screen.queryByText('Synopsis Provider')).not.toBeInTheDocument();
+		});
+
+		it("should call setEncoreFeatures when Director's Notes toggle is clicked", async () => {
+			mockSetEncoreFeatures.mockClear();
+
+			render(<SettingsModal {...createDefaultProps()} />);
+
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(50);
+			});
+
+			fireEvent.click(screen.getByTitle('Encore Features'));
+
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(50);
+			});
+
+			// Click the Director's Notes feature section to toggle
+			const dnSection = screen.getByText("Director's Notes").closest('button');
+			expect(dnSection).toBeInTheDocument();
+			fireEvent.click(dnSection!);
+
+			expect(mockSetEncoreFeatures).toHaveBeenCalledWith({
+				directorNotes: true,
+			});
+		});
+
+		it('should call setEncoreFeatures with false when toggling DN off', async () => {
+			mockSetEncoreFeatures.mockClear();
+			mockUseSettingsOverrides = { encoreFeatures: { directorNotes: true } };
+			render(<SettingsModal {...createDefaultProps()} />);
+
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(50);
+			});
+
+			fireEvent.click(screen.getByTitle('Encore Features'));
+
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(50);
+			});
+
+			const dnSection = screen.getByText("Director's Notes").closest('button');
+			expect(dnSection).toBeInTheDocument();
+			fireEvent.click(dnSection!);
+
+			expect(mockSetEncoreFeatures).toHaveBeenCalledWith({
+				directorNotes: false,
+			});
+		});
+
+		describe("with Director's Notes enabled", () => {
+			beforeEach(() => {
+				mockUseSettingsOverrides = { encoreFeatures: { directorNotes: true } };
+			});
+
+			it('should render provider dropdown with detected available agents', async () => {
+				render(<SettingsModal {...createDefaultProps()} />);
+
+				await act(async () => {
+					await vi.advanceTimersByTimeAsync(50);
+				});
+
+				fireEvent.click(screen.getByTitle('Encore Features'));
+
+				await act(async () => {
+					await vi.advanceTimersByTimeAsync(100);
+				});
+
+				expect(screen.getByText('Synopsis Provider')).toBeInTheDocument();
+
+				// With the default mock, only claude-code is available and supported
+				const select = screen.getByLabelText('Select synopsis provider agent');
+				expect(select).toBeInTheDocument();
+
+				const options = select.querySelectorAll('option');
+				expect(options.length).toBeGreaterThanOrEqual(1);
+				expect(options[0]).toHaveValue('claude-code');
+				expect(options[0]).toHaveTextContent('Claude Code');
+			});
+
+			it('should render Customize button for provider configuration', async () => {
+				render(<SettingsModal {...createDefaultProps()} />);
+
+				await act(async () => {
+					await vi.advanceTimersByTimeAsync(50);
+				});
+
+				fireEvent.click(screen.getByTitle('Encore Features'));
+
+				await act(async () => {
+					await vi.advanceTimersByTimeAsync(100);
+				});
+
+				const customizeButton = screen.getByTitle('Customize provider settings');
+				expect(customizeButton).toBeInTheDocument();
+				expect(customizeButton).toHaveTextContent('Customize');
+			});
+
+			it('should render default lookback period slider with range 1-90', async () => {
+				render(<SettingsModal {...createDefaultProps()} />);
+
+				await act(async () => {
+					await vi.advanceTimersByTimeAsync(50);
+				});
+
+				fireEvent.click(screen.getByTitle('Encore Features'));
+
+				await act(async () => {
+					await vi.advanceTimersByTimeAsync(50);
+				});
+
+				expect(screen.getByText(/Default Lookback Period: 7 days/)).toBeInTheDocument();
+
+				const slider = screen.getByRole('slider');
+				expect(slider).toBeInTheDocument();
+				expect(slider).toHaveAttribute('min', '1');
+				expect(slider).toHaveAttribute('max', '90');
+				expect(slider).toHaveValue('7');
+			});
+
+			it('should show DN description text when enabled', async () => {
+				render(<SettingsModal {...createDefaultProps()} />);
+
+				await act(async () => {
+					await vi.advanceTimersByTimeAsync(50);
+				});
+
+				fireEvent.click(screen.getByTitle('Encore Features'));
+
+				await act(async () => {
+					await vi.advanceTimersByTimeAsync(50);
+				});
+
+				expect(
+					screen.getByText(/Unified history view and AI-generated synopsis across all sessions/)
+				).toBeInTheDocument();
+				expect(
+					screen.getByText(/AI agent used to generate synopsis summaries/)
+				).toBeInTheDocument();
+				expect(screen.getByText(/How far back to look when generating notes/)).toBeInTheDocument();
+			});
+
+			it('should call setDirectorNotesSettings when provider is changed', async () => {
+				mockSetDirectorNotesSettings.mockClear();
+
+				render(<SettingsModal {...createDefaultProps()} />);
+
+				await act(async () => {
+					await vi.advanceTimersByTimeAsync(50);
+				});
+
+				fireEvent.click(screen.getByTitle('Encore Features'));
+
+				await act(async () => {
+					await vi.advanceTimersByTimeAsync(50);
+				});
+
+				const select = screen.getByDisplayValue('Claude Code');
+				fireEvent.change(select, { target: { value: 'codex' } });
+
+				expect(mockSetDirectorNotesSettings).toHaveBeenCalledWith({
+					provider: 'codex',
+					defaultLookbackDays: 7,
+				});
+			});
+
+			it('should call setDirectorNotesSettings when lookback slider is changed', async () => {
+				mockSetDirectorNotesSettings.mockClear();
+
+				render(<SettingsModal {...createDefaultProps()} />);
+
+				await act(async () => {
+					await vi.advanceTimersByTimeAsync(50);
+				});
+
+				fireEvent.click(screen.getByTitle('Encore Features'));
+
+				await act(async () => {
+					await vi.advanceTimersByTimeAsync(50);
+				});
+
+				const slider = screen.getByRole('slider');
+				fireEvent.change(slider, { target: { value: '30' } });
+
+				expect(mockSetDirectorNotesSettings).toHaveBeenCalledWith({
+					provider: 'claude-code',
+					defaultLookbackDays: 30,
+				});
+			});
+
+			it('should render lookback scale markers', async () => {
+				render(<SettingsModal {...createDefaultProps()} />);
+
+				await act(async () => {
+					await vi.advanceTimersByTimeAsync(50);
+				});
+
+				fireEvent.click(screen.getByTitle('Encore Features'));
+
+				await act(async () => {
+					await vi.advanceTimersByTimeAsync(50);
+				});
+
+				expect(screen.getByText('1 day')).toBeInTheDocument();
+				expect(screen.getByText('90 days')).toBeInTheDocument();
+			});
 		});
 	});
 });

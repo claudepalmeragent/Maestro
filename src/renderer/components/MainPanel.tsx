@@ -37,9 +37,23 @@ import { gitService } from '../services/git';
 import { remoteUrlToBrowserUrl } from '../../shared/gitUtils';
 import { useGitBranch, useGitDetail, useGitFileStatus } from '../contexts/GitStatusContext';
 import { formatShortcutKeys } from '../utils/shortcutFormatter';
-import { calculateContextTokens } from '../utils/contextUsage';
+import { calculateContextDisplay } from '../utils/contextUsage';
 import { useAgentCapabilities, useHoverTooltip } from '../hooks';
-import type { Session, Theme, Shortcut, FocusArea, BatchRunState, PinnedItem } from '../types';
+import { safeClipboardWrite } from '../utils/clipboard';
+import { useUIStore } from '../stores/uiStore';
+import { useSettingsStore } from '../stores/settingsStore';
+import type {
+	Session,
+	Theme,
+	Shortcut,
+	FocusArea,
+	BatchRunState,
+	PinnedItem,
+	UnifiedTab,
+	FilePreviewTab,
+	ThinkingItem,
+	AgentError,
+} from '../types';
 
 interface SlashCommand {
 	command: string;
@@ -62,18 +76,12 @@ interface MainPanelProps {
 	agentSessionsOpen: boolean;
 	activeAgentSessionId: string | null;
 	activeSession: Session | null;
-	// PERF: Receive pre-filtered thinkingSessions instead of full sessions array.
+	// PERF: Receive pre-filtered thinkingItems instead of full sessions array.
 	// This prevents cascade re-renders when unrelated session updates occur.
-	thinkingSessions: Session[];
+	thinkingItems: ThinkingItem[];
 	theme: Theme;
-	fontFamily: string;
 	isMobileLandscape?: boolean;
-	activeFocus: FocusArea;
-	outputSearchOpen: boolean;
-	outputSearchQuery: string;
 	inputValue: string;
-	enterToSendAI: boolean;
-	enterToSendTerminal: boolean;
 	stagedImages: string[];
 	commandHistoryOpen: boolean;
 	commandHistoryFilter: string;
@@ -97,17 +105,7 @@ interface MainPanelProps {
 		fullPath: string;
 	}>;
 	selectedAtMentionIndex?: number;
-	previewFile: { name: string; content: string; path: string } | null;
 	filePreviewLoading?: { name: string; path: string } | null;
-	markdownEditMode: boolean;
-	shortcuts: Record<string, Shortcut>;
-	rightPanelOpen: boolean;
-	maxOutputLines: number;
-	gitDiffPreview: string | null;
-	fileTreeFilterOpen: boolean;
-	logLevel?: string; // Current log level setting for LogViewer
-	logViewerSelectedLevels: string[]; // Persisted filter selections for LogViewer
-	setLogViewerSelectedLevels: (levels: string[]) => void;
 
 	// Setters
 	setGitDiffPreview: (preview: string | null) => void;
@@ -122,12 +120,7 @@ interface MainPanelProps {
 		usageStats?: import('../types').UsageStats
 	) => void;
 	onNewAgentSession: () => void;
-	setActiveFocus: (focus: FocusArea) => void;
-	setOutputSearchOpen: (open: boolean) => void;
-	setOutputSearchQuery: (query: string) => void;
 	setInputValue: (value: string) => void;
-	setEnterToSendAI: (value: boolean) => void;
-	setEnterToSendTerminal: (value: boolean) => void;
 	setStagedImages: React.Dispatch<React.SetStateAction<string[]>>;
 	setLightboxImage: (
 		image: string | null,
@@ -148,18 +141,12 @@ interface MainPanelProps {
 	setAtMentionFilter?: (filter: string) => void;
 	setAtMentionStartIndex?: (index: number) => void;
 	setSelectedAtMentionIndex?: (index: number) => void;
-	setPreviewFile: (file: { name: string; content: string; path: string } | null) => void;
-	setMarkdownEditMode: (mode: boolean) => void;
-	setAboutModalOpen: (open: boolean) => void;
-	setRightPanelOpen: (open: boolean) => void;
 	setGitLogOpen: (open: boolean) => void;
 
 	// Refs
 	inputRef: React.RefObject<HTMLTextAreaElement>;
 	logsEndRef: React.RefObject<HTMLDivElement>;
 	terminalOutputRef: React.RefObject<HTMLDivElement>;
-	fileTreeContainerRef: React.RefObject<HTMLDivElement>;
-	fileTreeFilterInputRef: React.RefObject<HTMLInputElement>;
 
 	// Functions
 	toggleInputMode: () => void;
@@ -175,13 +162,8 @@ interface MainPanelProps {
 	onOpenQueueBrowser?: () => void;
 
 	// Auto mode props
-	batchRunState?: BatchRunState; // For display (may be from any session with active batch)
 	currentSessionBatchState?: BatchRunState | null; // For current session only (input highlighting)
 	onStopBatchRun?: (sessionId?: string) => void;
-	showConfirmation?: (message: string, onConfirm: () => void) => void;
-
-	// TTS settings
-	audioFeedbackCommand?: string;
 
 	// Tab management for AI sessions
 	onTabSelect?: (tabId: string) => void;
@@ -189,6 +171,7 @@ interface MainPanelProps {
 	onNewTab?: () => void;
 	onRequestTabRename?: (tabId: string) => void;
 	onTabReorder?: (fromIndex: number, toIndex: number) => void;
+	onUnifiedTabReorder?: (fromIndex: number, toIndex: number) => void;
 	onTabStar?: (tabId: string, starred: boolean) => void;
 	onTabLock?: (tabId: string, locked: boolean) => void;
 	onTabMarkUnread?: (tabId: string) => void;
@@ -199,7 +182,6 @@ interface MainPanelProps {
 	onToggleTabReadOnlyMode?: () => void;
 	onToggleTabSaveToHistory?: () => void;
 	onToggleTabShowThinking?: () => void;
-	showUnreadOnly?: boolean;
 	onToggleUnreadFilter?: () => void;
 	onOpenTabSearch?: () => void;
 	// Bulk tab close operations
@@ -207,6 +189,29 @@ interface MainPanelProps {
 	onCloseOtherTabs?: () => void;
 	onCloseTabsLeft?: () => void;
 	onCloseTabsRight?: () => void;
+
+	// Unified tab system (Phase 4) - file preview tabs integrated with AI tabs
+	unifiedTabs?: UnifiedTab[];
+	activeFileTabId?: string | null;
+	activeFileTab?: FilePreviewTab | null;
+	onFileTabSelect?: (tabId: string) => void;
+	onFileTabClose?: (tabId: string) => void;
+	onOpenFileTab?: (filePath: string) => void;
+	/** Handler to update file tab editMode when toggled in FilePreview */
+	onFileTabEditModeChange?: (tabId: string, editMode: boolean) => void;
+	/** Handler to update file tab editContent when changed in FilePreview */
+	onFileTabEditContentChange?: (
+		tabId: string,
+		editContent: string | undefined,
+		savedContent?: string
+	) => void;
+	/** Handler to update file tab scrollTop when scrolling in FilePreview */
+	onFileTabScrollPositionChange?: (tabId: string, scrollTop: number) => void;
+	/** Handler to update file tab searchQuery when searching in FilePreview */
+	onFileTabSearchQueryChange?: (tabId: string, searchQuery: string) => void;
+	/** Handler to reload file tab content from disk */
+	onReloadFileTab?: (tabId: string) => void;
+
 	// Scroll position persistence
 	onScrollPositionChange?: (scrollTop: number) => void;
 	// Scroll bottom state change handler (for hasUnread logic)
@@ -226,20 +231,33 @@ interface MainPanelProps {
 	// File tree for linking file references in AI responses
 	fileTree?: import('../types/fileTree').FileNode[];
 	// Callback when a file link is clicked in AI response
-	onFileClick?: (relativePath: string) => void;
+	// options.openInNewTab: true = open in new tab adjacent to current, false = replace current tab content
+	onFileClick?: (relativePath: string, options?: { openInNewTab?: boolean }) => void;
+	// File tree refresh callback (used when saving chat content to disk)
+	refreshFileTree?: (
+		sessionId: string
+	) => Promise<import('../utils/fileExplorer').FileTreeChanges | undefined>;
+	// Callback to open a saved file in a tab
+	onOpenSavedFileInTab?: (file: {
+		path: string;
+		name: string;
+		content: string;
+		sshRemoteId?: string;
+	}) => void;
 	// File preview navigation
 	canGoBack?: boolean;
 	canGoForward?: boolean;
 	onNavigateBack?: () => void;
 	onNavigateForward?: () => void;
-	backHistory?: { name: string; content: string; path: string }[];
-	forwardHistory?: { name: string; content: string; path: string }[];
+	backHistory?: { name: string; path: string; scrollTop?: number }[];
+	forwardHistory?: { name: string; path: string; scrollTop?: number }[];
 	currentHistoryIndex?: number;
 	onNavigateToIndex?: (index: number) => void;
+	onClearFilePreviewHistory?: () => void;
 
 	// Agent error handling
 	onClearAgentError?: () => void;
-	onShowAgentErrorModal?: () => void;
+	onShowAgentErrorModal?: (error?: AgentError) => void;
 	// Flash notification callback
 	showFlashNotification?: (message: string) => void;
 	// Pinned items for pin variable autocomplete
@@ -260,11 +278,6 @@ interface MainPanelProps {
 	onCopyContext?: (tabId: string) => void;
 	onExportHtml?: (tabId: string) => void;
 	onPublishTabGist?: (tabId: string) => void;
-
-	// Context warning sash settings (Phase 6)
-	contextWarningsEnabled?: boolean;
-	contextWarningYellowThreshold?: number;
-	contextWarningRedThreshold?: number;
 
 	// Summarization progress props (non-blocking, per-tab)
 	summarizeProgress?: import('../types/contextMerge').SummarizeProgress | null;
@@ -336,14 +349,9 @@ export const MainPanel = React.memo(
 			agentSessionsOpen,
 			activeAgentSessionId,
 			activeSession,
-			thinkingSessions,
+			thinkingItems,
 			theme,
-			activeFocus,
-			outputSearchOpen,
-			outputSearchQuery,
 			inputValue,
-			enterToSendAI,
-			enterToSendTerminal,
 			stagedImages,
 			commandHistoryOpen,
 			commandHistoryFilter,
@@ -367,27 +375,14 @@ export const MainPanel = React.memo(
 			setAtMentionFilter,
 			setAtMentionStartIndex,
 			setSelectedAtMentionIndex,
-			previewFile,
 			filePreviewLoading,
-			markdownEditMode,
-			shortcuts,
-			rightPanelOpen,
-			maxOutputLines,
-			gitDiffPreview: _gitDiffPreview,
-			fileTreeFilterOpen,
-			logLevel,
 			setGitDiffPreview,
 			setLogViewerOpen,
 			setAgentSessionsOpen,
 			setActiveAgentSessionId,
 			onResumeAgentSession,
 			onNewAgentSession,
-			setActiveFocus,
-			setOutputSearchOpen,
-			setOutputSearchQuery,
 			setInputValue,
-			setEnterToSendAI,
-			setEnterToSendTerminal,
 			setStagedImages,
 			setLightboxImage,
 			setCommandHistoryOpen,
@@ -395,16 +390,10 @@ export const MainPanel = React.memo(
 			setCommandHistorySelectedIndex,
 			setSlashCommandOpen,
 			setSelectedSlashCommandIndex,
-			setPreviewFile,
-			setMarkdownEditMode,
-			setAboutModalOpen: _setAboutModalOpen,
-			setRightPanelOpen,
 			setGitLogOpen,
 			inputRef,
 			logsEndRef,
 			terminalOutputRef,
-			fileTreeContainerRef,
-			fileTreeFilterInputRef,
 			toggleInputMode,
 			processInput,
 			handleInterrupt,
@@ -413,10 +402,8 @@ export const MainPanel = React.memo(
 			handleDrop,
 			getContextColor,
 			setActiveSessionId,
-			batchRunState: _batchRunState,
 			currentSessionBatchState,
 			onStopBatchRun,
-			showConfirmation: _showConfirmation,
 			onRemoveQueuedItem,
 			onOpenQueueBrowser,
 			isMobileLandscape = false,
@@ -430,10 +417,6 @@ export const MainPanel = React.memo(
 			onSendToAgent,
 			onCopyContext,
 			onExportHtml,
-			// Context warning sash settings (Phase 6)
-			contextWarningsEnabled = false,
-			contextWarningYellowThreshold = 60,
-			contextWarningRedThreshold = 80,
 			// Summarization progress props
 			summarizeProgress,
 			summarizeResult,
@@ -452,6 +435,33 @@ export const MainPanel = React.memo(
 			onExitWizard,
 		} = props;
 
+		// Phase 3C: Direct store subscriptions (migrated from props)
+		const fontFamily = useSettingsStore((s) => s.fontFamily);
+		const enterToSendAI = useSettingsStore((s) => s.enterToSendAI);
+		const enterToSendTerminal = useSettingsStore((s) => s.enterToSendTerminal);
+		const chatRawTextMode = useSettingsStore((s) => s.chatRawTextMode);
+		const autoScrollAiMode = useSettingsStore((s) => s.autoScrollAiMode);
+		const userMessageAlignment = useSettingsStore((s) => s.userMessageAlignment);
+		const shortcuts = useSettingsStore((s) => s.shortcuts);
+		const maxOutputLines = useSettingsStore((s) => s.maxOutputLines);
+		const logLevel = useSettingsStore((s) => s.logLevel);
+		const logViewerSelectedLevels = useSettingsStore((s) => s.logViewerSelectedLevels);
+		const colorBlindMode = useSettingsStore((s) => s.colorBlindMode);
+		const contextWarningsEnabled = useSettingsStore(
+			(s) => s.contextManagementSettings.contextWarningsEnabled ?? false
+		);
+		const contextWarningYellowThreshold = useSettingsStore(
+			(s) => s.contextManagementSettings.contextWarningYellowThreshold ?? 60
+		);
+		const contextWarningRedThreshold = useSettingsStore(
+			(s) => s.contextManagementSettings.contextWarningRedThreshold ?? 80
+		);
+		const activeFocus = useUIStore((s) => s.activeFocus);
+		const outputSearchOpen = useUIStore((s) => s.outputSearchOpen);
+		const outputSearchQuery = useUIStore((s) => s.outputSearchQuery);
+		const rightPanelOpen = useUIStore((s) => s.rightPanelOpen);
+		const showUnreadOnly = useUIStore((s) => s.showUnreadOnly);
+
 		// isCurrentSessionAutoMode: THIS session has active batch run (for all UI indicators)
 		const isCurrentSessionAutoMode = currentSessionBatchState?.isRunning || false;
 		const isCurrentSessionStopping = currentSessionBatchState?.isStopping || false;
@@ -459,8 +469,6 @@ export const MainPanel = React.memo(
 		// Hover tooltip state using reusable hook
 		const gitTooltip = useHoverTooltip(150);
 		const contextTooltip = useHoverTooltip(150);
-		// Panel width for responsive hiding of widgets
-		const [panelWidth, setPanelWidth] = useState(Infinity); // Start with Infinity so widgets show by default
 		const headerRef = useRef<HTMLDivElement>(null);
 		const filePreviewContainerRef = useRef<HTMLDivElement>(null);
 		const filePreviewRef = useRef<FilePreviewHandle>(null);
@@ -473,16 +481,26 @@ export const MainPanel = React.memo(
 			onNewTab,
 			onRequestTabRename,
 			onTabReorder,
+			onUnifiedTabReorder,
 			onTabStar,
 			onTabLock,
 			onTabMarkUnread,
-			showUnreadOnly,
 			onToggleUnreadFilter,
 			onOpenTabSearch,
 			onCloseAllTabs,
 			onCloseOtherTabs,
 			onCloseTabsLeft,
 			onCloseTabsRight,
+			// Unified tab system props (Phase 4)
+			unifiedTabs,
+			activeFileTabId,
+			activeFileTab,
+			onFileTabSelect,
+			onFileTabClose,
+			onFileTabEditModeChange,
+			onFileTabEditContentChange,
+			onFileTabScrollPositionChange,
+			onFileTabSearchQueryChange,
 		} = props;
 
 		// Get the active tab for header display
@@ -566,91 +584,27 @@ export const MainPanel = React.memo(
 			return configured > 0 ? configured : reported;
 		}, [configuredContextWindow, activeTab?.usageStats?.contextWindow]);
 
-		// Compute context tokens using agent-specific calculation
-		// Claude: input + cacheCreation (excludes cacheRead which is cumulative)
-		// Codex: input + output (combined limit)
-		const activeTabContextTokens = useMemo(() => {
-			if (!activeTab?.usageStats) return 0;
-			return calculateContextTokens(
+		// Compute context tokens and percentage using the shared helper.
+		// Handles accumulated multi-tool turns by falling back to session.contextUsage.
+		const { tokens: activeTabContextTokens, percentage: activeTabContextUsage } = useMemo(() => {
+			if (!activeTab?.usageStats) return { tokens: 0, percentage: 0 };
+			return calculateContextDisplay(
 				{
 					inputTokens: activeTab.usageStats.inputTokens,
 					outputTokens: activeTab.usageStats.outputTokens,
 					cacheCreationInputTokens: activeTab.usageStats.cacheCreationInputTokens ?? 0,
 					cacheReadInputTokens: activeTab.usageStats.cacheReadInputTokens ?? 0,
 				},
-				activeSession?.toolType
+				activeTabContextWindow,
+				activeSession?.toolType,
+				activeSession?.contextUsage
 			);
-		}, [activeTab?.usageStats, activeSession?.toolType]);
-
-		// Compute context usage percentage from context tokens and window size
-		const activeTabContextUsage = useMemo(() => {
-			if (!activeTabContextWindow || activeTabContextWindow === 0) return 0;
-			if (activeTabContextTokens === 0) return 0;
-			return Math.min(Math.round((activeTabContextTokens / activeTabContextWindow) * 100), 100);
-		}, [activeTabContextTokens, activeTabContextWindow]);
-
-		// PERF: Track panel width for responsive widget hiding with threshold-based updates
-		// Only update state when width crosses a meaningful threshold (20px) to prevent
-		// unnecessary re-renders during window resize animations
-		useEffect(() => {
-			const header = headerRef.current;
-			if (!header) return;
-
-			// Get initial width immediately, but only if it's a reasonable value
-			// (protects against measuring during layout/animation when width might be 0)
-			const initialWidth = header.offsetWidth;
-			let lastSetWidth = 0;
-			if (initialWidth > 100) {
-				setPanelWidth(initialWidth);
-				lastSetWidth = initialWidth;
-			}
-
-			// Threshold for triggering state updates - prevents flicker during resize
-			const WIDTH_THRESHOLD = 20;
-			let rafId: number | null = null;
-			let pendingWidth: number | null = null;
-
-			const resizeObserver = new ResizeObserver((entries) => {
-				for (const entry of entries) {
-					// Only accept reasonable width values (protects against mid-animation measurements)
-					if (entry.contentRect.width > 100) {
-						pendingWidth = entry.contentRect.width;
-					}
-				}
-				// Use requestAnimationFrame to batch updates, but only if change exceeds threshold
-				if (rafId === null && pendingWidth !== null) {
-					rafId = requestAnimationFrame(() => {
-						if (pendingWidth !== null && Math.abs(pendingWidth - lastSetWidth) >= WIDTH_THRESHOLD) {
-							setPanelWidth(pendingWidth);
-							lastSetWidth = pendingWidth;
-						}
-						pendingWidth = null;
-						rafId = null;
-					});
-				}
-			});
-
-			resizeObserver.observe(header);
-			return () => {
-				resizeObserver.disconnect();
-				if (rafId !== null) {
-					cancelAnimationFrame(rafId);
-				}
-			};
-		}, []);
-
-		// Responsive breakpoints for hiding/simplifying widgets (progressive reduction as space shrinks)
-		// At widest: full display with "CONTEXT WINDOW" label and wide gauge (w-24)
-		// Below 700px: "CONTEXT" label + narrow gauge (w-16) together
-		// Below 550px: compact git widget (file count only)
-		// Below 500px: git branch shows icon only (no text)
-		// Below 400px: hide UUID pill
-		// Below 350px: hide cost widget
-		const showCostWidget = panelWidth > 350;
-		const showUuidPill = panelWidth > 400;
-		const useIconOnlyGitBranch = panelWidth < 500;
-		const useCompactGitWidget = panelWidth < 550;
-		const useCompactContext = panelWidth < 700; // Both label and gauge shrink together
+		}, [
+			activeTab?.usageStats,
+			activeSession?.toolType,
+			activeTabContextWindow,
+			activeSession?.contextUsage,
+		]);
 
 		// Git status from focused contexts (reduces cascade re-renders)
 		// Branch info: branch name, remote, ahead/behind - rarely changes
@@ -662,16 +616,28 @@ export const MainPanel = React.memo(
 
 		// Derive gitInfo format from focused context data for backward compatibility
 		const branchInfo = activeSession ? getBranchInfo(activeSession.id) : undefined;
-		const gitInfo =
-			branchInfo && activeSession?.isGitRepo && !activeSession?.isBareRepo
-				? {
-						branch: branchInfo.branch || '',
-						remote: branchInfo.remote || '',
-						behind: branchInfo.behind,
-						ahead: branchInfo.ahead,
-						uncommittedChanges: getFileCount(activeSession.id),
-					}
-				: null;
+		const fileCount = activeSession ? getFileCount(activeSession.id) : 0;
+		const gitInfo = useMemo(
+			() =>
+				branchInfo && activeSession?.isGitRepo && !activeSession?.isBareRepo
+					? {
+							branch: branchInfo.branch || '',
+							remote: branchInfo.remote || '',
+							behind: branchInfo.behind,
+							ahead: branchInfo.ahead,
+							uncommittedChanges: fileCount,
+						}
+					: null,
+			[
+				branchInfo?.branch,
+				branchInfo?.remote,
+				branchInfo?.behind,
+				branchInfo?.ahead,
+				activeSession?.isGitRepo,
+				activeSession?.isBareRepo,
+				fileCount,
+			]
+		);
 
 		// Copy notification state (centered flash notice)
 		const [copyNotification, setCopyNotification] = useState<string | null>(null);
@@ -701,9 +667,9 @@ export const MainPanel = React.memo(
 		const handleInputFocus = useCallback(() => {
 			if (activeSession) {
 				setActiveSessionId(activeSession.id);
-				setActiveFocus('main');
+				useUIStore.getState().setActiveFocus('main');
 			}
-		}, [activeSession, setActiveSessionId, setActiveFocus]);
+		}, [activeSession, setActiveSessionId]);
 
 		// Memoized session click handler for InputArea's ThinkingStatusPill
 		// Avoids creating new function reference on every render
@@ -717,6 +683,106 @@ export const MainPanel = React.memo(
 			[setActiveSessionId, onTabSelect]
 		);
 
+		// Memoized props for FilePreview to prevent re-renders that cause image flickering
+		// The file object must be stable - recreating it on each render causes the <img> to remount
+		const memoizedFilePreviewFile = useMemo(() => {
+			if (!activeFileTab) return null;
+			return {
+				name: activeFileTab.name + activeFileTab.extension,
+				content: activeFileTab.content,
+				path: activeFileTab.path,
+			};
+		}, [
+			activeFileTab?.name,
+			activeFileTab?.extension,
+			activeFileTab?.content,
+			activeFileTab?.path,
+		]);
+
+		// Memoized callbacks for FilePreview
+		const handleFilePreviewClose = useCallback(() => {
+			if (activeFileTabId) {
+				onFileTabClose?.(activeFileTabId);
+			}
+		}, [activeFileTabId, onFileTabClose]);
+
+		const handleFilePreviewEditModeChange = useCallback(
+			(editMode: boolean) => {
+				if (activeFileTabId) {
+					onFileTabEditModeChange?.(activeFileTabId, editMode);
+				}
+			},
+			[activeFileTabId, onFileTabEditModeChange]
+		);
+
+		const handleFilePreviewSave = useCallback(
+			async (path: string, content: string) => {
+				await window.maestro.fs.writeFile(path, content);
+				if (activeFileTabId) {
+					onFileTabEditContentChange?.(activeFileTabId, undefined, content);
+				}
+			},
+			[activeFileTabId, onFileTabEditContentChange]
+		);
+
+		// Compute cwd for FilePreview - memoized to prevent recalculation on every render
+		const filePreviewCwd = useMemo(() => {
+			if (!activeSession?.fullPath || !activeFileTab?.path) return '';
+			if (!activeFileTab.path.startsWith(activeSession.fullPath)) return '';
+			const relativePath = activeFileTab.path.slice(activeSession.fullPath.length + 1);
+			const lastSlash = relativePath.lastIndexOf('/');
+			return lastSlash > 0 ? relativePath.slice(0, lastSlash) : '';
+		}, [activeSession?.fullPath, activeFileTab?.path]);
+
+		const handleFilePreviewEditContentChange = useCallback(
+			(content: string) => {
+				if (activeFileTabId && activeFileTab) {
+					const hasChanges = content !== activeFileTab.content;
+					onFileTabEditContentChange?.(activeFileTabId, hasChanges ? content : undefined);
+				}
+			},
+			[activeFileTabId, activeFileTab?.content, onFileTabEditContentChange]
+		);
+
+		const handleFilePreviewScrollPositionChange = useCallback(
+			(scrollTop: number) => {
+				if (activeFileTabId) {
+					onFileTabScrollPositionChange?.(activeFileTabId, scrollTop);
+				}
+			},
+			[activeFileTabId, onFileTabScrollPositionChange]
+		);
+
+		const handleFilePreviewSearchQueryChange = useCallback(
+			(query: string) => {
+				if (activeFileTabId) {
+					onFileTabSearchQueryChange?.(activeFileTabId, query);
+				}
+			},
+			[activeFileTabId, onFileTabSearchQueryChange]
+		);
+
+		const handleFilePreviewReload = useCallback(() => {
+			if (activeFileTabId) {
+				props.onReloadFileTab?.(activeFileTabId);
+			}
+		}, [activeFileTabId, props.onReloadFileTab]);
+
+		// Memoize sshRemoteId to prevent object recreation
+		const filePreviewSshRemoteId = useMemo(
+			() =>
+				activeSession?.sshRemoteId ||
+				(activeSession?.sessionSshRemoteConfig?.enabled
+					? activeSession.sessionSshRemoteConfig.remoteId
+					: undefined) ||
+				undefined,
+			[
+				activeSession?.sshRemoteId,
+				activeSession?.sessionSshRemoteConfig?.enabled,
+				activeSession?.sessionSshRemoteConfig?.remoteId,
+			]
+		);
+
 		// Handler to view git diff
 		const handleViewGitDiff = async () => {
 			if (!activeSession || !activeSession.isGitRepo) return;
@@ -726,9 +792,7 @@ export const MainPanel = React.memo(
 				(activeSession.inputMode === 'terminal'
 					? activeSession.shellCwd || activeSession.cwd
 					: activeSession.cwd);
-			const sshRemoteId =
-				activeSession?.sshRemoteId || activeSession?.sessionSshRemoteConfig?.remoteId || undefined;
-			const diff = await gitService.getDiff(cwd, undefined, sshRemoteId);
+			const diff = await gitService.getDiff(cwd, undefined, filePreviewSshRemoteId);
 
 			if (diff.diff) {
 				setGitDiffPreview(diff.diff);
@@ -737,13 +801,11 @@ export const MainPanel = React.memo(
 
 		// Copy to clipboard handler with flash notification
 		const copyToClipboard = async (text: string, message?: string) => {
-			try {
-				await navigator.clipboard.writeText(text);
+			const ok = await safeClipboardWrite(text);
+			if (ok) {
 				// Show centered flash notification
 				setCopyNotification(message || 'Copied to Clipboard');
 				setTimeout(() => setCopyNotification(null), 2000);
-			} catch (err) {
-				console.error('Failed to copy to clipboard:', err);
 			}
 		};
 
@@ -758,8 +820,8 @@ export const MainPanel = React.memo(
 						theme={theme}
 						onClose={() => setLogViewerOpen(false)}
 						logLevel={logLevel}
-						savedSelectedLevels={props.logViewerSelectedLevels}
-						onSelectedLevelsChange={props.setLogViewerSelectedLevels}
+						savedSelectedLevels={logViewerSelectedLevels}
+						onSelectedLevelsChange={useSettingsStore.getState().setLogViewerSelectedLevels}
 						onShortcutUsed={props.onShortcutUsed}
 					/>
 				</div>
@@ -801,6 +863,8 @@ export const MainPanel = React.memo(
 			);
 		}
 
+		// File preview eligibility checked inline below
+
 		// Show normal session view
 		return (
 			<>
@@ -813,25 +877,25 @@ export const MainPanel = React.memo(
 								'--tw-ring-color': theme.colors.accent,
 							} as React.CSSProperties
 						}
-						onClick={() => setActiveFocus('main')}
+						onClick={() => useUIStore.getState().setActiveFocus('main')}
 					>
 						{/* Top Bar (hidden in mobile landscape for focused reading) */}
 						{!isMobileLandscape && (
 							<div
 								ref={headerRef}
-								className="h-16 border-b flex items-center justify-between px-6 shrink-0"
+								className={`header-container h-16 border-b flex items-center justify-between px-6 shrink-0 relative z-20 ${isCurrentSessionAutoMode ? 'header-auto-mode' : ''}`}
 								style={{
 									borderColor: theme.colors.border,
 									backgroundColor: theme.colors.bgSidebar,
 								}}
 								data-tour="header-controls"
 							>
-								<div className="flex items-center gap-4 min-w-0">
-									<div className="flex items-center gap-2 text-sm font-medium min-w-0">
-										{/* Session name - protected from shrinking, other elements hide first */}
-										<span className="shrink-0">{activeSession.name}</span>
+								<div className="flex items-center gap-4 min-w-0 overflow-hidden">
+									<div className="flex items-center gap-2 text-sm font-medium min-w-0 overflow-hidden">
+										{/* Session name - hidden at narrow widths via CSS container query */}
+										<span className="header-session-name truncate">{activeSession.name}</span>
 										<div
-											className="relative"
+											className="relative shrink-0"
 											onMouseEnter={
 												activeSession.isGitRepo
 													? gitTooltip.triggerHandlers.onMouseEnter
@@ -842,8 +906,17 @@ export const MainPanel = React.memo(
 											{/* SSH Host Pill - show SSH remote name when running remotely (replaces GIT/LOCAL badge) */}
 											{activeSession.sessionSshRemoteConfig?.enabled && sshRemoteName ? (
 												<span
-													className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border border-purple-500/30 text-purple-500 bg-purple-500/10 max-w-[120px]"
-													title={`SSH Remote: ${sshRemoteName}`}
+													className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border border-purple-500/30 text-purple-500 bg-purple-500/10 max-w-[120px] ${
+														activeSession.isGitRepo ? 'cursor-pointer hover:bg-purple-500/20' : ''
+													}`}
+													title={`SSH Remote: ${sshRemoteName}${activeSession.isGitRepo && gitInfo?.branch ? ` (${gitInfo.branch})` : ''}`}
+													onClick={(e) => {
+														e.stopPropagation();
+														if (activeSession.isGitRepo) {
+															refreshGitStatus(); // Refresh git info immediately on click
+															setGitLogOpen?.(true);
+														}
+													}}
 												>
 													<Server className="w-3 h-3 shrink-0" />
 													<span className="truncate uppercase">{sshRemoteName}</span>
@@ -868,11 +941,11 @@ export const MainPanel = React.memo(
 												>
 													{activeSession.isGitRepo ? (
 														<>
-															<GitBranch className="w-3 h-3" />
-															{/* Hide branch name text at narrow widths, show on hover via title */}
-															{!useIconOnlyGitBranch && (
-																<span className="truncate">{gitInfo?.branch || 'GIT'}</span>
-															)}
+															<GitBranch className="w-3 h-3 shrink-0" />
+															{/* Hide branch name text at narrow widths via CSS container query */}
+															<span className="header-git-branch-text truncate">
+																{gitInfo?.branch || 'GIT'}
+															</span>
 														</>
 													) : (
 														'LOCAL'
@@ -967,7 +1040,7 @@ export const MainPanel = React.memo(
 																			onClick={(e) => {
 																				e.stopPropagation();
 																				const url = remoteUrlToBrowserUrl(gitInfo.remote);
-																				if (url) window.open(url, '_blank');
+																				if (url) window.maestro.shell.openExternal(url);
 																			}}
 																			className="text-xs font-mono truncate hover:underline text-left"
 																			style={{ color: theme.colors.textMain }}
@@ -1064,13 +1137,13 @@ export const MainPanel = React.memo(
 										</div>
 									</div>
 
-									{/* Git Status Widget */}
+									{/* Git Status Widget - compact mode handled via CSS container queries */}
 									<GitStatusWidget
 										sessionId={activeSession.id}
 										isGitRepo={activeSession.isGitRepo && !activeSession.isBareRepo}
 										theme={theme}
 										onViewDiff={handleViewGitDiff}
-										compact={useCompactGitWidget}
+										onViewLog={() => setGitLogOpen?.(true)}
 									/>
 								</div>
 
@@ -1083,7 +1156,7 @@ export const MainPanel = React.memo(
 											onStopBatchRun?.(activeSession.id);
 										}}
 										disabled={isCurrentSessionStopping}
-										className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg font-bold text-xs transition-all ${isCurrentSessionStopping ? 'cursor-not-allowed' : 'hover:opacity-90 cursor-pointer'}`}
+										className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg font-bold text-xs transition-all shrink-0 ${isCurrentSessionStopping ? 'cursor-not-allowed' : 'hover:opacity-90 cursor-pointer'}`}
 										style={{
 											backgroundColor: isCurrentSessionStopping
 												? theme.colors.warning
@@ -1123,13 +1196,14 @@ export const MainPanel = React.memo(
 								)}
 
 								<div className="flex items-center gap-3 justify-end shrink-0">
-									{/* Session UUID Pill - click to copy full UUID, left-most of session stats, hidden at narrow widths */}
-									{showUuidPill &&
-										activeSession.inputMode === 'ai' &&
+									{/* Session UUID Pill - click to copy full UUID, hidden at narrow widths via CSS container query */}
+									{/* Hide when file preview tab is focused - session stats are only relevant for AI tabs */}
+									{activeSession.inputMode === 'ai' &&
+										!activeFileTabId &&
 										activeTab?.agentSessionId &&
 										hasCapability('supportsSessionId') && (
 											<button
-												className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border transition-colors hover:opacity-80"
+												className="header-uuid-pill text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border transition-colors hover:opacity-80"
 												style={{
 													backgroundColor: theme.colors.accent + '20',
 													color: theme.colors.accent,
@@ -1152,34 +1226,45 @@ export const MainPanel = React.memo(
 											</button>
 										)}
 
-									{/* Cost Tracker - styled as pill (hidden when panel is narrow or agent doesn't support cost tracking) - shows active tab's cost */}
-									{showCostWidget &&
-										activeSession.inputMode === 'ai' &&
+									{/* Cost Tracker - styled as pill, hidden at narrow widths via CSS container query */}
+									{/* Hide when file preview tab is focused - cost tracking is only relevant for AI tabs */}
+									{activeSession.inputMode === 'ai' &&
+										!activeFileTabId &&
 										(activeTab?.agentSessionId || activeTab?.usageStats) &&
 										hasCapability('supportsCostTracking') && (
-											<span className="text-xs font-mono font-bold px-2 py-0.5 rounded-full border border-green-500/30 text-green-500 bg-green-500/10">
+											<span className="header-cost-widget text-xs font-mono font-bold px-2 py-0.5 rounded-full border border-green-500/30 text-green-500 bg-green-500/10">
 												${(activeTab?.usageStats?.totalCostUsd ?? 0).toFixed(2)}
 											</span>
 										)}
 
 									{/* Context Window Widget with Tooltip - only show when context window is configured and agent supports usage stats */}
+									{/* Hide when file preview tab is focused - context usage is only relevant for AI tabs */}
 									{activeSession.inputMode === 'ai' &&
+										!activeFileTabId &&
 										(activeTab?.agentSessionId || activeTab?.usageStats) &&
 										hasCapability('supportsUsageStats') &&
 										activeTabContextWindow > 0 && (
 											<div
-												className="flex flex-col items-end mr-2 relative cursor-pointer"
+												className="header-context-widget flex flex-col items-end mr-2 relative cursor-pointer"
 												{...contextTooltip.triggerHandlers}
 											>
+												{/* Full label shown at wide widths, compact label shown at narrow widths via CSS */}
 												<span
-													className="text-[10px] font-bold uppercase"
+													className="header-context-label-full text-[10px] font-bold uppercase"
 													style={{ color: theme.colors.textDim }}
 												>
-													{useCompactContext ? 'Context' : 'Context Window'}
+													Context Window
 												</span>
-												{/* Gauge width: w-24 (96px) normally, w-16 (64px) when compact - both change together */}
+												<span
+													className="header-context-label-compact text-[10px] font-bold uppercase hidden"
+													style={{ color: theme.colors.textDim }}
+													aria-hidden="true"
+												>
+													Context
+												</span>
+												{/* Gauge width controlled via CSS container query */}
 												<div
-													className={`${useCompactContext ? 'w-16' : 'w-24'} h-1.5 rounded-full mt-1 overflow-hidden`}
+													className="header-context-gauge w-24 h-1.5 rounded-full mt-1 overflow-hidden"
 													style={{ backgroundColor: theme.colors.border }}
 												>
 													<div
@@ -1230,7 +1315,9 @@ export const MainPanel = React.memo(
 																			className="text-xs font-mono"
 																			style={{ color: theme.colors.textMain }}
 																		>
-																			{(activeTab?.usageStats?.inputTokens ?? 0).toLocaleString()}
+																			{(activeTab?.usageStats?.inputTokens ?? 0).toLocaleString(
+																				'en-US'
+																			)}
 																		</span>
 																	</div>
 																	<div className="flex justify-between items-center">
@@ -1244,7 +1331,9 @@ export const MainPanel = React.memo(
 																			className="text-xs font-mono"
 																			style={{ color: theme.colors.textMain }}
 																		>
-																			{(activeTab?.usageStats?.outputTokens ?? 0).toLocaleString()}
+																			{(activeTab?.usageStats?.outputTokens ?? 0).toLocaleString(
+																				'en-US'
+																			)}
 																		</span>
 																	</div>
 																	{/* Reasoning tokens - only shown for agents that report them (e.g., Codex o3/o4-mini) */}
@@ -1265,7 +1354,7 @@ export const MainPanel = React.memo(
 																			>
 																				{(
 																					activeTab?.usageStats?.reasoningTokens ?? 0
-																				).toLocaleString()}
+																				).toLocaleString('en-US')}
 																			</span>
 																		</div>
 																	)}
@@ -1282,7 +1371,7 @@ export const MainPanel = React.memo(
 																		>
 																			{(
 																				activeTab?.usageStats?.cacheReadInputTokens ?? 0
-																			).toLocaleString()}
+																			).toLocaleString('en-US')}
 																		</span>
 																	</div>
 																	<div className="flex justify-between items-center">
@@ -1298,7 +1387,7 @@ export const MainPanel = React.memo(
 																		>
 																			{(
 																				activeTab?.usageStats?.cacheCreationInputTokens ?? 0
-																			).toLocaleString()}
+																			).toLocaleString('en-US')}
 																		</span>
 																	</div>
 
@@ -1319,7 +1408,7 @@ export const MainPanel = React.memo(
 																					className="text-xs font-mono font-bold"
 																					style={{ color: theme.colors.accent }}
 																				>
-																					{activeTabContextTokens.toLocaleString()}
+																					{activeTabContextTokens.toLocaleString('en-US')}
 																				</span>
 																			</div>
 																			<div className="flex justify-between items-center mt-1">
@@ -1333,7 +1422,7 @@ export const MainPanel = React.memo(
 																					className="text-xs font-mono font-bold"
 																					style={{ color: theme.colors.textMain }}
 																				>
-																					{activeTabContextWindow.toLocaleString()}
+																					{activeTabContextWindow.toLocaleString('en-US')}
 																				</span>
 																			</div>
 																			<div className="flex justify-between items-center mt-1">
@@ -1370,7 +1459,7 @@ export const MainPanel = React.memo(
 												setAgentSessionsOpen(true);
 											}}
 											className="p-2 rounded hover:bg-white/5"
-											title={`Agent Sessions (${shortcuts.agentSessions?.keys?.join('+').replace('Meta', 'Cmd').replace('Shift', '⇧') || 'Cmd+⇧+L'})`}
+											title={`Agent Sessions (${shortcuts.agentSessions ? formatShortcutKeys(shortcuts.agentSessions.keys) : formatShortcutKeys(['Meta', 'Shift', 'l'])})`}
 											data-tour="agent-sessions-button"
 										>
 											<List className="w-4 h-4" style={{ color: theme.colors.textDim }} />
@@ -1379,7 +1468,7 @@ export const MainPanel = React.memo(
 
 									{!rightPanelOpen && (
 										<button
-											onClick={() => setRightPanelOpen(true)}
+											onClick={() => useUIStore.getState().setRightPanelOpen(true)}
 											className="p-2 rounded hover:bg-white/5"
 											title={`Show right panel (${formatShortcutKeys(shortcuts.toggleRightPanel.keys)})`}
 										>
@@ -1390,9 +1479,8 @@ export const MainPanel = React.memo(
 							</div>
 						)}
 
-						{/* Tab Bar - only shown in AI mode when we have tabs (hidden during file preview) */}
-						{!previewFile &&
-							activeSession.inputMode === 'ai' &&
+						{/* Tab Bar - always shown in AI mode when we have tabs (includes both AI and file tabs) */}
+						{activeSession.inputMode === 'ai' &&
 							activeSession.aiTabs &&
 							activeSession.aiTabs.length > 0 &&
 							onTabSelect &&
@@ -1407,6 +1495,7 @@ export const MainPanel = React.memo(
 									onNewTab={onNewTab}
 									onRequestRename={onRequestTabRename}
 									onTabReorder={onTabReorder}
+									onUnifiedTabReorder={onUnifiedTabReorder}
 									onTabStar={onTabStar}
 									onTabLock={onTabLock}
 									onTabMarkUnread={onTabMarkUnread}
@@ -1425,6 +1514,13 @@ export const MainPanel = React.memo(
 									onCloseOtherTabs={onCloseOtherTabs}
 									onCloseTabsLeft={onCloseTabsLeft}
 									onCloseTabsRight={onCloseTabsRight}
+									// Unified tab system props (Phase 4)
+									unifiedTabs={unifiedTabs}
+									activeFileTabId={activeFileTabId}
+									onFileTabSelect={onFileTabSelect}
+									onFileTabClose={onFileTabClose}
+									// Accessibility
+									colorBlindMode={colorBlindMode}
 								/>
 							)}
 
@@ -1446,7 +1542,7 @@ export const MainPanel = React.memo(
 								<div className="flex items-center gap-2 shrink-0">
 									{props.onShowAgentErrorModal && (
 										<button
-											onClick={props.onShowAgentErrorModal}
+											onClick={() => props.onShowAgentErrorModal?.()}
 											className="px-2 py-1 text-xs font-medium rounded hover:opacity-80 transition-opacity"
 											style={{
 												backgroundColor: theme.colors.error,
@@ -1469,8 +1565,10 @@ export const MainPanel = React.memo(
 							</div>
 						)}
 
-						{/* Show File Preview loading state when fetching remote file */}
-						{filePreviewLoading && !previewFile && (
+						{/* Content area: Show FilePreview when file tab is active, otherwise show terminal output */}
+						{/* Skip rendering when loading remote file - loading state takes over entire main area */}
+						{activeSession.inputMode === 'ai' &&
+						((filePreviewLoading && !activeFileTabId) || activeFileTab?.isLoading) ? (
 							<div
 								className="flex-1 flex items-center justify-center"
 								style={{ backgroundColor: theme.colors.bgMain }}
@@ -1482,7 +1580,10 @@ export const MainPanel = React.memo(
 									/>
 									<div className="text-center">
 										<div className="text-sm font-medium" style={{ color: theme.colors.textMain }}>
-											Loading {filePreviewLoading.name}
+											Loading{' '}
+											{activeFileTab
+												? `${activeFileTab.name}${activeFileTab.extension}`
+												: filePreviewLoading?.name}
 										</div>
 										<div className="text-xs mt-1" style={{ color: theme.colors.textDim }}>
 											Fetching from remote server...
@@ -1490,10 +1591,12 @@ export const MainPanel = React.memo(
 									</div>
 								</div>
 							</div>
-						)}
-
-						{/* Show File Preview in main area when open, otherwise show terminal output and input */}
-						{previewFile ? (
+						) : activeSession.inputMode === 'ai' &&
+						  activeFileTabId &&
+						  activeFileTab &&
+						  memoizedFilePreviewFile ? (
+							// New file tab system - FilePreview rendered as tab content (no close button, tab handles closing)
+							// Note: All props are memoized to prevent unnecessary re-renders that cause image flickering
 							<div
 								ref={filePreviewContainerRef}
 								tabIndex={-1}
@@ -1501,42 +1604,18 @@ export const MainPanel = React.memo(
 							>
 								<FilePreview
 									ref={filePreviewRef}
-									file={previewFile}
-									onClose={() => {
-										setPreviewFile(null);
-										setActiveFocus('right');
-										setTimeout(() => {
-											// If file tree filter is open, focus it; otherwise focus the file tree container
-											if (fileTreeFilterOpen && fileTreeFilterInputRef.current) {
-												fileTreeFilterInputRef.current.focus();
-											} else if (fileTreeContainerRef.current) {
-												fileTreeContainerRef.current.focus();
-											}
-										}, 0);
-									}}
+									file={memoizedFilePreviewFile}
+									onClose={handleFilePreviewClose}
+									isTabMode={true}
 									theme={theme}
-									markdownEditMode={markdownEditMode}
-									setMarkdownEditMode={setMarkdownEditMode}
-									onSave={async (path, content) => {
-										await window.maestro.fs.writeFile(path, content);
-										// Update the preview file content after save
-										setPreviewFile({ ...previewFile, content });
-									}}
+									markdownEditMode={activeFileTab.editMode}
+									setMarkdownEditMode={handleFilePreviewEditModeChange}
+									onSave={handleFilePreviewSave}
 									shortcuts={shortcuts}
 									fileTree={props.fileTree}
-									cwd={(() => {
-										// Compute relative directory from preview file path for proximity matching
-										if (
-											!activeSession?.fullPath ||
-											!previewFile.path.startsWith(activeSession.fullPath)
-										) {
-											return '';
-										}
-										const relativePath = previewFile.path.slice(activeSession.fullPath.length + 1);
-										const lastSlash = relativePath.lastIndexOf('/');
-										return lastSlash > 0 ? relativePath.slice(0, lastSlash) : '';
-									})()}
+									cwd={filePreviewCwd}
 									onFileClick={props.onFileClick}
+									// Per-tab navigation history for breadcrumb navigation
 									canGoBack={props.canGoBack}
 									canGoForward={props.canGoForward}
 									onNavigateBack={props.onNavigateBack}
@@ -1551,11 +1630,19 @@ export const MainPanel = React.memo(
 									onPublishGist={props.onPublishGist}
 									hasGist={props.hasGist}
 									onOpenInGraph={props.onOpenInGraph}
-									sshRemoteId={
-										activeSession?.sshRemoteId ||
-										activeSession?.sessionSshRemoteConfig?.remoteId ||
-										undefined
-									}
+									sshRemoteId={filePreviewSshRemoteId}
+									// Pass external edit content for persistence across tab switches
+									externalEditContent={activeFileTab.editContent}
+									onEditContentChange={handleFilePreviewEditContentChange}
+									// Pass scroll position props for persistence across tab switches
+									initialScrollTop={activeFileTab.scrollTop}
+									onScrollPositionChange={handleFilePreviewScrollPositionChange}
+									// Pass search query props for persistence across tab switches
+									initialSearchQuery={activeFileTab.searchQuery}
+									onSearchQueryChange={handleFilePreviewSearchQueryChange}
+									// File change detection
+									lastModified={activeFileTab.lastModified}
+									onReloadFile={handleFilePreviewReload}
 								/>
 							</div>
 						) : (
@@ -1607,6 +1694,7 @@ export const MainPanel = React.memo(
 												activeTab.wizardState.isGeneratingDocs ||
 												(activeTab.wizardState.generatedDocuments?.length ?? 0) > 0
 											}
+											setLightboxImage={setLightboxImage}
 										/>
 									) : (
 										<TerminalOutput
@@ -1614,13 +1702,13 @@ export const MainPanel = React.memo(
 											ref={terminalOutputRef}
 											session={activeSession}
 											theme={theme}
-											fontFamily={props.fontFamily}
+											fontFamily={fontFamily}
 											activeFocus={activeFocus}
 											outputSearchOpen={outputSearchOpen}
 											outputSearchQuery={outputSearchQuery}
-											setOutputSearchOpen={setOutputSearchOpen}
-											setOutputSearchQuery={setOutputSearchQuery}
-											setActiveFocus={setActiveFocus}
+											setOutputSearchOpen={useUIStore.getState().setOutputSearchOpen}
+											setOutputSearchQuery={useUIStore.getState().setOutputSearchQuery}
+											setActiveFocus={useUIStore.getState().setActiveFocus}
 											setLightboxImage={setLightboxImage}
 											inputRef={inputRef}
 											logsEndRef={logsEndRef}
@@ -1628,7 +1716,6 @@ export const MainPanel = React.memo(
 											onDeleteLog={props.onDeleteLog}
 											onRemoveQueuedItem={onRemoveQueuedItem}
 											onInterrupt={handleInterrupt}
-											audioFeedbackCommand={props.audioFeedbackCommand}
 											onScrollPositionChange={props.onScrollPositionChange}
 											onAtBottomChange={props.onAtBottomChange}
 											initialScrollTop={
@@ -1636,8 +1723,8 @@ export const MainPanel = React.memo(
 													? activeTab?.scrollTop
 													: activeSession.terminalScrollTop
 											}
-											markdownEditMode={markdownEditMode}
-											setMarkdownEditMode={setMarkdownEditMode}
+											markdownEditMode={chatRawTextMode}
+											setMarkdownEditMode={useSettingsStore.getState().setChatRawTextMode}
 											onReplayMessage={props.onReplayMessage}
 											onSaveToPromptLibrary={props.onSaveToPromptLibrary}
 											fileTree={props.fileTree}
@@ -1651,6 +1738,14 @@ export const MainPanel = React.memo(
 											onShowErrorDetails={props.onShowAgentErrorModal}
 											onRateResponse={props.onRateResponse}
 											onPinMessage={props.onPinMessage}
+											onFileSaved={
+												props.refreshFileTree
+													? () => props.refreshFileTree?.(activeSession.id)
+													: undefined
+											}
+											autoScrollAiMode={autoScrollAiMode}
+											userMessageAlignment={userMessageAlignment}
+											onOpenInTab={props.onOpenSavedFileInTab}
 										/>
 									)}
 								</div>
@@ -1668,8 +1763,8 @@ export const MainPanel = React.memo(
 											}
 											setEnterToSend={
 												activeSession.inputMode === 'terminal'
-													? setEnterToSendTerminal
-													: setEnterToSendAI
+													? useSettingsStore.getState().setEnterToSendTerminal
+													: useSettingsStore.getState().setEnterToSendAI
 											}
 											stagedImages={stagedImages}
 											setStagedImages={setStagedImages}
@@ -1711,20 +1806,16 @@ export const MainPanel = React.memo(
 											onInputFocus={handleInputFocus}
 											onInputBlur={props.onInputBlur}
 											isAutoModeActive={isCurrentSessionAutoMode}
-											thinkingSessions={thinkingSessions}
+											thinkingItems={thinkingItems}
 											onSessionClick={handleSessionClick}
 											autoRunState={currentSessionBatchState || undefined}
-											onStopAutoRun={onStopBatchRun}
+											onStopAutoRun={() => onStopBatchRun?.(activeSession.id)}
 											onOpenQueueBrowser={onOpenQueueBrowser}
 											tabReadOnlyMode={activeTab?.readOnlyMode ?? false}
 											onToggleTabReadOnlyMode={props.onToggleTabReadOnlyMode}
 											tabSaveToHistory={activeTab?.saveToHistory ?? false}
 											onToggleTabSaveToHistory={props.onToggleTabSaveToHistory}
-											tabShowThinking={
-												activeTab?.showThinking !== undefined &&
-												activeTab.showThinking !== false &&
-												activeTab.showThinking !== 'off'
-											}
+											tabShowThinking={activeTab?.showThinking ?? 'off'}
 											onToggleTabShowThinking={props.onToggleTabShowThinking}
 											supportsThinking={hasCapability('supportsThinkingDisplay')}
 											onOpenPromptComposer={props.onOpenPromptComposer}

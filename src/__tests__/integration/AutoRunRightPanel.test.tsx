@@ -35,6 +35,7 @@ vi.mock('react-syntax-highlighter', () => ({
 
 vi.mock('react-syntax-highlighter/dist/esm/styles/prism', () => ({
 	vscDarkPlus: {},
+	vs: {},
 }));
 
 vi.mock('../../renderer/components/AutoRunnerHelpModal', () => ({
@@ -119,6 +120,7 @@ vi.mock('../../renderer/components/TemplateAutocompleteDropdown', () => ({
 
 vi.mock('../../renderer/utils/shortcutFormatter', () => ({
 	formatShortcutKeys: vi.fn((keys) => keys?.join('+') || ''),
+	isMacOS: vi.fn(() => false),
 }));
 
 // Create a mock theme for testing
@@ -292,7 +294,6 @@ const RightPanelTestWrapper = ({
 				filteredFileTree={[]}
 				selectedFileIndex={0}
 				setSelectedFileIndex={() => {}}
-				previewFile={null}
 				fileTreeContainerRef={fileTreeContainerRef}
 				fileTreeFilterInputRef={fileTreeFilterInputRef}
 				toggleFolder={() => {}}
@@ -410,7 +411,6 @@ describe('Auto Run + RightPanel Integration', () => {
 								filteredFileTree={[]}
 								selectedFileIndex={0}
 								setSelectedFileIndex={() => {}}
-								previewFile={null}
 								fileTreeContainerRef={fileTreeContainerRef}
 								fileTreeFilterInputRef={fileTreeFilterInputRef}
 								toggleFolder={() => {}}
@@ -750,7 +750,6 @@ describe('Auto Run + RightPanel Integration', () => {
 							filteredFileTree={[]}
 							selectedFileIndex={0}
 							setSelectedFileIndex={() => {}}
-							previewFile={null}
 							fileTreeContainerRef={fileTreeContainerRef}
 							fileTreeFilterInputRef={fileTreeFilterInputRef}
 							toggleFolder={() => {}}
@@ -863,7 +862,6 @@ describe('Auto Run + RightPanel Integration', () => {
 								filteredFileTree={[]}
 								selectedFileIndex={0}
 								setSelectedFileIndex={() => {}}
-								previewFile={null}
 								fileTreeContainerRef={fileTreeContainerRef}
 								fileTreeFilterInputRef={fileTreeFilterInputRef}
 								toggleFolder={() => {}}
@@ -934,7 +932,6 @@ describe('Auto Run + RightPanel Integration', () => {
 						filteredFileTree={[]}
 						selectedFileIndex={0}
 						setSelectedFileIndex={() => {}}
-						previewFile={null}
 						fileTreeContainerRef={fileTreeContainerRef}
 						fileTreeFilterInputRef={fileTreeFilterInputRef}
 						toggleFolder={() => {}}
@@ -1018,7 +1015,6 @@ describe('Auto Run + RightPanel Integration', () => {
 						filteredFileTree={[]}
 						selectedFileIndex={0}
 						setSelectedFileIndex={() => {}}
-						previewFile={null}
 						fileTreeContainerRef={fileTreeContainerRef}
 						fileTreeFilterInputRef={fileTreeFilterInputRef}
 						toggleFolder={() => {}}
@@ -1126,7 +1122,6 @@ describe('Auto Run + RightPanel Integration', () => {
 								filteredFileTree={[]}
 								selectedFileIndex={0}
 								setSelectedFileIndex={() => {}}
-								previewFile={null}
 								fileTreeContainerRef={fileTreeContainerRef}
 								fileTreeFilterInputRef={fileTreeFilterInputRef}
 								toggleFolder={() => {}}
@@ -1215,7 +1210,6 @@ describe('Auto Run + RightPanel Integration', () => {
 								filteredFileTree={[]}
 								selectedFileIndex={0}
 								setSelectedFileIndex={() => {}}
-								previewFile={null}
 								fileTreeContainerRef={fileTreeContainerRef}
 								fileTreeFilterInputRef={fileTreeFilterInputRef}
 								toggleFolder={() => {}}
@@ -1289,7 +1283,6 @@ describe('Auto Run + RightPanel Integration', () => {
 					filteredFileTree={[]}
 					selectedFileIndex={0}
 					setSelectedFileIndex={() => {}}
-					previewFile={null}
 					fileTreeContainerRef={fileTreeContainerRef}
 					fileTreeFilterInputRef={fileTreeFilterInputRef}
 					toggleFolder={() => {}}
@@ -1398,7 +1391,6 @@ describe('Auto Run + RightPanel Integration', () => {
 					filteredFileTree={[]}
 					selectedFileIndex={0}
 					setSelectedFileIndex={() => {}}
-					previewFile={null}
 					fileTreeContainerRef={fileTreeContainerRef}
 					fileTreeFilterInputRef={fileTreeFilterInputRef}
 					toggleFolder={() => {}}
@@ -1479,7 +1471,6 @@ describe('Auto Run + RightPanel Integration', () => {
 							filteredFileTree={[]}
 							selectedFileIndex={0}
 							setSelectedFileIndex={() => {}}
-							previewFile={null}
 							fileTreeContainerRef={fileTreeContainerRef}
 							fileTreeFilterInputRef={fileTreeFilterInputRef}
 							toggleFolder={() => {}}

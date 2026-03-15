@@ -1,8 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QuickActionsModal } from '../../../renderer/components/QuickActionsModal';
+import { formatShortcutKeys } from '../../../renderer/utils/shortcutFormatter';
 import type { Session, Group, Theme, Shortcut } from '../../../renderer/types';
-
+import { useUIStore } from '../../../renderer/stores/uiStore';
+import { useFileExplorerStore } from '../../../renderer/stores/fileExplorerStore';
 // Add missing window.maestro.devtools and debug mocks
 beforeAll(() => {
 	(window.maestro as any).devtools = {
@@ -37,13 +39,16 @@ vi.mock('../../../renderer/contexts/LayerStackContext', () => ({
 	}),
 }));
 
-vi.mock('../../../renderer/stores/notificationStore', () => ({
-	useNotificationStore: (selector?: any) => {
-		const state = { toasts: [], removeToast: vi.fn() };
-		return selector ? selector(state) : state;
-	},
-	notifyToast: vi.fn(),
-}));
+const mockNotifyToast = vi.fn();
+vi.mock('../../../renderer/stores/notificationStore', async () => {
+	const actual = await vi.importActual<typeof import('../../../renderer/stores/notificationStore')>(
+		'../../../renderer/stores/notificationStore'
+	);
+	return {
+		...actual,
+		notifyToast: (...args: any[]) => mockNotifyToast(...args),
+	};
+});
 
 vi.mock('../../../renderer/constants/modalPriorities', () => ({
 	MODAL_PRIORITIES: {
@@ -60,6 +65,7 @@ vi.mock('../../../renderer/services/git', () => ({
 
 vi.mock('../../../renderer/utils/shortcutFormatter', () => ({
 	formatShortcutKeys: vi.fn((keys: string[]) => keys.join('+')),
+	isMacOS: vi.fn(() => false),
 }));
 
 // Mock lucide-react
@@ -178,6 +184,17 @@ const createDefaultProps = (
 describe('QuickActionsModal', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		// Reset uiStore state used by search actions
+		useUIStore.setState({
+			sessionFilterOpen: false,
+			historySearchFilterOpen: false,
+			outputSearchOpen: false,
+			activeFocus: 'main',
+		});
+		// Reset fileExplorerStore state
+		useFileExplorerStore.setState({
+			fileTreeFilterOpen: false,
+		});
 	});
 
 	afterEach(() => {
@@ -268,7 +285,9 @@ describe('QuickActionsModal', () => {
 			render(<QuickActionsModal {...props} />);
 
 			expect(screen.getByText('Toggle Sidebar')).toBeInTheDocument();
-			expect(screen.getByText('Cmd+B')).toBeInTheDocument();
+			expect(
+				screen.getByText(formatShortcutKeys(mockShortcuts.toggleSidebar.keys))
+			).toBeInTheDocument();
 		});
 
 		it('renders Settings action', () => {
@@ -481,6 +500,101 @@ describe('QuickActionsModal', () => {
 		});
 	});
 
+	describe('Search actions', () => {
+		it('renders all four search actions', () => {
+			const props = createDefaultProps();
+			render(<QuickActionsModal {...props} />);
+
+			expect(screen.getByText('Search: Agents')).toBeInTheDocument();
+			expect(screen.getByText('Search: Message History')).toBeInTheDocument();
+			expect(screen.getByText('Search: Files')).toBeInTheDocument();
+			expect(screen.getByText('Search: History')).toBeInTheDocument();
+		});
+
+		it('handles Search: Agents action', async () => {
+			vi.useFakeTimers();
+			const props = createDefaultProps();
+			render(<QuickActionsModal {...props} />);
+
+			fireEvent.click(screen.getByText('Search: Agents'));
+
+			expect(props.setQuickActionOpen).toHaveBeenCalledWith(false);
+			expect(props.setLeftSidebarOpen).toHaveBeenCalledWith(true);
+			expect(useUIStore.getState().activeFocus).toBe('sidebar');
+
+			// sessionFilterOpen is set after a 50ms timeout
+			vi.advanceTimersByTime(50);
+			expect(useUIStore.getState().sessionFilterOpen).toBe(true);
+
+			vi.useRealTimers();
+		});
+
+		it('handles Search: Message History action', async () => {
+			vi.useFakeTimers();
+			const props = createDefaultProps();
+			render(<QuickActionsModal {...props} />);
+
+			fireEvent.click(screen.getByText('Search: Message History'));
+
+			expect(props.setQuickActionOpen).toHaveBeenCalledWith(false);
+			expect(useUIStore.getState().activeFocus).toBe('main');
+
+			vi.advanceTimersByTime(50);
+			expect(useUIStore.getState().outputSearchOpen).toBe(true);
+
+			vi.useRealTimers();
+		});
+
+		it('handles Search: Files action', async () => {
+			vi.useFakeTimers();
+			const props = createDefaultProps();
+			render(<QuickActionsModal {...props} />);
+
+			fireEvent.click(screen.getByText('Search: Files'));
+
+			expect(props.setQuickActionOpen).toHaveBeenCalledWith(false);
+			expect(props.setRightPanelOpen).toHaveBeenCalledWith(true);
+			expect(props.setActiveRightTab).toHaveBeenCalledWith('files');
+			expect(useUIStore.getState().activeFocus).toBe('right');
+
+			vi.advanceTimersByTime(50);
+			expect(useFileExplorerStore.getState().fileTreeFilterOpen).toBe(true);
+
+			vi.useRealTimers();
+		});
+
+		it('handles Search: History action', async () => {
+			vi.useFakeTimers();
+			const props = createDefaultProps();
+			render(<QuickActionsModal {...props} />);
+
+			fireEvent.click(screen.getByText('Search: History'));
+
+			expect(props.setQuickActionOpen).toHaveBeenCalledWith(false);
+			expect(props.setRightPanelOpen).toHaveBeenCalledWith(true);
+			expect(props.setActiveRightTab).toHaveBeenCalledWith('history');
+			expect(useUIStore.getState().activeFocus).toBe('right');
+
+			vi.advanceTimersByTime(50);
+			expect(useUIStore.getState().historySearchFilterOpen).toBe(true);
+
+			vi.useRealTimers();
+		});
+
+		it('search actions appear when filtering for "search"', () => {
+			const props = createDefaultProps();
+			render(<QuickActionsModal {...props} />);
+
+			const input = screen.getByPlaceholderText('Type a command or jump to agent...');
+			fireEvent.change(input, { target: { value: 'search' } });
+
+			expect(screen.getByText('Search: Agents')).toBeInTheDocument();
+			expect(screen.getByText('Search: Message History')).toBeInTheDocument();
+			expect(screen.getByText('Search: Files')).toBeInTheDocument();
+			expect(screen.getByText('Search: History')).toBeInTheDocument();
+		});
+	});
+
 	describe('Git actions', () => {
 		it('renders git actions for git repo', () => {
 			const props = createDefaultProps();
@@ -512,6 +626,52 @@ describe('QuickActionsModal', () => {
 				expect(gitService.getDiff).toHaveBeenCalledWith('/home/user/project', undefined, undefined);
 				expect(props.setGitDiffPreview).toHaveBeenCalledWith('mock diff content');
 				expect(props.setQuickActionOpen).toHaveBeenCalledWith(false);
+			});
+		});
+
+		it('handles View Git Diff with SSH remote ID when session has SSH remote config enabled', async () => {
+			const { gitService } = await import('../../../renderer/services/git');
+			const session = createMockSession({
+				sessionSshRemoteConfig: { enabled: true, remoteId: 'ssh-remote-456' },
+			});
+			const props = createDefaultProps({ sessions: [session] });
+			render(<QuickActionsModal {...props} />);
+
+			fireEvent.click(screen.getByText('View Git Diff'));
+
+			await waitFor(() => {
+				expect(gitService.getDiff).toHaveBeenCalledWith(
+					'/home/user/project',
+					undefined,
+					'ssh-remote-456'
+				);
+			});
+		});
+
+		it('handles View Git Diff with undefined SSH remote ID when session has no SSH remote config', async () => {
+			const { gitService } = await import('../../../renderer/services/git');
+			const props = createDefaultProps();
+			render(<QuickActionsModal {...props} />);
+
+			fireEvent.click(screen.getByText('View Git Diff'));
+
+			await waitFor(() => {
+				expect(gitService.getDiff).toHaveBeenCalledWith('/home/user/project', undefined, undefined);
+			});
+		});
+
+		it('handles View Git Diff with undefined SSH remote ID when session has SSH remote config disabled', async () => {
+			const { gitService } = await import('../../../renderer/services/git');
+			const session = createMockSession({
+				sessionSshRemoteConfig: { enabled: false, remoteId: 'ssh-remote-456' },
+			});
+			const props = createDefaultProps({ sessions: [session] });
+			render(<QuickActionsModal {...props} />);
+
+			fireEvent.click(screen.getByText('View Git Diff'));
+
+			await waitFor(() => {
+				expect(gitService.getDiff).toHaveBeenCalledWith('/home/user/project', undefined, undefined);
 			});
 		});
 
@@ -1270,7 +1430,7 @@ describe('QuickActionsModal', () => {
 			});
 		});
 
-		it('handles git remote URL returning null', async () => {
+		it('handles git remote URL returning null with toast notification', async () => {
 			const { gitService } = await import('../../../renderer/services/git');
 			vi.mocked(gitService.getRemoteBrowserUrl).mockResolvedValueOnce(null);
 
@@ -1281,8 +1441,39 @@ describe('QuickActionsModal', () => {
 
 			await waitFor(() => {
 				expect(window.maestro.shell.openExternal).not.toHaveBeenCalled();
+				expect(mockNotifyToast).toHaveBeenCalledWith({
+					type: 'error',
+					title: 'No Remote URL',
+					message: 'Could not find a remote URL for this repository',
+				});
 				expect(props.setQuickActionOpen).toHaveBeenCalledWith(false);
 			});
+		});
+
+		it('handles error when opening repository in browser', async () => {
+			const { gitService } = await import('../../../renderer/services/git');
+			const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+			vi.mocked(gitService.getRemoteBrowserUrl).mockRejectedValueOnce(new Error('Network error'));
+
+			const props = createDefaultProps();
+			render(<QuickActionsModal {...props} />);
+
+			fireEvent.click(screen.getByText('Open Repository in Browser'));
+
+			await waitFor(() => {
+				expect(consoleSpy).toHaveBeenCalledWith(
+					'Failed to open repository in browser:',
+					expect.any(Error)
+				);
+				expect(mockNotifyToast).toHaveBeenCalledWith({
+					type: 'error',
+					title: 'Error',
+					message: 'Network error',
+				});
+				expect(props.setQuickActionOpen).toHaveBeenCalledWith(false);
+			});
+
+			consoleSpy.mockRestore();
 		});
 
 		it('sorts actions alphabetically', () => {
@@ -1309,6 +1500,68 @@ describe('QuickActionsModal', () => {
 				const curr = labels[i]!;
 				expect(prev.localeCompare(curr)).toBeLessThanOrEqual(0);
 			}
+		});
+	});
+
+	describe("Director's Notes action", () => {
+		it("shows Director's Notes command when onOpenDirectorNotes is provided", () => {
+			const onOpenDirectorNotes = vi.fn();
+			const props = createDefaultProps({
+				onOpenDirectorNotes,
+				shortcuts: {
+					...mockShortcuts,
+					directorNotes: { id: 'directorNotes', keys: ['Cmd', 'Shift', 'D'], enabled: true },
+				},
+			});
+			render(<QuickActionsModal {...props} />);
+
+			expect(screen.getByText("Director's Notes")).toBeInTheDocument();
+			expect(
+				screen.getByText('View unified history and AI synopsis across all sessions')
+			).toBeInTheDocument();
+		});
+
+		it("handles Director's Notes action - calls onOpenDirectorNotes and closes modal", () => {
+			const onOpenDirectorNotes = vi.fn();
+			const props = createDefaultProps({ onOpenDirectorNotes });
+			render(<QuickActionsModal {...props} />);
+
+			fireEvent.click(screen.getByText("Director's Notes"));
+
+			expect(onOpenDirectorNotes).toHaveBeenCalled();
+			expect(props.setQuickActionOpen).toHaveBeenCalledWith(false);
+		});
+
+		it("does not show Director's Notes when onOpenDirectorNotes is not provided", () => {
+			const props = createDefaultProps();
+			render(<QuickActionsModal {...props} />);
+
+			expect(screen.queryByText("Director's Notes")).not.toBeInTheDocument();
+		});
+
+		it("Director's Notes appears when searching for 'director'", () => {
+			const onOpenDirectorNotes = vi.fn();
+			const props = createDefaultProps({ onOpenDirectorNotes });
+			render(<QuickActionsModal {...props} />);
+
+			const input = screen.getByPlaceholderText('Type a command or jump to agent...');
+			fireEvent.change(input, { target: { value: 'director' } });
+
+			expect(screen.getByText("Director's Notes")).toBeInTheDocument();
+		});
+
+		it("displays shortcut keys for Director's Notes when shortcut is configured", () => {
+			const onOpenDirectorNotes = vi.fn();
+			const props = createDefaultProps({
+				onOpenDirectorNotes,
+				shortcuts: {
+					...mockShortcuts,
+					directorNotes: { id: 'directorNotes', keys: ['Cmd', 'Shift', 'D'], enabled: true },
+				},
+			});
+			render(<QuickActionsModal {...props} />);
+
+			expect(screen.getByText(formatShortcutKeys(['Cmd', 'Shift', 'D']))).toBeInTheDocument();
 		});
 	});
 

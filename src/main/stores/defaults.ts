@@ -6,6 +6,7 @@
  */
 
 import path from 'path';
+import { isWindows } from '../../shared/platformDetection';
 
 import type {
 	MaestroSettings,
@@ -27,7 +28,7 @@ import type {
  */
 export function getDefaultShell(): string {
 	// Windows: $SHELL doesn't exist; default to PowerShell
-	if (process.platform === 'win32') {
+	if (isWindows()) {
 		return 'powershell';
 	}
 	// Unix: Respect user's configured login shell from $SHELL
@@ -64,6 +65,8 @@ export const SETTINGS_DEFAULTS: MaestroSettings = {
 	webInterfaceCustomPort: 8080,
 	sshRemotes: [],
 	defaultSshRemoteId: null,
+	sshRemoteIgnorePatterns: ['.git', '.*cache*'],
+	sshRemoteHonorGitignore: false,
 	installationId: null,
 	synopsisEnabled: true,
 	sshStatsTimeoutMs: 30000,
@@ -97,6 +100,11 @@ export const SETTINGS_DEFAULTS: MaestroSettings = {
 		capacityCheckInteractive: true,
 		archiveEnabled: true,
 	},
+	// WakaTime integration (from upstream)
+	wakatimeEnabled: false,
+	wakatimeApiKey: '',
+	wakatimeDetailedTracking: false,
+	totalActiveTimeMs: 0,
 };
 
 export const SESSIONS_DEFAULTS: SessionsData = {

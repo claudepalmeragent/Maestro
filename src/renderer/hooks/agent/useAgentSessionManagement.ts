@@ -1,8 +1,9 @@
 import { useCallback, useRef } from 'react';
-import type { Session, LogEntry, UsageStats } from '../../types';
+import type { Session, LogEntry, UsageStats, ThinkingMode } from '../../types';
 import { createTab, getActiveTab } from '../../utils/tabHelpers';
 import { generateId } from '../../utils/ids';
 import type { RightPanelHandle } from '../../components/RightPanel';
+import { FALLBACK_CONTEXT_WINDOW } from '../../../shared/agentConstants';
 
 /**
  * History entry for the addHistoryEntry function.
@@ -21,6 +22,8 @@ export interface HistoryEntryInput {
 	sessionName?: string;
 	/** Whether the operation succeeded (false for errors/failures) */
 	success?: boolean;
+	/** Task execution time in milliseconds */
+	elapsedTimeMs?: number;
 }
 
 /**
@@ -40,7 +43,7 @@ export interface UseAgentSessionManagementDeps {
 	/** Default value for saveToHistory on new tabs */
 	defaultSaveToHistory: boolean;
 	/** Default value for showThinking on new tabs */
-	defaultShowThinking: boolean;
+	defaultShowThinking: ThinkingMode;
 }
 
 /**
@@ -127,6 +130,8 @@ export function useAgentSessionManagement(
 				usageStats: entry.usageStats,
 				// Pass through success field for error/failure tracking
 				success: entry.success,
+				// Pass through task execution time
+				elapsedTimeMs: entry.elapsedTimeMs,
 			});
 
 			// Refresh history panel to show the new entry
@@ -173,7 +178,9 @@ export function useAgentSessionManagement(
 				// Switch to the existing tab instead of creating a duplicate
 				setSessions((prev) =>
 					prev.map((s) =>
-						s.id === activeSession.id ? { ...s, activeTabId: existingTab.id, inputMode: 'ai' } : s
+						s.id === activeSession.id
+							? { ...s, activeTabId: existingTab.id, activeFileTabId: null, inputMode: 'ai' }
+							: s
 					)
 				);
 				setActiveAgentSessionId(agentSessionId);
@@ -243,7 +250,7 @@ export function useAgentSessionManagement(
 				// The context calculation is: (inputTokens + cacheRead + cacheCreation) / contextWindow * 100
 				// So we set inputTokens = contextUsage * contextWindow / 100 to get the correct percentage
 				if (storedContextUsage !== undefined && storedContextUsage > 0) {
-					const contextWindow = finalUsageStats?.contextWindow || 200000;
+					const contextWindow = finalUsageStats?.contextWindow || FALLBACK_CONTEXT_WINDOW;
 					finalUsageStats = {
 						inputTokens: Math.round((storedContextUsage * contextWindow) / 100),
 						outputTokens: finalUsageStats?.outputTokens || 0,
@@ -273,7 +280,7 @@ export function useAgentSessionManagement(
 						});
 						if (!result) return s;
 
-						return { ...result.session, inputMode: 'ai' };
+						return { ...result.session, activeFileTabId: null, inputMode: 'ai' };
 					})
 				);
 				setActiveAgentSessionId(agentSessionId);

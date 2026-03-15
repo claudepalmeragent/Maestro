@@ -20,6 +20,9 @@ import { AgentConfigPanel } from './shared/AgentConfigPanel';
 import { SshRemoteSelector } from './shared/SshRemoteSelector';
 import type { BillingModeValue } from './ui/BillingModeToggle';
 import type { PricingModelValue } from './ui/PricingModelDropdown';
+import { formatShortcutKeys } from '../utils/shortcutFormatter';
+import { safeClipboardWrite } from '../utils/clipboard';
+import { isBetaAgent, getAgentDisplayName } from '../../shared/agentMetadata';
 
 // Maximum character length for nudge message
 const NUDGE_MESSAGE_MAX_LENGTH = 1000;
@@ -67,6 +70,7 @@ interface EditAgentModalProps {
 	onSave: (
 		sessionId: string,
 		name: string,
+		toolType?: ToolType,
 		nudgeMessage?: string,
 		customPath?: string,
 		customArgs?: string,
@@ -86,7 +90,7 @@ interface EditAgentModalProps {
 }
 
 // Supported agents that are fully implemented
-const SUPPORTED_AGENTS = ['claude-code', 'opencode', 'codex'];
+const SUPPORTED_AGENTS = ['claude-code', 'opencode', 'codex', 'factory-droid'];
 
 export function NewInstanceModal({
 	isOpen,
@@ -145,6 +149,11 @@ export function NewInstanceModal({
 		return path;
 	};
 
+	const handleWorkingDirChange = React.useCallback((value: string) => {
+		setWorkingDir(value);
+		setDirectoryWarningAcknowledged(false);
+	}, []);
+
 	// Validate session uniqueness
 	const validation = useMemo(() => {
 		const name = instanceName.trim();
@@ -152,13 +161,16 @@ export function NewInstanceModal({
 		if (!name || !expandedDir || !selectedAgent) {
 			return { valid: true }; // Don't show errors until fields are filled
 		}
-		return validateNewSession(name, expandedDir, selectedAgent as ToolType, existingSessions);
-	}, [instanceName, workingDir, selectedAgent, existingSessions, homeDir]);
-
-	// Reset warning acknowledgment when directory changes
-	useEffect(() => {
-		setDirectoryWarningAcknowledged(false);
-	}, [workingDir]);
+		const sshConfig = agentSshRemoteConfigs[selectedAgent] || agentSshRemoteConfigs['_pending_'];
+		const sshRemoteId = sshConfig?.enabled ? sshConfig?.remoteId : null;
+		return validateNewSession(
+			name,
+			expandedDir,
+			selectedAgent as ToolType,
+			existingSessions,
+			sshRemoteId
+		);
+	}, [instanceName, workingDir, selectedAgent, existingSessions, homeDir, agentSshRemoteConfigs]);
 
 	// Check if SSH remote is enabled for the selected agent or pending config
 	// When no agent is selected, check the _pending_ config (user may select SSH before choosing agent)
@@ -331,7 +343,8 @@ export function NewInstanceModal({
 			// (hidden agents like 'terminal' should never be auto-selected)
 			if (source) {
 				setSelectedAgent(source.toolType);
-			} else {
+			} else if (!sshRemoteId) {
+				// Only auto-select on initial load, not on SSH remote re-detection
 				const firstAvailable = detectedAgents.find((a: AgentConfig) => a.available && !a.hidden);
 				if (firstAvailable) {
 					setSelectedAgent(firstAvailable.id);
@@ -340,7 +353,7 @@ export function NewInstanceModal({
 
 			// Pre-fill form fields AFTER agents are loaded (ensures no race condition)
 			if (source) {
-				setWorkingDir(source.cwd);
+				handleWorkingDirChange(source.cwd);
 				setInstanceName(`${source.name} (Copy)`);
 				setNudgeMessage(source.nudgeMessage || '');
 
@@ -380,9 +393,9 @@ export function NewInstanceModal({
 	const handleSelectFolder = React.useCallback(async () => {
 		const folder = await window.maestro.dialog.selectFolder();
 		if (folder) {
-			setWorkingDir(folder);
+			handleWorkingDirChange(folder);
 		}
-	}, []);
+	}, [handleWorkingDirChange]);
 
 	const handleRefreshAgent = React.useCallback(async (agentId: string) => {
 		setRefreshingAgent(agentId);
@@ -430,11 +443,14 @@ export function NewInstanceModal({
 		const expandedWorkingDir = expandTilde(workingDir.trim());
 
 		// Validate before creating
+		const sshConfig = agentSshRemoteConfigs[selectedAgent] || agentSshRemoteConfigs['_pending_'];
+		const sshRemoteId = sshConfig?.enabled ? sshConfig?.remoteId : null;
 		const result = validateNewSession(
 			name,
 			expandedWorkingDir,
 			selectedAgent as ToolType,
-			existingSessions
+			existingSessions,
+			sshRemoteId
 		);
 		if (!result.valid) return;
 
@@ -481,7 +497,7 @@ export function NewInstanceModal({
 
 		// Reset
 		setInstanceName('');
-		setWorkingDir('');
+		handleWorkingDirChange('');
 		setNudgeMessage('');
 		// Reset per-agent config for selected agent
 		setCustomAgentPaths((prev) => ({ ...prev, [selectedAgent]: '' }));
@@ -505,6 +521,7 @@ export function NewInstanceModal({
 		onCreate,
 		onClose,
 		expandTilde,
+		handleWorkingDirChange,
 		existingSessions,
 	]);
 
@@ -517,16 +534,15 @@ export function NewInstanceModal({
 		// 2. User specified a custom path for it
 		const hasCustomPath = customAgentPaths[selectedAgent]?.trim();
 		const isAgentUsable = agent?.available || !!hasCustomPath;
-		// For SSH sessions, require remote path validation to succeed
-		const remotePathOk = !isSshEnabled || remotePathValidation.valid;
+		// Remote path validation is informational only - don't block creation
+		// Users may want to set up agent for a remote before the path exists
 		return (
 			selectedAgent &&
 			isAgentUsable &&
 			workingDir.trim() &&
 			instanceName.trim() &&
 			validation.valid &&
-			!hasWarningThatNeedsAck &&
-			remotePathOk
+			!hasWarningThatNeedsAck
 		);
 	}, [
 		selectedAgent,
@@ -537,8 +553,6 @@ export function NewInstanceModal({
 		validation.warning,
 		directoryWarningAcknowledged,
 		customAgentPaths,
-		isSshEnabled,
-		remotePathValidation.valid,
 	]);
 
 	// Handle keyboard shortcuts
@@ -609,6 +623,21 @@ export function NewInstanceModal({
 		}
 	}, [isOpen]);
 
+	// Transfer pending SSH config to selected agent automatically
+	// This ensures SSH config is preserved when agent is auto-selected or manually clicked
+	useEffect(() => {
+		if (
+			selectedAgent &&
+			agentSshRemoteConfigs['_pending_'] &&
+			!agentSshRemoteConfigs[selectedAgent]
+		) {
+			setAgentSshRemoteConfigs((prev) => ({
+				...prev,
+				[selectedAgent]: prev['_pending_'],
+			}));
+		}
+	}, [selectedAgent, agentSshRemoteConfigs]);
+
 	// Track the current SSH remote ID for re-detection
 	// Uses _pending_ key when no agent is selected, which is the shared SSH config
 	const currentSshRemoteId = useMemo(() => {
@@ -651,13 +680,13 @@ export function NewInstanceModal({
 	if (!isOpen) return null;
 
 	return (
-		<div onKeyDown={handleKeyDown}>
+		<div onKeyDown={handleKeyDown} role="group" aria-label="Create new agent dialog">
 			<Modal
 				theme={theme}
 				title="Create New Agent"
 				priority={MODAL_PRIORITIES.NEW_INSTANCE}
 				onClose={onClose}
-				width={500}
+				width={600}
 				initialFocusRef={nameInputRef}
 				footer={
 					<ModalFooter
@@ -685,12 +714,12 @@ export function NewInstanceModal({
 
 					{/* Agent Selection */}
 					<div>
-						<label
+						<div
 							className="block text-xs font-bold opacity-70 uppercase mb-2"
 							style={{ color: theme.colors.textMain }}
 						>
 							Agent Provider
-						</label>
+						</div>
 						{loading ? (
 							<div className="text-sm opacity-50">Loading agents...</div>
 						) : sshConnectionError ? (
@@ -723,6 +752,32 @@ export function NewInstanceModal({
 									const isExpanded = expandedAgent === agent.id;
 									const isSelected = selectedAgent === agent.id;
 
+									const handleAgentHeaderActivate = () => {
+										if (isSupported) {
+											// Toggle expansion
+											const nowExpanded = !isExpanded;
+											setExpandedAgent(nowExpanded ? agent.id : null);
+											// Always select when clicking a supported agent (even if not available)
+											// User can configure a custom path to make it usable
+											setSelectedAgent(agent.id);
+											// Transfer pending SSH config to the newly selected agent if it doesn't have one
+											setAgentSshRemoteConfigs((prev) => {
+												const pendingConfig = prev['_pending_'];
+												if (pendingConfig && !prev[agent.id]) {
+													return {
+														...prev,
+														[agent.id]: pendingConfig,
+													};
+												}
+												return prev;
+											});
+											// Load models when expanding an agent that supports model selection
+											if (nowExpanded && agent.capabilities?.supportsModelSelection) {
+												loadModelsForAgent(agent.id);
+											}
+										}
+									};
+
 									return (
 										<div
 											key={agent.id}
@@ -739,29 +794,11 @@ export function NewInstanceModal({
 										>
 											{/* Collapsed header row */}
 											<div
-												onClick={() => {
-													if (isSupported) {
-														// Toggle expansion
-														const nowExpanded = !isExpanded;
-														setExpandedAgent(nowExpanded ? agent.id : null);
-														// Always select when clicking a supported agent (even if not available)
-														// User can configure a custom path to make it usable
-														setSelectedAgent(agent.id);
-														// Transfer pending SSH config to the newly selected agent if it doesn't have one
-														setAgentSshRemoteConfigs((prev) => {
-															const pendingConfig = prev['_pending_'];
-															if (pendingConfig && !prev[agent.id]) {
-																return {
-																	...prev,
-																	[agent.id]: pendingConfig,
-																};
-															}
-															return prev;
-														});
-														// Load models when expanding an agent that supports model selection
-														if (nowExpanded && agent.capabilities?.supportsModelSelection) {
-															loadModelsForAgent(agent.id);
-														}
+												onClick={handleAgentHeaderActivate}
+												onKeyDown={(e) => {
+													if (e.key === 'Enter' || e.key === ' ') {
+														e.preventDefault();
+														handleAgentHeaderActivate();
 													}
 												}}
 												className={`w-full text-left px-3 py-2 flex items-center justify-between ${
@@ -784,8 +821,8 @@ export function NewInstanceModal({
 														/>
 													)}
 													<span className="font-medium">{agent.name}</span>
-													{/* "Beta" badge for Codex and OpenCode */}
-													{(agent.id === 'codex' || agent.id === 'opencode') && (
+													{/* "Beta" badge for Codex, OpenCode, and Factory Droid */}
+													{isBetaAgent(agent.id) && (
 														<span
 															className="text-[9px] px-1.5 py-0.5 rounded font-bold uppercase"
 															style={{
@@ -948,9 +985,16 @@ export function NewInstanceModal({
 																},
 															}));
 														}}
-														onConfigBlur={() => {
-															const currentConfig = agentConfigs[agent.id] || {};
-															window.maestro.agents.setConfig(agent.id, currentConfig);
+														onConfigBlur={(key, value) => {
+															const updatedConfig = {
+																...(agentConfigs[agent.id] || {}),
+																[key]: value,
+															};
+															void window.maestro.agents
+																.setConfig(agent.id, updatedConfig)
+																.catch((error) => {
+																	console.error(`Failed to persist config for ${agent.id}:`, error);
+																});
 														}}
 														availableModels={availableModels[agent.id] || []}
 														loadingModels={loadingModels[agent.id] || false}
@@ -1010,8 +1054,8 @@ export function NewInstanceModal({
 										<span className="opacity-50">PATH:</span>
 									</div>
 									<div className="pl-2 break-all text-[10px]">
-										{debugInfo.envPath.split(':').map((p, i) => (
-											<div key={i}>{p}</div>
+										{debugInfo.envPath.split(':').map((p) => (
+											<div key={`${debugInfo.platform}-${p}`}>{p}</div>
 										))}
 									</div>
 								</div>
@@ -1031,7 +1075,7 @@ export function NewInstanceModal({
 						theme={theme}
 						label="Working Directory"
 						value={workingDir}
-						onChange={setWorkingDir}
+						onChange={handleWorkingDirChange}
 						placeholder={
 							isSshEnabled
 								? `Enter remote path${sshRemoteHost ? ` on ${sshRemoteHost}` : ''} (e.g., /home/user/project)`
@@ -1049,7 +1093,7 @@ export function NewInstanceModal({
 								title={
 									isSshEnabled
 										? `Folder picker unavailable for SSH remote${sshRemoteHost ? ` (${sshRemoteHost})` : ''}. Enter the remote path manually.`
-										: 'Browse folders (Cmd+O)'
+										: `Browse folders (${formatShortcutKeys(['Meta', 'o'])})`
 								}
 							>
 								<Folder className="w-5 h-5" />
@@ -1132,23 +1176,28 @@ export function NewInstanceModal({
 								agentSshRemoteConfigs[selectedAgent] || agentSshRemoteConfigs['_pending_']
 							}
 							onSshRemoteConfigChange={(config) => {
-								const key = selectedAgent || '_pending_';
-								setAgentSshRemoteConfigs((prev) => ({
-									...prev,
-									[key]: config,
-								}));
+								setAgentSshRemoteConfigs((prev) => {
+									const newConfigs: Record<string, AgentSshRemoteConfig> = {
+										...prev,
+										_pending_: config,
+									};
+									if (selectedAgent) {
+										newConfigs[selectedAgent] = config;
+									}
+									return newConfigs;
+								});
 							}}
 						/>
 					)}
 
 					{/* Nudge Message */}
 					<div>
-						<label
+						<div
 							className="block text-xs font-bold opacity-70 uppercase mb-2"
 							style={{ color: theme.colors.textMain }}
 						>
 							Nudge Message <span className="font-normal opacity-50">(optional)</span>
-						</label>
+						</div>
 						<textarea
 							value={nudgeMessage}
 							onChange={(e) => setNudgeMessage(e.target.value.slice(0, NUDGE_MESSAGE_MAX_LENGTH))}
@@ -1208,6 +1257,10 @@ export function EditAgentModal({
 		'idle'
 	);
 	const [copiedId, setCopiedId] = useState(false);
+	// Provider change state
+	const [selectedToolType, setSelectedToolType] = useState<ToolType>(
+		session?.toolType ?? 'claude-code'
+	);
 	// SSH Remote configuration
 	const [sshRemotes, setSshRemotes] = useState<SshRemoteConfig[]>([]);
 	const [sshRemoteConfig, setSshRemoteConfig] = useState<AgentSshRemoteConfig | undefined>(
@@ -1241,12 +1294,10 @@ export function EditAgentModal({
 	// Copy session ID to clipboard
 	const handleCopySessionId = useCallback(async () => {
 		if (!session) return;
-		try {
-			await navigator.clipboard.writeText(session.id);
+		const ok = await safeClipboardWrite(session.id);
+		if (ok) {
 			setCopiedId(true);
 			setTimeout(() => setCopiedId(false), 2000);
-		} catch (err) {
-			console.error('Failed to copy session ID:', err);
 		}
 	}, [session]);
 
@@ -1273,36 +1324,51 @@ export function EditAgentModal({
 	}, [session, sshRemoteConfig]);
 
 	// Load agent info, config, custom settings, and models when modal opens
+
+	// Track whether provider has been changed from the original
+	const providerChanged = session ? selectedToolType !== session.toolType : false;
+
+	// Load agent info, config, custom settings, and models when modal opens or provider changes
 	useEffect(() => {
 		if (isOpen && session) {
+			const activeToolType = selectedToolType;
+			const isProviderSwitch = activeToolType !== session.toolType;
+
 			// Load agent definition to get configOptions
 			window.maestro.agents.detect().then((agents: AgentConfig[]) => {
-				const foundAgent = agents.find((a) => a.id === session.toolType);
+				const foundAgent = agents.find((a) => a.id === activeToolType);
 				setAgent(foundAgent || null);
 
 				// Load models if agent supports model selection
 				if (foundAgent?.capabilities?.supportsModelSelection) {
 					setLoadingModels(true);
 					window.maestro.agents
-						.getModels(session.toolType)
+						.getModels(activeToolType)
 						.then((models) => setAvailableModels(models))
 						.catch((err) => console.error('Failed to load models:', err))
 						.finally(() => setLoadingModels(false));
+				} else {
+					setAvailableModels([]);
 				}
 			});
 			// Load agent config for defaults, but use session-level overrides when available
 			// Both model and contextWindow are now per-session
-			window.maestro.agents.getConfig(session.toolType).then((globalConfig) => {
-				// Capture global agent model for forward-looking "Active" indicator
-				setGlobalAgentModel(
-					typeof globalConfig.model === 'string' && globalConfig.model.trim()
-						? globalConfig.model.trim()
-						: undefined
-				);
-				// Use session-level values if set, otherwise use global defaults
-				const modelValue = session.customModel ?? globalConfig.model ?? '';
-				const contextWindowValue = session.customContextWindow ?? globalConfig.contextWindow;
-				setAgentConfig({ ...globalConfig, model: modelValue, contextWindow: contextWindowValue });
+			window.maestro.agents.getConfig(activeToolType).then((globalConfig) => {
+				if (isProviderSwitch) {
+					// When provider changed, use global defaults for the new provider
+					setAgentConfig(globalConfig);
+				} else {
+					// Capture global agent model for forward-looking "Active" indicator
+					setGlobalAgentModel(
+						typeof globalConfig.model === 'string' && globalConfig.model.trim()
+							? globalConfig.model.trim()
+							: undefined
+					);
+					// Use session-level values if set, otherwise use global defaults
+					const modelValue = session.customModel ?? globalConfig.model ?? '';
+					const contextWindowValue = session.customContextWindow ?? globalConfig.contextWindow;
+					setAgentConfig({ ...globalConfig, model: modelValue, contextWindow: contextWindowValue });
+				}
 			});
 
 			// Load SSH remote config from session (per-session, not global)
@@ -1327,11 +1393,18 @@ export function EditAgentModal({
 				.catch((err) => console.error('Failed to load SSH remotes:', err));
 
 			// Load per-session config (stored on the session/agent instance)
-			// No provider-level fallback - each agent has its own config
-			setCustomPath(session.customPath ?? '');
-			setCustomArgs(session.customArgs ?? '');
-			setCustomEnvVars(session.customEnvVars ?? {});
-			setCustomModel(session.customModel ?? '');
+			// When provider changed, clear provider-specific overrides
+			if (isProviderSwitch) {
+				setCustomPath('');
+				setCustomArgs('');
+				setCustomEnvVars({});
+				setCustomModel('');
+			} else {
+				setCustomPath(session.customPath ?? '');
+				setCustomArgs(session.customArgs ?? '');
+				setCustomEnvVars(session.customEnvVars ?? {});
+				setCustomModel(session.customModel ?? '');
+			}
 
 			// Load pricing configuration (for Claude agents only)
 			const isClaude = session.toolType === 'claude-code' || session.toolType === 'claude';
@@ -1365,7 +1438,7 @@ export function EditAgentModal({
 				setDetectedAuth(null);
 			}
 		}
-	}, [isOpen, session]);
+	}, [isOpen, session, selectedToolType]);
 
 	// Fetch version when edit modal opens (for Claude Code agents)
 	useEffect(() => {
@@ -1422,6 +1495,7 @@ export function EditAgentModal({
 		if (isOpen && session) {
 			setInstanceName(session.name);
 			setNudgeMessage(session.nudgeMessage || '');
+			setSelectedToolType(session.toolType);
 			// Derive git scan status from session state
 			if (session.isGitRepo) {
 				setGitScanStatus('found');
@@ -1602,6 +1676,7 @@ export function EditAgentModal({
 		onSave(
 			session.id,
 			name,
+			providerChanged ? selectedToolType : undefined,
 			nudgeMessage.trim() || undefined,
 			customPath.trim() || undefined,
 			customArgs.trim() || undefined,
@@ -1620,6 +1695,8 @@ export function EditAgentModal({
 		customEnvVars,
 		agentConfig,
 		sshRemoteConfig,
+		selectedToolType,
+		providerChanged,
 		onSave,
 		onClose,
 		existingSessions,
@@ -1630,32 +1707,31 @@ export function EditAgentModal({
 
 	// Refresh available models
 	const refreshModels = useCallback(async () => {
-		if (!session || !agent?.capabilities?.supportsModelSelection) return;
+		if (!agent?.capabilities?.supportsModelSelection) return;
 		setLoadingModels(true);
 		try {
-			const models = await window.maestro.agents.getModels(session.toolType, true);
+			const models = await window.maestro.agents.getModels(selectedToolType, true);
 			setAvailableModels(models);
 		} catch (err) {
 			console.error('Failed to refresh models:', err);
 		} finally {
 			setLoadingModels(false);
 		}
-	}, [session, agent]);
+	}, [selectedToolType, agent]);
 
 	// Refresh agent detection
 	const handleRefreshAgent = useCallback(async () => {
-		if (!session) return;
 		setRefreshingAgent(true);
 		try {
-			const result = await window.maestro.agents.refresh(session.toolType);
-			const foundAgent = result.agents.find((a: AgentConfig) => a.id === session.toolType);
+			const result = await window.maestro.agents.refresh(selectedToolType);
+			const foundAgent = result.agents.find((a: AgentConfig) => a.id === selectedToolType);
 			setAgent(foundAgent || null);
 		} catch (error) {
 			console.error('Failed to refresh agent:', error);
 		} finally {
 			setRefreshingAgent(false);
 		}
-	}, [session]);
+	}, [selectedToolType]);
 
 	// Handle billing mode change (for Claude agents only)
 	// Stages in local state; persisted on Save
@@ -1686,10 +1762,10 @@ export function EditAgentModal({
 
 	// Check if form is valid for submission
 	const isFormValid = useMemo(() => {
-		// For SSH sessions, require remote path validation to succeed
-		const remotePathOk = !isSshEnabled || remotePathValidation.valid;
-		return instanceName.trim() && validation.valid && remotePathOk;
-	}, [instanceName, validation.valid, isSshEnabled, remotePathValidation.valid]);
+		// Remote path validation is informational only - don't block save
+		// Users may want to configure SSH remote before the path exists
+		return !!instanceName.trim() && validation.valid;
+	}, [instanceName, validation.valid]);
 
 	// Handle keyboard shortcuts
 	const handleKeyDown = useCallback(
@@ -1709,23 +1785,16 @@ export function EditAgentModal({
 
 	if (!isOpen || !session) return null;
 
-	// Get agent name for display
-	const agentNameMap: Record<string, string> = {
-		'claude-code': 'Claude Code',
-		codex: 'Codex',
-		opencode: 'OpenCode',
-		aider: 'Aider',
-	};
-	const agentName = agentNameMap[session.toolType] || session.toolType;
+	const agentName = getAgentDisplayName(selectedToolType);
 
 	return (
-		<div onKeyDown={handleKeyDown}>
+		<div onKeyDown={handleKeyDown} role="group" aria-label="Edit agent dialog">
 			<Modal
 				theme={theme}
 				title={`Edit Agent: ${session.name}`}
 				priority={MODAL_PRIORITIES.NEW_INSTANCE}
 				onClose={onClose}
-				width={500}
+				width={600}
 				initialFocusRef={nameInputRef}
 				customHeader={
 					<div
@@ -1788,37 +1857,56 @@ export function EditAgentModal({
 						heightClass="p-2"
 					/>
 
-					{/* Agent Provider (read-only) */}
+					{/* Agent Provider */}
 					<div>
-						<label
+						<div
 							className="block text-xs font-bold opacity-70 uppercase mb-2"
 							style={{ color: theme.colors.textMain }}
 						>
 							Agent Provider
-						</label>
-						<div
-							className="p-2 rounded border text-sm"
+						</div>
+						<select
+							value={selectedToolType}
+							onChange={(e) => setSelectedToolType(e.target.value as ToolType)}
+							className="w-full p-2 rounded border bg-transparent outline-none text-sm"
 							style={{
 								borderColor: theme.colors.border,
-								color: theme.colors.textDim,
-								backgroundColor: theme.colors.bgActivity,
+								color: theme.colors.textMain,
+								backgroundColor: theme.colors.bgMain,
 							}}
 						>
-							{agentName}
-						</div>
-						<p className="mt-1 text-xs" style={{ color: theme.colors.textDim }}>
-							Provider cannot be changed after creation.
-						</p>
+							{SUPPORTED_AGENTS.map((agentId) => (
+								<option key={agentId} value={agentId}>
+									{getAgentDisplayName(agentId)}
+								</option>
+							))}
+						</select>
+						{providerChanged && (
+							<div
+								className="mt-2 p-2 rounded border text-xs flex items-start gap-2"
+								style={{
+									borderColor: theme.colors.warning + '60',
+									backgroundColor: theme.colors.warning + '10',
+									color: theme.colors.warning,
+								}}
+							>
+								<AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+								<span>
+									Changing the provider will clear your session list (tabs). Your history panel data
+									will persist.
+								</span>
+							</div>
+						)}
 					</div>
 
 					{/* Working Directory (read-only) */}
 					<div>
-						<label
+						<div
 							className="block text-xs font-bold opacity-70 uppercase mb-2"
 							style={{ color: theme.colors.textMain }}
 						>
 							Working Directory
-						</label>
+						</div>
 						<div
 							className="p-2 rounded border font-mono text-sm overflow-hidden text-ellipsis"
 							style={{
@@ -1941,12 +2029,12 @@ export function EditAgentModal({
 
 					{/* Nudge Message */}
 					<div>
-						<label
+						<div
 							className="block text-xs font-bold opacity-70 uppercase mb-2"
 							style={{ color: theme.colors.textMain }}
 						>
 							Nudge Message <span className="font-normal opacity-50">(optional)</span>
-						</label>
+						</div>
 						<textarea
 							value={nudgeMessage}
 							onChange={(e) => setNudgeMessage(e.target.value.slice(0, NUDGE_MESSAGE_MAX_LENGTH))}
@@ -1969,12 +2057,12 @@ export function EditAgentModal({
 					{/* Per-session config (path, args, env vars) saved on modal save, not on blur */}
 					{agent && (
 						<div>
-							<label
+							<div
 								className="block text-xs font-bold opacity-70 uppercase mb-2"
 								style={{ color: theme.colors.textMain }}
 							>
 								{agentName} Settings
-							</label>
+							</div>
 							<AgentConfigPanel
 								theme={theme}
 								agent={agent}
@@ -2021,8 +2109,22 @@ export function EditAgentModal({
 								onConfigChange={(key, value) => {
 									setAgentConfig((prev) => ({ ...prev, [key]: value }));
 								}}
-								onConfigBlur={() => {
-									// All config changes are staged in local state and persisted on Save
+								onConfigBlur={(key, value) => {
+									// Both model and contextWindow are now saved per-session on modal save
+									// Other config options (if any) can still be saved at agent level
+									const updatedConfig = { ...agentConfig, [key]: value };
+									const {
+										model: _model,
+										contextWindow: _contextWindow,
+										...otherConfig
+									} = updatedConfig;
+									if (Object.keys(otherConfig).length > 0) {
+										void window.maestro.agents
+											.setConfig(selectedToolType, otherConfig)
+											.catch((error) => {
+												console.error(`Failed to persist config for ${selectedToolType}:`, error);
+											});
+									}
 								}}
 								availableModels={availableModels}
 								loadingModels={loadingModels}
@@ -2045,6 +2147,7 @@ export function EditAgentModal({
 								refreshingRemoteAuth={refreshingRemoteAuth}
 								detectedModel={hostModel}
 								hostEffortLevel={hostEffortLevel}
+								isSshEnabled={isSshEnabled}
 							/>
 							{/* Version & Update (Claude Code only) — grouped with Model and Effort */}
 							{(session.toolType === 'claude-code' || session.toolType === 'claude') && (

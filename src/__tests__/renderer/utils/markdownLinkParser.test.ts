@@ -1,15 +1,30 @@
 /**
- * Tests for markdown link parser utility
+ * Comprehensive tests for markdown link parser utility.
+ *
+ * Tests cover:
+ * - extractDomain: URL domain extraction with www stripping and fallback
+ * - parseMarkdownLinks: wiki links, markdown links, front matter, deduplication
+ * - Internal path utilities (dirname, extname, joinPath, resolveRelativePath)
+ *   tested indirectly via parseMarkdownLinks
+ * - Edge cases: malformed input, URL encoding, special characters
  */
 
 import {
 	parseMarkdownLinks,
 	extractDomain,
 	type ParsedMarkdownLinks,
+	type ParseMarkdownLinksOptions,
 } from '../../../renderer/utils/markdownLinkParser';
 
+// ---------------------------------------------------------------------------
+// extractDomain
+// ---------------------------------------------------------------------------
 describe('extractDomain', () => {
-	it('should extract domain from HTTPS URL', () => {
+	it('should extract domain from simple HTTPS URL', () => {
+		expect(extractDomain('https://example.com')).toBe('example.com');
+	});
+
+	it('should extract domain from HTTPS URL with path', () => {
 		expect(extractDomain('https://github.com/user/repo')).toBe('github.com');
 	});
 
@@ -21,7 +36,15 @@ describe('extractDomain', () => {
 		expect(extractDomain('https://www.github.com/user/repo')).toBe('github.com');
 	});
 
+	it('should extract domain from URL with path segments', () => {
+		expect(extractDomain('https://example.com/path/to/page')).toBe('example.com');
+	});
+
 	it('should handle URLs with port numbers', () => {
+		expect(extractDomain('https://example.com:8080')).toBe('example.com');
+	});
+
+	it('should handle localhost with port', () => {
 		expect(extractDomain('https://localhost:3000/path')).toBe('localhost');
 	});
 
@@ -33,14 +56,98 @@ describe('extractDomain', () => {
 		expect(extractDomain('https://docs.github.com/en/pages')).toBe('docs.github.com');
 	});
 
-	it('should return original string for invalid URLs', () => {
+	it('should fall back to regex for invalid URLs', () => {
+		// 'not-a-url' has no protocol, so URL constructor fails and regex also won't match
 		expect(extractDomain('not-a-url')).toBe('not-a-url');
+	});
+
+	it('should fall back to regex extraction for malformed URLs with protocol', () => {
+		// This URL has a protocol prefix so the regex fallback can extract the domain
+		expect(extractDomain('http://some-domain.com')).toBe('some-domain.com');
+	});
+
+	it('should handle IDN domains (punycode)', () => {
+		expect(extractDomain('https://\u4F8B\u3048.jp/path')).toBe('xn--r8jz45g.jp');
+	});
+
+	it('should strip www prefix from complex URLs', () => {
+		expect(extractDomain('https://www.docs.example.com/path')).toBe('docs.example.com');
+	});
+
+	it('should handle URLs with trailing slashes', () => {
+		expect(extractDomain('https://example.com/')).toBe('example.com');
+	});
+
+	it('should handle URLs with deep paths', () => {
+		expect(extractDomain('https://github.com/org/repo/blob/main/src/file.ts')).toBe('github.com');
+	});
+
+	it('should return original for malformed URLs without match', () => {
+		expect(extractDomain('http://incomplete')).toBe('incomplete');
+	});
+
+	it('should handle URLs with unusual TLDs', () => {
+		expect(extractDomain('https://site.museum/collection')).toBe('site.museum');
+		expect(extractDomain('https://company.technology/product')).toBe('company.technology');
 	});
 });
 
+// ---------------------------------------------------------------------------
+// parseMarkdownLinks
+// ---------------------------------------------------------------------------
 describe('parseMarkdownLinks', () => {
+	// -----------------------------------------------------------------------
+	// Null / undefined / non-string content
+	// -----------------------------------------------------------------------
+	describe('null/undefined/non-string content', () => {
+		it('should return empty result for null content', () => {
+			// @ts-expect-error Testing runtime behavior with null input
+			const result = parseMarkdownLinks(null, 'doc.md');
+
+			expect(result.internalLinks).toEqual([]);
+			expect(result.externalLinks).toEqual([]);
+			expect(result.frontMatter).toEqual({});
+		});
+
+		it('should return empty result for undefined content', () => {
+			// @ts-expect-error Testing runtime behavior with undefined input
+			const result = parseMarkdownLinks(undefined, 'doc.md');
+
+			expect(result.internalLinks).toEqual([]);
+			expect(result.externalLinks).toEqual([]);
+			expect(result.frontMatter).toEqual({});
+		});
+
+		it('should return empty result for non-string content types', () => {
+			// @ts-expect-error Testing runtime behavior with number input
+			const resultNumber = parseMarkdownLinks(12345, 'doc.md');
+			expect(resultNumber.internalLinks).toEqual([]);
+			expect(resultNumber.frontMatter).toEqual({});
+
+			// @ts-expect-error Testing runtime behavior with object input
+			const resultObject = parseMarkdownLinks({ text: 'content' }, 'doc.md');
+			expect(resultObject.internalLinks).toEqual([]);
+			expect(resultObject.frontMatter).toEqual({});
+
+			// @ts-expect-error Testing runtime behavior with array input
+			const resultArray = parseMarkdownLinks(['content'], 'doc.md');
+			expect(resultArray.internalLinks).toEqual([]);
+			expect(resultArray.frontMatter).toEqual({});
+		});
+
+		it('should handle empty filePath gracefully', () => {
+			const content = 'See [[other-doc]] for more info.';
+			const result = parseMarkdownLinks(content, '');
+
+			expect(result.internalLinks).toContain('other-doc.md');
+		});
+	});
+
+	// -----------------------------------------------------------------------
+	// Wiki-style links
+	// -----------------------------------------------------------------------
 	describe('wiki-style links', () => {
-		it('should parse simple wiki links [[filename]]', () => {
+		it('should parse simple wiki links [[Note]]', () => {
 			const content = 'See [[other-doc]] for more info.';
 			const result = parseMarkdownLinks(content, 'docs/readme.md');
 
@@ -48,26 +155,34 @@ describe('parseMarkdownLinks', () => {
 			expect(result.externalLinks).toHaveLength(0);
 		});
 
-		it('should parse wiki links with display text [[path|text]]', () => {
-			const content = 'Check out [[getting-started|the guide]].';
-			const result = parseMarkdownLinks(content, 'docs/readme.md');
-
-			expect(result.internalLinks).toContain('docs/getting-started.md');
-		});
-
-		it('should parse wiki links with folders [[Folder/Note]]', () => {
+		it('should parse wiki links with path [[Folder/Note]]', () => {
 			const content = 'See [[subdir/nested-doc]] for details.';
 			const result = parseMarkdownLinks(content, 'docs/readme.md');
 
 			expect(result.internalLinks).toContain('docs/subdir/nested-doc.md');
 		});
 
-		it('should skip image embeds', () => {
-			const content = '![[screenshot.png]] and [[doc-link]]';
+		it('should parse wiki links with display text [[Note|Display]]', () => {
+			const content = 'Check out [[getting-started|the guide]].';
+			const result = parseMarkdownLinks(content, 'docs/readme.md');
+
+			expect(result.internalLinks).toContain('docs/getting-started.md');
+		});
+
+		it('should skip image wiki links (.png, .jpg, etc.)', () => {
+			const content = '![[screenshot.png]] and [[image.jpg]] and [[photo.gif]] and [[doc-link]]';
 			const result = parseMarkdownLinks(content, 'docs/readme.md');
 
 			expect(result.internalLinks).toContain('docs/doc-link.md');
 			expect(result.internalLinks).toHaveLength(1);
+		});
+
+		it('should skip various image extensions in wiki links', () => {
+			const content = '[[a.jpeg]] [[b.webp]] [[c.svg]] [[d.bmp]] [[e.ico]] [[real-doc]]';
+			const result = parseMarkdownLinks(content, 'readme.md');
+
+			expect(result.internalLinks).toHaveLength(1);
+			expect(result.internalLinks).toContain('real-doc.md');
 		});
 
 		it('should handle multiple wiki links', () => {
@@ -81,8 +196,20 @@ describe('parseMarkdownLinks', () => {
 		});
 	});
 
+	// -----------------------------------------------------------------------
+	// Standard markdown links
+	// -----------------------------------------------------------------------
 	describe('standard markdown links', () => {
-		it('should parse internal markdown links [text](path.md)', () => {
+		it('should parse external markdown links [text](https://example.com)', () => {
+			const content = 'Visit [Example](https://example.com).';
+			const result = parseMarkdownLinks(content, 'readme.md');
+
+			expect(result.externalLinks).toHaveLength(1);
+			expect(result.externalLinks[0].url).toBe('https://example.com');
+			expect(result.externalLinks[0].domain).toBe('example.com');
+		});
+
+		it('should parse internal markdown links [text](./other.md)', () => {
 			const content = 'See the [documentation](./docs/guide.md).';
 			const result = parseMarkdownLinks(content, 'readme.md');
 
@@ -118,7 +245,7 @@ Also see [Docs](https://docs.example.com/page).
 			expect(result.externalLinks.map((l) => l.domain)).toContain('docs.example.com');
 		});
 
-		it('should skip anchor links', () => {
+		it('should skip anchor links (#section)', () => {
 			const content = 'See [section](#heading) for details.';
 			const result = parseMarkdownLinks(content, 'readme.md');
 
@@ -133,77 +260,91 @@ Also see [Docs](https://docs.example.com/page).
 			expect(result.internalLinks).toHaveLength(0);
 			expect(result.externalLinks).toHaveLength(0);
 		});
-	});
 
-	describe('front matter parsing', () => {
-		it('should parse YAML front matter', () => {
-			const content = `---
-title: My Document
-description: A test document
-version: 1.0
----
+		it('should add .md extension when missing for internal links', () => {
+			const content = '[doc](./other-file)';
+			const result = parseMarkdownLinks(content, 'readme.md');
 
-# Content here
-`;
-			const result = parseMarkdownLinks(content, 'doc.md');
-
-			expect(result.frontMatter.title).toBe('My Document');
-			expect(result.frontMatter.description).toBe('A test document');
-			expect(result.frontMatter.version).toBe(1.0);
-		});
-
-		it('should handle boolean values in front matter', () => {
-			const content = `---
-draft: true
-published: false
----
-
-Content
-`;
-			const result = parseMarkdownLinks(content, 'doc.md');
-
-			expect(result.frontMatter.draft).toBe(true);
-			expect(result.frontMatter.published).toBe(false);
-		});
-
-		it('should handle quoted strings in front matter', () => {
-			const content = `---
-title: "Quoted Title"
-subtitle: 'Single quoted'
----
-
-Content
-`;
-			const result = parseMarkdownLinks(content, 'doc.md');
-
-			expect(result.frontMatter.title).toBe('Quoted Title');
-			expect(result.frontMatter.subtitle).toBe('Single quoted');
-		});
-
-		it('should return empty object when no front matter', () => {
-			const content = '# Just a heading\n\nSome content.';
-			const result = parseMarkdownLinks(content, 'doc.md');
-
-			expect(result.frontMatter).toEqual({});
-		});
-
-		it('should ignore comments in front matter', () => {
-			const content = `---
-title: My Doc
-# This is a comment
-author: John
----
-
-Content
-`;
-			const result = parseMarkdownLinks(content, 'doc.md');
-
-			expect(result.frontMatter.title).toBe('My Doc');
-			expect(result.frontMatter.author).toBe('John');
-			expect(Object.keys(result.frontMatter)).toHaveLength(2);
+			expect(result.internalLinks).toContain('other-file.md');
 		});
 	});
 
+	// -----------------------------------------------------------------------
+	// Relative path resolution (tests path utilities indirectly)
+	// -----------------------------------------------------------------------
+	describe('relative path resolution', () => {
+		it('should resolve ./sibling.md correctly', () => {
+			const content = '[sibling](./sibling.md)';
+			const result = parseMarkdownLinks(content, 'docs/current.md');
+
+			expect(result.internalLinks).toContain('docs/sibling.md');
+		});
+
+		it('should resolve ../parent.md correctly', () => {
+			const content = '[parent](../parent.md)';
+			const result = parseMarkdownLinks(content, 'docs/nested/current.md');
+
+			expect(result.internalLinks).toContain('docs/parent.md');
+		});
+
+		it('should resolve ../../grandparent.md from deeply nested paths', () => {
+			const content = '[grandparent](../../grandparent.md)';
+			const result = parseMarkdownLinks(content, 'a/b/c/current.md');
+
+			expect(result.internalLinks).toContain('a/grandparent.md');
+		});
+
+		it('should resolve ../docs/file.md from nested/file.md', () => {
+			const content = '[doc](../docs/file.md)';
+			const result = parseMarkdownLinks(content, 'nested/file.md');
+
+			expect(result.internalLinks).toContain('docs/file.md');
+		});
+
+		it('should handle paths without leading ./', () => {
+			const content = '[[sibling-note]]';
+			const result = parseMarkdownLinks(content, 'docs/readme.md');
+
+			expect(result.internalLinks).toContain('docs/sibling-note.md');
+		});
+
+		it('should normalize backslashes in paths', () => {
+			// Wiki links with backslash separators
+			const content = '[[folder\\subfolder\\note]]';
+			const result = parseMarkdownLinks(content, 'docs/readme.md');
+
+			// The internal joinPath normalizes backslashes to forward slashes
+			expect(result.internalLinks).toHaveLength(1);
+			expect(result.internalLinks[0]).not.toContain('\\');
+		});
+
+		it('should handle absolute-like paths starting with /', () => {
+			const content = '[root](/root-doc.md)';
+			const result = parseMarkdownLinks(content, 'docs/current.md');
+
+			// /root-doc.md starts with / which is not http/https and not # or mailto
+			// joinPath('docs', '/root-doc.md') will produce something
+			expect(result.internalLinks).toHaveLength(1);
+		});
+
+		it('should handle files at root level (no directory)', () => {
+			const content = '[[sibling]]';
+			const result = parseMarkdownLinks(content, 'readme.md');
+
+			expect(result.internalLinks).toContain('sibling.md');
+		});
+
+		it('should preserve .md extension if already present', () => {
+			const content = '[[already.md]]';
+			const result = parseMarkdownLinks(content, 'readme.md');
+
+			expect(result.internalLinks).toContain('already.md');
+		});
+	});
+
+	// -----------------------------------------------------------------------
+	// Deduplication
+	// -----------------------------------------------------------------------
 	describe('deduplication', () => {
 		it('should deduplicate internal links', () => {
 			const content = 'See [[doc]] and [[doc]] again.';
@@ -227,8 +368,178 @@ Content
 
 			expect(result.internalLinks).toHaveLength(2);
 		});
+
+		it('should deduplicate wiki link and markdown link to same target', () => {
+			const content = '[[other-doc]] and [link](./other-doc.md)';
+			const result = parseMarkdownLinks(content, 'readme.md');
+
+			// Both resolve to 'other-doc.md' from root
+			expect(result.internalLinks).toHaveLength(1);
+			expect(result.internalLinks).toContain('other-doc.md');
+		});
 	});
 
+	// -----------------------------------------------------------------------
+	// Front matter parsing
+	// -----------------------------------------------------------------------
+	describe('front matter parsing', () => {
+		it('should parse key: value pairs', () => {
+			const content = `---
+title: My Document
+description: A test document
+version: 1.0
+---
+
+# Content here
+`;
+			const result = parseMarkdownLinks(content, 'doc.md');
+
+			expect(result.frontMatter.title).toBe('My Document');
+			expect(result.frontMatter.description).toBe('A test document');
+			expect(result.frontMatter.version).toBe(1.0);
+		});
+
+		it('should handle double-quoted values', () => {
+			const content = `---
+title: "Quoted Title"
+---
+
+Content
+`;
+			const result = parseMarkdownLinks(content, 'doc.md');
+			expect(result.frontMatter.title).toBe('Quoted Title');
+		});
+
+		it('should handle single-quoted values', () => {
+			const content = `---
+subtitle: 'Single quoted'
+---
+
+Content
+`;
+			const result = parseMarkdownLinks(content, 'doc.md');
+			expect(result.frontMatter.subtitle).toBe('Single quoted');
+		});
+
+		it('should parse boolean values (true/false)', () => {
+			const content = `---
+draft: true
+published: false
+---
+
+Content
+`;
+			const result = parseMarkdownLinks(content, 'doc.md');
+
+			expect(result.frontMatter.draft).toBe(true);
+			expect(result.frontMatter.published).toBe(false);
+		});
+
+		it('should parse numeric values', () => {
+			const content = `---
+version: 42
+pi: 3.14
+negative: -7
+---
+
+Content
+`;
+			const result = parseMarkdownLinks(content, 'doc.md');
+
+			expect(result.frontMatter.version).toBe(42);
+			expect(result.frontMatter.pi).toBe(3.14);
+			expect(result.frontMatter.negative).toBe(-7);
+		});
+
+		it('should skip comments (#)', () => {
+			const content = `---
+title: My Doc
+# This is a comment
+author: John
+---
+
+Content
+`;
+			const result = parseMarkdownLinks(content, 'doc.md');
+
+			expect(result.frontMatter.title).toBe('My Doc');
+			expect(result.frontMatter.author).toBe('John');
+			expect(Object.keys(result.frontMatter)).toHaveLength(2);
+		});
+
+		it('should return empty object when no front matter', () => {
+			const content = '# Just a heading\n\nSome content.';
+			const result = parseMarkdownLinks(content, 'doc.md');
+
+			expect(result.frontMatter).toEqual({});
+		});
+
+		it('should return empty object for missing front matter', () => {
+			const content = 'No front matter at all, just plain text.';
+			const result = parseMarkdownLinks(content, 'doc.md');
+
+			expect(result.frontMatter).toEqual({});
+		});
+
+		it('should handle front matter with only opening delimiter', () => {
+			const content = `---
+title: No closing delimiter
+Some content here.`;
+			const result = parseMarkdownLinks(content, 'doc.md');
+
+			expect(result.frontMatter).toEqual({});
+		});
+
+		it('should handle front matter with invalid YAML-like content', () => {
+			const content = `---
+this is not valid yaml at all
+: colon at start
+no colon here
+   indented : weirdly
+---
+
+# Heading`;
+			const result = parseMarkdownLinks(content, 'doc.md');
+
+			expect(result).toBeDefined();
+			expect(result.frontMatter).toBeDefined();
+		});
+
+		it('should handle content that is only delimiters', () => {
+			const content = '---\n---';
+			const result = parseMarkdownLinks(content, 'doc.md');
+
+			expect(result.frontMatter).toEqual({});
+		});
+
+		it('should handle very long front matter values', () => {
+			const longValue = 'x'.repeat(100000);
+			const content = `---
+title: ${longValue}
+---
+
+Content`;
+			const result = parseMarkdownLinks(content, 'doc.md');
+
+			expect(result.frontMatter.title).toBe(longValue);
+		});
+
+		it('should handle front matter with binary-like content', () => {
+			const content = `---
+title: \x00\x01\x02\x03
+binary: \xff\xfe
+---
+
+Content`;
+			const result = parseMarkdownLinks(content, 'doc.md');
+
+			expect(result).toBeDefined();
+		});
+	});
+
+	// -----------------------------------------------------------------------
+	// Mixed internal and external links
+	// -----------------------------------------------------------------------
 	describe('mixed content', () => {
 		it('should parse both internal and external links together', () => {
 			const content = `---
@@ -245,8 +556,60 @@ Also see [another doc](./other.md) here.
 			expect(result.externalLinks).toHaveLength(1);
 			expect(result.frontMatter.title).toBe('Mixed Doc');
 		});
+
+		it('should correctly classify wiki links as internal and http links as external', () => {
+			const content = `
+[[wiki-link]]
+[ext](https://external.com)
+[int](./internal.md)
+[http-link](http://another.com/page)
+[[another-wiki]]
+`;
+			const result = parseMarkdownLinks(content, 'docs/readme.md');
+
+			expect(result.internalLinks).toHaveLength(3); // wiki-link, internal.md, another-wiki
+			expect(result.externalLinks).toHaveLength(2); // external.com, another.com
+		});
 	});
 
+	// -----------------------------------------------------------------------
+	// URL-encoded paths
+	// -----------------------------------------------------------------------
+	describe('URL-encoded paths', () => {
+		it('should handle URL-encoded paths (%20 for spaces)', () => {
+			const content = '[doc](./my%20document.md)';
+			const result = parseMarkdownLinks(content, 'readme.md');
+
+			expect(result.internalLinks).toContain('my document.md');
+		});
+
+		it('should handle malformed URL encoding gracefully', () => {
+			const content = '[doc](./my%ZZdocument.md)';
+			const result = parseMarkdownLinks(content, 'readme.md');
+
+			// Should use original path when decoding fails
+			expect(result.internalLinks).toContain('my%ZZdocument.md');
+		});
+
+		it('should handle incomplete percent encoding', () => {
+			const content = '[doc](./document%.md)';
+			const result = parseMarkdownLinks(content, 'readme.md');
+
+			expect(result.internalLinks).toHaveLength(1);
+			expect(result.internalLinks[0]).toContain('document');
+		});
+
+		it('should handle multiple invalid percent sequences', () => {
+			const content = '[doc](./my%ZZ%YYdocument%XXtest.md)';
+			const result = parseMarkdownLinks(content, 'readme.md');
+
+			expect(result.internalLinks).toHaveLength(1);
+		});
+	});
+
+	// -----------------------------------------------------------------------
+	// Edge cases
+	// -----------------------------------------------------------------------
 	describe('edge cases', () => {
 		it('should handle empty content', () => {
 			const result = parseMarkdownLinks('', 'doc.md');
@@ -256,307 +619,143 @@ Also see [another doc](./other.md) here.
 			expect(result.frontMatter).toEqual({});
 		});
 
-		it('should handle URL-encoded paths', () => {
-			const content = '[doc](./my%20document.md)';
-			const result = parseMarkdownLinks(content, 'readme.md');
+		it('should handle content with null bytes', () => {
+			const content = 'Some text\x00with null\x00bytes [[link]].';
+			const result = parseMarkdownLinks(content, 'doc.md');
 
-			expect(result.internalLinks).toContain('my document.md');
+			expect(result).toBeDefined();
 		});
 
-		it('should handle files at root level', () => {
-			const content = '[[sibling]]';
-			const result = parseMarkdownLinks(content, 'readme.md');
+		it('should handle content with control characters', () => {
+			const content = 'Text\x01\x02\x03\x04\x05 with [[link]] control chars.';
+			const result = parseMarkdownLinks(content, 'doc.md');
 
-			expect(result.internalLinks).toContain('sibling.md');
+			expect(result.internalLinks).toContain('link.md');
 		});
 
-		it('should preserve .md extension if already present', () => {
-			const content = '[[already.md]]';
-			const result = parseMarkdownLinks(content, 'readme.md');
+		it('should handle content with mixed line endings', () => {
+			const content = 'Line1\rLine2\r\nLine3\nLine4\r\n[[link]]';
+			const result = parseMarkdownLinks(content, 'doc.md');
 
-			expect(result.internalLinks).toContain('already.md');
+			expect(result.internalLinks).toContain('link.md');
+		});
+
+		it('should handle extremely long content without hanging', () => {
+			const longContent = 'x'.repeat(1024 * 1024) + '[[link]]';
+			const result = parseMarkdownLinks(longContent, 'doc.md');
+
+			expect(result.internalLinks).toContain('link.md');
+		});
+
+		it('should handle content starting and ending with brackets', () => {
+			const content = '[[start]] content [[end]]';
+			const result = parseMarkdownLinks(content, 'doc.md');
+
+			expect(result.internalLinks).toContain('start.md');
+			expect(result.internalLinks).toContain('end.md');
 		});
 	});
 
-	describe('malformed markdown handling (graceful degradation)', () => {
-		describe('null/undefined/invalid input handling', () => {
-			it('should handle null content without crashing', () => {
-				// @ts-expect-error Testing runtime behavior with null input
-				const result = parseMarkdownLinks(null, 'doc.md');
+	// -----------------------------------------------------------------------
+	// Malformed wiki links
+	// -----------------------------------------------------------------------
+	describe('malformed wiki links', () => {
+		it('should handle empty wiki links [[]]', () => {
+			const content = 'See [[]] and [[valid-link]].';
+			const result = parseMarkdownLinks(content, 'doc.md');
 
-				expect(result.internalLinks).toEqual([]);
-				expect(result.externalLinks).toEqual([]);
-				expect(result.frontMatter).toEqual({});
-			});
-
-			it('should handle undefined content without crashing', () => {
-				// @ts-expect-error Testing runtime behavior with undefined input
-				const result = parseMarkdownLinks(undefined, 'doc.md');
-
-				expect(result.internalLinks).toEqual([]);
-				expect(result.externalLinks).toEqual([]);
-				expect(result.frontMatter).toEqual({});
-			});
-
-			it('should handle non-string content types without crashing', () => {
-				// @ts-expect-error Testing runtime behavior with number input
-				const resultNumber = parseMarkdownLinks(12345, 'doc.md');
-				expect(resultNumber.internalLinks).toEqual([]);
-				expect(resultNumber.frontMatter).toEqual({});
-
-				// @ts-expect-error Testing runtime behavior with object input
-				const resultObject = parseMarkdownLinks({ text: 'content' }, 'doc.md');
-				expect(resultObject.internalLinks).toEqual([]);
-				expect(resultObject.frontMatter).toEqual({});
-
-				// @ts-expect-error Testing runtime behavior with array input
-				const resultArray = parseMarkdownLinks(['content'], 'doc.md');
-				expect(resultArray.internalLinks).toEqual([]);
-				expect(resultArray.frontMatter).toEqual({});
-			});
-
-			it('should handle empty filePath gracefully', () => {
-				const content = 'See [[other-doc]] for more info.';
-				const result = parseMarkdownLinks(content, '');
-
-				// Should still parse links (using empty string as base path)
-				expect(result.internalLinks).toContain('other-doc.md');
-			});
+			expect(result.internalLinks).toContain('valid-link.md');
 		});
 
-		describe('malformed URL encoding', () => {
-			it('should handle invalid percent-encoded URLs gracefully', () => {
-				// %ZZ is invalid percent encoding - should not crash
-				const content = '[doc](./my%ZZdocument.md)';
-				const result = parseMarkdownLinks(content, 'readme.md');
+		it('should handle wiki links with only whitespace [[ ]]', () => {
+			const content = 'See [[   ]] and [[valid-link]].';
+			const result = parseMarkdownLinks(content, 'doc.md');
 
-				// Should use the original path when decoding fails
-				expect(result.internalLinks).toContain('my%ZZdocument.md');
-			});
-
-			it('should handle incomplete percent encoding', () => {
-				// % at end of string is incomplete encoding
-				const content = '[doc](./document%.md)';
-				const result = parseMarkdownLinks(content, 'readme.md');
-
-				expect(result.internalLinks).toHaveLength(1);
-				expect(result.internalLinks[0]).toContain('document');
-			});
-
-			it('should handle multiple invalid percent sequences', () => {
-				const content = '[doc](./my%ZZ%YYdocument%XXtest.md)';
-				const result = parseMarkdownLinks(content, 'readme.md');
-
-				// Should not crash and should extract some link
-				expect(result.internalLinks).toHaveLength(1);
-			});
+			expect(result.internalLinks).toContain('valid-link.md');
 		});
 
-		describe('malformed front matter', () => {
-			it('should handle front matter with only opening delimiter', () => {
-				const content = `---
-title: No closing delimiter
-Some content here.`;
-				const result = parseMarkdownLinks(content, 'doc.md');
+		it('should handle unclosed wiki links', () => {
+			const content = 'See [[unclosed and [[closed]].';
+			const result = parseMarkdownLinks(content, 'doc.md');
 
-				// Should not crash, should return empty front matter
-				expect(result.frontMatter).toEqual({});
-			});
-
-			it('should handle front matter with invalid YAML-like content', () => {
-				const content = `---
-this is not valid yaml at all
-: colon at start
-no colon here
-   indented : weirdly
----
-
-# Heading`;
-				const result = parseMarkdownLinks(content, 'doc.md');
-
-				// Should not crash
-				expect(result).toBeDefined();
-				expect(result.frontMatter).toBeDefined();
-			});
-
-			it('should handle very long front matter values', () => {
-				const longValue = 'x'.repeat(100000);
-				const content = `---
-title: ${longValue}
----
-
-Content`;
-				const result = parseMarkdownLinks(content, 'doc.md');
-
-				expect(result.frontMatter.title).toBe(longValue);
-			});
-
-			it('should handle front matter with binary-like content', () => {
-				const content = `---
-title: \x00\x01\x02\x03
-binary: \xff\xfe
----
-
-Content`;
-				const result = parseMarkdownLinks(content, 'doc.md');
-
-				// Should not crash
-				expect(result).toBeDefined();
-			});
+			expect(result).toBeDefined();
 		});
 
-		describe('malformed wiki links', () => {
-			it('should handle empty wiki links [[]]', () => {
-				const content = 'See [[]] and [[valid-link]].';
-				const result = parseMarkdownLinks(content, 'doc.md');
+		it('should handle nested brackets in wiki links', () => {
+			const content = 'See [[link[with]brackets]].';
+			const result = parseMarkdownLinks(content, 'doc.md');
 
-				// Should skip empty and process valid
-				expect(result.internalLinks).toContain('valid-link.md');
-			});
-
-			it('should handle wiki links with only whitespace [[ ]]', () => {
-				const content = 'See [[   ]] and [[valid-link]].';
-				const result = parseMarkdownLinks(content, 'doc.md');
-
-				expect(result.internalLinks).toContain('valid-link.md');
-			});
-
-			it('should handle unclosed wiki links', () => {
-				const content = 'See [[unclosed and [[closed]].';
-				const result = parseMarkdownLinks(content, 'doc.md');
-
-				// Should not crash, should find the closed link
-				expect(result).toBeDefined();
-			});
-
-			it('should handle nested brackets in wiki links', () => {
-				const content = 'See [[link[with]brackets]].';
-				const result = parseMarkdownLinks(content, 'doc.md');
-
-				// Should not crash
-				expect(result).toBeDefined();
-			});
-
-			it('should handle wiki links with special characters', () => {
-				const content = 'See [[link-with-émojis-🎉]] and [[日本語リンク]].';
-				const result = parseMarkdownLinks(content, 'doc.md');
-
-				// Should not crash and should parse the links
-				expect(result.internalLinks).toHaveLength(2);
-			});
+			expect(result).toBeDefined();
 		});
 
-		describe('malformed markdown links', () => {
-			it('should handle empty markdown links []()', () => {
-				const content = 'See []() and [text](./valid.md).';
-				const result = parseMarkdownLinks(content, 'readme.md');
+		it('should handle wiki links with special characters', () => {
+			const content =
+				'See [[link-with-\u00E9mojis-\uD83C\uDF89]] and [[\u65E5\u672C\u8A9E\u30EA\u30F3\u30AF]].';
+			const result = parseMarkdownLinks(content, 'doc.md');
 
-				// Should process valid link
-				expect(result.internalLinks).toContain('valid.md');
-			});
+			expect(result.internalLinks).toHaveLength(2);
+		});
 
-			it('should handle markdown links with no URL [text]()', () => {
-				const content = 'See [text with no url]() here.';
-				const result = parseMarkdownLinks(content, 'readme.md');
+		it('should handle deeply nested bracket patterns', () => {
+			const content = '[[[[[[nested]]]]]]';
+			const result = parseMarkdownLinks(content, 'doc.md');
 
-				// Should not crash
-				expect(result).toBeDefined();
-			});
+			expect(result).toBeDefined();
+		});
 
-			it('should handle unclosed markdown links', () => {
-				const content = 'See [unclosed link(./file.md and [closed](./valid.md).';
-				const result = parseMarkdownLinks(content, 'readme.md');
+		it('should handle interleaved wiki and markdown links', () => {
+			const content = '[[wiki-[nested](./md.md)-link]] and [md-[[wiki]]-link](./file.md)';
+			const result = parseMarkdownLinks(content, 'readme.md');
 
-				// Should find valid link and not crash
-				expect(result.internalLinks).toContain('valid.md');
-			});
+			expect(result).toBeDefined();
+		});
+	});
 
-			it('should handle markdown links with newlines inside', () => {
-				const content = `See [text
+	// -----------------------------------------------------------------------
+	// Malformed markdown links
+	// -----------------------------------------------------------------------
+	describe('malformed markdown links', () => {
+		it('should handle empty markdown links []()', () => {
+			const content = 'See []() and [text](./valid.md).';
+			const result = parseMarkdownLinks(content, 'readme.md');
+
+			expect(result.internalLinks).toContain('valid.md');
+		});
+
+		it('should handle markdown links with no URL [text]()', () => {
+			const content = 'See [text with no url]() here.';
+			const result = parseMarkdownLinks(content, 'readme.md');
+
+			expect(result).toBeDefined();
+		});
+
+		it('should handle unclosed markdown links', () => {
+			const content = 'See [unclosed link(./file.md and [closed](./valid.md).';
+			const result = parseMarkdownLinks(content, 'readme.md');
+
+			expect(result.internalLinks).toContain('valid.md');
+		});
+
+		it('should handle markdown links with newlines inside', () => {
+			const content = `See [text
 with newline](./file.md).`;
-				const result = parseMarkdownLinks(content, 'readme.md');
+			const result = parseMarkdownLinks(content, 'readme.md');
 
-				// Should not crash
-				expect(result).toBeDefined();
-			});
-
-			it('should handle very long link URLs', () => {
-				const longPath = 'a'.repeat(10000) + '.md';
-				const content = `See [link](./${longPath}).`;
-				const result = parseMarkdownLinks(content, 'readme.md');
-
-				// Should not crash
-				expect(result).toBeDefined();
-			});
+			expect(result).toBeDefined();
 		});
 
-		describe('binary and special content', () => {
-			it('should handle content with null bytes', () => {
-				const content = 'Some text\x00with null\x00bytes [[link]].';
-				const result = parseMarkdownLinks(content, 'doc.md');
+		it('should handle very long link URLs', () => {
+			const longPath = 'a'.repeat(10000) + '.md';
+			const content = `See [link](./${longPath}).`;
+			const result = parseMarkdownLinks(content, 'readme.md');
 
-				// Should not crash
-				expect(result).toBeDefined();
-			});
-
-			it('should handle content with control characters', () => {
-				const content = 'Text\x01\x02\x03\x04\x05 with [[link]] control chars.';
-				const result = parseMarkdownLinks(content, 'doc.md');
-
-				// Should not crash and parse link
-				expect(result.internalLinks).toContain('link.md');
-			});
-
-			it('should handle content with mixed line endings', () => {
-				const content = 'Line1\rLine2\r\nLine3\nLine4\r\n[[link]]';
-				const result = parseMarkdownLinks(content, 'doc.md');
-
-				expect(result.internalLinks).toContain('link.md');
-			});
-
-			it('should handle extremely long content without hanging', () => {
-				// 1MB of content
-				const longContent = 'x'.repeat(1024 * 1024) + '[[link]]';
-				const result = parseMarkdownLinks(longContent, 'doc.md');
-
-				expect(result.internalLinks).toContain('link.md');
-			});
-		});
-
-		describe('edge case combinations', () => {
-			it('should handle content that is only delimiters', () => {
-				const content = '---\n---';
-				const result = parseMarkdownLinks(content, 'doc.md');
-
-				expect(result.frontMatter).toEqual({});
-			});
-
-			it('should handle deeply nested bracket patterns', () => {
-				const content = '[[[[[[nested]]]]]]';
-				const result = parseMarkdownLinks(content, 'doc.md');
-
-				// Should not crash (may or may not extract links depending on pattern)
-				expect(result).toBeDefined();
-			});
-
-			it('should handle interleaved wiki and markdown links', () => {
-				const content = '[[wiki-[nested](./md.md)-link]] and [md-[[wiki]]-link](./file.md)';
-				const result = parseMarkdownLinks(content, 'readme.md');
-
-				// Should not crash
-				expect(result).toBeDefined();
-			});
-
-			it('should handle content starting and ending with brackets', () => {
-				const content = '[[start]] content [[end]]';
-				const result = parseMarkdownLinks(content, 'doc.md');
-
-				expect(result.internalLinks).toContain('start.md');
-				expect(result.internalLinks).toContain('end.md');
-			});
+			expect(result).toBeDefined();
 		});
 	});
 
+	// -----------------------------------------------------------------------
+	// External URLs with special characters
+	// -----------------------------------------------------------------------
 	describe('external URLs with special characters', () => {
 		describe('URLs with parentheses', () => {
 			it('should handle URLs with balanced parentheses (Wikipedia-style)', () => {
@@ -681,19 +880,19 @@ See [First](https://en.wikipedia.org/wiki/A_(letter)) and
 			});
 
 			it('should handle URLs with unicode path segments', () => {
-				const content = '[Unicode](https://example.com/文档/测试)';
+				const content = '[Unicode](https://example.com/\u6587\u6863/\u6D4B\u8BD5)';
 				const result = parseMarkdownLinks(content, 'readme.md');
 
 				expect(result.externalLinks).toHaveLength(1);
-				expect(result.externalLinks[0].url).toContain('文档');
+				expect(result.externalLinks[0].url).toContain('\u6587\u6863');
 			});
 
 			it('should handle URLs with emoji in path', () => {
-				const content = '[Emoji](https://example.com/docs/🎉/welcome)';
+				const content = '[Emoji](https://example.com/docs/\uD83C\uDF89/welcome)';
 				const result = parseMarkdownLinks(content, 'readme.md');
 
 				expect(result.externalLinks).toHaveLength(1);
-				expect(result.externalLinks[0].url).toContain('🎉');
+				expect(result.externalLinks[0].url).toContain('\uD83C\uDF89');
 			});
 
 			it('should handle URLs with hyphens and underscores', () => {
@@ -702,37 +901,6 @@ See [First](https://en.wikipedia.org/wiki/A_(letter)) and
 
 				expect(result.externalLinks).toHaveLength(1);
 				expect(result.externalLinks[0].domain).toBe('my-site.example.com');
-			});
-		});
-
-		describe('extractDomain edge cases', () => {
-			it('should handle IDN domains (punycode)', () => {
-				// The URL constructor converts IDN to punycode
-				expect(extractDomain('https://例え.jp/path')).toBe('xn--r8jz45g.jp');
-			});
-
-			it('should strip www prefix from complex URLs', () => {
-				expect(extractDomain('https://www.docs.example.com/path')).toBe('docs.example.com');
-			});
-
-			it('should handle URLs with trailing slashes', () => {
-				expect(extractDomain('https://example.com/')).toBe('example.com');
-			});
-
-			it('should handle URLs with deep paths', () => {
-				expect(extractDomain('https://github.com/org/repo/blob/main/src/file.ts')).toBe(
-					'github.com'
-				);
-			});
-
-			it('should return original for malformed URLs', () => {
-				// The regex fallback should handle these
-				expect(extractDomain('http://incomplete')).toBe('incomplete');
-			});
-
-			it('should handle URLs with unusual TLDs', () => {
-				expect(extractDomain('https://site.museum/collection')).toBe('site.museum');
-				expect(extractDomain('https://company.technology/product')).toBe('company.technology');
 			});
 		});
 
@@ -786,6 +954,105 @@ See [First](https://en.wikipedia.org/wiki/A_(letter)) and
 				expect(result.externalLinks).toHaveLength(1);
 				expect(result.externalLinks[0].domain).toBe('twitter.com');
 			});
+		});
+	});
+
+	// -----------------------------------------------------------------------
+	// File-tree-aware fallback resolution (allFiles option)
+	// -----------------------------------------------------------------------
+	describe('file-tree-aware fallback resolution', () => {
+		const allFiles = [
+			'Market Research/INDEX.md',
+			'Market Research/Vendors/PlexTrac.md',
+			'Market Research/Vendors/AttackForge.md',
+			'Market Research/Competitors/Cyver-Core.md',
+			'notes/readme.md',
+			'docs/guide.md',
+			'docs/advanced/config.md',
+			'standalone.md',
+		];
+		const options: ParseMarkdownLinksOptions = { allFiles };
+
+		it('should resolve wiki links to files in different directories', () => {
+			const content = 'See [[PlexTrac]] and [[AttackForge]] for vendor details.';
+			const result = parseMarkdownLinks(content, 'Market Research/INDEX.md', options);
+
+			expect(result.internalLinks).toContain('Market Research/Vendors/PlexTrac.md');
+			expect(result.internalLinks).toContain('Market Research/Vendors/AttackForge.md');
+		});
+
+		it('should resolve wiki links with partial paths via fallback', () => {
+			const content = 'See [[Competitors/Cyver-Core]] for details.';
+			const result = parseMarkdownLinks(content, 'Market Research/INDEX.md', options);
+
+			expect(result.internalLinks).toContain('Market Research/Competitors/Cyver-Core.md');
+		});
+
+		it('should prefer relative resolution when file exists at relative path', () => {
+			// If a file exists at the relative path, use it directly (no fallback needed)
+			const content = '[[guide]]';
+			const result = parseMarkdownLinks(content, 'docs/readme.md', {
+				allFiles: ['docs/guide.md', 'other/guide.md'],
+			});
+
+			expect(result.internalLinks).toContain('docs/guide.md');
+		});
+
+		it('should fall back to filename match when relative path not in file tree', () => {
+			// File at relative path "somedir/guide.md" doesn't exist, but "docs/guide.md" does
+			const content = '[[guide]]';
+			const result = parseMarkdownLinks(content, 'somedir/index.md', {
+				allFiles: ['docs/guide.md'],
+			});
+
+			expect(result.internalLinks).toContain('docs/guide.md');
+		});
+
+		it('should resolve standard markdown links via fallback', () => {
+			const content = '[PlexTrac](PlexTrac.md)';
+			const result = parseMarkdownLinks(content, 'Market Research/INDEX.md', options);
+
+			expect(result.internalLinks).toContain('Market Research/Vendors/PlexTrac.md');
+		});
+
+		it('should pick closest match when multiple files share a filename', () => {
+			const content = '[[readme]]';
+			// From Market Research directory, "notes/readme.md" is equally far;
+			// the important thing is it resolves to something valid
+			const result = parseMarkdownLinks(content, 'docs/index.md', {
+				allFiles: ['docs/readme.md', 'notes/readme.md'],
+			});
+
+			// Should prefer docs/readme.md since it shares the docs/ prefix with the current file
+			expect(result.internalLinks).toContain('docs/readme.md');
+		});
+
+		it('should still work without allFiles (backward compatible)', () => {
+			const content = 'See [[other-doc]] for more info.';
+			const result = parseMarkdownLinks(content, 'docs/readme.md');
+
+			// Without allFiles, resolves relative to current file
+			expect(result.internalLinks).toContain('docs/other-doc.md');
+		});
+
+		it('should handle wiki link that resolves nowhere even with fallback', () => {
+			const content = '[[nonexistent-document]]';
+			const result = parseMarkdownLinks(content, 'docs/readme.md', options);
+
+			// Should still include the relative resolution (docs/nonexistent-document.md)
+			// even though it's not in allFiles - the parser doesn't filter by existence
+			expect(result.internalLinks).toHaveLength(1);
+		});
+
+		it('should deduplicate when relative and fallback resolve to same path', () => {
+			const content = '[[standalone]]';
+			const result = parseMarkdownLinks(content, 'index.md', {
+				allFiles: ['standalone.md'],
+			});
+
+			// relative resolves to standalone.md, which is in allFiles - no fallback needed
+			expect(result.internalLinks).toHaveLength(1);
+			expect(result.internalLinks).toContain('standalone.md');
 		});
 	});
 });

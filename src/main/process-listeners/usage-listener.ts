@@ -6,6 +6,7 @@
 import type { ProcessManager } from '../process-manager';
 import { GROUP_CHAT_PREFIX, type ProcessListenerDependencies, type UsageStats } from './types';
 import { getLocalTokenLedger } from '../services/local-token-ledger';
+import { FALLBACK_CONTEXT_WINDOW } from '../../shared/agentConstants';
 
 /**
  * Sets up the usage listener for token/cost statistics.
@@ -68,18 +69,30 @@ export function setupUsageListener(
 			// Calculate context usage percentage using agent-specific logic
 			// Note: For group chat, we don't have agent type here, defaults to Claude behavior
 			const totalContextTokens = usageAggregator.calculateContextTokens(usageStats);
-			const contextUsage =
-				usageStats.contextWindow > 0
-					? Math.round((totalContextTokens / usageStats.contextWindow) * 100)
-					: 0;
+			const effectiveWindow =
+				usageStats.contextWindow > 0 ? usageStats.contextWindow : FALLBACK_CONTEXT_WINDOW;
 
-			// Update participant with usage stats
+			// Skip update if values are accumulated (total > window) from multi-tool turns
+			const contextUsage =
+				totalContextTokens <= effectiveWindow
+					? Math.round((totalContextTokens / effectiveWindow) * 100)
+					: -1; // -1 signals "skip update"
+
+			// Update participant with usage stats (skip context update if accumulated)
+			const updateData: {
+				contextUsage?: number;
+				tokenCount?: number;
+				totalCost: number;
+			} = {
+				totalCost: usageStats.totalCostUsd,
+			};
+			if (contextUsage >= 0) {
+				updateData.contextUsage = contextUsage;
+				updateData.tokenCount = totalContextTokens;
+			}
+
 			groupChatStorage
-				.updateParticipant(groupChatId, participantName, {
-					contextUsage,
-					tokenCount: totalContextTokens,
-					totalCost: usageStats.totalCostUsd,
-				})
+				.updateParticipant(groupChatId, participantName, updateData)
 				.then((updatedChat) => {
 					// Emit participants changed so UI updates
 					// Note: updateParticipant returns the updated chat, avoiding extra DB read
@@ -103,17 +116,26 @@ export function setupUsageListener(
 			// Calculate context usage percentage using agent-specific logic
 			// Note: Moderator is typically Claude, defaults to Claude behavior
 			const totalContextTokens = usageAggregator.calculateContextTokens(usageStats);
-			const contextUsage =
-				usageStats.contextWindow > 0
-					? Math.round((totalContextTokens / usageStats.contextWindow) * 100)
-					: 0;
+			const effectiveWindow =
+				usageStats.contextWindow > 0 ? usageStats.contextWindow : FALLBACK_CONTEXT_WINDOW;
 
-			// Emit moderator usage for the moderator card
-			groupChatEmitters.emitModeratorUsage?.(groupChatId, {
-				contextUsage,
-				totalCost: usageStats.totalCostUsd,
-				tokenCount: totalContextTokens,
-			});
+			// Skip context update if values are accumulated (total > window) from multi-tool turns.
+			// When accumulated, emit with contextUsage/tokenCount as -1 so the handler
+			// knows to preserve the previous values. Cost is always updated.
+			if (totalContextTokens <= effectiveWindow) {
+				const contextUsage = Math.round((totalContextTokens / effectiveWindow) * 100);
+				groupChatEmitters.emitModeratorUsage?.(groupChatId, {
+					contextUsage,
+					totalCost: usageStats.totalCostUsd,
+					tokenCount: totalContextTokens,
+				});
+			} else {
+				groupChatEmitters.emitModeratorUsage?.(groupChatId, {
+					contextUsage: -1,
+					totalCost: usageStats.totalCostUsd,
+					tokenCount: -1,
+				});
+			}
 		}
 
 		safeSend('process:usage', sessionId, usageStats);

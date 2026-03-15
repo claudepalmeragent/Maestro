@@ -18,7 +18,7 @@
 
 import type { Components } from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { getSyntaxStyle } from './syntaxTheme';
 import React from 'react';
 import type { Theme } from '../types';
 
@@ -124,9 +124,12 @@ export function generateProseStyles(options: ProseStylesOptions): string {
     ${s} ol { list-style-type: decimal; }
     ${compactSpacing ? `${s} li ul, ${s} li ol { margin: 0 !important; padding-left: 1.5em; list-style-position: outside; }` : ''}
     ${s} li { margin: ${compactSpacing ? '0' : '0.25em 0'} !important; ${compactSpacing ? 'padding: 0;' : ''} line-height: 1.4; display: list-item; }
-    ${compactSpacing ? `${s} li > p { margin: 0 !important; display: inline; }` : ''}
-    ${compactSpacing ? `${s} li > p + ul, ${s} li > p + ol { margin-top: 0 !important; }` : ''}
+    ${s} ol li { padding-left: 0.15em; }
+    ${s} li > p { margin: 0 !important; display: block; line-height: inherit; }
+    ${s} li > p + ul, ${s} li > p + ol { margin-top: 0 !important; }
+    ${s} li > p > strong:first-child, ${s} li > p > b:first-child, ${s} li > p > em:first-child, ${s} li > p > code:first-child, ${s} li > p > a:first-child { vertical-align: baseline; line-height: inherit; }
     ${s} li::marker { color: ${colors.textMain}; }
+    ${s} ol li::marker { font-variant-numeric: tabular-nums; font-weight: 400; }
     ${s} li:has(> input[type="checkbox"]) { list-style: none; margin-left: -1.5em; }
     ${s} code { background-color: ${colors.bgActivity}; color: ${colors.textMain}; padding: 0.2em 0.4em; border-radius: 3px; font-size: 0.9em; }
     ${s} pre { background-color: ${colors.bgActivity}; color: ${colors.textMain}; padding: 1em; border-radius: 6px; overflow-x: auto; ${compactSpacing ? 'margin: 0.35em 0 !important;' : ''} }
@@ -353,23 +356,28 @@ export function createMarkdownComponents(options: MarkdownComponentsOptions): Pa
 		// Override strong/em to apply search highlighting
 		strong: ({ children }: any) => React.createElement('strong', null, withHighlight(children)),
 		em: ({ children }: any) => React.createElement('em', null, withHighlight(children)),
-		// Code block with syntax highlighting and custom language support
-		code: ({ node: _node, inline, className, children, ...props }: any) => {
-			const match = (className || '').match(/language-(\w+)/);
-			const language = match ? match[1] : 'text';
-			const codeContent = String(children).replace(/\n$/, '');
+		// Block code: extract code element from <pre><code>...</code></pre> and render with SyntaxHighlighter
+		pre: ({ children }: any) => {
+			const codeElement = React.Children.toArray(children).find(
+				(child: any) => child?.type === 'code' || child?.props?.node?.tagName === 'code'
+			) as React.ReactElement<any> | undefined;
 
-			// Check for custom language renderer (e.g., mermaid)
-			if (!inline && customLanguageRenderers[language]) {
-				const CustomRenderer = customLanguageRenderers[language];
-				return React.createElement(CustomRenderer, { code: codeContent, theme });
-			}
+			if (codeElement?.props) {
+				const { className, children: codeChildren } = codeElement.props;
+				const match = (className || '').match(/language-(\w+)/);
+				const language = match ? match[1] : 'text';
+				const codeContent = String(codeChildren).replace(/\n$/, '');
 
-			// Standard syntax-highlighted code block
-			if (!inline && match) {
+				// Check for custom language renderer (e.g., mermaid)
+				if (customLanguageRenderers[language]) {
+					const CustomRenderer = customLanguageRenderers[language];
+					return React.createElement(CustomRenderer, { code: codeContent, theme });
+				}
+
+				// Standard syntax-highlighted code block
 				return React.createElement(SyntaxHighlighter, {
 					language,
-					style: vscDarkPlus,
+					style: getSyntaxStyle(theme.mode),
 					customStyle: {
 						margin: '0.5em 0',
 						padding: '1em',
@@ -382,7 +390,11 @@ export function createMarkdownComponents(options: MarkdownComponentsOptions): Pa
 				});
 			}
 
-			// Inline code
+			// Fallback: render as-is
+			return React.createElement('pre', null, children);
+		},
+		// Inline code only — block code is handled by the pre component above
+		code: ({ node: _node, className, children, ...props }: any) => {
 			return React.createElement('code', { className, ...props }, children);
 		},
 	};
@@ -442,6 +454,12 @@ export function createMarkdownComponents(options: MarkdownComponentsOptions): Pa
 		};
 	}
 
+	// Strip event handler attributes (e.g. onToggle) that rehype-raw may
+	// pass through as strings from AI-generated HTML, which React rejects.
+	// Fixes MAESTRO-8Q
+	components.details = ({ node: _node, onToggle: _onToggle, ...props }: any) =>
+		React.createElement('details', props);
+
 	return components;
 }
 
@@ -492,7 +510,7 @@ export function generateTerminalProseStyles(theme: Theme, scopeSelector: string)
     ${s} > ul, ${s} > ol { color: ${c.textMain}; margin: 0.25em 0 !important; padding-left: 2em; list-style-position: outside; }
     ${s} li ul, ${s} li ol { margin: 0 !important; padding-left: 1.5em; list-style-position: outside; }
     ${s} li { margin: 0 !important; padding: 0; line-height: 1.4; display: list-item; }
-    ${s} li > p { margin: 0 !important; display: inline; }
+    ${s} li > p { margin: 0 !important; display: inline; vertical-align: baseline; line-height: inherit; }
     ${s} li > p + ul, ${s} li > p + ol { margin-top: 0 !important; }
     ${s} li:has(> input[type="checkbox"]) { list-style: none; margin-left: -1.5em; }
     ${s} code { background-color: ${c.bgSidebar}; color: ${c.textMain}; padding: 0.15em 0.3em; border-radius: 3px; font-size: 0.9em; }
@@ -506,7 +524,8 @@ export function generateTerminalProseStyles(theme: Theme, scopeSelector: string)
     ${s} th { background-color: ${c.bgSidebar}; font-weight: bold; }
     ${s} strong { font-weight: bold; }
     ${s} em { font-style: italic; }
-    ${s} li > strong:first-child, ${s} li > b:first-child, ${s} li > em:first-child, ${s} li > code:first-child, ${s} li > a:first-child { vertical-align: baseline; line-height: inherit; }
+    ${s} li > strong:first-child, ${s} li > b:first-child, ${s} li > em:first-child, ${s} li > code:first-child, ${s} li > a:first-child,
+    ${s} li > p > strong:first-child, ${s} li > p > b:first-child, ${s} li > p > em:first-child, ${s} li > p > code:first-child, ${s} li > p > a:first-child { vertical-align: baseline; line-height: inherit; }
     ${s} li::marker { font-weight: normal; }
   `;
 }

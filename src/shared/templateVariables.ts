@@ -3,6 +3,9 @@
  *
  * Available variables (case-insensitive):
  *
+ * Conductor Variables (the Maestro user):
+ *   {{CONDUCTOR_PROFILE}} - User's About Me profile (from Settings → General)
+ *
  * Agent Variables:
  *   {{AGENT_NAME}}        - Agent name
  *   {{AGENT_PATH}}        - Agent home directory path (full path to project)
@@ -10,7 +13,7 @@
  *   {{AGENT_SESSION_ID}}  - Agent session ID (for conversation continuity)
  *   {{AGENT_HISTORY_PATH}} - Path to agent's history JSON file (for task recall)
  *   {{TAB_NAME}}          - Custom tab name (alias: SESSION_NAME)
- *   {{TOOL_TYPE}}         - Agent type (claude-code, aider, etc.)
+ *   {{TOOL_TYPE}}         - Agent type (claude-code, codex, opencode, factory-droid)
  *
  * Path Variables:
  *   {{CWD}}               - Current working directory
@@ -69,12 +72,15 @@ export interface TemplateContext {
 	documentPath?: string;
 	// History file path for task recall
 	historyFilePath?: string;
+	// Conductor profile (user's About Me from settings)
+	conductorProfile?: string;
 }
 
 // List of all available template variables for documentation (alphabetically sorted)
 // Variables marked as autoRunOnly are only shown in Auto Run contexts, not in AI Commands settings
 export const TEMPLATE_VARIABLES = [
 	{ variable: '{{AGENT_GROUP}}', description: 'Agent group name' },
+	{ variable: '{{CONDUCTOR_PROFILE}}', description: "Conductor's About Me profile" },
 	{ variable: '{{AGENT_HISTORY_PATH}}', description: 'History file path (task recall)' },
 	{ variable: '{{AGENT_NAME}}', description: 'Agent name' },
 	{ variable: '{{AGENT_PATH}}', description: 'Agent home directory path' },
@@ -121,11 +127,15 @@ export function substituteTemplateVariables(template: string, context: TemplateC
 		documentName,
 		documentPath,
 		historyFilePath,
+		conductorProfile,
 	} = context;
 	const now = new Date();
 
 	// Build replacements map
 	const replacements: Record<string, string> = {
+		// Conductor variables (the Maestro user)
+		CONDUCTOR_PROFILE: conductorProfile || '',
+
 		// Agent variables
 		AGENT_NAME: session.name,
 		AGENT_PATH: session.fullPath || session.projectRoot || session.cwd,

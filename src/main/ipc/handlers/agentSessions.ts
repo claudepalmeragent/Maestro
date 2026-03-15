@@ -18,6 +18,7 @@ import { ipcMain, BrowserWindow } from 'electron';
 import Store from 'electron-store';
 import { logger } from '../../utils/logger';
 import { withIpcErrorLogging } from '../../utils/ipcHandler';
+import { isWebContentsAvailable } from '../../utils/safe-send';
 import { getSessionStorage, hasSessionStorage, getAllSessionStorages } from '../../agents';
 import { getStatsDB } from '../../stats';
 import type {
@@ -1396,7 +1397,7 @@ export function registerAgentSessionsHandlers(deps?: AgentSessionsHandlerDepende
 				result.byProvider['claude-code'].messages = localMessages;
 
 				// Send update with local messages
-				if (mainWindow && !mainWindow.isDestroyed()) {
+				if (isWebContentsAvailable(mainWindow)) {
 					mainWindow.webContents.send('agentSessions:globalStatsUpdate', { ...result });
 				}
 

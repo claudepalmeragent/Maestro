@@ -1,9 +1,19 @@
-import React, { useState, useCallback } from 'react';
-import { AlertTriangle, Sparkles } from 'lucide-react';
+/**
+ * DisplayTab - Display settings tab for SettingsModal
+ *
+ * Contains: Font Configuration, Font Size, Terminal Width, Max Log Buffer,
+ * Max Output Lines, Message Alignment, Window Chrome, Document Graph,
+ * Context Window Warnings, Local Ignore Patterns.
+ */
+
+import { useState } from 'react';
+import { Sparkles, AlertTriangle, AppWindow } from 'lucide-react';
 import { useSettings } from '../../../hooks';
 import type { Theme } from '../../../types';
-import { FontConfigurationPanel } from '../../FontConfigurationPanel';
 import { ToggleButtonGroup } from '../../ToggleButtonGroup';
+import { FontConfigurationPanel } from '../../FontConfigurationPanel';
+import { IgnorePatternsSection } from '../IgnorePatternsSection';
+import { DEFAULT_LOCAL_IGNORE_PATTERNS } from '../../../stores/settingsStore';
 
 export interface DisplayTabProps {
 	theme: Theme;
@@ -17,27 +27,34 @@ export function DisplayTab({ theme }: DisplayTabProps) {
 		setFontSize,
 		terminalWidth,
 		setTerminalWidth,
-		logLevel,
-		setLogLevel,
 		maxLogBuffer,
 		setMaxLogBuffer,
 		maxOutputLines,
 		setMaxOutputLines,
-		contextManagementSettings,
-		updateContextManagementSettings,
+		userMessageAlignment,
+		setUserMessageAlignment,
+		useNativeTitleBar,
+		setUseNativeTitleBar,
+		autoHideMenuBar,
+		setAutoHideMenuBar,
 		documentGraphShowExternalLinks,
 		setDocumentGraphShowExternalLinks,
 		documentGraphMaxNodes,
 		setDocumentGraphMaxNodes,
+		contextManagementSettings,
+		updateContextManagementSettings,
+		localIgnorePatterns,
+		setLocalIgnorePatterns,
+		localHonorGitignore,
+		setLocalHonorGitignore,
 	} = useSettings();
 
-	// Font loading state (local to this component)
 	const [systemFonts, setSystemFonts] = useState<string[]>([]);
 	const [customFonts, setCustomFonts] = useState<string[]>([]);
 	const [fontLoading, setFontLoading] = useState(false);
 	const [fontsLoaded, setFontsLoaded] = useState(false);
 
-	const loadFonts = useCallback(async () => {
+	const loadFonts = async () => {
 		if (fontsLoaded) return; // Don't reload if already loaded
 
 		setFontLoading(true);
@@ -57,33 +74,27 @@ export function DisplayTab({ theme }: DisplayTabProps) {
 		} finally {
 			setFontLoading(false);
 		}
-	}, [fontsLoaded]);
+	};
 
-	const handleFontInteraction = useCallback(() => {
+	const handleFontInteraction = () => {
 		if (!fontsLoaded && !fontLoading) {
 			loadFonts();
 		}
-	}, [fontsLoaded, fontLoading, loadFonts]);
+	};
 
-	const addCustomFont = useCallback(
-		(font: string) => {
-			if (font && !customFonts.includes(font)) {
-				const newCustomFonts = [...customFonts, font];
-				setCustomFonts(newCustomFonts);
-				window.maestro.settings.set('customFonts', newCustomFonts);
-			}
-		},
-		[customFonts]
-	);
-
-	const removeCustomFont = useCallback(
-		(font: string) => {
-			const newCustomFonts = customFonts.filter((f) => f !== font);
+	const addCustomFont = (font: string) => {
+		if (font && !customFonts.includes(font)) {
+			const newCustomFonts = [...customFonts, font];
 			setCustomFonts(newCustomFonts);
 			window.maestro.settings.set('customFonts', newCustomFonts);
-		},
-		[customFonts]
-	);
+		}
+	};
+
+	const removeCustomFont = (font: string) => {
+		const newCustomFonts = customFonts.filter((f) => f !== font);
+		setCustomFonts(newCustomFonts);
+		window.maestro.settings.set('customFonts', newCustomFonts);
+	};
 
 	return (
 		<div className="space-y-5">
@@ -103,7 +114,7 @@ export function DisplayTab({ theme }: DisplayTabProps) {
 
 			{/* Font Size */}
 			<div>
-				<label className="block text-xs font-bold opacity-70 uppercase mb-2">Font Size</label>
+				<div className="block text-xs font-bold opacity-70 uppercase mb-2">Font Size</div>
 				<ToggleButtonGroup
 					options={[
 						{ value: 12, label: 'Small' },
@@ -119,9 +130,9 @@ export function DisplayTab({ theme }: DisplayTabProps) {
 
 			{/* Terminal Width */}
 			<div>
-				<label className="block text-xs font-bold opacity-70 uppercase mb-2">
+				<div className="block text-xs font-bold opacity-70 uppercase mb-2">
 					Terminal Width (Columns)
-				</label>
+				</div>
 				<ToggleButtonGroup
 					options={[80, 100, 120, 160]}
 					value={terminalWidth}
@@ -130,32 +141,9 @@ export function DisplayTab({ theme }: DisplayTabProps) {
 				/>
 			</div>
 
-			{/* Log Level */}
-			<div>
-				<label className="block text-xs font-bold opacity-70 uppercase mb-2">
-					System Log Level
-				</label>
-				<ToggleButtonGroup
-					options={[
-						{ value: 'debug', label: 'Debug', activeColor: '#6366f1' },
-						{ value: 'info', label: 'Info', activeColor: '#3b82f6' },
-						{ value: 'warn', label: 'Warn', activeColor: '#f59e0b' },
-						{ value: 'error', label: 'Error', activeColor: '#ef4444' },
-					]}
-					value={logLevel}
-					onChange={setLogLevel}
-					theme={theme}
-				/>
-				<p className="text-xs opacity-50 mt-2">
-					Higher levels show fewer logs. Debug shows all logs, Error shows only errors.
-				</p>
-			</div>
-
 			{/* Max Log Buffer */}
 			<div>
-				<label className="block text-xs font-bold opacity-70 uppercase mb-2">
-					Maximum Log Buffer
-				</label>
+				<div className="block text-xs font-bold opacity-70 uppercase mb-2">Maximum Log Buffer</div>
 				<ToggleButtonGroup
 					options={[1000, 5000, 10000, 25000]}
 					value={maxLogBuffer}
@@ -169,9 +157,9 @@ export function DisplayTab({ theme }: DisplayTabProps) {
 
 			{/* Max Output Lines */}
 			<div>
-				<label className="block text-xs font-bold opacity-70 uppercase mb-2">
+				<div className="block text-xs font-bold opacity-70 uppercase mb-2">
 					Max Output Lines per Response
-				</label>
+				</div>
 				<ToggleButtonGroup
 					options={[
 						{ value: 15 },
@@ -190,12 +178,190 @@ export function DisplayTab({ theme }: DisplayTabProps) {
 				</p>
 			</div>
 
+			{/* Message Alignment */}
+			<div>
+				<div className="block text-xs font-bold opacity-70 uppercase mb-2">
+					User Message Alignment
+				</div>
+				<ToggleButtonGroup
+					options={[
+						{ value: 'left', label: 'Left' },
+						{ value: 'right', label: 'Right' },
+					]}
+					value={userMessageAlignment ?? 'right'}
+					onChange={setUserMessageAlignment}
+					theme={theme}
+				/>
+				<p className="text-xs opacity-50 mt-2">
+					Position your messages on the left or right side of the chat. AI responses appear on the
+					opposite side.
+				</p>
+			</div>
+
+			{/* Window Chrome Settings */}
+			<div>
+				<label
+					className="block text-xs font-bold opacity-70 uppercase mb-2 flex items-center gap-2"
+					style={{ color: theme.colors.textDim }}
+				>
+					<AppWindow className="w-3 h-3" />
+					Window Chrome
+				</label>
+				<div
+					className="p-3 rounded border space-y-3"
+					style={{
+						borderColor: theme.colors.border,
+						backgroundColor: theme.colors.bgMain,
+					}}
+				>
+					{/* Native Title Bar */}
+					<div className="flex items-center justify-between">
+						<div>
+							<p className="text-sm" style={{ color: theme.colors.textMain }}>
+								Use native title bar
+							</p>
+							<p className="text-xs opacity-50 mt-0.5">
+								Use the OS native title bar instead of Maestro&apos;s custom title bar. Requires
+								restart.
+							</p>
+						</div>
+						<button
+							onClick={() => setUseNativeTitleBar(!useNativeTitleBar)}
+							className="relative w-10 h-5 rounded-full transition-colors flex-shrink-0 outline-none"
+							tabIndex={0}
+							style={{
+								backgroundColor: useNativeTitleBar ? theme.colors.accent : theme.colors.bgActivity,
+							}}
+							role="switch"
+							aria-checked={useNativeTitleBar}
+						>
+							<span
+								className={`absolute left-0 top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
+									useNativeTitleBar ? 'translate-x-5' : 'translate-x-0.5'
+								}`}
+							/>
+						</button>
+					</div>
+
+					{/* Auto-Hide Menu Bar */}
+					<div
+						className="flex items-center justify-between pt-3 border-t"
+						style={{ borderColor: theme.colors.border }}
+					>
+						<div>
+							<p className="text-sm" style={{ color: theme.colors.textMain }}>
+								Auto-hide menu bar
+							</p>
+							<p className="text-xs opacity-50 mt-0.5">
+								Hide the application menu bar. Press Alt to toggle visibility. Applies to Windows
+								and Linux. Requires restart.
+							</p>
+						</div>
+						<button
+							onClick={() => setAutoHideMenuBar(!autoHideMenuBar)}
+							className="relative w-10 h-5 rounded-full transition-colors flex-shrink-0 outline-none"
+							tabIndex={0}
+							style={{
+								backgroundColor: autoHideMenuBar ? theme.colors.accent : theme.colors.bgActivity,
+							}}
+							role="switch"
+							aria-checked={autoHideMenuBar}
+						>
+							<span
+								className={`absolute left-0 top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
+									autoHideMenuBar ? 'translate-x-5' : 'translate-x-0.5'
+								}`}
+							/>
+						</button>
+					</div>
+				</div>
+			</div>
+
+			{/* Document Graph Settings */}
+			<div>
+				<div className="block text-xs font-bold opacity-70 uppercase mb-2 flex items-center gap-2">
+					<Sparkles className="w-3 h-3" />
+					Document Graph
+					<span
+						className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase"
+						style={{
+							backgroundColor: theme.colors.warning + '30',
+							color: theme.colors.warning,
+						}}
+					>
+						Beta
+					</span>
+				</div>
+				<div
+					className="p-3 rounded border space-y-3"
+					style={{ borderColor: theme.colors.border, backgroundColor: theme.colors.bgMain }}
+				>
+					{/* Show External Links */}
+					<div className="flex items-center justify-between">
+						<div>
+							<p className="text-sm" style={{ color: theme.colors.textMain }}>
+								Show external links by default
+							</p>
+							<p className="text-xs opacity-50 mt-0.5">
+								Display external website links as nodes. Can be toggled in the graph view.
+							</p>
+						</div>
+						<button
+							onClick={() => setDocumentGraphShowExternalLinks(!documentGraphShowExternalLinks)}
+							className="relative w-10 h-5 rounded-full transition-colors"
+							style={{
+								backgroundColor: documentGraphShowExternalLinks
+									? theme.colors.accent
+									: theme.colors.bgActivity,
+							}}
+							role="switch"
+							aria-checked={documentGraphShowExternalLinks}
+						>
+							<span
+								className={`absolute left-0 top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
+									documentGraphShowExternalLinks ? 'translate-x-5' : 'translate-x-0.5'
+								}`}
+							/>
+						</button>
+					</div>
+
+					{/* Max Nodes */}
+					<div>
+						<div className="block text-xs opacity-60 mb-2">Maximum nodes to display</div>
+						<div className="flex items-center gap-3">
+							<input
+								type="range"
+								min={50}
+								max={1000}
+								step={50}
+								value={documentGraphMaxNodes}
+								onChange={(e) => setDocumentGraphMaxNodes(Number(e.target.value))}
+								className="flex-1 h-2 rounded-lg appearance-none cursor-pointer"
+								style={{
+									background: `linear-gradient(to right, ${theme.colors.accent} 0%, ${theme.colors.accent} ${((documentGraphMaxNodes - 50) / 950) * 100}%, ${theme.colors.bgActivity} ${((documentGraphMaxNodes - 50) / 950) * 100}%, ${theme.colors.bgActivity} 100%)`,
+								}}
+							/>
+							<span
+								className="text-sm font-mono w-12 text-right"
+								style={{ color: theme.colors.textMain }}
+							>
+								{documentGraphMaxNodes}
+							</span>
+						</div>
+						<p className="text-xs opacity-50 mt-1">
+							Limits initial graph size for performance. Use &quot;Load more&quot; to show
+							additional nodes.
+						</p>
+					</div>
+				</div>
+			</div>
+
 			{/* Context Window Warnings */}
 			<div>
-				<label className="block text-xs font-bold opacity-70 uppercase mb-2 flex items-center gap-2">
+				<div className="block text-xs font-bold opacity-70 uppercase mb-2 flex items-center gap-2">
 					<AlertTriangle className="w-3 h-3" />
 					Context Window Warnings
-				</label>
+				</div>
 				<div
 					className="p-3 rounded border space-y-3"
 					style={{ borderColor: theme.colors.border, backgroundColor: theme.colors.bgMain }}
@@ -265,7 +431,7 @@ export function DisplayTab({ theme }: DisplayTabProps) {
 						{/* Yellow Warning Threshold */}
 						<div>
 							<div className="flex items-center justify-between mb-2">
-								<label
+								<div
 									className="text-xs font-medium flex items-center gap-2"
 									style={{ color: theme.colors.textMain }}
 								>
@@ -274,7 +440,7 @@ export function DisplayTab({ theme }: DisplayTabProps) {
 										style={{ backgroundColor: '#eab308' }}
 									/>
 									Yellow warning threshold
-								</label>
+								</div>
 								<span
 									className="text-xs font-mono px-2 py-0.5 rounded"
 									style={{ backgroundColor: 'rgba(234, 179, 8, 0.2)', color: '#fde047' }}
@@ -284,8 +450,8 @@ export function DisplayTab({ theme }: DisplayTabProps) {
 							</div>
 							<input
 								type="range"
-								min={30}
-								max={90}
+								min={0}
+								max={100}
 								step={5}
 								value={contextManagementSettings.contextWarningYellowThreshold}
 								onChange={(e) => {
@@ -295,7 +461,7 @@ export function DisplayTab({ theme }: DisplayTabProps) {
 										// Bump red threshold up
 										updateContextManagementSettings({
 											contextWarningYellowThreshold: newYellow,
-											contextWarningRedThreshold: Math.min(95, newYellow + 10),
+											contextWarningRedThreshold: Math.min(100, newYellow + 10),
 										});
 									} else {
 										updateContextManagementSettings({
@@ -305,7 +471,7 @@ export function DisplayTab({ theme }: DisplayTabProps) {
 								}}
 								className="w-full h-2 rounded-lg appearance-none cursor-pointer"
 								style={{
-									background: `linear-gradient(to right, #eab308 0%, #eab308 ${((contextManagementSettings.contextWarningYellowThreshold - 30) / 60) * 100}%, ${theme.colors.bgActivity} ${((contextManagementSettings.contextWarningYellowThreshold - 30) / 60) * 100}%, ${theme.colors.bgActivity} 100%)`,
+									background: `linear-gradient(to right, #eab308 0%, #eab308 ${contextManagementSettings.contextWarningYellowThreshold}%, ${theme.colors.bgActivity} ${contextManagementSettings.contextWarningYellowThreshold}%, ${theme.colors.bgActivity} 100%)`,
 								}}
 							/>
 						</div>
@@ -313,7 +479,7 @@ export function DisplayTab({ theme }: DisplayTabProps) {
 						{/* Red Warning Threshold */}
 						<div>
 							<div className="flex items-center justify-between mb-2">
-								<label
+								<div
 									className="text-xs font-medium flex items-center gap-2"
 									style={{ color: theme.colors.textMain }}
 								>
@@ -322,7 +488,7 @@ export function DisplayTab({ theme }: DisplayTabProps) {
 										style={{ backgroundColor: '#ef4444' }}
 									/>
 									Red warning threshold
-								</label>
+								</div>
 								<span
 									className="text-xs font-mono px-2 py-0.5 rounded"
 									style={{ backgroundColor: 'rgba(239, 68, 68, 0.2)', color: '#fca5a5' }}
@@ -332,8 +498,8 @@ export function DisplayTab({ theme }: DisplayTabProps) {
 							</div>
 							<input
 								type="range"
-								min={50}
-								max={95}
+								min={0}
+								max={100}
 								step={5}
 								value={contextManagementSettings.contextWarningRedThreshold}
 								onChange={(e) => {
@@ -343,7 +509,7 @@ export function DisplayTab({ theme }: DisplayTabProps) {
 										// Bump yellow threshold down
 										updateContextManagementSettings({
 											contextWarningRedThreshold: newRed,
-											contextWarningYellowThreshold: Math.max(30, newRed - 10),
+											contextWarningYellowThreshold: Math.max(0, newRed - 10),
 										});
 									} else {
 										updateContextManagementSettings({ contextWarningRedThreshold: newRed });
@@ -351,7 +517,7 @@ export function DisplayTab({ theme }: DisplayTabProps) {
 								}}
 								className="w-full h-2 rounded-lg appearance-none cursor-pointer"
 								style={{
-									background: `linear-gradient(to right, #ef4444 0%, #ef4444 ${((contextManagementSettings.contextWarningRedThreshold - 50) / 45) * 100}%, ${theme.colors.bgActivity} ${((contextManagementSettings.contextWarningRedThreshold - 50) / 45) * 100}%, ${theme.colors.bgActivity} 100%)`,
+									background: `linear-gradient(to right, #ef4444 0%, #ef4444 ${contextManagementSettings.contextWarningRedThreshold}%, ${theme.colors.bgActivity} ${contextManagementSettings.contextWarningRedThreshold}%, ${theme.colors.bgActivity} 100%)`,
 								}}
 							/>
 						</div>
@@ -359,84 +525,19 @@ export function DisplayTab({ theme }: DisplayTabProps) {
 				</div>
 			</div>
 
-			{/* Document Graph Settings */}
-			<div>
-				<label className="block text-xs font-bold opacity-70 uppercase mb-2 flex items-center gap-2">
-					<Sparkles className="w-3 h-3" />
-					Document Graph
-					<span
-						className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase"
-						style={{
-							backgroundColor: theme.colors.warning + '30',
-							color: theme.colors.warning,
-						}}
-					>
-						Beta
-					</span>
-				</label>
-				<div
-					className="p-3 rounded border space-y-3"
-					style={{ borderColor: theme.colors.border, backgroundColor: theme.colors.bgMain }}
-				>
-					{/* Show External Links */}
-					<div className="flex items-center justify-between">
-						<div>
-							<p className="text-sm" style={{ color: theme.colors.textMain }}>
-								Show external links by default
-							</p>
-							<p className="text-xs opacity-50 mt-0.5">
-								Display external website links as nodes. Can be toggled in the graph view.
-							</p>
-						</div>
-						<button
-							onClick={() => setDocumentGraphShowExternalLinks(!documentGraphShowExternalLinks)}
-							className="relative w-10 h-5 rounded-full transition-colors"
-							style={{
-								backgroundColor: documentGraphShowExternalLinks
-									? theme.colors.accent
-									: theme.colors.bgActivity,
-							}}
-							role="switch"
-							aria-checked={documentGraphShowExternalLinks}
-						>
-							<span
-								className={`absolute left-0 top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
-									documentGraphShowExternalLinks ? 'translate-x-5' : 'translate-x-0.5'
-								}`}
-							/>
-						</button>
-					</div>
-
-					{/* Max Nodes */}
-					<div>
-						<label className="block text-xs opacity-60 mb-2">Maximum nodes to display</label>
-						<div className="flex items-center gap-3">
-							<input
-								type="range"
-								min={50}
-								max={1000}
-								step={50}
-								value={documentGraphMaxNodes}
-								onChange={(e) => setDocumentGraphMaxNodes(Number(e.target.value))}
-								className="flex-1 h-2 rounded-lg appearance-none cursor-pointer"
-								style={{
-									background: `linear-gradient(to right, ${theme.colors.accent} 0%, ${theme.colors.accent} ${((documentGraphMaxNodes - 50) / 950) * 100}%, ${theme.colors.bgActivity} ${((documentGraphMaxNodes - 50) / 950) * 100}%, ${theme.colors.bgActivity} 100%)`,
-								}}
-							/>
-							<span
-								className="text-sm font-mono w-12 text-right"
-								style={{ color: theme.colors.textMain }}
-							>
-								{documentGraphMaxNodes}
-							</span>
-						</div>
-						<p className="text-xs opacity-50 mt-1">
-							Limits initial graph size for performance. Use &quot;Load more&quot; to show
-							additional nodes.
-						</p>
-					</div>
-				</div>
-			</div>
+			{/* Local File Indexing Ignore Patterns */}
+			<IgnorePatternsSection
+				theme={theme}
+				title="Local Ignore Patterns"
+				description="Configure glob patterns for folders to exclude when indexing local files in the file explorer. Excluding large directories (like .git) reduces memory usage and speeds up file tree loading."
+				ignorePatterns={localIgnorePatterns}
+				onIgnorePatternsChange={setLocalIgnorePatterns}
+				defaultPatterns={DEFAULT_LOCAL_IGNORE_PATTERNS}
+				showHonorGitignore
+				honorGitignore={localHonorGitignore}
+				onHonorGitignoreChange={setLocalHonorGitignore}
+				onReset={() => setLocalHonorGitignore(true)}
+			/>
 		</div>
 	);
 }

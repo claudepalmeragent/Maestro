@@ -10,6 +10,7 @@ import { useState, useCallback } from 'react';
 import type { Theme, GroupChatParticipant, SessionState } from '../types';
 import { getStatusColor } from '../utils/theme';
 import { formatCost, getCostTooltip } from '../utils/formatters';
+import { safeClipboardWrite } from '../utils/clipboard';
 
 interface ParticipantCardProps {
 	theme: Theme;
@@ -52,9 +53,9 @@ export function ParticipantCard({
 	const agentSessionId = participant.agentSessionId;
 	const isPending = !agentSessionId;
 
-	const copySessionId = useCallback(() => {
+	const copySessionId = useCallback(async () => {
 		if (agentSessionId) {
-			navigator.clipboard.writeText(agentSessionId);
+			await safeClipboardWrite(agentSessionId);
 			setCopied(true);
 			setTimeout(() => setCopied(false), 2000);
 		}
@@ -79,8 +80,8 @@ export function ParticipantCard({
 	// Context usage percentage (default to 0 if not set)
 	const contextUsage = participant.contextUsage ?? 0;
 
-	// Show reset button when context usage is 40% or higher
-	const showResetButton = contextUsage >= 40 && onContextReset && groupChatId && !isResetting;
+	// Always show reset button (useful for disconnected sessions, not just high context)
+	const showResetButton = onContextReset && groupChatId && !isResetting;
 
 	const handleReset = useCallback(async () => {
 		if (!onContextReset || !groupChatId) return;
@@ -212,7 +213,7 @@ export function ParticipantCard({
 						{formatCost(participant.totalCost).slice(1)}
 					</span>
 				)}
-				{/* Reset button - shown when context usage >= 40% */}
+				{/* Reset button */}
 				{showResetButton && (
 					<button
 						onClick={handleReset}

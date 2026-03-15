@@ -1,4 +1,4 @@
-import React, { useRef, useCallback } from 'react';
+import React, { useRef, useCallback, useState } from 'react';
 import { AlertTriangle, Trash2 } from 'lucide-react';
 import type { Theme } from '../types';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
@@ -22,6 +22,8 @@ export function DeleteAgentConfirmModal({
 	onClose,
 }: DeleteAgentConfirmModalProps) {
 	const confirmButtonRef = useRef<HTMLButtonElement>(null);
+	const [confirmationText, setConfirmationText] = useState('');
+	const isEraseEnabled = confirmationText === agentName;
 
 	const handleConfirm = useCallback(() => {
 		onConfirm();
@@ -48,16 +50,16 @@ export function DeleteAgentConfirmModal({
 			priority={MODAL_PRIORITIES.CONFIRM}
 			onClose={onClose}
 			headerIcon={<Trash2 className="w-4 h-4" style={{ color: theme.colors.error }} />}
-			width={500}
+			width={540}
 			zIndex={10000}
 			initialFocusRef={confirmButtonRef}
 			footer={
-				<div className="flex justify-end gap-2 w-full">
+				<div className="flex gap-2 w-full flex-nowrap">
 					<button
 						type="button"
 						onClick={onClose}
 						onKeyDown={(e) => handleKeyDown(e, onClose)}
-						className="px-4 py-2 rounded border hover:bg-white/5 transition-colors outline-none focus:ring-2 focus:ring-offset-1"
+						className="px-3 py-1.5 rounded border hover:bg-white/5 transition-colors outline-none focus:ring-2 focus:ring-offset-1 text-xs whitespace-nowrap mr-auto"
 						style={{
 							borderColor: theme.colors.border,
 							color: theme.colors.textMain,
@@ -70,25 +72,28 @@ export function DeleteAgentConfirmModal({
 						type="button"
 						onClick={handleConfirm}
 						onKeyDown={(e) => handleKeyDown(e, handleConfirm)}
-						className="px-4 py-2 rounded transition-colors outline-none focus:ring-2 focus:ring-offset-1"
+						className="px-3 py-1.5 rounded transition-colors outline-none focus:ring-2 focus:ring-offset-1 text-xs whitespace-nowrap"
 						style={{
 							backgroundColor: `${theme.colors.error}99`,
 							color: '#ffffff',
 						}}
 					>
-						Confirm
+						Agent Only
 					</button>
 					<button
 						type="button"
-						onClick={handleConfirmAndErase}
-						onKeyDown={(e) => handleKeyDown(e, handleConfirmAndErase)}
-						className="px-4 py-2 rounded transition-colors outline-none focus:ring-2 focus:ring-offset-1"
+						onClick={isEraseEnabled ? handleConfirmAndErase : undefined}
+						onKeyDown={isEraseEnabled ? (e) => handleKeyDown(e, handleConfirmAndErase) : undefined}
+						disabled={!isEraseEnabled}
+						className={`px-3 py-1.5 rounded transition-colors outline-none focus:ring-2 focus:ring-offset-1 text-xs whitespace-nowrap ${
+							!isEraseEnabled ? 'opacity-50 cursor-not-allowed' : ''
+						}`}
 						style={{
 							backgroundColor: theme.colors.error,
 							color: '#ffffff',
 						}}
 					>
-						Confirm and Erase
+						Agent + Working Directory
 					</button>
 				</div>
 			}
@@ -102,10 +107,12 @@ export function DeleteAgentConfirmModal({
 				</div>
 				<div className="space-y-3">
 					<p className="leading-relaxed" style={{ color: theme.colors.textMain }}>
-						Are you sure you want to delete the agent "{agentName}"? This action cannot be undone.
+						<strong style={{ color: theme.colors.warning }}>Danger:</strong> You are about to delete
+						the agent "{agentName}". This action cannot be undone.
 					</p>
 					<p className="text-sm leading-relaxed" style={{ color: theme.colors.textDim }}>
-						<strong>Confirm and Erase</strong> will also move the working directory to the trash:
+						<strong>Agent + Working Directory</strong> will also move the working directory to the
+						trash:
 					</p>
 					<code
 						className="block text-xs px-2 py-1 rounded break-all"
@@ -117,6 +124,22 @@ export function DeleteAgentConfirmModal({
 					>
 						{workingDirectory}
 					</code>
+					<p className="text-xs leading-relaxed" style={{ color: theme.colors.textDim }}>
+						Enter agent name below to enable working directory deletion:
+					</p>
+					<input
+						type="text"
+						value={confirmationText}
+						onChange={(e) => setConfirmationText(e.target.value)}
+						placeholder=""
+						className="block w-full text-sm px-3 py-2 rounded outline-none focus:ring-2 focus:ring-offset-1"
+						style={{
+							backgroundColor: theme.colors.bgMain,
+							color: theme.colors.textMain,
+							border: `1px solid ${theme.colors.border}`,
+						}}
+						aria-label="Confirm agent name"
+					/>
 				</div>
 			</div>
 		</Modal>

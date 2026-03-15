@@ -28,24 +28,13 @@ import type {
 	ContextManagementSettings,
 	KeyboardMasteryStats,
 	ThinkingMode,
+	DirectorNotesSettings,
+	EncoreFeatureFlags,
 } from '../types';
 import { DEFAULT_CUSTOM_THEME_COLORS } from '../constants/themes';
 import { DEFAULT_SHORTCUTS, TAB_SHORTCUTS, FIXED_SHORTCUTS } from '../constants/shortcuts';
 import { getLevelIndex } from '../constants/keyboardMastery';
 import { commitCommandPrompt } from '../../prompts';
-
-// ============================================================================
-// Inline Types (not yet in renderer/types)
-// ============================================================================
-
-export interface DirectorNotesSettings {
-	provider: string;
-	defaultLookbackDays: number;
-}
-
-export interface EncoreFeatureFlags {
-	directorNotes: boolean;
-}
 
 // ============================================================================
 // Shared Type Aliases

@@ -11,6 +11,7 @@ import {
 	Pencil,
 } from 'lucide-react';
 import type { Theme } from '../types';
+import { formatShortcutKeys } from '../utils/shortcutFormatter';
 import { useLayerStack } from '../contexts/LayerStackContext';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 import { ConfirmModal } from './ConfirmModal';
@@ -531,7 +532,7 @@ export function LogViewer({
 				<div className="flex h-2 w-full mb-2 rounded-sm overflow-hidden">
 					{filteredLogs.map((log, idx) => (
 						<div
-							key={idx}
+							key={`${log.timestamp}-${log.level}-${idx}`}
 							className="flex-1 transition-all hover:opacity-70 cursor-pointer"
 							style={{
 								backgroundColor: getLevelColor(log.level),
@@ -596,7 +597,7 @@ export function LogViewer({
 				) : (
 					filteredLogs.map((log, index) => (
 						<div
-							key={index}
+							key={`${log.timestamp}-${log.level}-${index}`}
 							className="rounded p-3 border"
 							style={{
 								backgroundColor: theme.colors.bgActivity,
@@ -717,7 +718,7 @@ export function LogViewer({
 						className="px-1.5 py-0.5 rounded mx-1 font-bold"
 						style={{ backgroundColor: theme.colors.bgActivity }}
 					>
-						⌘F
+						{formatShortcutKeys(['Meta', 'f'])}
 					</kbd>{' '}
 					to search
 				</div>

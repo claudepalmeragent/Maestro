@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 import { HistoryHelpModal } from '../../../renderer/components/HistoryHelpModal';
 import type { Theme } from '../../../renderer/types';
 
@@ -33,6 +33,48 @@ Object.defineProperty(window, 'maestro', {
 	},
 	writable: true,
 });
+
+// Mock lucide-react icons
+vi.mock('lucide-react', () => ({
+	X: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="x-icon" className={className} style={style} />
+	),
+	History: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="history-icon" className={className} style={style} />
+	),
+	Play: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="play-icon" className={className} style={style} />
+	),
+	Clock: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="clock-icon" className={className} style={style} />
+	),
+	DollarSign: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="dollar-sign-icon" className={className} style={style} />
+	),
+	BarChart2: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="bar-chart-icon" className={className} style={style} />
+	),
+	CheckCircle: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="check-circle-icon" className={className} style={style} />
+	),
+	Bot: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="bot-icon" className={className} style={style} />
+	),
+	User: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="user-icon" className={className} style={style} />
+	),
+	Eye: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="eye-icon" className={className} style={style} />
+	),
+	Layers: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="layers-icon" className={className} style={style} />
+	),
+	FileJson: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="file-json-icon" className={className} style={style} />
+	),
+}));
+
+
 // Create a mock theme
 const mockTheme: Theme = {
 	id: 'test-theme',
@@ -61,11 +103,6 @@ describe('HistoryHelpModal', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mockRegisterLayer.mockReturnValue('test-layer-id');
-		// Default mock values for storage path APIs
-		mockGetCurrentStoragePath.mockResolvedValue(
-			'/Users/testuser/Library/Application Support/maestro'
-		);
-		mockHomeDir.mockResolvedValue('/Users/testuser');
 	});
 
 	afterEach(() => {
@@ -414,7 +451,7 @@ describe('HistoryHelpModal', () => {
 			render(<HistoryHelpModal {...defaultProps} />);
 
 			expect(screen.getByText('Click any bar')).toBeInTheDocument();
-			expect(screen.getByText(/to filter the history list/)).toBeInTheDocument();
+			expect(screen.getByText(/to jump to entries within that time bucket/)).toBeInTheDocument();
 		});
 
 		it('describes hover functionality', () => {
@@ -824,81 +861,6 @@ describe('HistoryHelpModal', () => {
 			// Modal component uses p-6 for content area padding
 			const contentArea = container.querySelector('.p-6');
 			expect(contentArea).toBeInTheDocument();
-		});
-	});
-
-	describe('Dynamic History Path', () => {
-		it('displays default storage path with home directory shortened', async () => {
-			mockGetCurrentStoragePath.mockResolvedValue(
-				'/Users/testuser/Library/Application Support/maestro'
-			);
-			mockHomeDir.mockResolvedValue('/Users/testuser');
-
-			render(<HistoryHelpModal {...defaultProps} />);
-
-			await waitFor(() => {
-				expect(
-					screen.getByText('~/Library/Application Support/maestro/history/<sessionId>.json')
-				).toBeInTheDocument();
-			});
-		});
-
-		it('displays custom storage path when user has configured one', async () => {
-			mockGetCurrentStoragePath.mockResolvedValue('/Users/testuser/Dropbox/MaestroSync');
-			mockHomeDir.mockResolvedValue('/Users/testuser');
-
-			render(<HistoryHelpModal {...defaultProps} />);
-
-			await waitFor(() => {
-				expect(
-					screen.getByText('~/Dropbox/MaestroSync/history/<sessionId>.json')
-				).toBeInTheDocument();
-			});
-		});
-
-		it('displays full path when not under home directory', async () => {
-			mockGetCurrentStoragePath.mockResolvedValue('/opt/maestro/data');
-			mockHomeDir.mockResolvedValue('/Users/testuser');
-
-			render(<HistoryHelpModal {...defaultProps} />);
-
-			await waitFor(() => {
-				expect(screen.getByText('/opt/maestro/data/history/<sessionId>.json')).toBeInTheDocument();
-			});
-		});
-
-		it('displays Windows path with backslashes when detected', async () => {
-			mockGetCurrentStoragePath.mockResolvedValue('C:\\Users\\testuser\\AppData\\Roaming\\maestro');
-			mockHomeDir.mockResolvedValue('C:\\Users\\testuser');
-
-			render(<HistoryHelpModal {...defaultProps} />);
-
-			await waitFor(() => {
-				expect(
-					screen.getByText('~\\AppData\\Roaming\\maestro\\history\\<sessionId>.json')
-				).toBeInTheDocument();
-			});
-		});
-
-		it('shows fallback path when API fails', async () => {
-			mockGetCurrentStoragePath.mockRejectedValue(new Error('API unavailable'));
-			mockHomeDir.mockRejectedValue(new Error('API unavailable'));
-
-			render(<HistoryHelpModal {...defaultProps} />);
-
-			await waitFor(() => {
-				expect(screen.getByText('<storage-folder>/history/<sessionId>.json')).toBeInTheDocument();
-			});
-		});
-
-		it('shows Loading... initially before path is fetched', () => {
-			// Use a promise that never resolves to test loading state
-			mockGetCurrentStoragePath.mockReturnValue(new Promise(() => {}));
-			mockHomeDir.mockReturnValue(new Promise(() => {}));
-
-			render(<HistoryHelpModal {...defaultProps} />);
-
-			expect(screen.getByText('Loading...')).toBeInTheDocument();
 		});
 	});
 });

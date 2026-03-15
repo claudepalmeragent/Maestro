@@ -2,6 +2,7 @@
  * Tests for usage aggregator utilities
  */
 
+import { describe, expect, it } from 'vitest';
 import {
 	aggregateModelUsage,
 	estimateContextUsage,
@@ -96,15 +97,32 @@ describe('estimateContextUsage', () => {
 			expect(result).toBe(10);
 		});
 
-		it('should cap at 100%', () => {
+		it('should correctly calculate for Claude with all token types', () => {
+			// Simulates a real Claude response: input + cacheRead + cacheCreation = total
 			const stats = createStats({
-				inputTokens: 150000,
-				outputTokens: 100000,
+				inputTokens: 2,
+				cacheReadInputTokens: 33541,
+				cacheCreationInputTokens: 11657,
+				outputTokens: 12,
 				contextWindow: 200000,
 			});
 			const result = estimateContextUsage(stats, 'claude-code');
-			// Output tokens excluded; 150k / 200k = 75%
-			expect(result).toBe(75);
+			// (2 + 33541 + 11657) / 200000 = 45200 / 200000 = 22.6% -> 23%
+			expect(result).toBe(23);
+		});
+
+		it('should return null when tokens exceed context window (accumulated values)', () => {
+			// When Claude Code does complex multi-tool turns, token values accumulate
+			// across internal API calls and can exceed the context window
+			const stats = createStats({
+				inputTokens: 21627,
+				cacheReadInputTokens: 1079415,
+				cacheCreationInputTokens: 39734,
+				contextWindow: 200000,
+			});
+			const result = estimateContextUsage(stats, 'claude-code');
+			// Total = 1,140,776 > 200,000 -> null (accumulated, skip update)
+			expect(result).toBeNull();
 		});
 	});
 
@@ -112,6 +130,7 @@ describe('estimateContextUsage', () => {
 		it('should use claude-code default context window (200k)', () => {
 			const stats = createStats({ contextWindow: 0 });
 			const result = estimateContextUsage(stats, 'claude-code');
+			// 10000 + 0 + 0 = 10000 / 200000 = 5%
 			expect(result).toBe(5);
 		});
 
@@ -149,6 +168,18 @@ describe('estimateContextUsage', () => {
 			const result = estimateContextUsage(stats, 'claude-code');
 			expect(result).toBe(0);
 		});
+
+		it('should return null when accumulated tokens exceed default window', () => {
+			const stats = createStats({
+				inputTokens: 50000,
+				cacheReadInputTokens: 500000,
+				cacheCreationInputTokens: 10000,
+				contextWindow: 0,
+			});
+			const result = estimateContextUsage(stats, 'claude-code');
+			// 560000 > 200000 default -> null
+			expect(result).toBeNull();
+		});
 	});
 });
 
@@ -166,48 +197,63 @@ describe('calculateContextTokens', () => {
 		...overrides,
 	});
 
-	it('should exclude output tokens and cacheReadInputTokens for Claude agents', () => {
+	it('should include input + cacheRead + cacheCreation for Claude agents', () => {
 		const stats = createStats();
 		const result = calculateContextTokens(stats, 'claude-code');
-		// 10000 + 1000 = 11000 (no output tokens, no cacheRead - cumulative)
-		expect(result).toBe(11000);
+		// 10000 + 2000 + 1000 = 13000 (all input token types, excludes output)
+		expect(result).toBe(13000);
 	});
 
-	it('should include output tokens but exclude cacheReadInputTokens for Codex agents', () => {
+	it('should include input + cacheCreation + output for Codex agents', () => {
 		const stats = createStats();
 		const result = calculateContextTokens(stats, 'codex');
-		// 10000 + 5000 + 1000 = 16000 (includes output, excludes cacheRead)
+		// 10000 + 1000 + 5000 = 16000 (combined input+output window)
 		expect(result).toBe(16000);
 	});
 
 	it('should default to Claude behavior when agent is undefined', () => {
 		const stats = createStats();
 		const result = calculateContextTokens(stats);
-		// 10000 + 1000 = 11000 (excludes cacheRead)
-		expect(result).toBe(11000);
+		// 10000 + 2000 + 1000 = 13000 (Claude default: all input token types)
+		expect(result).toBe(13000);
 	});
 
-	it('should exclude cacheReadInputTokens because they are cumulative session totals', () => {
-		// cacheReadInputTokens accumulate across all turns in a session and can
-		// exceed the context window. Including them would cause context % > 100%.
+	it('should calculate correctly for typical first Claude turn', () => {
+		// Real-world scenario: first message with system prompt cache
+		const stats = createStats({
+			inputTokens: 2,
+			cacheReadInputTokens: 33541,
+			cacheCreationInputTokens: 11657,
+			outputTokens: 12,
+		});
+		const result = calculateContextTokens(stats, 'claude-code');
+		// 2 + 33541 + 11657 = 45200 (total context for the API call)
+		expect(result).toBe(45200);
+	});
+
+	it('should handle accumulated values from multi-tool turns', () => {
+		// When values are accumulated across internal API calls,
+		// the total can exceed the context window. calculateContextTokens
+		// returns the raw total; callers must check against contextWindow.
 		const stats = createStats({
 			inputTokens: 5000,
 			cacheCreationInputTokens: 1000,
-			cacheReadInputTokens: 500000, // Very high cumulative value
+			cacheReadInputTokens: 500000, // Accumulated from many internal calls
 		});
 		const result = calculateContextTokens(stats, 'claude-code');
-		// Should only be 5000 + 1000 = 6000, NOT 506000
-		expect(result).toBe(6000);
+		// 5000 + 500000 + 1000 = 506000 (raw total, may exceed window)
+		expect(result).toBe(506000);
 	});
 });
 
 describe('DEFAULT_CONTEXT_WINDOWS', () => {
-	it('should have context windows defined for all known agent types', () => {
+	it('should have context windows defined for all ToolType agent types', () => {
+		// Only ToolType values have context windows defined
+		// 'claude' was consolidated to 'claude-code', and 'aider' is not a ToolType
 		expect(DEFAULT_CONTEXT_WINDOWS['claude-code']).toBe(200000);
-		expect(DEFAULT_CONTEXT_WINDOWS['claude']).toBe(200000);
 		expect(DEFAULT_CONTEXT_WINDOWS['codex']).toBe(200000);
 		expect(DEFAULT_CONTEXT_WINDOWS['opencode']).toBe(128000);
-		expect(DEFAULT_CONTEXT_WINDOWS['aider']).toBe(128000);
+		expect(DEFAULT_CONTEXT_WINDOWS['factory-droid']).toBe(200000);
 		expect(DEFAULT_CONTEXT_WINDOWS['terminal']).toBe(0);
 	});
 });

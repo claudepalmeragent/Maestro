@@ -203,10 +203,10 @@ describe('AgentConfigPanel', () => {
 			expect(screen.getByText('Reset')).toBeInTheDocument();
 		});
 
-		it('should NOT show Reset button when custom path matches detected path', () => {
+		it('should show Reset button when custom path matches detected path', () => {
 			render(<AgentConfigPanel {...createDefaultProps({ customPath: '/usr/local/bin/claude' })} />);
 
-			expect(screen.queryByText('Reset')).not.toBeInTheDocument();
+			expect(screen.getByText('Reset')).toBeInTheDocument();
 		});
 
 		it('should NOT show Reset button when no custom path is set', () => {

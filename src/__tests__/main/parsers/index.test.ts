@@ -41,21 +41,29 @@ describe('parsers/index', () => {
 			expect(hasOutputParser('codex')).toBe(true);
 		});
 
-		it('should register exactly 3 parsers', () => {
+		it('should register Factory Droid parser', () => {
+			expect(hasOutputParser('factory-droid')).toBe(false);
+
+			initializeOutputParsers();
+
+			expect(hasOutputParser('factory-droid')).toBe(true);
+		});
+
+		it('should register exactly 4 parsers', () => {
 			initializeOutputParsers();
 
 			const parsers = getAllOutputParsers();
-			expect(parsers.length).toBe(3);
+			expect(parsers.length).toBe(4); // Claude, OpenCode, Codex, Factory Droid
 		});
 
 		it('should clear existing parsers before registering', () => {
 			// First initialization
 			initializeOutputParsers();
-			expect(getAllOutputParsers().length).toBe(3);
+			expect(getAllOutputParsers().length).toBe(4);
 
-			// Second initialization should still have exactly 3
+			// Second initialization should still have exactly 4
 			initializeOutputParsers();
-			expect(getAllOutputParsers().length).toBe(3);
+			expect(getAllOutputParsers().length).toBe(4);
 		});
 	});
 
@@ -65,7 +73,7 @@ describe('parsers/index', () => {
 
 			ensureParsersInitialized();
 
-			expect(getAllOutputParsers().length).toBe(3);
+			expect(getAllOutputParsers().length).toBe(4);
 		});
 
 		it('should be idempotent after first call', () => {
@@ -148,12 +156,12 @@ describe('parsers/index', () => {
 			initializeOutputParsers();
 
 			const parser = getOutputParser('opencode');
-			// OpenCode step_finish format uses part.reason to determine result vs system
+			// step_finish always emits 'system' (usage stats only); result text comes from 'text' events
 			const event = parser?.parseJsonLine(
 				JSON.stringify({ type: 'step_finish', sessionID: 'oc-123', part: { reason: 'stop' } })
 			);
 
-			expect(event?.type).toBe('result');
+			expect(event?.type).toBe('system');
 			expect(event?.sessionId).toBe('oc-123');
 		});
 

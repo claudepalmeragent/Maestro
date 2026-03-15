@@ -8,6 +8,7 @@
  * - Participants can collaborate by referencing the shared chat log
  */
 
+import * as os from 'os';
 import { v4 as uuidv4 } from 'uuid';
 import {
 	GroupChatParticipant,
@@ -24,10 +25,10 @@ import {
 	applyAgentConfigOverrides,
 	getContextWindowValue,
 } from '../utils/agent-args';
-import { wrapSpawnWithSsh } from '../utils/ssh-spawn-helper';
-import { getSettingsStore } from '../stores/getters';
-import { isInitialized as areStoresInitialized } from '../stores/instances';
 import { groupChatParticipantPrompt } from '../../prompts';
+import { wrapSpawnWithSsh } from '../utils/ssh-spawn-wrapper';
+import type { SshRemoteSettingsStore } from '../utils/ssh-remote-resolver';
+import { getWindowsSpawnConfig } from './group-chat-config';
 
 /**
  * In-memory store for active participant sessions.
@@ -68,6 +69,12 @@ export interface SessionOverrides {
 	sshRemoteName?: string;
 	/** SSH remote ID for spawning participant on the remote host */
 	sshRemoteId?: string;
+	/** Full SSH remote config for remote execution */
+	sshRemoteConfig?: {
+		enabled: boolean;
+		remoteId: string | null;
+		workingDirOverride?: string;
+	};
 }
 
 /**
@@ -81,7 +88,8 @@ export interface SessionOverrides {
  * @param agentDetector - Optional agent detector for resolving agent paths
  * @param agentConfigValues - Optional agent config values (from config store)
  * @param customEnvVars - Optional custom environment variables for the agent (deprecated, use sessionOverrides)
- * @param sessionOverrides - Optional session-specific overrides (customModel, customArgs, customEnvVars)
+ * @param sessionOverrides - Optional session-specific overrides (customModel, customArgs, customEnvVars, sshRemoteConfig)
+ * @param sshStore - Optional SSH settings store for remote execution support
  * @returns The created participant
  */
 export async function addParticipant(
@@ -89,11 +97,12 @@ export async function addParticipant(
 	name: string,
 	agentId: string,
 	processManager: IProcessManager,
-	cwd: string = process.env.HOME || '/tmp',
+	cwd: string = os.homedir(),
 	agentDetector?: AgentDetector,
 	agentConfigValues?: Record<string, any>,
 	customEnvVars?: Record<string, string>,
-	sessionOverrides?: SessionOverrides
+	sessionOverrides?: SessionOverrides,
+	sshStore?: SshRemoteSettingsStore
 ): Promise<GroupChatParticipant> {
 	console.log(`[GroupChat:Debug] ========== ADD PARTICIPANT ==========`);
 	console.log(`[GroupChat:Debug] Group Chat ID: ${groupChatId}`);
@@ -181,88 +190,69 @@ export async function addParticipant(
 	const sessionId = `group-chat-${groupChatId}-participant-${name}-${uuidv4()}`;
 	console.log(`[GroupChat:Debug] Generated session ID: ${sessionId}`);
 
-	// Spawn the participant agent
-	console.log(`[GroupChat:Debug] Spawning participant agent...`);
+	// Wrap spawn config with SSH if configured
+	let spawnCommand = command;
+	let spawnArgs = configResolution.args;
+	let spawnCwd = cwd;
+	let spawnPrompt: string | undefined = prompt;
+	let spawnEnvVars = configResolution.effectiveCustomEnvVars ?? effectiveEnvVars;
+	let spawnShell: string | undefined;
+	let spawnRunInShell = false;
 
-	// Determine command/args/cwd to spawn - wrap with SSH if participant is on SSH remote
-	let commandToSpawn = command;
-	let argsToSpawn = configResolution.args;
-	let cwdToSpawn = cwd;
-	let sshRemoteId: string | undefined;
-	let sshRemoteHost: string | undefined;
-
-	// If participant has SSH remote configuration, wrap the spawn with SSH
-	if (usingSshRemote && sessionOverrides?.sshRemoteId) {
-		console.log(`[GroupChat:Debug] SSH remote ID: ${sessionOverrides.sshRemoteId}`);
-
-		// Construct AgentSshRemoteConfig for wrapSpawnWithSsh
-		const sshRemoteConfig = {
-			enabled: true,
-			remoteId: sessionOverrides.sshRemoteId,
-			// No workingDirOverride - let the remote use its default
-		};
-
-		// Only attempt SSH wrapping if stores are initialized
-		const storesInitialized = areStoresInitialized();
-		console.log(`[GroupChat:Debug] Stores initialized: ${storesInitialized}`);
-
-		if (storesInitialized) {
-			const sshWrapResult = await wrapSpawnWithSsh(
-				{
-					command,
-					args: configResolution.args,
-					cwd,
-					prompt,
-					customEnvVars: configResolution.effectiveCustomEnvVars ?? effectiveEnvVars,
-					sshRemoteConfig,
-					binaryName: agentConfig?.binaryName,
-					promptArgs: agentConfig?.promptArgs,
-					noPromptSeparator: agentConfig?.noPromptSeparator,
-				},
-				getSettingsStore()
-			);
-
-			console.log(`[GroupChat:Debug] SSH wrap result: usedSsh=${sshWrapResult.usedSsh}`);
-			console.log(`[GroupChat:Debug] SSH wrap command: ${sshWrapResult.command}`);
-			console.log(`[GroupChat:Debug] SSH wrap args count: ${sshWrapResult.args.length}`);
-			console.log(`[GroupChat:Debug] SSH wrap cwd: ${sshWrapResult.cwd}`);
-
-			if (sshWrapResult.usedSsh) {
-				commandToSpawn = sshWrapResult.command;
-				argsToSpawn = sshWrapResult.args;
-				cwdToSpawn = sshWrapResult.cwd;
-				sshRemoteId = sshWrapResult.sshConfig?.id;
-				sshRemoteHost = sshWrapResult.sshConfig?.host;
-
-				if (sshWrapResult.sshConfig) {
-					console.log(
-						`[GroupChat:Debug] SSH remote: ${sshWrapResult.sshConfig.name} (${sshWrapResult.sshConfig.host})`
-					);
-				}
-			}
+	// Apply SSH wrapping if SSH is configured and store is available
+	if (sshStore && sessionOverrides?.sshRemoteConfig) {
+		console.log(`[GroupChat:Debug] Applying SSH wrapping for participant...`);
+		const sshWrapped = await wrapSpawnWithSsh(
+			{
+				command,
+				args: configResolution.args,
+				cwd,
+				prompt,
+				customEnvVars: configResolution.effectiveCustomEnvVars ?? effectiveEnvVars,
+				promptArgs: agentConfig?.promptArgs,
+				noPromptSeparator: agentConfig?.noPromptSeparator,
+				agentBinaryName: agentConfig?.binaryName,
+			},
+			sessionOverrides.sshRemoteConfig,
+			sshStore
+		);
+		spawnCommand = sshWrapped.command;
+		spawnArgs = sshWrapped.args;
+		spawnCwd = sshWrapped.cwd;
+		spawnPrompt = sshWrapped.prompt;
+		spawnEnvVars = sshWrapped.customEnvVars;
+		if (sshWrapped.sshRemoteUsed) {
+			console.log(`[GroupChat:Debug] SSH remote used: ${sshWrapped.sshRemoteUsed.name}`);
 		}
 	}
+
+	// Get Windows-specific spawn config (shell, stdin mode) - handles SSH exclusion
+	const winConfig = getWindowsSpawnConfig(agentId, sessionOverrides?.sshRemoteConfig);
+	if (winConfig.shell) {
+		spawnShell = winConfig.shell;
+		spawnRunInShell = winConfig.runInShell;
+		console.log(`[GroupChat:Debug] Windows shell config for participant: ${winConfig.shell}`);
+	}
+
+	// Spawn the participant agent
+	console.log(`[GroupChat:Debug] Spawning participant agent...`);
 
 	const result = processManager.spawn({
 		sessionId,
 		toolType: agentId,
-		cwd: cwdToSpawn,
-		command: commandToSpawn,
-		args: argsToSpawn,
+		cwd: spawnCwd,
+		command: spawnCommand,
+		args: spawnArgs,
 		readOnlyMode: false, // Participants can make changes
-		// Don't pass prompt when using SSH - it's embedded in the SSH command
-		prompt: usingSshRemote && sshRemoteId ? undefined : prompt,
+		prompt: spawnPrompt,
 		contextWindow: getContextWindowValue(agentConfig, agentConfigValues || {}),
-		customEnvVars:
-			usingSshRemote && sshRemoteId
-				? undefined
-				: (configResolution.effectiveCustomEnvVars ?? effectiveEnvVars),
-		// Don't pass promptArgs/noPromptSeparator when using SSH - handled in SSH command
-		promptArgs: usingSshRemote && sshRemoteId ? undefined : agentConfig?.promptArgs,
-		noPromptSeparator: usingSshRemote && sshRemoteId ? undefined : agentConfig?.noPromptSeparator,
-		// SSH remote context for tracking/error messages
-		sshRemoteId,
-		sshRemoteHost,
+		customEnvVars: spawnEnvVars,
+		promptArgs: agentConfig?.promptArgs,
+		noPromptSeparator: agentConfig?.noPromptSeparator,
+		shell: spawnShell,
+		runInShell: spawnRunInShell,
+		sendPromptViaStdin: winConfig.sendPromptViaStdin,
+		sendPromptViaStdinRaw: winConfig.sendPromptViaStdinRaw,
 	});
 
 	console.log(`[GroupChat:Debug] Spawn result: ${JSON.stringify(result)}`);

@@ -7,7 +7,7 @@
  * - readFile: Read file contents with image base64 encoding (local & SSH remote)
  * - stat: Get file/directory statistics (local & SSH remote)
  * - directorySize: Calculate directory size recursively (local & SSH remote)
- * - writeFile: Write content to file (local only)
+ * - writeFile: Write content to file (local & SSH remote)
  * - rename: Rename file/directory (local & SSH remote)
  * - delete: Delete file/directory (local & SSH remote)
  * - countItems: Count files and folders recursively (local & SSH remote)
@@ -25,6 +25,7 @@ import { logger } from '../../utils/logger';
 import {
 	readDirRemote,
 	readFileRemote,
+	writeFileRemote,
 	statRemote,
 	directorySizeRemote,
 	renameRemote,
@@ -37,6 +38,48 @@ import { getSshRemoteById } from '../../stores';
  * Supported image file extensions for base64 encoding
  */
 const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'svg', 'ico'];
+
+/**
+ * Check if a hostname resolves to a private/internal network address.
+ * Blocks SSRF attacks targeting localhost, private RFC1918 ranges,
+ * link-local addresses, and cloud metadata endpoints.
+ */
+function isPrivateHostname(hostname: string): boolean {
+	// Localhost variants
+	if (
+		hostname === 'localhost' ||
+		hostname === '127.0.0.1' ||
+		hostname === '[::1]' ||
+		hostname === '::1' ||
+		hostname === '0.0.0.0' ||
+		hostname.endsWith('.localhost')
+	) {
+		return true;
+	}
+
+	// Cloud metadata endpoints
+	if (hostname === '169.254.169.254' || hostname === 'metadata.google.internal') {
+		return true;
+	}
+
+	// IPv4 private/reserved ranges
+	const ipv4Match = hostname.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+	if (ipv4Match) {
+		const [, a, b] = ipv4Match.map(Number);
+		if (
+			a === 10 || // 10.0.0.0/8
+			a === 127 || // 127.0.0.0/8
+			(a === 172 && b >= 16 && b <= 31) || // 172.16.0.0/12
+			(a === 192 && b === 168) || // 192.168.0.0/16
+			(a === 169 && b === 254) || // 169.254.0.0/16 (link-local)
+			a === 0 // 0.0.0.0/8
+		) {
+			return true;
+		}
+	}
+
+	return false;
+}
 
 /**
  * Register all filesystem-related IPC handlers.
@@ -63,9 +106,10 @@ export function registerFilesystemHandlers(): void {
 			// Include full path for recursive directory scanning (e.g., document graph)
 			// Use POSIX path joining for remote paths (always forward slashes)
 			return result.data!.map((entry) => ({
-				name: entry.name,
+				name: entry.name.normalize('NFC'),
 				isDirectory: entry.isDirectory,
 				isFile: !entry.isDirectory && !entry.isSymlink,
+				// Preserve raw filesystem name in path for correct remote operations
 				path: dirPath.endsWith('/') ? `${dirPath}${entry.name}` : `${dirPath}/${entry.name}`,
 			}));
 		}
@@ -75,9 +119,10 @@ export function registerFilesystemHandlers(): void {
 		// Convert Dirent objects to plain objects for IPC serialization
 		// Include full path for recursive directory scanning (e.g., document graph)
 		return entries.map((entry: any) => ({
-			name: entry.name,
+			name: entry.name.normalize('NFC'),
 			isDirectory: entry.isDirectory(),
 			isFile: entry.isFile(),
+			// Preserve raw filesystem name in path for correct local operations
 			path: path.join(dirPath, entry.name),
 		}));
 	});
@@ -124,7 +169,13 @@ export function registerFilesystemHandlers(): void {
 				const content = await fs.readFile(filePath, 'utf-8');
 				return content;
 			}
-		} catch (error) {
+		} catch (error: any) {
+			// Return null for missing files instead of throwing.
+			// Prevents noisy Electron IPC error logging when callers
+			// expect files that may not exist (e.g., .gitignore).
+			if (error?.code === 'ENOENT') {
+				return null;
+			}
 			throw new Error(`Failed to read file: ${error}`);
 		}
 	});
@@ -239,15 +290,32 @@ export function registerFilesystemHandlers(): void {
 		};
 	});
 
-	// Write content to file (local only)
-	ipcMain.handle('fs:writeFile', async (_, filePath: string, content: string) => {
-		try {
-			await fs.writeFile(filePath, content, 'utf-8');
-			return { success: true };
-		} catch (error) {
-			throw new Error(`Failed to write file: ${error}`);
+	// Write content to file (supports SSH remote)
+	ipcMain.handle(
+		'fs:writeFile',
+		async (_, filePath: string, content: string, sshRemoteId?: string) => {
+			try {
+				// SSH remote: dispatch to remote fs operations
+				if (sshRemoteId) {
+					const sshConfig = getSshRemoteById(sshRemoteId);
+					if (!sshConfig) {
+						throw new Error(`SSH remote not found: ${sshRemoteId}`);
+					}
+					const result = await writeFileRemote(filePath, content, sshConfig);
+					if (!result.success) {
+						throw new Error(result.error || 'Failed to write remote file');
+					}
+					return { success: true };
+				}
+
+				// Local: use standard fs operations
+				await fs.writeFile(filePath, content, 'utf-8');
+				return { success: true };
+			} catch (error) {
+				throw new Error(`Failed to write file: ${error}`);
+			}
 		}
-	});
+	);
 
 	// Rename a file or folder (supports SSH remote)
 	ipcMain.handle('fs:rename', async (_, oldPath: string, newPath: string, sshRemoteId?: string) => {
@@ -347,17 +415,40 @@ export function registerFilesystemHandlers(): void {
 	});
 
 	// Fetch image from URL and return as base64 data URL (avoids CORS issues)
+	// Only allows http/https and blocks requests to private/internal networks (SSRF protection)
 	ipcMain.handle('fs:fetchImageAsBase64', async (_, url: string) => {
 		try {
+			// Validate URL and enforce protocol whitelist
+			let parsed: URL;
+			try {
+				parsed = new URL(url);
+			} catch {
+				throw new Error(`Invalid URL: ${url}`);
+			}
+			if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+				throw new Error(`Protocol not allowed: ${parsed.protocol}`);
+			}
+
+			// Block requests to private/internal network addresses
+			const hostname = parsed.hostname.toLowerCase();
+			if (isPrivateHostname(hostname)) {
+				throw new Error(`Requests to private/internal addresses are not allowed: ${hostname}`);
+			}
+
 			const response = await fetch(url);
 			if (!response.ok) {
 				throw new Error(`HTTP ${response.status}`);
 			}
+
+			// Validate response content-type is an image
+			const contentType = response.headers.get('content-type') || '';
+			if (!contentType.startsWith('image/')) {
+				throw new Error(`Response is not an image: ${contentType}`);
+			}
+
 			const arrayBuffer = await response.arrayBuffer();
 			const buffer = Buffer.from(arrayBuffer);
 			const base64 = buffer.toString('base64');
-			// Determine mime type from content-type header or URL
-			const contentType = response.headers.get('content-type') || 'image/png';
 			return `data:${contentType};base64,${base64}`;
 		} catch (error) {
 			// Return null on failure - let caller handle gracefully

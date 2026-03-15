@@ -16,6 +16,7 @@ import { shellEscape } from './shell-escape';
 import { sshRemoteManager } from '../ssh-remote-manager';
 import { logger } from './logger';
 import { validateSshSocket } from './ssh-socket-cleanup';
+import { resolveSshPath } from './cliDetection';
 
 /**
  * File or directory entry returned from readDir operations.
@@ -69,7 +70,7 @@ export interface RemoteFsDeps {
  */
 const defaultDeps: RemoteFsDeps = {
 	execSsh: (command: string, args: string[]): Promise<ExecResult> => {
-		return execFileNoThrow(command, args);
+		return execFileNoThrow(command, args, undefined, { timeout: SSH_COMMAND_TIMEOUT_MS });
 	},
 	buildSshArgs: (config: SshRemoteConfig): string[] => {
 		return sshRemoteManager.buildSshArgs(config);
@@ -175,6 +176,7 @@ const RECOVERABLE_SSH_ERRORS = [
 	/read: Connection reset by peer/i,
 	/banner exchange/i, // SSH handshake failed - often due to stale ControlMaster sockets
 	/socket is not connected/i, // Connection dropped before handshake
+	/ETIMEDOUT/i, // Command timed out - SSH connection may be stale
 ];
 
 /**
@@ -192,6 +194,13 @@ const DEFAULT_RETRY_CONFIG = {
 	baseDelayMs: 500,
 	maxDelayMs: 5000,
 };
+
+/**
+ * Timeout for individual SSH commands in milliseconds.
+ * Prevents hung SSH connections (e.g., stale ControlMaster sockets)
+ * from blocking the file tree load indefinitely.
+ */
+const SSH_COMMAND_TIMEOUT_MS = 30000;
 
 /**
  * Sleep for a specified duration with jitter.
@@ -241,18 +250,14 @@ async function execRemoteCommandInner(
 	// Pre-flight: validate ControlMaster socket is alive (~1ms, local only)
 	await validateSshSocket(config.host, config.port, config.username);
 
+	// Resolve SSH binary path (critical for Windows where spawn() doesn't search PATH)
+	const sshPath = await resolveSshPath();
+
 	for (let attempt = 0; attempt <= maxRetries; attempt++) {
 		const sshArgs = deps.buildSshArgs(config);
 		sshArgs.push(remoteCommand);
 
-		// Log SSH command for debugging connection issues
-		if (attempt === 0) {
-			logger.debug(
-				`[remote-fs] SSH to ${config.host}: ssh ${sshArgs.slice(0, -1).join(' ')} "<command>"`
-			);
-		}
-
-		const result = await deps.execSsh('ssh', sshArgs);
+		const result = await deps.execSsh(sshPath, sshArgs);
 		lastResult = result;
 
 		// Success - return immediately
@@ -262,7 +267,8 @@ async function execRemoteCommandInner(
 
 		// Check if this is a recoverable error
 		const combinedOutput = `${result.stderr} ${result.stdout}`;
-		if (isRecoverableSshError(combinedOutput) && attempt < maxRetries) {
+		const isNodeTimeout = result.exitCode === 'ETIMEDOUT';
+		if ((isRecoverableSshError(combinedOutput) || isNodeTimeout) && attempt < maxRetries) {
 			// If error looks like a stale socket, clean it up before retry
 			if (/banner exchange|socket is not connected|connection reset/i.test(combinedOutput)) {
 				await validateSshSocket(config.host, config.port, config.username);

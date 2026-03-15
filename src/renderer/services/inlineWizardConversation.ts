@@ -9,10 +9,11 @@
  * this service exports stateless functions that work with the useInlineWizard hook's state.
  */
 
-import type { ToolType } from '../types';
-import type { InlineWizardMessage } from '../hooks/useInlineWizard';
+import type { ToolType, ProcessConfig } from '../types';
+import type { InlineWizardMessage } from '../hooks/batch/useInlineWizard';
 import type { ExistingDocument as BaseExistingDocument } from '../utils/existingDocsDetector';
 import { logger } from '../utils/logger';
+import { getStdinFlags } from '../utils/spawnHelpers';
 import { wizardInlineIteratePrompt, wizardInlineNewPrompt } from '../../prompts';
 import {
 	parseStructuredOutput,
@@ -90,6 +91,24 @@ export interface InlineWizardConversationConfig {
 	existingDocs?: ExistingDocument[];
 	/** Auto Run folder path */
 	autoRunFolderPath?: string;
+	/** SSH remote configuration (for remote execution) */
+	sessionSshRemoteConfig?: {
+		enabled: boolean;
+		remoteId: string | null;
+		workingDirOverride?: string;
+	};
+	/** Conductor profile (user's About Me from settings) */
+	conductorProfile?: string;
+	/** History file path for task recall (optional, enables AI to recall recent work) */
+	historyFilePath?: string;
+	/** Custom path to agent binary (overrides agent-level) */
+	sessionCustomPath?: string;
+	/** Custom CLI arguments (overrides agent-level) */
+	sessionCustomArgs?: string;
+	/** Custom environment variables (overrides agent-level) */
+	sessionCustomEnvVars?: Record<string, string>;
+	/** Custom model ID (overrides agent-level) */
+	sessionCustomModel?: string;
 }
 
 /**
@@ -108,6 +127,20 @@ export interface InlineWizardConversationSession {
 	systemPrompt: string;
 	/** Whether the session is active */
 	isActive: boolean;
+	/** SSH remote configuration (for remote execution) */
+	sessionSshRemoteConfig?: {
+		enabled: boolean;
+		remoteId: string | null;
+		workingDirOverride?: string;
+	};
+	/** Custom path to agent binary */
+	sessionCustomPath?: string;
+	/** Custom CLI arguments */
+	sessionCustomArgs?: string;
+	/** Custom environment variables */
+	sessionCustomEnvVars?: Record<string, string>;
+	/** Custom model ID */
+	sessionCustomModel?: string;
 }
 
 /**
@@ -201,6 +234,7 @@ export function generateInlineWizardPrompt(config: InlineWizardConversationConfi
 	}
 
 	// Build template context for remaining variables
+	// Include historyFilePath for {{AGENT_HISTORY_PATH}} task recall
 	const templateContext: TemplateContext = {
 		session: {
 			id: 'inline-wizard',
@@ -211,6 +245,8 @@ export function generateInlineWizardPrompt(config: InlineWizardConversationConfi
 			autoRunFolderPath: autoRunFolderPath,
 		},
 		autoRunFolder: autoRunFolderPath,
+		conductorProfile: config.conductorProfile,
+		historyFilePath: config.historyFilePath,
 	};
 
 	// Substitute any remaining template variables
@@ -250,6 +286,14 @@ export function startInlineWizardConversation(
 		projectName: config.projectName,
 		systemPrompt,
 		isActive: true,
+		// Only pass SSH config if it is explicitly enabled to prevent false positives in process manager
+		sessionSshRemoteConfig: config.sessionSshRemoteConfig?.enabled
+			? config.sessionSshRemoteConfig
+			: undefined,
+		sessionCustomPath: config.sessionCustomPath,
+		sessionCustomArgs: config.sessionCustomArgs,
+		sessionCustomEnvVars: config.sessionCustomEnvVars,
+		sessionCustomModel: config.sessionCustomModel,
 	};
 }
 
@@ -439,14 +483,32 @@ function buildArgsForAgent(agent: any): string[] {
 			// The agent can read files to understand the project, but cannot write/edit
 			// This ensures the wizard conversation phase doesn't make code changes
 			if (!args.includes('--allowedTools')) {
+				// Split tools into separate arguments for better cross-platform compatibility (especially Windows)
 				args.push('--allowedTools', 'Read', 'Glob', 'Grep', 'LS');
 			}
 			return args;
 		}
 
-		case 'codex':
-		case 'opencode': {
+		case 'codex': {
+			// Return only base args — the IPC handler's buildAgentArgs() adds
+			// batchModePrefix, batchModeArgs, jsonOutputArgs, and workingDirArgs
+			// automatically when a prompt is present. Adding them here would
+			// duplicate flags and cause "unexpected argument" exit code 2.
 			return [...(agent.args || [])];
+		}
+
+		case 'opencode': {
+			// Return base args plus read-only restriction for wizard conversations.
+			// The IPC handler's buildAgentArgs() adds batchModePrefix, jsonOutputArgs,
+			// and workingDirArgs automatically when a prompt is present.
+			const args = [...(agent.args || [])];
+
+			// Add read-only mode: '--agent plan'
+			if (agent.readOnlyArgs) {
+				args.push(...agent.readOnlyArgs);
+			}
+
+			return args;
 		}
 
 		default: {
@@ -485,18 +547,56 @@ export async function sendWizardMessage(
 	try {
 		// Get the agent configuration
 		const agent = await window.maestro.agents.get(session.agentType);
-		if (!agent || !agent.available) {
+		// For SSH remote sessions, skip local availability checks since agent may be remote
+		const isRemoteSession = session.sessionSshRemoteConfig?.enabled;
+		if (!agent && !isRemoteSession) {
+			return {
+				success: false,
+				error: `Agent ${session.agentType} is not available`,
+			};
+		}
+		if (agent && !agent.available && !isRemoteSession) {
 			return {
 				success: false,
 				error: `Agent ${session.agentType} is not available`,
 			};
 		}
 
+		logger.info(
+			`Sending wizard message for remote execution: ${isRemoteSession}`,
+			'[InlineWizardConversation]',
+			{
+				sessionId: session.sessionId,
+				agentType: session.agentType,
+				isRemote: isRemoteSession,
+				promptLength: buildPromptWithContext(session, userMessage, conversationHistory).length,
+				agentAvailable: agent?.available ?? false,
+			}
+		);
+
 		// Build the full prompt with conversation context
 		const fullPrompt = buildPromptWithContext(session, userMessage, conversationHistory);
 
 		// Build args for the agent
-		const argsForSpawn = buildArgsForAgent(agent);
+		const argsForSpawn = agent ? buildArgsForAgent(agent) : [];
+
+		const { sendPromptViaStdin: sendViaStdin, sendPromptViaStdinRaw: sendViaStdinRaw } =
+			getStdinFlags({
+				isSshSession: !!session.sessionSshRemoteConfig?.enabled,
+				supportsStreamJsonInput: agent?.capabilities?.supportsStreamJsonInput ?? false,
+			});
+		if (sendViaStdin && !argsForSpawn.includes('--input-format')) {
+			// Add --input-format stream-json when using stdin with stream-json compatible agents
+			argsForSpawn.push('--input-format', 'stream-json');
+		}
+
+		logger.info(`Using stdin for Windows`, '[InlineWizardConversation]', {
+			sessionId: session.sessionId,
+			platform: navigator.platform,
+			promptLength: fullPrompt.length,
+			sendViaStdin,
+			sendViaStdinRaw,
+		});
 
 		// Spawn agent and collect output
 		const result = await new Promise<InlineWizardSendResult>((resolve) => {
@@ -504,20 +604,46 @@ export async function sendWizardMessage(
 			let dataListenerCleanup: (() => void) | undefined;
 			let exitListenerCleanup: (() => void) | undefined;
 
-			// Set up timeout (5 minutes for complex prompts)
-			const timeoutId = setTimeout(() => {
-				console.log('[InlineWizard] TIMEOUT fired! Session:', session.sessionId);
-				cleanupListeners();
-				// Kill the orphaned agent process to prevent resource leaks
-				window.maestro.process.kill(session.sessionId).catch((err) => {
-					console.warn('[InlineWizard] Failed to kill timed-out process:', err);
-				});
-				resolve({
-					success: false,
-					error: 'Response timeout - agent did not complete in time',
-					rawOutput: outputBuffer,
-				});
-			}, 300000);
+			// Activity-based timeout: resets whenever the agent produces output.
+			// This prevents false timeouts on complex prompts where the agent is
+			// actively reading files or thinking, while still catching true stalls.
+			const INACTIVITY_TIMEOUT_MS = 1200000; // 20 minutes of inactivity
+			let lastActivityTime = Date.now();
+			let timeoutId: ReturnType<typeof setTimeout>;
+
+			const resetTimeout = () => {
+				clearTimeout(timeoutId);
+				lastActivityTime = Date.now();
+				timeoutId = setTimeout(() => {
+					const timeSinceLastActivity = Date.now() - lastActivityTime;
+					logger.warn('Inline wizard inactivity timeout', '[InlineWizardConversation]', {
+						sessionId: session.sessionId,
+						timeoutMs: INACTIVITY_TIMEOUT_MS,
+						timeSinceLastActivityMs: timeSinceLastActivity,
+						outputBufferLength: outputBuffer.length,
+					});
+					cleanupListeners();
+					// Kill the orphaned agent process to prevent resource leaks
+					window.maestro.process.kill(session.sessionId).catch((err) => {
+						logger.warn(
+							'Failed to kill timed-out inline wizard process',
+							'[InlineWizardConversation]',
+							{
+								sessionId: session.sessionId,
+								error: (err as Error)?.message || 'Unknown error',
+							}
+						);
+					});
+					resolve({
+						success: false,
+						error: 'Response timeout - agent did not complete in time',
+						rawOutput: outputBuffer,
+					});
+				}, INACTIVITY_TIMEOUT_MS);
+			};
+
+			// Start the initial timeout
+			resetTimeout();
 
 			let thinkingListenerCleanup: (() => void) | undefined;
 			let toolExecutionListenerCleanup: (() => void) | undefined;
@@ -546,6 +672,7 @@ export async function sendWizardMessage(
 				(receivedSessionId: string, data: string) => {
 					if (receivedSessionId === session.sessionId) {
 						outputBuffer += data;
+						resetTimeout();
 						callbacks?.onChunk?.(data);
 					}
 				}
@@ -557,10 +684,14 @@ export async function sendWizardMessage(
 				thinkingListenerCleanup = window.maestro.process.onThinkingChunk(
 					(receivedSessionId: string, content: string) => {
 						if (receivedSessionId === session.sessionId && content) {
+							resetTimeout();
 							try {
 								callbacks.onThinkingChunk!(content);
 							} catch (err) {
-								console.error('[InlineWizard] onThinkingChunk callback threw error:', err);
+								logger.error('onThinkingChunk callback threw error', '[InlineWizardConversation]', {
+									sessionId: session.sessionId,
+									error: (err as Error)?.message || 'Unknown error',
+								});
 							}
 						}
 					}
@@ -577,10 +708,15 @@ export async function sendWizardMessage(
 						toolEvent: { toolName: string; state?: unknown; timestamp: number }
 					) => {
 						if (receivedSessionId === session.sessionId) {
+							resetTimeout();
 							try {
 								callbacks.onToolExecution!(toolEvent);
 							} catch (err) {
-								console.error('[InlineWizard] onToolExecution callback threw error:', err);
+								logger.error('onToolExecution callback threw error', '[InlineWizardConversation]', {
+									sessionId: session.sessionId,
+									toolName: toolEvent.toolName,
+									error: (err as Error)?.message || 'Unknown error',
+								});
 							}
 						}
 					}
@@ -632,12 +768,23 @@ export async function sendWizardMessage(
 				}
 			);
 
+			// Use the agent's resolved path if available, falling back to command name or agent type
+			// This is critical for packaged Electron apps where PATH may not include agent locations
+			// For remote sessions, we use the agent type name since the agent is installed on the remote host
+			const commandToUse = agent?.path || agent?.command || session.agentType;
+
 			// Spawn the agent process
 			logger.info(`Spawning wizard agent process`, '[InlineWizardConversation]', {
 				sessionId: session.sessionId,
 				agentType: session.agentType,
+				command: commandToUse,
+				agentPath: agent?.path,
+				agentCommand: agent?.command,
 				cwd: session.directoryPath,
 				historyLength: conversationHistory.length,
+				sendViaStdin,
+				hasAgent: !!agent,
+				isRemote: isRemoteSession,
 			});
 
 			window.maestro.process
@@ -645,10 +792,21 @@ export async function sendWizardMessage(
 					sessionId: session.sessionId,
 					toolType: session.agentType,
 					cwd: session.directoryPath,
-					command: agent.command,
+					command: commandToUse,
 					args: argsForSpawn,
 					prompt: fullPrompt,
-				})
+					// For stream-json agents (Claude Code, Codex): use JSON format via stdin
+					// For other agents (OpenCode, etc.): use raw text via stdin
+					sendPromptViaStdin: sendViaStdin,
+					sendPromptViaStdinRaw: sendViaStdinRaw,
+					// Pass SSH config for remote execution
+					sessionSshRemoteConfig: session.sessionSshRemoteConfig,
+					// Pass session-level overrides
+					sessionCustomPath: session.sessionCustomPath,
+					sessionCustomArgs: session.sessionCustomArgs,
+					sessionCustomEnvVars: session.sessionCustomEnvVars,
+					sessionCustomModel: session.sessionCustomModel,
+				} as ProcessConfig)
 				.then(() => {
 					callbacks?.onReceiving?.();
 				})

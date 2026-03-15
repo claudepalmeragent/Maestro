@@ -1,8 +1,21 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
-import type { Theme, Session, Shortcut, FocusArea, BatchRunState } from '../../../renderer/types';
-import { clearCapabilitiesCache, setCapabilitiesCache } from '../../../renderer/hooks';
+import type {
+	Theme,
+	Session,
+	Shortcut,
+	FocusArea,
+	BatchRunState,
+	ThinkingItem,
+} from '../../../renderer/types';
+import { gitService } from '../../../renderer/services/git';
+import { useUIStore } from '../../../renderer/stores/uiStore';
+import { useSettingsStore } from '../../../renderer/stores/settingsStore';
+import {
+	clearCapabilitiesCache,
+	setCapabilitiesCache,
+} from '../../../renderer/hooks/agent/useAgentCapabilities';
 
 // Mock child components to simplify testing - must be before MainPanel import
 vi.mock('../../../renderer/components/LogViewer', () => ({
@@ -70,7 +83,7 @@ vi.mock('../../../renderer/components/AgentSessionsBrowser', () => ({
 }));
 
 vi.mock('../../../renderer/components/GitStatusWidget', () => ({
-	GitStatusWidget: (props: { onViewDiff: () => void }) => {
+	GitStatusWidget: (props: { onViewDiff: () => void; onViewLog?: () => void }) => {
 		return React.createElement(
 			'div',
 			{ 'data-testid': 'git-status-widget' },
@@ -78,7 +91,13 @@ vi.mock('../../../renderer/components/GitStatusWidget', () => ({
 				'button',
 				{ onClick: props.onViewDiff, 'data-testid': 'view-diff-btn' },
 				'View Diff'
-			)
+			),
+			props.onViewLog &&
+				React.createElement(
+					'button',
+					{ onClick: props.onViewLog, 'data-testid': 'view-log-btn' },
+					'View Git Log'
+				)
 		);
 	},
 }));
@@ -148,6 +167,7 @@ vi.mock('../../../renderer/utils/tabHelpers', () => ({
 // Mock shortcut formatter
 vi.mock('../../../renderer/utils/shortcutFormatter', () => ({
 	formatShortcutKeys: vi.fn((keys: string[]) => keys?.join('+') || ''),
+	isMacOS: vi.fn(() => false),
 }));
 
 // Configurable git status data for tests - can be modified in individual tests
@@ -225,7 +245,6 @@ vi.mock('../../../renderer/contexts/GitStatusContext', () => ({
 	useGitFileStatus: () => ({
 		getFileCount: (sessionId: string) => mockGitStatusData[sessionId]?.fileCount ?? 0,
 		hasChanges: (sessionId: string) => (mockGitStatusData[sessionId]?.fileCount ?? 0) > 0,
-		isLoading: false,
 	}),
 	useGitBranch: () => ({
 		getBranchInfo: (sessionId: string) => {
@@ -317,18 +336,12 @@ describe('MainPanel', () => {
 		// State
 		logViewerOpen: false,
 		agentSessionsOpen: false,
-		activeClaudeSessionId: null,
+		activeAgentSessionId: null,
 		activeSession: createSession(),
-		sessions: [createSession()],
+		thinkingItems: [] as ThinkingItem[],
 		theme,
-		fontFamily: 'monospace',
 		isMobileLandscape: false,
-		activeFocus: 'main' as FocusArea,
-		outputSearchOpen: false,
-		outputSearchQuery: '',
 		inputValue: '',
-		enterToSendAI: true,
-		enterToSendTerminal: false,
 		stagedImages: [],
 		commandHistoryOpen: false,
 		commandHistoryFilter: '',
@@ -336,15 +349,9 @@ describe('MainPanel', () => {
 		slashCommandOpen: false,
 		slashCommands: [],
 		selectedSlashCommandIndex: 0,
-		previewFile: null,
-		markdownEditMode: false,
-		shortcuts: defaultShortcuts,
-		rightPanelOpen: true,
-		maxOutputLines: 1000,
-		gitDiffPreview: null,
-		fileTreeFilterOpen: false,
-		logViewerSelectedLevels: ['info', 'warn', 'error'],
-		setLogViewerSelectedLevels: vi.fn(),
+		// File tab system (replaced previewFile)
+		activeFileTabId: null as string | null,
+		activeFileTab: null as import('../../../renderer/types').FilePreviewTab | null,
 
 		// Setters
 		setGitDiffPreview: vi.fn(),
@@ -353,12 +360,7 @@ describe('MainPanel', () => {
 		setActiveAgentSessionId: vi.fn(),
 		onResumeAgentSession: vi.fn(),
 		onNewAgentSession: vi.fn(),
-		setActiveFocus: vi.fn(),
-		setOutputSearchOpen: vi.fn(),
-		setOutputSearchQuery: vi.fn(),
 		setInputValue: vi.fn(),
-		setEnterToSendAI: vi.fn(),
-		setEnterToSendTerminal: vi.fn(),
 		setStagedImages: vi.fn(),
 		setLightboxImage: vi.fn(),
 		setCommandHistoryOpen: vi.fn(),
@@ -366,18 +368,20 @@ describe('MainPanel', () => {
 		setCommandHistorySelectedIndex: vi.fn(),
 		setSlashCommandOpen: vi.fn(),
 		setSelectedSlashCommandIndex: vi.fn(),
-		setPreviewFile: vi.fn(),
-		setMarkdownEditMode: vi.fn(),
-		setAboutModalOpen: vi.fn(),
-		setRightPanelOpen: vi.fn(),
+		// File tab handlers (replaced setPreviewFile)
+		onFileTabClose: vi.fn(),
+		onFileTabSelect: vi.fn(),
+		onOpenFileTab: vi.fn(),
+		onFileTabEditModeChange: vi.fn(),
+		onFileTabEditContentChange: vi.fn(),
+		onFileTabScrollPositionChange: vi.fn(),
+		onFileTabSearchQueryChange: vi.fn(),
 		setGitLogOpen: vi.fn(),
 
 		// Refs
 		inputRef: React.createRef<HTMLTextAreaElement>(),
 		logsEndRef: React.createRef<HTMLDivElement>(),
 		terminalOutputRef: React.createRef<HTMLDivElement>(),
-		fileTreeContainerRef: React.createRef<HTMLDivElement>(),
-		fileTreeFilterInputRef: React.createRef<HTMLInputElement>(),
 
 		// Functions
 		toggleInputMode: vi.fn(),
@@ -398,6 +402,32 @@ describe('MainPanel', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		vi.useFakeTimers({ shouldAdvanceTime: true });
+
+		// Reset Zustand stores to initial state (Phase 3C: MainPanel reads from stores)
+		useUIStore.setState({
+			activeFocus: 'main',
+			rightPanelOpen: true,
+			outputSearchOpen: false,
+			outputSearchQuery: '',
+			showUnreadOnly: false,
+		});
+		useSettingsStore.setState({
+			fontFamily: 'monospace',
+			enterToSendAI: true,
+			enterToSendTerminal: false,
+			chatRawTextMode: false,
+			autoScrollAiMode: false,
+			userMessageAlignment: 'right',
+			maxOutputLines: 1000,
+			logLevel: 'info',
+			logViewerSelectedLevels: ['info', 'warn', 'error'],
+			colorBlindMode: false,
+			contextManagementSettings: {
+				contextWarningsEnabled: false,
+				contextWarningYellowThreshold: 60,
+				contextWarningRedThreshold: 80,
+			},
+		});
 
 		// Clear capabilities cache and pre-populate with Claude Code capabilities (default test agent)
 		clearCapabilitiesCache();
@@ -612,121 +642,82 @@ describe('MainPanel', () => {
 
 	describe('Right panel toggle', () => {
 		it('should show toggle button when rightPanelOpen is false', () => {
-			render(<MainPanel {...defaultProps} rightPanelOpen={false} />);
+			useUIStore.setState({ rightPanelOpen: false });
+			render(<MainPanel {...defaultProps} />);
 
 			expect(screen.getByTitle(/Show right panel/)).toBeInTheDocument();
 		});
 
 		it('should hide toggle button when rightPanelOpen is true', () => {
-			render(<MainPanel {...defaultProps} rightPanelOpen={true} />);
+			useUIStore.setState({ rightPanelOpen: true });
+			render(<MainPanel {...defaultProps} />);
 
 			expect(screen.queryByTitle(/Show right panel/)).not.toBeInTheDocument();
 		});
 
 		it('should call setRightPanelOpen when toggle button is clicked', () => {
-			const setRightPanelOpen = vi.fn();
-			render(
-				<MainPanel {...defaultProps} rightPanelOpen={false} setRightPanelOpen={setRightPanelOpen} />
-			);
+			useUIStore.setState({ rightPanelOpen: false });
+			render(<MainPanel {...defaultProps} />);
 
 			fireEvent.click(screen.getByTitle(/Show right panel/));
 
-			expect(setRightPanelOpen).toHaveBeenCalledWith(true);
+			expect(useUIStore.getState().rightPanelOpen).toBe(true);
 		});
 	});
 
-	describe('File Preview mode', () => {
-		it('should render FilePreview when previewFile is set', () => {
-			const previewFile = { name: 'test.ts', content: 'test content', path: '/test/test.ts' };
-			render(<MainPanel {...defaultProps} previewFile={previewFile} />);
+	describe('File Preview mode (file tabs)', () => {
+		// Helper to create a FilePreviewTab for testing
+		const createFileTab = (overrides = {}) => ({
+			id: 'file-tab-1',
+			path: '/test/test.ts',
+			name: 'test',
+			extension: '.ts',
+			content: 'test content',
+			scrollTop: 0,
+			searchQuery: '',
+			editMode: false,
+			editContent: undefined,
+			createdAt: Date.now(),
+			lastModified: Date.now(),
+			...overrides,
+		});
+
+		it('should render FilePreview when activeFileTab is set', () => {
+			const activeFileTab = createFileTab();
+			render(
+				<MainPanel {...defaultProps} activeFileTabId="file-tab-1" activeFileTab={activeFileTab} />
+			);
 
 			expect(screen.getByTestId('file-preview')).toBeInTheDocument();
 			expect(screen.getByText('File Preview: test.ts')).toBeInTheDocument();
 		});
 
-		it('should hide TabBar when file preview is open', () => {
-			const previewFile = { name: 'test.ts', content: 'test content', path: '/test/test.ts' };
-			render(<MainPanel {...defaultProps} previewFile={previewFile} />);
+		it('should show TabBar when file preview tab is active (tabs remain visible)', () => {
+			const activeFileTab = createFileTab();
+			render(
+				<MainPanel {...defaultProps} activeFileTabId="file-tab-1" activeFileTab={activeFileTab} />
+			);
 
-			expect(screen.queryByTestId('tab-bar')).not.toBeInTheDocument();
+			// In the new tab system, TabBar remains visible when file tab is active
+			expect(screen.getByTestId('tab-bar')).toBeInTheDocument();
 		});
 
-		it('should call setPreviewFile(null) and setActiveFocus when closing preview', () => {
-			const setPreviewFile = vi.fn();
-			const setActiveFocus = vi.fn();
-			const previewFile = { name: 'test.ts', content: 'test content', path: '/test/test.ts' };
+		it('should call onFileTabClose when closing preview', () => {
+			const onFileTabClose = vi.fn();
+			const activeFileTab = createFileTab();
 
 			render(
 				<MainPanel
 					{...defaultProps}
-					previewFile={previewFile}
-					setPreviewFile={setPreviewFile}
-					setActiveFocus={setActiveFocus}
+					activeFileTabId="file-tab-1"
+					activeFileTab={activeFileTab}
+					onFileTabClose={onFileTabClose}
 				/>
 			);
 
 			fireEvent.click(screen.getByTestId('file-preview-close'));
 
-			expect(setPreviewFile).toHaveBeenCalledWith(null);
-			expect(setActiveFocus).toHaveBeenCalledWith('right');
-		});
-
-		it('should focus file tree container when closing preview (setTimeout callback)', async () => {
-			vi.useFakeTimers();
-			const setPreviewFile = vi.fn();
-			const setActiveFocus = vi.fn();
-			const previewFile = { name: 'test.ts', content: 'test content', path: '/test/test.ts' };
-			const fileTreeContainerRef = { current: { focus: vi.fn() } };
-
-			render(
-				<MainPanel
-					{...defaultProps}
-					previewFile={previewFile}
-					setPreviewFile={setPreviewFile}
-					setActiveFocus={setActiveFocus}
-					fileTreeContainerRef={fileTreeContainerRef as any}
-					fileTreeFilterOpen={false}
-				/>
-			);
-
-			fireEvent.click(screen.getByTestId('file-preview-close'));
-
-			// Run the setTimeout callback
-			await act(async () => {
-				vi.advanceTimersByTime(1);
-			});
-
-			expect(fileTreeContainerRef.current.focus).toHaveBeenCalled();
-			vi.useRealTimers();
-		});
-
-		it('should focus file tree filter input when closing preview with filter open', async () => {
-			vi.useFakeTimers();
-			const setPreviewFile = vi.fn();
-			const setActiveFocus = vi.fn();
-			const previewFile = { name: 'test.ts', content: 'test content', path: '/test/test.ts' };
-			const fileTreeFilterInputRef = { current: { focus: vi.fn() } };
-
-			render(
-				<MainPanel
-					{...defaultProps}
-					previewFile={previewFile}
-					setPreviewFile={setPreviewFile}
-					setActiveFocus={setActiveFocus}
-					fileTreeFilterInputRef={fileTreeFilterInputRef as any}
-					fileTreeFilterOpen={true}
-				/>
-			);
-
-			fireEvent.click(screen.getByTestId('file-preview-close'));
-
-			// Run the setTimeout callback
-			await act(async () => {
-				vi.advanceTimersByTime(1);
-			});
-
-			expect(fileTreeFilterInputRef.current.focus).toHaveBeenCalled();
-			vi.useRealTimers();
+			expect(onFileTabClose).toHaveBeenCalledWith('file-tab-1');
 		});
 	});
 
@@ -1020,7 +1011,7 @@ describe('MainPanel', () => {
 			render(<MainPanel {...defaultProps} />);
 
 			// Label shows "Context" or "Context Window" depending on panel width
-			expect(screen.getByText(/^Context( Window)?$/)).toBeInTheDocument();
+			expect(screen.getAllByText(/^Context( Window)?$/)[0]).toBeInTheDocument();
 		});
 
 		it('should not display context window in terminal mode', () => {
@@ -1028,8 +1019,8 @@ describe('MainPanel', () => {
 
 			render(<MainPanel {...defaultProps} activeSession={session} />);
 
-			// Label shows "Context" or "Context Window" depending on panel width
-			expect(screen.queryByText(/^Context( Window)?$/)).not.toBeInTheDocument();
+			// Target the full "Context Window" label (compact "Context" label is also rendered but hidden via CSS)
+			expect(screen.queryByText('Context Window')).not.toBeInTheDocument();
 		});
 
 		it('should not display context window widget when agent does not support usage stats', () => {
@@ -1115,8 +1106,9 @@ describe('MainPanel', () => {
 			expect(screen.getByText('Stopping')).toBeInTheDocument();
 		});
 
-		it('should call onStopBatchRun directly when Auto button is clicked', () => {
+		it('should call onStopBatchRun with active session ID when Auto button is clicked', () => {
 			const onStopBatchRun = vi.fn();
+			const session = createSession({ id: 'session-abc', name: 'My Agent' });
 			const currentSessionBatchState: BatchRunState = {
 				isRunning: true,
 				isStopping: false,
@@ -1140,6 +1132,7 @@ describe('MainPanel', () => {
 			render(
 				<MainPanel
 					{...defaultProps}
+					activeSession={session}
 					currentSessionBatchState={currentSessionBatchState}
 					onStopBatchRun={onStopBatchRun}
 				/>
@@ -1147,8 +1140,8 @@ describe('MainPanel', () => {
 
 			fireEvent.click(screen.getByText('Auto'));
 
-			// onStopBatchRun handles its own confirmation modal, so it should be called directly
-			expect(onStopBatchRun).toHaveBeenCalled();
+			// onStopBatchRun should be called with the active session's ID
+			expect(onStopBatchRun).toHaveBeenCalledWith('session-abc');
 		});
 
 		it('should not call onStopBatchRun when Auto button is clicked while stopping', () => {
@@ -1662,17 +1655,82 @@ describe('MainPanel', () => {
 			expect(writeText).toHaveBeenCalledWith('main');
 		});
 
-		it('should open git log when clicking on git badge', async () => {
+		it('should open git log when clicking on SSH remote git badge', async () => {
+			const setGitLogOpen = vi.fn();
+			const session = createSession({
+				isGitRepo: true,
+				sessionSshRemoteConfig: { enabled: true, remoteId: 'ssh-remote-123' },
+			});
+
+			// Mock SSH remote name resolution
+			const mockGetConfigs = vi.fn().mockResolvedValue({
+				success: true,
+				configs: [{ id: 'ssh-remote-123', name: 'my-ssh-remote' }],
+			});
+			vi.mocked(window.maestro.sshRemote.getConfigs).mockImplementation(mockGetConfigs);
+
+			render(<MainPanel {...defaultProps} activeSession={session} setGitLogOpen={setGitLogOpen} />);
+
+			await waitFor(() => {
+				expect(screen.getByText('my-ssh-remote')).toBeInTheDocument();
+			});
+
+			fireEvent.click(screen.getByText('my-ssh-remote'));
+
+			expect(setGitLogOpen).toHaveBeenCalledWith(true);
+		});
+
+		it('should call gitService.getDiff with SSH remote ID when session has SSH remote config enabled', async () => {
+			const session = createSession({
+				isGitRepo: true,
+				sessionSshRemoteConfig: { enabled: true, remoteId: 'ssh-remote-123' },
+			});
+
+			render(<MainPanel {...defaultProps} activeSession={session} />);
+
+			fireEvent.click(screen.getByTestId('view-diff-btn'));
+
+			await waitFor(() => {
+				expect(gitService.getDiff).toHaveBeenCalledWith(session.cwd, undefined, 'ssh-remote-123');
+			});
+		});
+
+		it('should call gitService.getDiff without SSH remote ID when session has SSH remote config disabled', async () => {
+			const session = createSession({
+				isGitRepo: true,
+				sessionSshRemoteConfig: { enabled: false, remoteId: 'ssh-remote-123' },
+			});
+
+			render(<MainPanel {...defaultProps} activeSession={session} />);
+
+			fireEvent.click(screen.getByTestId('view-diff-btn'));
+
+			await waitFor(() => {
+				expect(gitService.getDiff).toHaveBeenCalledWith(session.cwd, undefined, undefined);
+			});
+		});
+
+		it('should call setGitLogOpen when View Git Log button is clicked in SSH sessions', async () => {
+			const setGitLogOpen = vi.fn();
+			const session = createSession({
+				isGitRepo: true,
+				sessionSshRemoteConfig: { enabled: true, remoteId: 'ssh-remote-123' },
+			});
+
+			render(<MainPanel {...defaultProps} activeSession={session} setGitLogOpen={setGitLogOpen} />);
+
+			fireEvent.click(screen.getByTestId('view-log-btn'));
+
+			expect(setGitLogOpen).toHaveBeenCalledWith(true);
+		});
+
+		it('should call setGitLogOpen when View Git Log button is clicked in non-SSH sessions', async () => {
 			const setGitLogOpen = vi.fn();
 			const session = createSession({ isGitRepo: true });
 
 			render(<MainPanel {...defaultProps} activeSession={session} setGitLogOpen={setGitLogOpen} />);
 
-			await waitFor(() => {
-				expect(screen.getByText(/main|GIT/)).toBeInTheDocument();
-			});
-
-			fireEvent.click(screen.getByText(/main|GIT/));
+			fireEvent.click(screen.getByTestId('view-log-btn'));
 
 			expect(setGitLogOpen).toHaveBeenCalledWith(true);
 		});
@@ -1683,7 +1741,7 @@ describe('MainPanel', () => {
 			render(<MainPanel {...defaultProps} />);
 
 			// Label shows "Context" or "Context Window" depending on panel width
-			const contextWidget = screen.getByText(/^Context( Window)?$/);
+			const contextWidget = screen.getAllByText(/^Context( Window)?$/)[0];
 			fireEvent.mouseEnter(contextWidget.parentElement!);
 
 			await waitFor(() => {
@@ -1695,7 +1753,7 @@ describe('MainPanel', () => {
 			render(<MainPanel {...defaultProps} />);
 
 			// Label shows "Context" or "Context Window" depending on panel width
-			const contextWidget = screen.getByText(/^Context( Window)?$/);
+			const contextWidget = screen.getAllByText(/^Context( Window)?$/)[0];
 			fireEvent.mouseEnter(contextWidget.parentElement!);
 
 			await waitFor(() => {
@@ -1717,7 +1775,7 @@ describe('MainPanel', () => {
 			render(<MainPanel {...defaultProps} />);
 
 			// Label shows "Context" or "Context Window" depending on panel width
-			const contextWidget = screen.getByText(/^Context( Window)?$/);
+			const contextWidget = screen.getAllByText(/^Context( Window)?$/)[0];
 			const contextContainer = contextWidget.parentElement!;
 
 			// Hover to open
@@ -1760,7 +1818,7 @@ describe('MainPanel', () => {
 			render(<MainPanel {...defaultProps} activeSession={session} />);
 
 			// Label shows "Context" or "Context Window" depending on panel width
-			const contextWidget = screen.getByText(/^Context( Window)?$/);
+			const contextWidget = screen.getAllByText(/^Context( Window)?$/)[0];
 			fireEvent.mouseEnter(contextWidget.parentElement!);
 
 			await waitFor(() => {
@@ -1779,20 +1837,15 @@ describe('MainPanel', () => {
 	describe('Input handling', () => {
 		it('should call setActiveSessionId and setActiveFocus when input is focused', () => {
 			const setActiveSessionId = vi.fn();
-			const setActiveFocus = vi.fn();
+			// Set activeFocus to something other than 'main' so we can detect the change
+			useUIStore.setState({ activeFocus: 'sidebar' });
 
-			render(
-				<MainPanel
-					{...defaultProps}
-					setActiveSessionId={setActiveSessionId}
-					setActiveFocus={setActiveFocus}
-				/>
-			);
+			render(<MainPanel {...defaultProps} setActiveSessionId={setActiveSessionId} />);
 
 			fireEvent.focus(screen.getByTestId('input-field'));
 
 			expect(setActiveSessionId).toHaveBeenCalledWith('session-1');
-			expect(setActiveFocus).toHaveBeenCalledWith('main');
+			expect(useUIStore.getState().activeFocus).toBe('main');
 		});
 
 		it('should hide input area in mobile landscape mode', () => {
@@ -1819,6 +1872,47 @@ describe('MainPanel', () => {
 
 			await waitFor(() => {
 				expect(setGitDiffPreview).toHaveBeenCalledWith('mock diff content');
+			});
+		});
+
+		it('should pass sshRemoteId to gitService.getDiff when session has SSH remote config enabled', async () => {
+			const setGitDiffPreview = vi.fn();
+			const session = createSession({
+				isGitRepo: true,
+				sessionSshRemoteConfig: { enabled: true, remoteId: 'ssh-remote-123' },
+			});
+
+			render(
+				<MainPanel
+					{...defaultProps}
+					activeSession={session}
+					setGitDiffPreview={setGitDiffPreview}
+				/>
+			);
+
+			fireEvent.click(screen.getByTestId('view-diff-btn'));
+
+			await waitFor(() => {
+				expect(gitService.getDiff).toHaveBeenCalledWith(session.cwd, undefined, 'ssh-remote-123');
+			});
+		});
+
+		it('should pass undefined sshRemoteId to gitService.getDiff when session has no SSH remote config', async () => {
+			const setGitDiffPreview = vi.fn();
+			const session = createSession({ isGitRepo: true });
+
+			render(
+				<MainPanel
+					{...defaultProps}
+					activeSession={session}
+					setGitDiffPreview={setGitDiffPreview}
+				/>
+			);
+
+			fireEvent.click(screen.getByTestId('view-diff-btn'));
+
+			await waitFor(() => {
+				expect(gitService.getDiff).toHaveBeenCalledWith(session.cwd, undefined, undefined);
 			});
 		});
 	});
@@ -1890,31 +1984,31 @@ describe('MainPanel', () => {
 
 	describe('Focus ring', () => {
 		it('should show focus ring when activeFocus is main', () => {
-			const { container } = render(<MainPanel {...defaultProps} activeFocus="main" />);
+			useUIStore.setState({ activeFocus: 'main' });
+			const { container } = render(<MainPanel {...defaultProps} />);
 
 			const mainPanel = container.querySelector('.ring-1');
 			expect(mainPanel).toBeInTheDocument();
 		});
 
 		it('should not show focus ring when activeFocus is not main', () => {
-			const { container } = render(<MainPanel {...defaultProps} activeFocus="sidebar" />);
+			useUIStore.setState({ activeFocus: 'sidebar' });
+			const { container } = render(<MainPanel {...defaultProps} />);
 
 			const mainPanel = container.querySelector('.ring-1');
 			expect(mainPanel).not.toBeInTheDocument();
 		});
 
 		it('should call setActiveFocus when main panel is clicked', () => {
-			const setActiveFocus = vi.fn();
+			useUIStore.setState({ activeFocus: 'sidebar' });
 
-			const { container } = render(
-				<MainPanel {...defaultProps} setActiveFocus={setActiveFocus} activeFocus="sidebar" />
-			);
+			const { container } = render(<MainPanel {...defaultProps} />);
 
 			// Click on the main panel area
 			const mainArea = container.querySelector('[style*="backgroundColor"]');
 			if (mainArea) {
 				fireEvent.click(mainArea);
-				expect(setActiveFocus).toHaveBeenCalledWith('main');
+				expect(useUIStore.getState().activeFocus).toBe('main');
 			}
 		});
 	});
@@ -1955,8 +2049,8 @@ describe('MainPanel', () => {
 				<MainPanel {...defaultProps} activeSession={session} getContextColor={getContextColor} />
 			);
 
-			// Context usage should be 50000 / 200000 * 100 = 25% (cacheRead excluded - cumulative)
-			expect(getContextColor).toHaveBeenCalledWith(25, theme);
+			// Context usage: (50000 + 25000 + 0) / 200000 * 100 = 38% (input + cacheRead + cacheCreation)
+			expect(getContextColor).toHaveBeenCalledWith(38, theme);
 		});
 	});
 
@@ -2291,7 +2385,6 @@ describe('MainPanel', () => {
 		});
 
 		it('should handle clipboard.writeText failure gracefully', async () => {
-			const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
 			const writeText = vi.fn().mockRejectedValue(new Error('Clipboard error'));
 			Object.assign(navigator, { clipboard: { writeText } });
 
@@ -2313,11 +2406,10 @@ describe('MainPanel', () => {
 
 			fireEvent.click(screen.getByText('ABC12345'));
 
-			await waitFor(() => {
-				expect(consoleError).toHaveBeenCalled();
-			});
-
-			consoleError.mockRestore();
+			// safeClipboardWrite swallows the error and returns false,
+			// so no copy notification should appear
+			await act(async () => {});
+			expect(screen.queryByText('Copied to Clipboard')).not.toBeInTheDocument();
 		});
 
 		it('should handle gitDiff with no content gracefully', async () => {
@@ -2373,9 +2465,10 @@ describe('MainPanel', () => {
 			expect(screen.queryByText('Context Window')).not.toBeInTheDocument();
 		});
 
-		it('should cap context usage at 100%', () => {
-			const getContextColor = vi.fn().mockReturnValue('#ef4444');
+		it('should use preserved session.contextUsage when accumulated values exceed window', () => {
+			const getContextColor = vi.fn().mockReturnValue('#22c55e');
 			const session = createSession({
+				contextUsage: 45, // Preserved valid percentage from last non-accumulated update
 				aiTabs: [
 					{
 						id: 'tab-1',
@@ -2386,8 +2479,8 @@ describe('MainPanel', () => {
 						usageStats: {
 							inputTokens: 150000,
 							outputTokens: 100000,
-							cacheReadInputTokens: 100000, // Excluded from calculation (cumulative)
-							cacheCreationInputTokens: 100000, // Included in calculation
+							cacheReadInputTokens: 100000, // Accumulated from multi-tool turn
+							cacheCreationInputTokens: 100000, // Accumulated from multi-tool turn
 							totalCostUsd: 0.05,
 							contextWindow: 200000,
 						},
@@ -2400,8 +2493,9 @@ describe('MainPanel', () => {
 				<MainPanel {...defaultProps} activeSession={session} getContextColor={getContextColor} />
 			);
 
-			// Context usage: (150000 + 100000) / 200000 = 125% -> capped at 100%
-			expect(getContextColor).toHaveBeenCalledWith(100, theme);
+			// raw = 150000 + 100000 + 100000 = 350000 > 200000 (accumulated)
+			// Falls back to session.contextUsage = 45%
+			expect(getContextColor).toHaveBeenCalledWith(45, theme);
 		});
 	});
 
@@ -2988,10 +3082,22 @@ describe('MainPanel', () => {
 			expect(screen.getByText(longMessage)).toBeInTheDocument();
 		});
 
-		it('should still display error banner when previewFile is open', () => {
+		it('should still display error banner when file tab is active', () => {
 			// The error banner appears above file preview in the layout hierarchy
 			// This ensures users see critical errors even while previewing files
-			const previewFile = { name: 'test.ts', content: 'test content', path: '/test/test.ts' };
+			const activeFileTab = {
+				id: 'file-tab-1',
+				path: '/test/test.ts',
+				name: 'test',
+				extension: '.ts',
+				content: 'test content',
+				scrollTop: 0,
+				searchQuery: '',
+				editMode: false,
+				editContent: undefined,
+				createdAt: Date.now(),
+				lastModified: Date.now(),
+			};
 			const session = createSession({
 				inputMode: 'ai',
 				aiTabs: [
@@ -3006,7 +3112,14 @@ describe('MainPanel', () => {
 				activeTabId: 'tab-1',
 			});
 
-			render(<MainPanel {...defaultProps} activeSession={session} previewFile={previewFile} />);
+			render(
+				<MainPanel
+					{...defaultProps}
+					activeSession={session}
+					activeFileTabId="file-tab-1"
+					activeFileTab={activeFileTab}
+				/>
+			);
 
 			// Both error banner and file preview should be visible
 			expect(

@@ -24,7 +24,6 @@ import type {
 	CustomAICommand,
 	SpecKitCommand,
 	OpenSpecCommand,
-	ThinkingMode,
 } from '../types';
 import { createTab, getActiveTab } from '../utils/tabHelpers';
 import { generateId } from '../utils/ids';
@@ -69,7 +68,7 @@ export interface AgentStoreActions {
 	 */
 	startNewSessionAfterError: (
 		sessionId: string,
-		options?: { saveToHistory?: boolean; showThinking?: ThinkingMode | boolean }
+		options?: { saveToHistory?: boolean; showThinking?: 'off' | 'on' | 'sticky' }
 	) => void;
 
 	/**
@@ -285,7 +284,7 @@ export const useAgentStore = create<AgentStore>()((set, get) => ({
 
 			// Filter out YOLO/skip-permissions flags when read-only mode is active
 			const spawnArgs = isReadOnly
-				? filterYoloArgs(agent.args || [], (agent as any).yoloModeArgs)
+				? filterYoloArgs(agent.args || [], agent)
 				: [...(agent.args || [])];
 
 			const commandToUse = agent.path ?? agent.command;
@@ -315,6 +314,7 @@ export const useAgentStore = create<AgentStore>()((set, get) => ({
 					const substitutedSystemPrompt = substituteTemplateVariables(maestroSystemPrompt, {
 						session,
 						gitBranch,
+						conductorProfile: deps.conductorProfile,
 					});
 
 					effectivePrompt = `${substitutedSystemPrompt}\n\n---\n\n# User Request\n\n${effectivePrompt}`;
@@ -369,13 +369,12 @@ export const useAgentStore = create<AgentStore>()((set, get) => ({
 
 					// Substitute $ARGUMENTS with command arguments, or append args if no placeholder
 					let promptWithArgs = matchingCommand.prompt;
-					const commandArgs = item.text; // text field carries command arguments
-					if (commandArgs) {
+					if (item.commandArgs) {
 						if (/\$ARGUMENTS/g.test(promptWithArgs)) {
-							promptWithArgs = promptWithArgs.replace(/\$ARGUMENTS/g, commandArgs);
+							promptWithArgs = promptWithArgs.replace(/\$ARGUMENTS/g, item.commandArgs);
 						} else {
 							// No $ARGUMENTS placeholder — append trailing text after the prompt
-							promptWithArgs = `${promptWithArgs}\n\n${commandArgs}`;
+							promptWithArgs = `${promptWithArgs}\n\n${item.commandArgs}`;
 						}
 					} else {
 						promptWithArgs = promptWithArgs.replace(/\$ARGUMENTS/g, '');
@@ -385,6 +384,7 @@ export const useAgentStore = create<AgentStore>()((set, get) => ({
 					const substitutedPrompt = substituteTemplateVariables(promptWithArgs, {
 						session,
 						gitBranch,
+						conductorProfile: deps.conductorProfile,
 					});
 
 					// For NEW sessions, prepend Maestro system prompt
@@ -394,6 +394,7 @@ export const useAgentStore = create<AgentStore>()((set, get) => ({
 						const substitutedSystemPrompt = substituteTemplateVariables(maestroSystemPrompt, {
 							session,
 							gitBranch,
+							conductorProfile: deps.conductorProfile,
 						});
 						promptForAgent = `${substitutedSystemPrompt}\n\n---\n\n# User Request\n\n${substitutedPrompt}`;
 					}

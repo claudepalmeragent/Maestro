@@ -118,6 +118,7 @@ describe('groupChat IPC handlers', () => {
 		mockMainWindow = {
 			webContents: {
 				send: vi.fn(),
+				isDestroyed: vi.fn().mockReturnValue(false),
 			},
 			isDestroyed: vi.fn().mockReturnValue(false),
 		} as unknown as BrowserWindow;
@@ -157,6 +158,7 @@ describe('groupChat IPC handlers', () => {
 				'groupChat:list',
 				'groupChat:load',
 				'groupChat:delete',
+				'groupChat:archive',
 				'groupChat:rename',
 				'groupChat:update',
 				// Chat log handlers

@@ -73,6 +73,22 @@ export const DEFAULT_SHORTCUTS: Record<string, Shortcut> = {
 		label: 'Save to Knowledge Graph',
 		keys: ['Alt', 'Meta', 'k'],
 	},
+	openSymphony: { id: 'openSymphony', label: 'Maestro Symphony', keys: ['Meta', 'Shift', 'y'] },
+	toggleAutoScroll: {
+		id: 'toggleAutoScroll',
+		label: 'Toggle Auto-Scroll AI Output',
+		keys: ['Alt', 'Meta', 's'],
+	},
+	directorNotes: {
+		id: 'directorNotes',
+		label: "Director's Notes",
+		keys: ['Meta', 'Shift', 'o'],
+	},
+	fontSizeReset: {
+		id: 'fontSizeReset',
+		label: 'Reset Font Size',
+		keys: ['Meta', 'Shift', '0'],
+	},
 };
 
 // Non-editable shortcuts (displayed in help but not configurable)
@@ -99,6 +115,11 @@ export const FIXED_SHORTCUTS: Record<string, Shortcut> = {
 		label: 'Search Output (in Main Window)',
 		keys: ['Meta', 'f'],
 	},
+	searchDirectorNotes: {
+		id: 'searchDirectorNotes',
+		label: "Search Director's Notes",
+		keys: ['Meta', 'f'],
+	},
 	filePreviewBack: {
 		id: 'filePreviewBack',
 		label: 'File Preview: Go Back',
@@ -108,6 +129,16 @@ export const FIXED_SHORTCUTS: Record<string, Shortcut> = {
 		id: 'filePreviewForward',
 		label: 'File Preview: Go Forward',
 		keys: ['Meta', 'ArrowRight'],
+	},
+	fontSizeIncrease: {
+		id: 'fontSizeIncrease',
+		label: 'Increase Font Size',
+		keys: ['Meta', '='],
+	},
+	fontSizeDecrease: {
+		id: 'fontSizeDecrease',
+		label: 'Decrease Font Size',
+		keys: ['Meta', '-'],
 	},
 };
 

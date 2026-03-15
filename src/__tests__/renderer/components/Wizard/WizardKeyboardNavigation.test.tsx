@@ -17,6 +17,8 @@ import { PhaseReviewScreen } from '../../../../renderer/components/Wizard/screen
 import { WizardExitConfirmModal } from '../../../../renderer/components/Wizard/WizardExitConfirmModal';
 import { LayerStackProvider } from '../../../../renderer/contexts/LayerStackContext';
 import type { Theme, AgentConfig } from '../../../../renderer/types';
+import { formatShortcutKeys } from '../../../../renderer/utils/shortcutFormatter';
+
 // Mock react-markdown
 vi.mock('react-markdown', () => ({
 	default: ({ children }: { children: string }) => <div data-testid="markdown">{children}</div>,
@@ -31,6 +33,7 @@ vi.mock('react-syntax-highlighter', () => ({
 
 vi.mock('react-syntax-highlighter/dist/esm/styles/prism', () => ({
 	vscDarkPlus: {},
+	vs: {},
 }));
 
 // Mock remark-gfm
@@ -82,6 +85,12 @@ const mockMaestro = {
 	},
 	shell: {
 		openExternal: vi.fn(),
+	},
+	sshRemote: {
+		getConfigs: vi.fn().mockResolvedValue({ success: true, configs: [] }),
+	},
+	sessions: {
+		getAll: vi.fn().mockResolvedValue([]),
 	},
 };
 
@@ -506,7 +515,7 @@ describe('Wizard Keyboard Navigation', () => {
 			renderWithProviders(<ConversationScreenWrapper theme={mockTheme} />);
 
 			// Find the keyboard shortcut label
-			const shortcutLabel = screen.getByText('⌘⇧K');
+			const shortcutLabel = screen.getByText(formatShortcutKeys(['Meta', 'Shift', 'k']));
 			expect(shortcutLabel).toBeInTheDocument();
 			expect(shortcutLabel.tagName.toLowerCase()).toBe('kbd');
 		});
@@ -831,7 +840,7 @@ describe('Wizard Keyboard Navigation', () => {
 			});
 
 			// Verify keyboard hints are visible
-			expect(screen.getByText('⌘E')).toBeInTheDocument();
+			expect(screen.getByText(formatShortcutKeys(['Meta', 'e']))).toBeInTheDocument();
 			expect(screen.getByText(/toggle edit\/preview/i)).toBeInTheDocument();
 			expect(screen.getByText('Tab')).toBeInTheDocument();
 			expect(screen.getByText('Enter')).toBeInTheDocument();

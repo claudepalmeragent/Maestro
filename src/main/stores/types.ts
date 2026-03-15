@@ -113,6 +113,10 @@ export interface MaestroSettings {
 	// SSH remote execution
 	sshRemotes: SshRemoteConfig[];
 	defaultSshRemoteId: string | null;
+	// SSH Remote file indexing ignore patterns (glob patterns)
+	sshRemoteIgnorePatterns: string[];
+	// Whether to honor .gitignore files on remote hosts
+	sshRemoteHonorGitignore: boolean;
 	// Unique installation identifier (generated once on first run)
 	installationId: string | null;
 	// Synopsis generation toggle for interactive sessions
@@ -154,6 +158,15 @@ export interface MaestroSettings {
 	honeycombMcpRegion?: 'us' | 'eu';
 	/** Honeycomb usage warning settings */
 	honeycombWarningSettings?: HoneycombWarningSettings;
+	// WakaTime integration
+	wakatimeEnabled: boolean;
+	wakatimeApiKey: string;
+	wakatimeDetailedTracking: boolean;
+	// Standalone hands-on time tracker (migrated from globalStats.totalActiveTimeMs)
+	totalActiveTimeMs: number;
+	// Allow dynamic settings keys (electron-store is a key-value store
+	// with many settings not explicitly declared above)
+	[key: string]: any;
 }
 
 // ============================================================================

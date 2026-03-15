@@ -12,7 +12,7 @@ import { SourceDistributionChart } from '../../../../renderer/components/UsageDa
 import { ActivityHeatmap } from '../../../../renderer/components/UsageDashboard/ActivityHeatmap';
 import { DurationTrendsChart } from '../../../../renderer/components/UsageDashboard/DurationTrendsChart';
 import { SummaryCards } from '../../../../renderer/components/UsageDashboard/SummaryCards';
-import type { StatsAggregation } from '../../../../renderer/hooks/useStats';
+import type { StatsAggregation } from '../../../../renderer/hooks/stats/useStats';
 import type { Theme } from '../../../../renderer/types';
 
 // Mock theme for testing
@@ -316,7 +316,7 @@ describe('Chart Accessibility - SummaryCards', () => {
 	it('each metric card has role="group"', () => {
 		render(<SummaryCards data={mockStatsData} theme={mockTheme} />);
 		const groups = screen.getAllByRole('group');
-		expect(groups).toHaveLength(9); // 9 metric cards (including Total Cost)
+		expect(groups).toHaveLength(13); // 13 metric cards (including Open Tabs, Total Cost, Avg Throughput, etc.)
 	});
 
 	it('metric cards have descriptive aria-labels', () => {
@@ -324,15 +324,19 @@ describe('Chart Accessibility - SummaryCards', () => {
 		const groups = screen.getAllByRole('group');
 
 		const expectedLabels = [
-			/Sessions/i,
+			/Agents/i,
+			/Open Tabs/i,
 			/Total Queries/i,
+			/Queries\/Session/i,
 			/Total Time/i,
 			/Avg Duration/i,
+			/Peak Hour/i,
+			/Top Agent/i,
+			/Interactive %/i,
+			/Local %/i,
 			/Avg Throughput/i,
 			/Total Tokens/i,
 			/Total Cost/i,
-			/Top Agent/i,
-			/Interactive %/i,
 		];
 
 		groups.forEach((group, index) => {

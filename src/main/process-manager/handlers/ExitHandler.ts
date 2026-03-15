@@ -69,29 +69,6 @@ export class ExitHandler {
 			jsonBufferPreview: managedProcess.jsonBuffer?.substring(0, 200),
 		});
 
-		// Debug: Log exit details for group chat sessions
-		if (sessionId.includes('group-chat-')) {
-			console.log(`[GroupChat:Debug:ProcessManager] EXIT for session ${sessionId}`);
-			console.log(`[GroupChat:Debug:ProcessManager] Exit code: ${code}`);
-			console.log(`[GroupChat:Debug:ProcessManager] isStreamJsonMode: ${isStreamJsonMode}`);
-			console.log(`[GroupChat:Debug:ProcessManager] isBatchMode: ${isBatchMode}`);
-			console.log(
-				`[GroupChat:Debug:ProcessManager] resultEmitted: ${managedProcess.resultEmitted}`
-			);
-			console.log(
-				`[GroupChat:Debug:ProcessManager] streamedText length: ${managedProcess.streamedText?.length || 0}`
-			);
-			console.log(
-				`[GroupChat:Debug:ProcessManager] jsonBuffer length: ${managedProcess.jsonBuffer?.length || 0}`
-			);
-			console.log(
-				`[GroupChat:Debug:ProcessManager] stderrBuffer length: ${managedProcess.stderrBuffer?.length || 0}`
-			);
-			console.log(
-				`[GroupChat:Debug:ProcessManager] stderrBuffer preview: "${(managedProcess.stderrBuffer || '').substring(0, 500)}"`
-			);
-		}
-
 		// Debug: Log exit details for synopsis sessions
 		if (sessionId.includes('-synopsis-')) {
 			logger.info('[ProcessManager] Synopsis session exit', 'ProcessManager', {
@@ -109,6 +86,48 @@ export class ExitHandler {
 		// Handle regular batch mode (not stream-json)
 		if (isBatchMode && !isStreamJsonMode && managedProcess.jsonBuffer) {
 			this.handleBatchModeExit(sessionId, managedProcess);
+		}
+
+		// Handle stream-json mode: process any remaining jsonBuffer content
+		// The jsonBuffer may contain the last line if it didn't end with \n.
+		// Without this, short-lived processes (tab-naming, batch ops) can lose
+		// their result message if it's the last line without a trailing newline.
+		if (isStreamJsonMode && managedProcess.jsonBuffer?.trim() && outputParser) {
+			const remainingLine = managedProcess.jsonBuffer.trim();
+			managedProcess.jsonBuffer = '';
+			logger.debug('[ProcessManager] Processing remaining jsonBuffer at exit', 'ProcessManager', {
+				sessionId,
+				remainingLineLength: remainingLine.length,
+				remainingLinePreview: remainingLine.substring(0, 200),
+			});
+			try {
+				const event = outputParser.parseJsonLine(remainingLine);
+				if (event && outputParser.isResultMessage(event) && !managedProcess.resultEmitted) {
+					managedProcess.resultEmitted = true;
+					const resultText = event.text || managedProcess.streamedText || '';
+					if (resultText) {
+						this.bufferManager.emitDataBuffered(sessionId, resultText);
+					}
+				}
+			} catch {
+				// If parsing fails, emit the raw line as data
+				this.bufferManager.emitDataBuffered(sessionId, remainingLine);
+			}
+		}
+
+		// Handle stream-json mode: emit accumulated streamed text if no result was emitted
+		// Some agents (like Factory Droid) don't send explicit "done" events, they just exit
+		if (isStreamJsonMode && !managedProcess.resultEmitted && managedProcess.streamedText) {
+			managedProcess.resultEmitted = true;
+			logger.debug(
+				'[ProcessManager] Emitting streamed text at exit (no result event)',
+				'ProcessManager',
+				{
+					sessionId,
+					streamedTextLength: managedProcess.streamedText.length,
+				}
+			);
+			this.bufferManager.emitDataBuffered(sessionId, managedProcess.streamedText);
 		}
 
 		// Check for errors using the parser (if not already emitted)
@@ -134,9 +153,24 @@ export class ExitHandler {
 		// Check for SSH-specific errors at exit — runs unconditionally (not gated on sshRemoteId)
 		// SSH error patterns are specific enough that they won't false-positive on local processes.
 		// Running unconditionally ensures SSH errors are detected even if sshRemoteId was lost.
+		// SSH errors can appear in stdout OR stderr, so check both
 		if (!managedProcess.errorEmitted && (code !== 0 || managedProcess.stderrBuffer)) {
 			const stderrToCheck = managedProcess.stderrBuffer || '';
-			const sshError = matchSshErrorPattern(stderrToCheck);
+			const stdoutToCheck = managedProcess.stdoutBuffer || managedProcess.streamedText || '';
+			const combinedOutput = `${stdoutToCheck}\n${stderrToCheck}`;
+
+			// Log detailed info before SSH error check to help debug shell parse errors
+			logger.info('[ProcessManager] Checking for SSH errors at exit', 'ProcessManager', {
+				sessionId,
+				exitCode: code,
+				sshRemoteId: managedProcess.sshRemoteId,
+				stderrLength: stderrToCheck.length,
+				stderrPreview: stderrToCheck.substring(0, 300),
+				stdoutLength: stdoutToCheck.length,
+				combinedLength: combinedOutput.length,
+			});
+
+			const sshError = matchSshErrorPattern(combinedOutput);
 			if (sshError) {
 				managedProcess.errorEmitted = true;
 				const processUptimeMs = Date.now() - managedProcess.startTime;
@@ -172,6 +206,7 @@ export class ExitHandler {
 					raw: {
 						exitCode: code,
 						stderr: stderrToCheck,
+						stdout: stdoutToCheck.substring(0, 1000), // Truncate for log size
 						diagnostics: {
 							handlerSource: 'ExitHandler',
 							processUptimeMs,
@@ -183,6 +218,19 @@ export class ExitHandler {
 					errorContext: managedProcess.spawnContext,
 				};
 				this.emitter.emit('agent-error', sessionId, agentError);
+			} else if (code !== 0) {
+				// Log SSH failures even if no pattern matched, to help debug
+				logger.warn(
+					'[ProcessManager] SSH command failed without matching error pattern',
+					'ProcessManager',
+					{
+						sessionId,
+						exitCode: code,
+						sshRemoteId: managedProcess.sshRemoteId,
+						stdoutPreview: stdoutToCheck.substring(0, 500),
+						stderrPreview: stderrToCheck.substring(0, 500),
+					}
+				);
 			}
 		}
 
@@ -236,6 +284,11 @@ export class ExitHandler {
 				totalCostUsd,
 			});
 		}
+
+		// Final flush: ensure any data buffered during exit processing
+		// (e.g., from jsonBuffer remainder or streamedText fallback) is emitted
+		// before the exit event, so listeners see all data before exit fires.
+		this.bufferManager.flushDataBuffer(sessionId);
 
 		// Include resultEmitted flag so renderer knows if a result was sent
 		// before the process exited (used for synopsis timing)

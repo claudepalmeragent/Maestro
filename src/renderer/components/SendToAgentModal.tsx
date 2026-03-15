@@ -184,6 +184,11 @@ export function SendToAgentModal({
 		onCloseRef.current = onClose;
 	});
 
+	const handleSearchQueryChange = useCallback((value: string) => {
+		setSearchQuery(value);
+		setSelectedIndex(0);
+	}, []);
+
 	const { registerLayer, unregisterLayer, updateLayerHandler } = useLayerStack();
 
 	// Register layer on mount
@@ -298,11 +303,6 @@ export function SendToAgentModal({
 	useEffect(() => {
 		selectedItemRef.current?.scrollIntoView({ block: 'nearest' });
 	}, [selectedIndex]);
-
-	// Reset selection when filter changes
-	useEffect(() => {
-		setSelectedIndex(0);
-	}, [searchQuery]);
 
 	// Announce search results to screen readers
 	useEffect(() => {
@@ -468,7 +468,6 @@ export function SendToAgentModal({
 					borderColor: theme.colors.border,
 					maxHeight: 'calc(100vh - 128px)',
 				}}
-				onClick={(e) => e.stopPropagation()}
 			>
 				{/* Header */}
 				<div
@@ -525,7 +524,7 @@ export function SendToAgentModal({
 								type="text"
 								placeholder="Search sessions..."
 								value={searchQuery}
-								onChange={(e) => setSearchQuery(e.target.value)}
+								onChange={(e) => handleSearchQueryChange(e.target.value)}
 								aria-controls="session-list"
 								className="w-full pl-9 pr-3 py-2 rounded-lg border text-sm outline-none"
 								style={{

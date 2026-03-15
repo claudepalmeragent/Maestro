@@ -431,7 +431,7 @@ export function addHistoryEntry(entry: HistoryEntry): void {
 			fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
 		} else {
 			// Use legacy format
-			const filePath = path.join(getConfigDir(), 'maestro-history.json');
+			const filePath = path.posix.join(getConfigDir(), 'maestro-history.json');
 			const data = readStoreFile<HistoryStore>('maestro-history.json') || { entries: [] };
 
 			data.entries.unshift(entry); // Add to beginning (most recent first)

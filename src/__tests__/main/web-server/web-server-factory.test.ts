@@ -33,6 +33,9 @@ vi.mock('../../../main/web-server/WebServer', () => {
 			setNewTabCallback = vi.fn();
 			setCloseTabCallback = vi.fn();
 			setRenameTabCallback = vi.fn();
+			setStarTabCallback = vi.fn();
+			setReorderTabCallback = vi.fn();
+			setToggleBookmarkCallback = vi.fn();
 
 			constructor(port: number) {
 				this.port = port;
@@ -134,9 +137,11 @@ describe('web-server/web-server-factory', () => {
 
 		mockWebContents = {
 			send: vi.fn(),
+			isDestroyed: vi.fn().mockReturnValue(false),
 		};
 
 		mockMainWindow = {
+			isDestroyed: vi.fn().mockReturnValue(false),
 			webContents: mockWebContents as WebContents,
 		};
 

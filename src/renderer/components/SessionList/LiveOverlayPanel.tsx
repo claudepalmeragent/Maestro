@@ -1,6 +1,8 @@
+import { memo, useRef, useEffect } from 'react';
 import { Copy, ExternalLink } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import type { Theme } from '../../types';
+import { safeClipboardWrite } from '../../utils/clipboard';
 
 import type { TunnelStatus } from '../../hooks/remote/useLiveOverlay';
 
@@ -21,12 +23,12 @@ interface LiveOverlayPanelProps {
 	setWebInterfaceUseCustomPort: (v: boolean) => void;
 	setWebInterfaceCustomPort: (v: number) => void;
 	isLiveMode: boolean;
-	toggleGlobalLive: () => void;
+	toggleGlobalLive: () => Promise<void>;
 	setLiveOverlayOpen: (open: boolean) => void;
 	restartWebServer: () => Promise<string | null>;
 }
 
-export function LiveOverlayPanel({
+export const LiveOverlayPanel = memo(function LiveOverlayPanel({
 	theme,
 	webInterfaceUrl,
 	tunnelStatus,
@@ -47,13 +49,18 @@ export function LiveOverlayPanel({
 	setLiveOverlayOpen,
 	restartWebServer,
 }: LiveOverlayPanelProps) {
+	const containerRef = useRef<HTMLDivElement>(null);
+	useEffect(() => {
+		containerRef.current?.focus();
+	}, []);
+
 	return (
 		<div
+			ref={containerRef}
 			className="absolute top-full left-0 pt-2 z-50 outline-none"
-			style={{ width: '280px' }}
+			style={{ width: '280px', maxHeight: 'calc(100vh - 120px)' }}
 			tabIndex={-1}
 			onKeyDown={(e) => {
-				// Arrow key navigation between Local/Remote
 				if (tunnelStatus === 'connected') {
 					if (e.key === 'ArrowLeft') {
 						setActiveUrlTab('local');
@@ -64,7 +71,7 @@ export function LiveOverlayPanel({
 			}}
 		>
 			<div
-				className="rounded-lg shadow-2xl overflow-hidden"
+				className="rounded-lg shadow-2xl overflow-y-auto scrollbar-thin"
 				style={{
 					backgroundColor: theme.colors.bgSidebar,
 					border: `1px solid ${theme.colors.border}`,
@@ -73,7 +80,7 @@ export function LiveOverlayPanel({
 				{/* Description Header */}
 				<div className="p-3 border-b" style={{ borderColor: theme.colors.border }}>
 					<div className="text-[11px] leading-relaxed" style={{ color: theme.colors.textDim }}>
-						Control your AI sessions from your phone or tablet.
+						Control your agents from your phone or tablet.
 						{tunnelStatus === 'connected' ? (
 							<span className="text-blue-400">
 								{' '}
@@ -82,7 +89,7 @@ export function LiveOverlayPanel({
 						) : (
 							<span>
 								{' '}
-								Scan the QR code on your local network, or enable remote access to control Maestro
+								Scan the QR code on your local network, or enable remote control to control Maestro
 								from anywhere.
 							</span>
 						)}
@@ -97,7 +104,7 @@ export function LiveOverlayPanel({
 								className="text-[10px] uppercase font-bold"
 								style={{ color: theme.colors.textDim }}
 							>
-								Remote Access
+								Remote Control
 							</div>
 							{cloudflaredInstalled === false && (
 								<div className="text-[9px] text-yellow-500 mt-1">Install cloudflared to enable</div>
@@ -106,6 +113,7 @@ export function LiveOverlayPanel({
 
 						{/* Toggle Switch */}
 						<button
+							type="button"
 							onClick={handleTunnelToggle}
 							disabled={!cloudflaredInstalled || tunnelStatus === 'starting'}
 							className={`relative w-10 h-5 rounded-full transition-colors ${
@@ -119,8 +127,8 @@ export function LiveOverlayPanel({
 								!cloudflaredInstalled
 									? 'cloudflared not installed'
 									: tunnelStatus === 'connected'
-										? 'Disable remote access'
-										: 'Enable remote access'
+										? 'Disable remote control'
+										: 'Enable remote control'
 							}
 						>
 							<div
@@ -147,9 +155,10 @@ export function LiveOverlayPanel({
 							className="mt-2 p-2 rounded text-[10px]"
 							style={{ backgroundColor: theme.colors.bgActivity }}
 						>
-							<div className="font-medium mb-1">To enable remote access:</div>
+							<div className="font-medium mb-1">To enable remote control:</div>
 							<div className="opacity-70 font-mono">brew install cloudflared</div>
 							<button
+								type="button"
 								onClick={() =>
 									window.maestro.shell.openExternal(
 										'https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/'
@@ -183,12 +192,11 @@ export function LiveOverlayPanel({
 
 						{/* Toggle Switch */}
 						<button
-							onClick={async () => {
+							type="button"
+							onClick={() => {
 								setWebInterfaceUseCustomPort(!webInterfaceUseCustomPort);
-								// If server is running, restart it to apply the change
 								if (isLiveMode) {
-									// Small delay to ensure setting is persisted before restart
-									setTimeout(() => restartWebServer(), 100);
+									setTimeout(() => void restartWebServer(), 100);
 								}
 							}}
 							className={`relative w-10 h-5 rounded-full transition-colors ${
@@ -214,7 +222,6 @@ export function LiveOverlayPanel({
 									pattern="[0-9]*"
 									value={webInterfaceCustomPort}
 									onChange={(e) => {
-										// Allow empty or any numeric input during typing
 										const raw = e.target.value.replace(/[^0-9]/g, '');
 										if (raw === '') {
 											setWebInterfaceCustomPort(0);
@@ -226,26 +233,22 @@ export function LiveOverlayPanel({
 										}
 									}}
 									onBlur={() => {
-										// Clamp to valid range on blur
 										const clampedPort = Math.max(1024, Math.min(65535, webInterfaceCustomPort));
 										if (clampedPort !== webInterfaceCustomPort) {
 											setWebInterfaceCustomPort(clampedPort);
 										}
-										// Restart server when user finishes editing the port
 										if (isLiveMode) {
-											restartWebServer();
+											void restartWebServer();
 										}
 									}}
 									onKeyDown={(e) => {
-										// Restart server when user presses Enter
 										if (e.key === 'Enter') {
-											// Clamp to valid range
 											const clampedPort = Math.max(1024, Math.min(65535, webInterfaceCustomPort));
 											if (clampedPort !== webInterfaceCustomPort) {
 												setWebInterfaceCustomPort(clampedPort);
 											}
 											if (isLiveMode) {
-												restartWebServer();
+												void restartWebServer();
 											}
 											(e.target as HTMLInputElement).blur();
 										}
@@ -269,7 +272,7 @@ export function LiveOverlayPanel({
 					)}
 				</div>
 
-				{/* URL and QR Code Section - Single View */}
+				{/* URL and QR Code Section */}
 				<div className="p-3 border-b" style={{ borderColor: theme.colors.border }}>
 					{/* URL Display */}
 					<div className="flex items-center gap-2 mb-3">
@@ -285,10 +288,11 @@ export function LiveOverlayPanel({
 							)}
 						</div>
 						<button
+							type="button"
 							onClick={() => {
 								const url = activeUrlTab === 'local' ? webInterfaceUrl : tunnelUrl;
 								if (url) {
-									navigator.clipboard.writeText(url);
+									safeClipboardWrite(url);
 									setCopyFlash(
 										activeUrlTab === 'local' ? 'Local URL copied!' : 'Remote URL copied!'
 									);
@@ -300,6 +304,7 @@ export function LiveOverlayPanel({
 							<Copy className="w-3 h-3" style={{ color: theme.colors.textDim }} />
 						</button>
 						<button
+							type="button"
 							onClick={() => {
 								const url = activeUrlTab === 'local' ? webInterfaceUrl : tunnelUrl;
 								if (url) window.maestro.shell.openExternal(url);
@@ -361,6 +366,7 @@ export function LiveOverlayPanel({
 								style={{ backgroundColor: theme.colors.bgActivity }}
 							>
 								<button
+									type="button"
 									onClick={() => setActiveUrlTab('local')}
 									className={`px-4 py-1 text-[10px] font-bold uppercase rounded-full transition-all ${
 										activeUrlTab === 'local'
@@ -372,6 +378,7 @@ export function LiveOverlayPanel({
 									Local
 								</button>
 								<button
+									type="button"
 									onClick={() => setActiveUrlTab('remote')}
 									className={`px-4 py-1 text-[10px] font-bold uppercase rounded-full transition-all ${
 										activeUrlTab === 'remote'
@@ -404,8 +411,8 @@ export function LiveOverlayPanel({
 
 				{/* Action Buttons */}
 				<div className="p-3 space-y-2">
-					{/* Open in Browser Button */}
 					<button
+						type="button"
 						onClick={() => {
 							const url = activeUrlTab === 'local' ? webInterfaceUrl : tunnelUrl;
 							if (url) window.maestro.shell.openExternal(url);
@@ -419,10 +426,10 @@ export function LiveOverlayPanel({
 					>
 						Open in Browser
 					</button>
-					{/* Turn Off Button */}
 					<button
+						type="button"
 						onClick={() => {
-							toggleGlobalLive();
+							void toggleGlobalLive();
 							setLiveOverlayOpen(false);
 						}}
 						className="w-full py-1.5 rounded text-[10px] font-medium transition-colors hover:bg-red-500/20 text-red-400 border border-red-500/30"
@@ -433,4 +440,4 @@ export function LiveOverlayPanel({
 			</div>
 		</div>
 	);
-}
+});

@@ -6,7 +6,13 @@
  */
 
 // Utility functions for markdown task processing
-export { countUnfinishedTasks, countCheckedTasks, uncheckAllTasks } from './batchUtils';
+export {
+	countUnfinishedTasks,
+	countCheckedTasks,
+	uncheckAllTasks,
+	DEFAULT_BATCH_PROMPT,
+	validateAgentPromptHasTaskReference,
+} from './batchUtils';
 
 // Debounce hook for per-session state updates
 export { useSessionDebounce } from './useSessionDebounce';
@@ -73,6 +79,11 @@ export type {
 
 // Main batch processor hook
 export { useBatchProcessor } from './useBatchProcessor';
+export type { BatchCompleteInfo, PRResultInfo } from './useBatchProcessor';
+
+// Batch handler orchestration (Phase 2I)
+export { useBatchHandlers } from './useBatchHandlers';
+export type { UseBatchHandlersDeps, UseBatchHandlersReturn } from './useBatchHandlers';
 
 // Auto Run event handlers
 export { useAutoRunHandlers } from './useAutoRunHandlers';
@@ -125,7 +136,7 @@ export { useSubagentStatsPoller } from './useSubagentStatsPoller';
 export type { SubagentStatsPollerOptions, SubagentStats } from './useSubagentStatsPoller';
 
 // Inline wizard for creating/iterating Auto Run documents
-export { useInlineWizard } from '../useInlineWizard';
+export { useInlineWizard } from './useInlineWizard';
 export type {
 	InlineWizardMode,
 	InlineWizardMessage,
@@ -133,7 +144,15 @@ export type {
 	InlineGeneratedDocument,
 	InlineWizardState,
 	UseInlineWizardReturn,
-} from '../useInlineWizard';
+} from './useInlineWizard';
+
+// Auto Run achievements tracking (progress intervals, peak stats)
+export { useAutoRunAchievements } from './useAutoRunAchievements';
+export type { UseAutoRunAchievementsDeps } from './useAutoRunAchievements';
+
+// Auto Run document loader (list, tree, task counts, file watching)
+export { useAutoRunDocumentLoader } from './useAutoRunDocumentLoader';
+export type { UseAutoRunDocumentLoaderReturn } from './useAutoRunDocumentLoader';
 
 // Re-export ExistingDocument type from existingDocsDetector for convenience
 export type { ExistingDocument } from '../../utils/existingDocsDetector';

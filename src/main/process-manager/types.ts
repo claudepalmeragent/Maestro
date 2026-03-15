@@ -30,6 +30,14 @@ export interface ProcessConfig {
 	projectPath?: string;
 	/** Context for error routing — determines how errors from this process are handled */
 	spawnContext?: 'interactive' | 'background' | 'batch' | 'synopsis';
+	/** If true, always spawn in a shell (for PATH resolution on Windows) */
+	runInShell?: boolean;
+	/** If true, send the prompt via stdin as JSON instead of command line */
+	sendPromptViaStdin?: boolean;
+	/** If true, send the prompt via stdin as raw text instead of command line */
+	sendPromptViaStdinRaw?: boolean;
+	/** Script to send via stdin for SSH execution (bypasses shell escaping) */
+	sshStdinScript?: string;
 }
 
 /**

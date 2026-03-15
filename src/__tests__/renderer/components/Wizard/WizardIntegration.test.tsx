@@ -25,6 +25,7 @@ import { MaestroWizard } from '../../../../renderer/components/Wizard/MaestroWiz
 import { WizardResumeModal } from '../../../../renderer/components/Wizard/WizardResumeModal';
 import { LayerStackProvider, useLayerStack } from '../../../../renderer/contexts/LayerStackContext';
 import type { Theme, AgentConfig } from '../../../../renderer/types';
+
 // Mock react-markdown
 vi.mock('react-markdown', () => ({
 	default: ({ children }: { children: string }) => <div data-testid="markdown">{children}</div>,
@@ -39,6 +40,7 @@ vi.mock('react-syntax-highlighter', () => ({
 
 vi.mock('react-syntax-highlighter/dist/esm/styles/prism', () => ({
 	vscDarkPlus: {},
+	vs: {},
 }));
 
 // Mock remark-gfm

@@ -84,6 +84,7 @@ export function QuitConfirmModal({
 	};
 
 	const agentText = busyAgentCount === 1 ? 'agent is' : 'agents are';
+	const hasAutoRun = busyAgentNames.some((n) => n.includes('(Auto Run)'));
 	const displayNames = busyAgentNames.slice(0, 3);
 	const remainingCount = busyAgentNames.length - 3;
 
@@ -98,7 +99,7 @@ export function QuitConfirmModal({
 			onKeyDown={handleKeyDown}
 		>
 			<div
-				className="w-[450px] border rounded-xl shadow-2xl overflow-hidden"
+				className="w-[520px] border rounded-xl shadow-2xl overflow-hidden"
 				style={{
 					backgroundColor: theme.colors.bgSidebar,
 					borderColor: theme.colors.border,
@@ -128,7 +129,8 @@ export function QuitConfirmModal({
 						className="text-sm leading-relaxed"
 						style={{ color: theme.colors.textMain }}
 					>
-						{busyAgentCount} {agentText} currently thinking. Quitting now will interrupt their work.
+						{busyAgentCount} {agentText} currently {hasAutoRun ? 'active' : 'thinking'}. Quitting
+						now will interrupt their work.
 					</p>
 
 					{/* List of busy agents */}
@@ -145,7 +147,7 @@ export function QuitConfirmModal({
 						<div className="flex flex-wrap gap-2">
 							{displayNames.map((name, index) => (
 								<span
-									key={index}
+									key={`${name}-${index}`}
 									className="inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium"
 									style={{
 										backgroundColor: `${theme.colors.warning}15`,
@@ -171,10 +173,10 @@ export function QuitConfirmModal({
 					</div>
 
 					{/* Actions */}
-					<div className="mt-6 flex justify-end gap-3">
+					<div className="mt-5 flex items-center justify-center gap-2 flex-nowrap">
 						<button
 							onClick={onConfirmQuit}
-							className="px-4 py-2 rounded-lg text-sm font-medium transition-colors hover:opacity-90"
+							className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:opacity-90 whitespace-nowrap"
 							style={{
 								backgroundColor: theme.colors.error,
 								color: '#ffffff',
@@ -185,7 +187,7 @@ export function QuitConfirmModal({
 						<button
 							ref={cancelButtonRef}
 							onClick={onCancel}
-							className="px-4 py-2 rounded-lg text-sm font-medium outline-none focus:ring-2 focus:ring-offset-1 transition-colors"
+							className="px-3 py-1.5 rounded-lg text-xs font-medium outline-none focus:ring-2 focus:ring-offset-1 transition-colors whitespace-nowrap"
 							style={{
 								backgroundColor: theme.colors.accent,
 								color: theme.colors.accentForeground,

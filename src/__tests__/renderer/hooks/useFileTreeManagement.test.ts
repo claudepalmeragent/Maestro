@@ -18,6 +18,7 @@ import type { RightPanelHandle } from '../../../renderer/components/RightPanel';
 import type { RefObject, SetStateAction } from 'react';
 import { loadFileTree, compareFileTrees } from '../../../renderer/utils/fileExplorer';
 import { gitService } from '../../../renderer/services/git';
+import { useFileExplorerStore } from '../../../renderer/stores/fileExplorerStore';
 
 vi.mock('../../../renderer/utils/fileExplorer', () => ({
 	loadFileTree: vi.fn(),
@@ -90,7 +91,6 @@ const createDeps = (
 	setSessions: state.setSessions,
 	activeSessionId: state.getSessions()[0]?.id ?? null,
 	activeSession: state.getSessions()[0] ?? null,
-	fileTreeFilter: '',
 	rightPanelRef: { current: { refreshHistoryPanel: vi.fn() } },
 	...overrides,
 });
@@ -104,6 +104,7 @@ describe('useFileTreeManagement', () => {
 
 	beforeEach(() => {
 		vi.clearAllMocks();
+		useFileExplorerStore.setState({ fileTreeFilter: '' });
 		originalHistory = window.maestro.history as typeof window.maestro.history | undefined;
 		window.maestro = {
 			...window.maestro,
@@ -144,9 +145,15 @@ describe('useFileTreeManagement', () => {
 			returnedChanges = await result.current.refreshFileTree(state.getSessions()[0].id);
 		});
 
-		// loadFileTree is now called with (path, maxDepth, currentDepth, sshContext)
-		// For local sessions (no sshRemoteId), sshContext is undefined
-		expect(loadFileTree).toHaveBeenCalledWith('/test/project', 10, 0, undefined);
+		// For local sessions (no sshRemoteId), sshContext and localOptions are undefined
+		expect(loadFileTree).toHaveBeenCalledWith(
+			'/test/project',
+			10,
+			0,
+			undefined,
+			undefined,
+			undefined
+		);
 		expect(compareFileTrees).toHaveBeenCalledWith(initialTree, nextTree);
 		expect(returnedChanges).toEqual(changes);
 		expect(state.getSessions()[0].fileTree).toEqual(nextTree);
@@ -168,9 +175,8 @@ describe('useFileTreeManagement', () => {
 		});
 
 		expect(returnedChanges).toBeUndefined();
-		expect(state.getSessions()[0].fileTree).toEqual([]);
-		expect(state.getSessions()[0].fileTreeError).toContain('/test/project');
-		expect(state.getSessions()[0].fileTreeError).toContain('boom');
+		// Refresh errors preserve the existing file tree (transient failures shouldn't wipe data)
+		expect(state.getSessions()[0].fileTree).toEqual([{ name: 'keep', type: 'file' }]);
 	});
 
 	it('refreshGitFileState refreshes git metadata and history', async () => {
@@ -198,9 +204,15 @@ describe('useFileTreeManagement', () => {
 		});
 
 		// loadFileTree always uses projectRoot (treeRoot), not shellCwd
-		// But git operations use shellCwd when inputMode is 'terminal'
-		// The second parameter is sshRemoteId, which is undefined for local sessions
-		expect(loadFileTree).toHaveBeenCalledWith('/test/project', 10, 0, undefined);
+		// Git operations use shellCwd when inputMode is 'terminal'
+		expect(loadFileTree).toHaveBeenCalledWith(
+			'/test/project',
+			10,
+			0,
+			undefined,
+			undefined,
+			undefined
+		);
 		expect(gitService.isRepo).toHaveBeenCalledWith('/test/shell', undefined);
 		expect(gitService.getBranches).toHaveBeenCalledWith('/test/shell', undefined);
 		expect(gitService.getTags).toHaveBeenCalledWith('/test/shell', undefined);
@@ -233,8 +245,9 @@ describe('useFileTreeManagement', () => {
 			{ name: 'notes.txt', type: 'file' },
 		];
 
+		useFileExplorerStore.setState({ fileTreeFilter: 'read' });
 		const state = createSessionsState([createMockSession({ fileTree })]);
-		const deps = createDeps(state, { fileTreeFilter: 'read' });
+		const deps = createDeps(state);
 		const { result } = renderHook(() => useFileTreeManagement(deps));
 
 		expect(result.current.filteredFileTree).toEqual([
@@ -257,7 +270,14 @@ describe('useFileTreeManagement', () => {
 
 		await waitFor(() => {
 			// loadFileTree is now called with (path, maxDepth, currentDepth, sshContext)
-			expect(loadFileTree).toHaveBeenCalledWith('/test/project', 10, 0, undefined);
+			expect(loadFileTree).toHaveBeenCalledWith(
+				'/test/project',
+				10,
+				0,
+				undefined,
+				undefined,
+				undefined
+			);
 			expect(state.getSessions()[0].fileTree).toEqual(nextTree);
 		});
 	});
@@ -290,9 +310,105 @@ describe('useFileTreeManagement', () => {
 		});
 
 		// Verify SSH context is passed to loadFileTree
-		expect(loadFileTree).toHaveBeenCalledWith('/test/project', 10, 0, {
-			sshRemoteId: 'my-ssh-remote',
-			remoteCwd: '/remote/project',
+		expect(loadFileTree).toHaveBeenCalledWith(
+			'/test/project',
+			10,
+			0,
+			{
+				sshRemoteId: 'my-ssh-remote',
+				remoteCwd: '/remote/project',
+				honorGitignore: undefined,
+				ignorePatterns: undefined,
+			},
+			undefined,
+			undefined
+		);
+	});
+
+	it('fetches stats for sessions with file tree but no stats (migration)', async () => {
+		// Mock directorySize for the migration
+		const mockDirectorySize = vi.fn().mockResolvedValue({
+			fileCount: 100,
+			folderCount: 20,
+			totalSize: 5000000,
 		});
+
+		const originalFs = window.maestro?.fs;
+		window.maestro = {
+			...window.maestro,
+			fs: {
+				...originalFs,
+				directorySize: mockDirectorySize,
+			},
+		};
+
+		// Create session with file tree but no stats (simulating pre-Dec 2025 session)
+		const sessionWithTreeNoStats = createMockSession({
+			fileTree: [{ name: 'existing.txt', type: 'file' }],
+			fileTreeStats: undefined,
+			fileTreeError: undefined,
+			fileTreeLoading: false,
+		});
+		const state = createSessionsState([sessionWithTreeNoStats]);
+		const deps = createDeps(state);
+
+		renderHook(() => useFileTreeManagement(deps));
+
+		// Wait for the migration effect to run
+		await waitFor(() => {
+			expect(mockDirectorySize).toHaveBeenCalledWith('/test/project', undefined);
+		});
+
+		// Verify stats were populated
+		await waitFor(() => {
+			const updated = state.getSessions()[0];
+			expect(updated.fileTreeStats).toEqual({
+				fileCount: 100,
+				folderCount: 20,
+				totalSize: 5000000,
+			});
+		});
+
+		// Restore original
+		if (originalFs) {
+			window.maestro.fs = originalFs;
+		}
+	});
+
+	it('does not fetch stats when session already has stats', async () => {
+		const mockDirectorySize = vi.fn();
+
+		const originalFs = window.maestro?.fs;
+		window.maestro = {
+			...window.maestro,
+			fs: {
+				...originalFs,
+				directorySize: mockDirectorySize,
+			},
+		};
+
+		// Create session with both file tree and stats (no migration needed)
+		const sessionWithStats = createMockSession({
+			fileTree: [{ name: 'existing.txt', type: 'file' }],
+			fileTreeStats: {
+				fileCount: 50,
+				folderCount: 10,
+				totalSize: 1000000,
+			},
+		});
+		const state = createSessionsState([sessionWithStats]);
+		const deps = createDeps(state);
+
+		renderHook(() => useFileTreeManagement(deps));
+
+		// Migration should NOT run since stats exist
+		// Give it a moment to not be called
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		expect(mockDirectorySize).not.toHaveBeenCalled();
+
+		// Restore original
+		if (originalFs) {
+			window.maestro.fs = originalFs;
+		}
 	});
 });

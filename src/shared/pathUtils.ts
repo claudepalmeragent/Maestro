@@ -15,6 +15,7 @@
 import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs';
+import { isWindows } from './platformDetection';
 
 /**
  * Expand tilde (~) to home directory in paths.
@@ -46,34 +47,70 @@ export function expandTilde(filePath: string, homeDir?: string): string {
 	}
 
 	if (filePath.startsWith('~/')) {
-		return path.join(home, filePath.slice(2));
+		// Use POSIX path separator for consistency, especially for SSH remote paths
+		return `${home}/${filePath.slice(2)}`;
 	}
 
 	return filePath;
 }
 
 /**
- * Parse version string to comparable array of numbers.
+ * Encode a project path the same way Claude Code does.
+ * Claude replaces all non-alphanumeric characters with '-'.
+ * See: https://github.com/RunMaestro/Maestro/issues/348
+ */
+export function encodeClaudeProjectPath(projectPath: string): string {
+	return projectPath.replace(/[^a-zA-Z0-9]/g, '-');
+}
+
+/**
+ * Split a version string into its numeric part and optional pre-release suffix.
  *
- * @param version - Version string (e.g., "v22.10.0" or "0.14.0")
+ * @param version - Cleaned version string (no 'v' prefix), e.g., "0.15.0-rc.1"
+ * @returns Tuple of [numericPart, prereleaseTag | undefined]
+ *
+ * @example
+ * ```typescript
+ * splitVersionParts('0.15.0')       // ['0.15.0', undefined]
+ * splitVersionParts('0.15.0-rc.1')  // ['0.15.0', 'rc.1']
+ * ```
+ */
+function splitVersionParts(version: string): [string, string | undefined] {
+	const dashIndex = version.indexOf('-');
+	if (dashIndex === -1) return [version, undefined];
+	return [version.substring(0, dashIndex), version.substring(dashIndex + 1)];
+}
+
+/**
+ * Parse version string to comparable array of numbers.
+ * Pre-release suffixes (e.g., -rc.1, -beta.2) are stripped before parsing.
+ *
+ * @param version - Version string (e.g., "v22.10.0" or "0.14.0" or "0.15.0-rc.1")
  * @returns Array of version numbers (e.g., [22, 10, 0])
  *
  * @example
  * ```typescript
- * parseVersion('v22.10.0')  // [22, 10, 0]
- * parseVersion('0.14.0')    // [0, 14, 0]
+ * parseVersion('v22.10.0')      // [22, 10, 0]
+ * parseVersion('0.14.0')        // [0, 14, 0]
+ * parseVersion('0.15.0-rc.1')   // [0, 15, 0]
  * ```
  */
 export function parseVersion(version: string): number[] {
 	const cleaned = version.replace(/^v/, '');
-	return cleaned.split('.').map((n) => parseInt(n, 10) || 0);
+	const [numericPart] = splitVersionParts(cleaned);
+	return numericPart.split('.').map((n) => parseInt(n, 10) || 0);
 }
 
 /**
- * Compare two version strings.
+ * Compare two version strings following semver pre-release rules.
  *
  * Returns: 1 if a > b, -1 if a < b, 0 if equal.
- * Handles versions with or without 'v' prefix.
+ * Handles versions with or without 'v' prefix, and pre-release suffixes.
+ *
+ * Per semver: a pre-release version has lower precedence than the same
+ * version without a pre-release suffix (e.g., 0.15.0-rc.1 < 0.15.0).
+ * When both versions have pre-release suffixes with the same numeric base,
+ * they are compared lexically.
  *
  * @param a - First version string
  * @param b - Second version string
@@ -81,9 +118,12 @@ export function parseVersion(version: string): number[] {
  *
  * @example
  * ```typescript
- * compareVersions('v22.0.0', 'v20.0.0')  // 1 (a > b)
- * compareVersions('v18.0.0', 'v20.0.0')  // -1 (a < b)
- * compareVersions('v20.0.0', 'v20.0.0')  // 0 (equal)
+ * compareVersions('v22.0.0', 'v20.0.0')        // 1 (a > b)
+ * compareVersions('v18.0.0', 'v20.0.0')        // -1 (a < b)
+ * compareVersions('v20.0.0', 'v20.0.0')        // 0 (equal)
+ * compareVersions('0.15.0-rc.1', '0.15.0')     // -1 (prerelease < stable)
+ * compareVersions('0.15.0', '0.15.0-rc.1')     // 1 (stable > prerelease)
+ * compareVersions('0.15.0-rc.1', '0.15.0-rc.2') // -1 (rc.1 < rc.2)
  *
  * // For descending sort (highest first):
  * versions.sort((a, b) => compareVersions(b, a))
@@ -93,19 +133,34 @@ export function parseVersion(version: string): number[] {
  * ```
  */
 export function compareVersions(a: string, b: string): number {
-	const partsA = parseVersion(a);
-	const partsB = parseVersion(b);
+	const cleanA = a.replace(/^v/, '');
+	const cleanB = b.replace(/^v/, '');
+
+	const [numA, preA] = splitVersionParts(cleanA);
+	const [numB, preB] = splitVersionParts(cleanB);
+
+	const partsA = numA.split('.').map((n) => parseInt(n, 10) || 0);
+	const partsB = numB.split('.').map((n) => parseInt(n, 10) || 0);
 
 	const maxLength = Math.max(partsA.length, partsB.length);
 
 	for (let i = 0; i < maxLength; i++) {
-		const numA = partsA[i] || 0;
-		const numB = partsB[i] || 0;
+		const na = partsA[i] || 0;
+		const nb = partsB[i] || 0;
 
-		if (numA > numB) return 1;
-		if (numA < numB) return -1;
+		if (na > nb) return 1;
+		if (na < nb) return -1;
 	}
 
+	// Numeric parts are equal — apply semver pre-release rules:
+	// A version without a pre-release suffix has higher precedence
+	if (!preA && preB) return 1; // 0.15.0 > 0.15.0-rc.1
+	if (preA && !preB) return -1; // 0.15.0-rc.1 < 0.15.0
+	if (!preA && !preB) return 0; // both stable, equal
+
+	// Both have pre-release suffixes — compare lexically
+	if (preA! < preB!) return -1;
+	if (preA! > preB!) return 1;
 	return 0;
 }
 
@@ -125,7 +180,7 @@ export function compareVersions(a: string, b: string): number {
  * ```
  */
 export function detectNodeVersionManagerBinPaths(): string[] {
-	if (process.platform === 'win32') {
+	if (isWindows()) {
 		return []; // Windows has different version manager paths handled elsewhere
 	}
 
@@ -224,4 +279,159 @@ export function detectNodeVersionManagerBinPaths(): string[] {
 	}
 
 	return detectedPaths;
+}
+
+/**
+ * Build an expanded PATH string with common binary installation locations.
+ *
+ * This consolidates PATH building logic used across the application to ensure
+ * consistency and prevent duplication. Handles platform differences automatically.
+ *
+ * @param customPaths - Optional additional paths to prepend to PATH
+ * @returns Expanded PATH string with platform-appropriate paths included
+ *
+ * @example
+ * ```typescript
+ * const expandedPath = buildExpandedPath();
+ * // Returns PATH with common binary locations added
+ *
+ * const customPath = buildExpandedPath(['/custom/bin']);
+ * // Returns PATH with custom paths + common locations
+ * ```
+ */
+export function buildExpandedPath(customPaths?: string[]): string {
+	const delimiter = path.delimiter;
+	const home = os.homedir();
+
+	// Start with current PATH
+	const currentPath = process.env.PATH || '';
+	const pathParts = currentPath.split(delimiter);
+
+	// Platform-specific additional paths
+	let additionalPaths: string[];
+
+	if (isWindows()) {
+		const appData = process.env.APPDATA || path.join(home, 'AppData', 'Roaming');
+		const localAppData = process.env.LOCALAPPDATA || path.join(home, 'AppData', 'Local');
+		const programFiles = process.env.ProgramFiles || 'C:\\Program Files';
+		const programFilesX86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
+		const systemRoot = process.env.SystemRoot || 'C:\\Windows';
+
+		additionalPaths = [
+			// .NET SDK installations
+			path.join(programFiles, 'dotnet'),
+			path.join(programFilesX86, 'dotnet'),
+			// Claude Code PowerShell installer
+			path.join(home, '.local', 'bin'),
+			// Claude Code winget install
+			path.join(localAppData, 'Microsoft', 'WinGet', 'Links'),
+			path.join(programFiles, 'WinGet', 'Links'),
+			path.join(localAppData, 'Microsoft', 'WinGet', 'Packages'),
+			path.join(programFiles, 'WinGet', 'Packages'),
+			// npm global installs
+			path.join(appData, 'npm'),
+			path.join(localAppData, 'npm'),
+			// Claude Code CLI install location (npm global)
+			path.join(appData, 'npm', 'node_modules', '@anthropic-ai', 'claude-code', 'cli'),
+			// Codex CLI install location (npm global)
+			path.join(appData, 'npm', 'node_modules', '@openai', 'codex', 'bin'),
+			// User local programs
+			path.join(localAppData, 'Programs'),
+			path.join(localAppData, 'Microsoft', 'WindowsApps'),
+			// Python/pip user installs
+			path.join(appData, 'Python', 'Scripts'),
+			path.join(localAppData, 'Programs', 'Python', 'Python312', 'Scripts'),
+			path.join(localAppData, 'Programs', 'Python', 'Python311', 'Scripts'),
+			path.join(localAppData, 'Programs', 'Python', 'Python310', 'Scripts'),
+			// Git for Windows
+			path.join(programFiles, 'Git', 'cmd'),
+			path.join(programFiles, 'Git', 'bin'),
+			path.join(programFiles, 'Git', 'usr', 'bin'),
+			path.join(programFilesX86, 'Git', 'cmd'),
+			path.join(programFilesX86, 'Git', 'bin'),
+			// Node.js
+			path.join(programFiles, 'nodejs'),
+			path.join(localAppData, 'Programs', 'node'),
+			// Cloudflared
+			path.join(programFiles, 'cloudflared'),
+			// Scoop package manager
+			path.join(home, 'scoop', 'shims'),
+			path.join(home, 'scoop', 'apps', 'opencode', 'current'),
+			// Chocolatey
+			path.join(process.env.ChocolateyInstall || 'C:\\ProgramData\\chocolatey', 'bin'),
+			// Go binaries
+			path.join(home, 'go', 'bin'),
+			// Windows system paths
+			path.join(systemRoot, 'System32'),
+			path.join(systemRoot),
+			// Windows OpenSSH
+			path.join(systemRoot, 'System32', 'OpenSSH'),
+		];
+	} else {
+		// Unix-like paths (macOS/Linux)
+		additionalPaths = [
+			'/opt/homebrew/bin', // Homebrew on Apple Silicon
+			'/opt/homebrew/sbin',
+			'/usr/local/bin', // Homebrew on Intel, common install location
+			'/usr/local/sbin',
+			`${home}/.local/bin`, // User local installs (pip, etc.)
+			`${home}/.npm-global/bin`, // npm global with custom prefix
+			`${home}/bin`, // User bin directory
+			`${home}/.claude/local`, // Claude local install location
+			`${home}/.opencode/bin`, // OpenCode installer default location
+			'/usr/bin',
+			'/bin',
+			'/usr/sbin',
+			'/sbin',
+		];
+	}
+
+	// Add custom paths first (if provided)
+	if (customPaths && customPaths.length > 0) {
+		for (const p of customPaths) {
+			if (!pathParts.includes(p)) {
+				pathParts.unshift(p);
+			}
+		}
+	}
+
+	// Add standard additional paths
+	for (const p of additionalPaths) {
+		if (!pathParts.includes(p)) {
+			pathParts.unshift(p);
+		}
+	}
+
+	return pathParts.join(delimiter);
+}
+
+/**
+ * Build an expanded environment object with common binary installation locations in PATH.
+ *
+ * This creates a complete environment object (copy of process.env) with an expanded PATH
+ * that includes platform-specific binary locations. Useful for spawning processes that
+ * need access to tools not in the default PATH.
+ *
+ * @param customEnvVars - Optional additional environment variables to set
+ * @returns Complete environment object with expanded PATH
+ *
+ * @example
+ * ```typescript
+ * const env = buildExpandedEnv({ NODE_ENV: 'development' });
+ * // Returns process.env copy with expanded PATH + custom vars
+ * ```
+ */
+export function buildExpandedEnv(customEnvVars?: Record<string, string>): NodeJS.ProcessEnv {
+	const env = { ...process.env };
+	env.PATH = buildExpandedPath();
+
+	// Apply custom environment variables
+	if (customEnvVars && Object.keys(customEnvVars).length > 0) {
+		const home = os.homedir();
+		for (const [key, value] of Object.entries(customEnvVars)) {
+			env[key] = value.startsWith('~/') ? path.join(home, value.slice(2)) : value;
+		}
+	}
+
+	return env;
 }

@@ -12,9 +12,9 @@
  * - Tooltip on hover with exact values
  */
 
-import React, { useMemo, useCallback, useState } from 'react';
+import React, { memo, useMemo, useCallback, useState } from 'react';
 import type { Theme } from '../../types';
-import type { StatsAggregation } from '../../hooks/useStats';
+import type { StatsAggregation } from '../../hooks/stats/useStats';
 import { COLORBLIND_AGENT_PALETTE } from '../../constants/colorblindPalettes';
 
 // Tooltip positioning constants
@@ -43,7 +43,7 @@ interface AgentComparisonChartProps {
  * Uses the theme's accent color as primary, with additional colors for multiple agents
  */
 function getAgentColor(
-	agentName: string,
+	_agentName: string,
 	index: number,
 	theme: Theme,
 	colorBlindMode?: boolean
@@ -104,7 +104,7 @@ function formatNumber(num: number): string {
 	return num.toString();
 }
 
-export function AgentComparisonChart({
+export const AgentComparisonChart = memo(function AgentComparisonChart({
 	data,
 	theme,
 	colorBlindMode = false,
@@ -341,6 +341,6 @@ export function AgentComparisonChart({
 			)}
 		</div>
 	);
-}
+});
 
 export default AgentComparisonChart;

@@ -16,6 +16,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
+import * as path from 'path';
 import { EventEmitter } from 'events';
 
 // Create mock spawn function at module level
@@ -79,6 +80,8 @@ import {
 	writeDoc,
 	getClaudeCommand,
 	detectClaude,
+	detectAgent,
+	getAgentCommand,
 	spawnAgent,
 	AgentResult,
 } from '../../../cli/services/agent-spawner';
@@ -677,6 +680,92 @@ Some text with [x] in it that's not a checkbox
 		});
 	});
 
+	describe('detectAgent', () => {
+		beforeEach(() => {
+			vi.resetModules();
+		});
+
+		it('should detect agent with custom path from settings', async () => {
+			mockGetAgentCustomPath.mockReturnValue('/custom/path/to/codex');
+			vi.mocked(fs.promises.stat).mockResolvedValue({
+				isFile: () => true,
+			} as fs.Stats);
+			vi.mocked(fs.promises.access).mockResolvedValue(undefined);
+
+			const { detectAgent: freshDetectAgent } = await import('../../../cli/services/agent-spawner');
+
+			const result = await freshDetectAgent('codex');
+			expect(result.available).toBe(true);
+			expect(result.path).toBe('/custom/path/to/codex');
+			expect(result.source).toBe('settings');
+		});
+
+		it('should fall back to PATH detection when custom path is invalid', async () => {
+			mockGetAgentCustomPath.mockReturnValue('/invalid/path');
+			vi.mocked(fs.promises.stat).mockRejectedValue(new Error('ENOENT'));
+			mockSpawn.mockReturnValue(mockChild);
+
+			const { detectAgent: freshDetectAgent } = await import('../../../cli/services/agent-spawner');
+
+			const resultPromise = freshDetectAgent('codex');
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			mockStdout.emit('data', Buffer.from('/usr/local/bin/codex\n'));
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			mockChild.emit('close', 0);
+
+			const result = await resultPromise;
+			expect(result.available).toBe(true);
+			expect(result.path).toBe('/usr/local/bin/codex');
+			expect(result.source).toBe('path');
+		});
+
+		it('should return unavailable when agent is not found', async () => {
+			mockGetAgentCustomPath.mockReturnValue(undefined);
+			mockSpawn.mockReturnValue(mockChild);
+
+			const { detectAgent: freshDetectAgent } = await import('../../../cli/services/agent-spawner');
+
+			const resultPromise = freshDetectAgent('opencode');
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			mockChild.emit('close', 1);
+
+			const result = await resultPromise;
+			expect(result.available).toBe(false);
+		});
+
+		it('should cache results across calls', async () => {
+			mockGetAgentCustomPath.mockReturnValue('/custom/droid');
+			vi.mocked(fs.promises.stat).mockResolvedValue({
+				isFile: () => true,
+			} as fs.Stats);
+			vi.mocked(fs.promises.access).mockResolvedValue(undefined);
+
+			const { detectAgent: freshDetectAgent } = await import('../../../cli/services/agent-spawner');
+
+			const result1 = await freshDetectAgent('factory-droid');
+			expect(result1.available).toBe(true);
+
+			vi.mocked(fs.promises.stat).mockClear();
+
+			const result2 = await freshDetectAgent('factory-droid');
+			expect(result2.available).toBe(true);
+			expect(result2.source).toBe('settings');
+		});
+	});
+
+	describe('getAgentCommand', () => {
+		it('should return default command for unknown agent', async () => {
+			vi.resetModules();
+			const { getAgentCommand: freshGetAgentCommand } =
+				await import('../../../cli/services/agent-spawner');
+
+			// Before detection, should return the binaryName from definitions
+			const command = freshGetAgentCommand('claude-code');
+			expect(command).toBeTruthy();
+			expect(typeof command).toBe('string');
+		});
+	});
+
 	describe('spawnAgent', () => {
 		beforeEach(() => {
 			mockSpawn.mockReturnValue(mockChild);
@@ -875,8 +964,8 @@ Some text with [x] in it that's not a checkbox
 
 			const result = await resultPromise;
 
-			expect(result.usageStats?.inputTokens).toBe(300); // 100 + 200
-			expect(result.usageStats?.outputTokens).toBe(150); // 50 + 100
+			expect(result.usageStats?.inputTokens).toBe(200); // MAX(100, 200)
+			expect(result.usageStats?.outputTokens).toBe(100); // MAX(50, 100)
 			expect(result.usageStats?.contextWindow).toBe(300000); // Larger window
 		});
 
@@ -1048,22 +1137,30 @@ Some text with [x] in it that's not a checkbox
 		});
 
 		it('should include expanded PATH in environment', async () => {
-			const resultPromise = spawnAgent('claude-code', '/project', 'prompt');
+			// Mock platform to darwin to test Unix PATH expansion
+			const originalPlatform = process.platform;
+			Object.defineProperty(process, 'platform', { value: 'darwin', writable: true });
 
-			await new Promise((resolve) => setTimeout(resolve, 0));
+			try {
+				const resultPromise = spawnAgent('claude-code', '/project', 'prompt');
 
-			const [, , options] = mockSpawn.mock.calls[0];
-			const pathEnv = options.env.PATH;
+				await new Promise((resolve) => setTimeout(resolve, 0));
 
-			// Should include common paths
-			expect(pathEnv).toContain('/opt/homebrew/bin');
-			expect(pathEnv).toContain('/usr/local/bin');
-			expect(pathEnv).toContain('/Users/testuser/.local/bin');
+				const [, , options] = mockSpawn.mock.calls[0];
+				const pathEnv = options.env.PATH;
 
-			mockStdout.emit('data', Buffer.from('{"type":"result","result":"Done"}\n'));
-			mockChild.emit('close', 0);
+				// Should include common paths
+				expect(pathEnv).toContain('/opt/homebrew/bin');
+				expect(pathEnv).toContain('/usr/local/bin');
+				expect(pathEnv).toContain('/Users/testuser/.local/bin');
 
-			await resultPromise;
+				mockStdout.emit('data', Buffer.from('{"type":"result","result":"Done"}\n'));
+				mockChild.emit('close', 0);
+
+				await resultPromise;
+			} finally {
+				Object.defineProperty(process, 'platform', { value: originalPlatform, writable: true });
+			}
 		});
 
 		it('should generate unique session-id for each spawn', async () => {
@@ -1114,8 +1211,18 @@ Some text with [x] in it that's not a checkbox
 	});
 
 	describe('PATH expansion (via spawnAgent)', () => {
+		let originalPlatform: string;
+
 		beforeEach(() => {
+			originalPlatform = process.platform;
 			mockSpawn.mockReturnValue(mockChild);
+			// Mock platform to darwin for Unix path testing
+			Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
+		});
+
+		afterEach(() => {
+			// Restore original platform
+			Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
 		});
 
 		it('should include homebrew paths', async () => {
@@ -1164,28 +1271,38 @@ Some text with [x] in it that's not a checkbox
 		});
 
 		it('should not duplicate existing paths', async () => {
-			// Set PATH to include a path that would be added
-			const originalPath = process.env.PATH;
-			process.env.PATH = '/opt/homebrew/bin:/usr/bin';
+			// Mock platform to darwin to test Unix PATH expansion
+			const originalPlatform = process.platform;
+			Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
 
-			const resultPromise = spawnAgent('claude-code', '/project', 'prompt');
-			await new Promise((resolve) => setTimeout(resolve, 0));
+			try {
+				// Set PATH to include a path that would be added
+				const originalPath = process.env.PATH;
+				const delimiter = process.platform === 'win32' ? ';' : ':';
+				process.env.PATH = `/opt/homebrew/bin${delimiter}/usr/bin`;
 
-			const pathEnv = mockSpawn.mock.calls[0][2].env.PATH;
+				mockSpawn.mockReturnValue(mockChild);
+				const resultPromise = spawnAgent('claude-code', '/project', 'prompt');
+				await new Promise((resolve) => setTimeout(resolve, 0));
 
-			// Count occurrences of /opt/homebrew/bin
-			const parts = pathEnv.split(':');
-			const homebrewCount = parts.filter((p: string) => p === '/opt/homebrew/bin').length;
+				const pathEnv = mockSpawn.mock.calls[0][2].env.PATH;
 
-			// Should only appear once
-			expect(homebrewCount).toBe(1);
+				// Count occurrences of /opt/homebrew/bin
+				const parts = pathEnv.split(path.delimiter);
+				const homebrewCount = parts.filter((p: string) => p === '/opt/homebrew/bin').length;
 
-			// Restore
-			process.env.PATH = originalPath;
+				// Should only appear once
+				expect(homebrewCount).toBe(1);
 
-			mockStdout.emit('data', Buffer.from('{"type":"result","result":"Done"}\n'));
-			mockChild.emit('close', 0);
-			await resultPromise;
+				// Restore
+				process.env.PATH = originalPath;
+
+				mockStdout.emit('data', Buffer.from('{"type":"result","result":"Done"}\n'));
+				mockChild.emit('close', 0);
+				await resultPromise;
+			} finally {
+				Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
+			}
 		});
 	});
 

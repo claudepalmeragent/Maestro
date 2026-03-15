@@ -12,9 +12,9 @@
  * - Tooltip on hover with exact values
  */
 
-import React, { useState, useMemo } from 'react';
+import { memo, useState, useMemo } from 'react';
 import type { Theme } from '../../types';
-import type { StatsAggregation } from '../../hooks/useStats';
+import type { StatsAggregation } from '../../hooks/stats/useStats';
 import { COLORBLIND_BINARY_PALETTE } from '../../constants/colorblindPalettes';
 
 interface LocationData {
@@ -131,7 +131,7 @@ function describeArc(
   `;
 }
 
-export function LocationDistributionChart({
+export const LocationDistributionChart = memo(function LocationDistributionChart({
 	data,
 	theme,
 	colorBlindMode = false,
@@ -316,6 +316,6 @@ export function LocationDistributionChart({
 			</div>
 		</div>
 	);
-}
+});
 
 export default LocationDistributionChart;

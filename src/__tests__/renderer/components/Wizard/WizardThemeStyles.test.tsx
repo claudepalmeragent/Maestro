@@ -18,6 +18,7 @@ import { LayerStackProvider } from '../../../../renderer/contexts/LayerStackCont
 import { WizardExitConfirmModal } from '../../../../renderer/components/Wizard/WizardExitConfirmModal';
 import { WizardResumeModal } from '../../../../renderer/components/Wizard/WizardResumeModal';
 import { TourStep } from '../../../../renderer/components/Wizard/tour/TourStep';
+
 // Mock react-markdown
 vi.mock('react-markdown', () => ({
 	default: ({ children }: { children: string }) => <div data-testid="markdown">{children}</div>,
@@ -32,6 +33,7 @@ vi.mock('react-syntax-highlighter', () => ({
 
 vi.mock('react-syntax-highlighter/dist/esm/styles/prism', () => ({
 	vscDarkPlus: {},
+	vs: {},
 }));
 
 // Mock remark-gfm
@@ -68,6 +70,12 @@ const mockMaestro = {
 	},
 	fs: {
 		readFile: vi.fn(),
+	},
+	sshRemote: {
+		getConfigs: vi.fn().mockResolvedValue({ success: true, configs: [] }),
+	},
+	sessions: {
+		getAll: vi.fn().mockResolvedValue([]),
 	},
 };
 

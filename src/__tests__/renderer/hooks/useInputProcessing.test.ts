@@ -1,5 +1,21 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
+
+// Mock hasCapabilityCached — batch mode agents should return true for supportsBatchMode
+vi.mock('../../../renderer/hooks/agent/useAgentCapabilities', async () => {
+	const actual = await vi.importActual('../../../renderer/hooks/agent/useAgentCapabilities');
+	return {
+		...actual,
+		hasCapabilityCached: vi.fn((agentId: string, capability: string) => {
+			// Default batch mode agents: claude-code, codex, opencode, factory-droid
+			if (capability === 'supportsBatchMode') {
+				return ['claude-code', 'codex', 'opencode', 'factory-droid'].includes(agentId);
+			}
+			return false;
+		}),
+	};
+});
+
 import { useInputProcessing } from '../../../renderer/hooks/input/useInputProcessing';
 import type {
 	Session,
@@ -338,6 +354,7 @@ describe('useInputProcessing', () => {
 		];
 
 		it('matches and processes custom AI command', async () => {
+			vi.useFakeTimers();
 			const deps = createDeps({
 				inputValue: '/commit',
 				customAICommands: customCommands,
@@ -352,6 +369,7 @@ describe('useInputProcessing', () => {
 			expect(mockSetInputValue).toHaveBeenCalledWith('');
 			expect(mockSetSlashCommandOpen).toHaveBeenCalledWith(false);
 			expect(mockSyncAiInputToSession).toHaveBeenCalledWith('');
+			vi.useRealTimers();
 		});
 
 		it('does not match unknown slash command as custom command', async () => {
@@ -441,6 +459,7 @@ describe('useInputProcessing', () => {
 		];
 
 		it('matches and processes speckit command', async () => {
+			vi.useFakeTimers();
 			const deps = createDeps({
 				inputValue: '/speckit.help',
 				customAICommands: speckitCommands,
@@ -454,9 +473,11 @@ describe('useInputProcessing', () => {
 			// Should clear input (indicates command was matched)
 			expect(mockSetInputValue).toHaveBeenCalledWith('');
 			expect(mockSetSlashCommandOpen).toHaveBeenCalledWith(false);
+			vi.useRealTimers();
 		});
 
 		it('matches speckit.constitution command', async () => {
+			vi.useFakeTimers();
 			const deps = createDeps({
 				inputValue: '/speckit.constitution',
 				customAICommands: speckitCommands,
@@ -468,6 +489,7 @@ describe('useInputProcessing', () => {
 			});
 
 			expect(mockSetInputValue).toHaveBeenCalledWith('');
+			vi.useRealTimers();
 		});
 
 		it('does not match partial speckit command', async () => {
@@ -508,6 +530,7 @@ describe('useInputProcessing', () => {
 		];
 
 		it('matches custom command when both types present', async () => {
+			vi.useFakeTimers();
 			const deps = createDeps({
 				inputValue: '/commit',
 				customAICommands: combinedCommands,
@@ -519,9 +542,11 @@ describe('useInputProcessing', () => {
 			});
 
 			expect(mockSetInputValue).toHaveBeenCalledWith('');
+			vi.useRealTimers();
 		});
 
 		it('matches speckit command when both types present', async () => {
+			vi.useFakeTimers();
 			const deps = createDeps({
 				inputValue: '/speckit.help',
 				customAICommands: combinedCommands,
@@ -533,6 +558,142 @@ describe('useInputProcessing', () => {
 			});
 
 			expect(mockSetInputValue).toHaveBeenCalledWith('');
+			vi.useRealTimers();
+		});
+	});
+
+	describe('slash commands with arguments', () => {
+		const speckitCommandsWithArgs: CustomAICommand[] = [
+			{
+				id: 'speckit-plan',
+				command: '/speckit.constitution',
+				description: 'Plan a feature',
+				prompt:
+					'## User Input\n\n```text\n$ARGUMENTS\n```\n\nYou must plan based on the above input.',
+				isBuiltIn: true,
+			},
+			{
+				id: 'test-command',
+				command: '/testcommand',
+				description: 'Test command',
+				prompt: 'Test: $ARGUMENTS',
+				isBuiltIn: true,
+			},
+		];
+
+		beforeEach(() => {
+			// Clear the processQueuedItemRef mock between tests in this suite
+			// to ensure mock.calls[0] always refers to current test's call
+			mockProcessQueuedItemRef.current.mockClear();
+		});
+
+		it('matches command with arguments and stores args in queued item', async () => {
+			vi.useFakeTimers();
+
+			const deps = createDeps({
+				inputValue: '/testcommand Blah blah blah',
+				customAICommands: speckitCommandsWithArgs,
+			});
+			const { result } = renderHook(() => useInputProcessing(deps));
+
+			await act(async () => {
+				await result.current.processInput();
+			});
+
+			// Should clear input (command matched)
+			expect(mockSetInputValue).toHaveBeenCalledWith('');
+			expect(mockSetSlashCommandOpen).toHaveBeenCalledWith(false);
+
+			// Advance timer to trigger immediate processing
+			await act(async () => {
+				vi.advanceTimersByTime(100);
+			});
+
+			// Check that processQueuedItem was called with the correct arguments
+			expect(mockProcessQueuedItemRef.current).toHaveBeenCalled();
+			const callArgs = mockProcessQueuedItemRef.current.mock.calls[0];
+			const queuedItem = callArgs[1] as QueuedItem;
+
+			expect(queuedItem.type).toBe('command');
+			expect(queuedItem.command).toBe('/testcommand');
+			expect(queuedItem.commandArgs).toBe('Blah blah blah');
+
+			vi.useRealTimers();
+		});
+
+		it('handles command without arguments (empty args)', async () => {
+			vi.useFakeTimers();
+
+			const deps = createDeps({
+				inputValue: '/speckit.constitution',
+				customAICommands: speckitCommandsWithArgs,
+			});
+			const { result } = renderHook(() => useInputProcessing(deps));
+
+			await act(async () => {
+				await result.current.processInput();
+			});
+
+			expect(mockSetInputValue).toHaveBeenCalledWith('');
+
+			await act(async () => {
+				vi.advanceTimersByTime(100);
+			});
+
+			const queuedItem = mockProcessQueuedItemRef.current.mock.calls[0][1] as QueuedItem;
+			expect(queuedItem.command).toBe('/speckit.constitution');
+			expect(queuedItem.commandArgs).toBe('');
+
+			vi.useRealTimers();
+		});
+
+		it('preserves multi-word arguments with spaces', async () => {
+			vi.useFakeTimers();
+
+			const deps = createDeps({
+				inputValue: '/testcommand Add user authentication with OAuth 2.0 support',
+				customAICommands: speckitCommandsWithArgs,
+			});
+			const { result } = renderHook(() => useInputProcessing(deps));
+
+			await act(async () => {
+				await result.current.processInput();
+			});
+
+			await act(async () => {
+				vi.advanceTimersByTime(100);
+			});
+
+			const queuedItem = mockProcessQueuedItemRef.current.mock.calls[0][1] as QueuedItem;
+			expect(queuedItem.command).toBe('/testcommand');
+			expect(queuedItem.commandArgs).toBe('Add user authentication with OAuth 2.0 support');
+
+			vi.useRealTimers();
+		});
+
+		it('queues command with arguments when session is busy', async () => {
+			const busySession = createMockSession({
+				state: 'busy',
+				aiTabs: [createMockTab({ state: 'busy' })],
+			});
+			const deps = createDeps({
+				activeSession: busySession,
+				inputValue: '/speckit.constitution create a new feature',
+				customAICommands: speckitCommandsWithArgs,
+			});
+			const { result } = renderHook(() => useInputProcessing(deps));
+
+			await act(async () => {
+				await result.current.processInput();
+			});
+
+			// Should add to execution queue
+			expect(mockSetSessions).toHaveBeenCalled();
+			const setSessionsCall = mockSetSessions.mock.calls[0][0];
+			const updatedSessions = setSessionsCall([busySession]);
+			expect(updatedSessions[0].executionQueue.length).toBe(1);
+			expect(updatedSessions[0].executionQueue[0].command).toBe('/speckit.constitution');
+			expect(updatedSessions[0].executionQueue[0].commandArgs).toBe('create a new feature');
 		});
 	});
 
@@ -634,6 +795,7 @@ describe('useInputProcessing', () => {
 
 	describe('override input value', () => {
 		it('uses overrideInputValue when provided', async () => {
+			vi.useFakeTimers();
 			const customCommands: CustomAICommand[] = [
 				{ id: 'commit', command: '/commit', description: 'Commit', prompt: 'Commit.' },
 			];
@@ -649,6 +811,7 @@ describe('useInputProcessing', () => {
 
 			// Should match the override value, not the inputValue
 			expect(mockSetInputValue).toHaveBeenCalledWith('');
+			vi.useRealTimers();
 		});
 	});
 
@@ -820,6 +983,7 @@ describe('useInputProcessing', () => {
 
 	describe('command history tracking', () => {
 		it('adds slash command to aiCommandHistory', async () => {
+			vi.useFakeTimers();
 			const customCommands: CustomAICommand[] = [
 				{ id: 'test', command: '/test', description: 'Test', prompt: 'Test prompt.' },
 			];
@@ -840,6 +1004,302 @@ describe('useInputProcessing', () => {
 			const setSessionsCall = mockSetSessions.mock.calls[0][0];
 			const updatedSessions = setSessionsCall([session]);
 			expect(updatedSessions[0].aiCommandHistory).toContain('/test');
+			vi.useRealTimers();
+		});
+	});
+
+	describe('automatic tab naming', () => {
+		const mockGenerateTabName = vi.fn();
+
+		beforeEach(() => {
+			mockGenerateTabName.mockClear();
+			mockGenerateTabName.mockResolvedValue('Generated Tab Name');
+
+			// Add tabNaming mock to window.maestro
+			window.maestro = {
+				...window.maestro,
+				tabNaming: {
+					generateTabName: mockGenerateTabName,
+				},
+			} as typeof window.maestro;
+		});
+
+		it('triggers tab naming for new AI session with text message', async () => {
+			// Tab with no agentSessionId (new session) and no custom name
+			const newTab = createMockTab({
+				agentSessionId: null,
+				name: null,
+			});
+			const session = createMockSession({
+				aiTabs: [newTab],
+				activeTabId: newTab.id,
+			});
+			const deps = createDeps({
+				activeSession: session,
+				sessionsRef: { current: [session] },
+				inputValue: 'Help me implement a new feature',
+				automaticTabNamingEnabled: true,
+			});
+			const { result } = renderHook(() => useInputProcessing(deps));
+
+			await act(async () => {
+				await result.current.processInput();
+			});
+
+			// Should call generateTabName
+			expect(mockGenerateTabName).toHaveBeenCalledTimes(1);
+			expect(mockGenerateTabName).toHaveBeenCalledWith({
+				userMessage: 'Help me implement a new feature',
+				agentType: 'claude-code',
+				cwd: '/test/project',
+				sessionSshRemoteConfig: undefined,
+			});
+		});
+
+		it('does not trigger tab naming when setting is disabled', async () => {
+			const newTab = createMockTab({
+				agentSessionId: null,
+				name: null,
+			});
+			const session = createMockSession({
+				aiTabs: [newTab],
+				activeTabId: newTab.id,
+			});
+			const deps = createDeps({
+				activeSession: session,
+				sessionsRef: { current: [session] },
+				inputValue: 'Help me with something',
+				automaticTabNamingEnabled: false,
+			});
+			const { result } = renderHook(() => useInputProcessing(deps));
+
+			await act(async () => {
+				await result.current.processInput();
+			});
+
+			// Should NOT call generateTabName
+			expect(mockGenerateTabName).not.toHaveBeenCalled();
+		});
+
+		it('does not trigger tab naming for existing session (has agentSessionId)', async () => {
+			const existingTab = createMockTab({
+				agentSessionId: 'existing-session-123',
+				name: null,
+			});
+			const session = createMockSession({
+				aiTabs: [existingTab],
+				activeTabId: existingTab.id,
+			});
+			const deps = createDeps({
+				activeSession: session,
+				sessionsRef: { current: [session] },
+				inputValue: 'Follow up question',
+				automaticTabNamingEnabled: true,
+			});
+			const { result } = renderHook(() => useInputProcessing(deps));
+
+			await act(async () => {
+				await result.current.processInput();
+			});
+
+			// Should NOT call generateTabName for existing sessions
+			expect(mockGenerateTabName).not.toHaveBeenCalled();
+		});
+
+		it('does not trigger tab naming when tab already has custom name', async () => {
+			const namedTab = createMockTab({
+				agentSessionId: null,
+				name: 'My Custom Tab Name',
+			});
+			const session = createMockSession({
+				aiTabs: [namedTab],
+				activeTabId: namedTab.id,
+			});
+			const deps = createDeps({
+				activeSession: session,
+				sessionsRef: { current: [session] },
+				inputValue: 'New message',
+				automaticTabNamingEnabled: true,
+			});
+			const { result } = renderHook(() => useInputProcessing(deps));
+
+			await act(async () => {
+				await result.current.processInput();
+			});
+
+			// Should NOT call generateTabName when tab already has a name
+			expect(mockGenerateTabName).not.toHaveBeenCalled();
+		});
+
+		it('does not trigger tab naming in terminal mode', async () => {
+			const newTab = createMockTab({
+				agentSessionId: null,
+				name: null,
+			});
+			const session = createMockSession({
+				inputMode: 'terminal',
+				aiTabs: [newTab],
+				activeTabId: newTab.id,
+			});
+			const deps = createDeps({
+				activeSession: session,
+				sessionsRef: { current: [session] },
+				inputValue: 'ls -la',
+				isAiMode: false,
+				automaticTabNamingEnabled: true,
+			});
+			const { result } = renderHook(() => useInputProcessing(deps));
+
+			await act(async () => {
+				await result.current.processInput();
+			});
+
+			// Should NOT call generateTabName in terminal mode
+			expect(mockGenerateTabName).not.toHaveBeenCalled();
+		});
+
+		it('does not trigger tab naming for empty/whitespace-only message', async () => {
+			const newTab = createMockTab({
+				agentSessionId: null,
+				name: null,
+			});
+			const session = createMockSession({
+				aiTabs: [newTab],
+				activeTabId: newTab.id,
+			});
+			const deps = createDeps({
+				activeSession: session,
+				sessionsRef: { current: [session] },
+				inputValue: '',
+				stagedImages: ['base64-image-data'], // Only images, no text
+				automaticTabNamingEnabled: true,
+			});
+			const { result } = renderHook(() => useInputProcessing(deps));
+
+			await act(async () => {
+				await result.current.processInput();
+			});
+
+			// Should NOT call generateTabName for image-only messages
+			expect(mockGenerateTabName).not.toHaveBeenCalled();
+		});
+
+		it('sets isGeneratingName flag while naming is in progress', async () => {
+			// Use a promise that doesn't resolve immediately
+			let resolveNaming: (value: string) => void;
+			const namingPromise = new Promise<string>((resolve) => {
+				resolveNaming = resolve;
+			});
+			mockGenerateTabName.mockReturnValue(namingPromise);
+
+			const newTab = createMockTab({
+				agentSessionId: null,
+				name: null,
+			});
+			const session = createMockSession({
+				aiTabs: [newTab],
+				activeTabId: newTab.id,
+			});
+			const deps = createDeps({
+				activeSession: session,
+				sessionsRef: { current: [session] },
+				inputValue: 'Test message',
+				automaticTabNamingEnabled: true,
+			});
+			const { result } = renderHook(() => useInputProcessing(deps));
+
+			await act(async () => {
+				await result.current.processInput();
+			});
+
+			// Should have called setSessions to set isGeneratingName: true
+			expect(mockSetSessions).toHaveBeenCalled();
+
+			// Resolve the naming promise
+			await act(async () => {
+				resolveNaming!('Generated Name');
+			});
+		});
+
+		it('uses quick-path naming for GitHub PR URLs without spawning agent', async () => {
+			const newTab = createMockTab({
+				agentSessionId: null,
+				name: null,
+			});
+			const session = createMockSession({
+				aiTabs: [newTab],
+				activeTabId: newTab.id,
+			});
+			const deps = createDeps({
+				activeSession: session,
+				sessionsRef: { current: [session] },
+				inputValue: 'https://github.com/RunMaestro/Maestro/pull/380 review this PR',
+				automaticTabNamingEnabled: true,
+			});
+			const { result } = renderHook(() => useInputProcessing(deps));
+
+			await act(async () => {
+				await result.current.processInput();
+			});
+
+			// Should NOT call generateTabName (quick-path handles it)
+			expect(mockGenerateTabName).not.toHaveBeenCalled();
+
+			// Should have called setSessions to set the name directly
+			expect(mockSetSessions).toHaveBeenCalled();
+		});
+
+		it('uses quick-path naming for GitHub issue URLs without spawning agent', async () => {
+			const newTab = createMockTab({
+				agentSessionId: null,
+				name: null,
+			});
+			const session = createMockSession({
+				aiTabs: [newTab],
+				activeTabId: newTab.id,
+			});
+			const deps = createDeps({
+				activeSession: session,
+				sessionsRef: { current: [session] },
+				inputValue: 'thoughts on this issue? https://github.com/RunMaestro/Maestro/issues/381',
+				automaticTabNamingEnabled: true,
+			});
+			const { result } = renderHook(() => useInputProcessing(deps));
+
+			await act(async () => {
+				await result.current.processInput();
+			});
+
+			// Should NOT call generateTabName (quick-path handles it)
+			expect(mockGenerateTabName).not.toHaveBeenCalled();
+		});
+
+		it('handles tab naming failure gracefully', async () => {
+			mockGenerateTabName.mockRejectedValue(new Error('Tab naming failed'));
+
+			const newTab = createMockTab({
+				agentSessionId: null,
+				name: null,
+			});
+			const session = createMockSession({
+				aiTabs: [newTab],
+				activeTabId: newTab.id,
+			});
+			const deps = createDeps({
+				activeSession: session,
+				sessionsRef: { current: [session] },
+				inputValue: 'Test message',
+				automaticTabNamingEnabled: true,
+			});
+			const { result } = renderHook(() => useInputProcessing(deps));
+
+			// Should not throw
+			await act(async () => {
+				await result.current.processInput();
+			});
+
+			// Tab naming was attempted
+			expect(mockGenerateTabName).toHaveBeenCalled();
 		});
 	});
 });

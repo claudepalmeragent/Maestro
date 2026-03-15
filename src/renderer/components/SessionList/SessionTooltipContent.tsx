@@ -1,17 +1,16 @@
 import { memo } from 'react';
 import { Folder, GitBranch, Bot, Clock, Server } from 'lucide-react';
 import type { Session, Theme } from '../../types';
-import { getStatusColor, getContextColor, formatActiveTime } from '../../utils/theme';
-import { getDisplayCost, formatCost, getCostTooltip } from '../../utils/costCalculation';
+import { getContextColor, formatActiveTime } from '../../utils/theme';
 
 interface SessionTooltipContentProps {
 	session: Session;
 	theme: Theme;
 	gitFileCount?: number;
-	groupName?: string; // Optional group name (for skinny mode)
-	isInBatch?: boolean; // Whether session is running in auto mode
-	resolvedBillingMode?: 'api' | 'max'; // Resolved billing mode for cost display
-	isMaxSubscriber?: boolean; // Whether agent uses Max subscription pricing
+	groupName?: string;
+	isInBatch?: boolean;
+	contextWarningYellowThreshold?: number;
+	contextWarningRedThreshold?: number;
 }
 
 export const SessionTooltipContent = memo(function SessionTooltipContent({
@@ -20,9 +19,11 @@ export const SessionTooltipContent = memo(function SessionTooltipContent({
 	gitFileCount,
 	groupName,
 	isInBatch = false,
-	resolvedBillingMode,
-	isMaxSubscriber = false,
+	contextWarningYellowThreshold = 60,
+	contextWarningRedThreshold = 80,
 }: SessionTooltipContentProps) {
+	const clampedContextUsage = Math.max(0, Math.min(100, session.contextUsage));
+
 	return (
 		<>
 			{groupName && (
@@ -37,11 +38,8 @@ export const SessionTooltipContent = memo(function SessionTooltipContent({
 				<span className="text-xs font-bold" style={{ color: theme.colors.textMain }}>
 					{session.name}
 				</span>
-				{/* Location Indicator Pills */}
 				{session.toolType !== 'terminal' && (
 					<>
-						{/* SSH connection failure badge - red server icon (shown for any remote session with failed connection) */}
-						{/* For git repos, this shows alongside GIT badge; for non-git, this replaces REMOTE badge */}
 						{session.sessionSshRemoteConfig?.enabled && session.sshConnectionFailed && (
 							<span
 								className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold"
@@ -52,17 +50,13 @@ export const SessionTooltipContent = memo(function SessionTooltipContent({
 								title="SSH connection failed"
 							>
 								<Server className="w-3 h-3" />
-								{/* Show REMOTE text only for non-git sessions (git sessions show GIT badge separately) */}
 								{!(session.isGitRepo || session.worktreeBranch) && (
 									<span className="uppercase">REMOTE</span>
 								)}
 							</span>
 						)}
-						{/* Worktree children are always git repos; also check isGitRepo for regular sessions */}
 						{session.isGitRepo || session.worktreeBranch ? (
-							/* Git repo: Show server icon pill (if remote & connected) + GIT pill */
 							<>
-								{/* Server icon for remote git repos - only when connected (failure shows red server above) */}
 								{session.sessionSshRemoteConfig?.enabled && !session.sshConnectionFailed && (
 									<span
 										className="flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold"
@@ -81,31 +75,11 @@ export const SessionTooltipContent = memo(function SessionTooltipContent({
 										backgroundColor: theme.colors.accent + '30',
 										color: theme.colors.accent,
 									}}
-									title={
-										session.gitRoot && session.gitRoot !== session.cwd
-											? `Git root: ${session.gitRoot}`
-											: 'Git repository'
-									}
 								>
 									GIT
-									{session.gitRoot && session.gitRoot !== session.cwd && (
-										<span
-											style={{
-												fontSize: '0.55rem',
-												opacity: 0.7,
-												marginLeft: '3px',
-												textTransform: 'none',
-											}}
-										>
-											{session.gitRoot.split('/').pop()}
-										</span>
-									)}
 								</span>
 							</>
-						) : /* Plain directory: Show REMOTE (with server icon if failed) or LOCAL */
-						session.sessionSshRemoteConfig?.enabled ? (
-							/* Remote non-git: show REMOTE badge (red if failed, orange if connected) */
-							/* Note: failure server icon already shown above */
+						) : session.sessionSshRemoteConfig?.enabled ? (
 							!session.sshConnectionFailed && (
 								<span
 									className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase"
@@ -118,7 +92,6 @@ export const SessionTooltipContent = memo(function SessionTooltipContent({
 								</span>
 							)
 						) : (
-							/* Local non-git: show LOCAL badge */
 							<span
 								className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase"
 								style={{
@@ -131,7 +104,6 @@ export const SessionTooltipContent = memo(function SessionTooltipContent({
 						)}
 					</>
 				)}
-				{/* AUTO Mode Indicator */}
 				{isInBatch && (
 					<span
 						className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase animate-pulse"
@@ -156,7 +128,7 @@ export const SessionTooltipContent = memo(function SessionTooltipContent({
 			>
 				<div className="flex items-center justify-between text-[10px]">
 					<span style={{ color: theme.colors.textDim }}>Context Window</span>
-					<span style={{ color: theme.colors.textMain }}>{session.contextUsage}%</span>
+					<span style={{ color: theme.colors.textMain }}>{clampedContextUsage}%</span>
 				</div>
 				<div
 					className="w-full h-1 rounded-full overflow-hidden"
@@ -165,41 +137,36 @@ export const SessionTooltipContent = memo(function SessionTooltipContent({
 					<div
 						className="h-full transition-all"
 						style={{
-							width: `${session.contextUsage}%`,
-							backgroundColor: getContextColor(session.contextUsage, theme),
+							width: `${clampedContextUsage}%`,
+							backgroundColor: getContextColor(
+								clampedContextUsage,
+								theme,
+								contextWarningYellowThreshold,
+								contextWarningRedThreshold
+							),
 						}}
 					/>
 				</div>
 
-				{/* Git Status */}
-				{session.isGitRepo &&
-					!session.isBareRepo &&
-					gitFileCount !== undefined &&
-					gitFileCount > 0 && (
-						<div className="flex items-center justify-between text-[10px] pt-1">
-							<span className="flex items-center gap-1" style={{ color: theme.colors.textDim }}>
-								<GitBranch className="w-3 h-3" />
-								Git Changes
-							</span>
-							<span style={{ color: theme.colors.warning }}>{gitFileCount} files</span>
-						</div>
-					)}
-
-				{/* Session Cost */}
-				{session.usageStats && getDisplayCost(session.usageStats) > 0 && (
+				{session.isGitRepo && gitFileCount !== undefined && gitFileCount > 0 && (
 					<div className="flex items-center justify-between text-[10px] pt-1">
-						<span style={{ color: theme.colors.textDim }}>Session Cost</span>
-						<span
-							className="font-mono font-bold"
-							style={{ color: theme.colors.success }}
-							title={getCostTooltip(resolvedBillingMode) || undefined}
-						>
-							{formatCost(getDisplayCost(session.usageStats), resolvedBillingMode, isMaxSubscriber)}
+						<span className="flex items-center gap-1" style={{ color: theme.colors.textDim }}>
+							<GitBranch className="w-3 h-3" />
+							Git Changes
+						</span>
+						<span style={{ color: theme.colors.warning }}>{gitFileCount} files</span>
+					</div>
+				)}
+
+				{session.usageStats && session.usageStats.totalCostUsd > 0 && (
+					<div className="flex items-center justify-between text-[10px] pt-1">
+						<span style={{ color: theme.colors.textDim }}>Agent Cost</span>
+						<span className="font-mono font-bold" style={{ color: theme.colors.success }}>
+							${session.usageStats.totalCostUsd.toFixed(2)}
 						</span>
 					</div>
 				)}
 
-				{/* Active Time */}
 				{session.activeTimeMs > 0 && (
 					<div className="flex items-center justify-between text-[10px] pt-1">
 						<span className="flex items-center gap-1" style={{ color: theme.colors.textDim }}>

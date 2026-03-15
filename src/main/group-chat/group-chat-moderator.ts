@@ -8,6 +8,7 @@
  * - Aggregates responses and maintains conversation flow
  */
 
+import * as os from 'os';
 import { GroupChat, loadGroupChat, updateGroupChat } from './group-chat-storage';
 import { appendToLog, readLog } from './group-chat-log';
 import { groupChatModeratorSystemPrompt, groupChatModeratorSynthesisPrompt } from '../../prompts';
@@ -30,10 +31,14 @@ export interface IProcessManager {
 		contextWindow?: number;
 		promptArgs?: (prompt: string) => string[];
 		noPromptSeparator?: boolean;
-		/** SSH remote ID for tracking and error messages */
-		sshRemoteId?: string;
-		/** SSH remote host for tracking and error messages */
-		sshRemoteHost?: string;
+		/** Shell to use for spawning (Windows: PowerShell preferred over cmd.exe) */
+		shell?: string;
+		/** Whether to run the command in a shell */
+		runInShell?: boolean;
+		/** Send prompt via stdin in JSON format (for stream-json agents on Windows) */
+		sendPromptViaStdin?: boolean;
+		/** Send prompt via stdin as raw text (for non-stream-json agents on Windows) */
+		sendPromptViaStdinRaw?: boolean;
 	}): { pid: number; success: boolean };
 
 	write(sessionId: string, data: string): boolean;
@@ -147,7 +152,7 @@ export function getModeratorSynthesisPrompt(): string {
 export async function spawnModerator(
 	chat: GroupChat,
 	_processManager: IProcessManager,
-	_cwd: string = process.env.HOME || '/tmp'
+	_cwd: string = os.homedir()
 ): Promise<string> {
 	console.log(`[GroupChat:Debug] ========== SPAWNING MODERATOR ==========`);
 	console.log(`[GroupChat:Debug] Chat ID: ${chat.id}`);

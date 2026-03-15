@@ -13,6 +13,72 @@ Maestro can update itself automatically! This feature was introduced in **v0.8.7
 
 ---
 
+## v0.15.x - Maestro Symphony
+
+**Latest: v0.15.2** | Released March 12, 2026
+
+# Major 0.15.x Additions
+
+🎶 **Maestro Symphony** — Contribute to open source with AI assistance! Browse curated issues from projects with the `runmaestro.ai` label, clone repos with one click, and automatically process the relevant Auto Run playbooks. Track your contributions, streaks, and stats. You're contributing CPU and tokens towards your favorite open source projects and features.
+
+🎬 **Director's Notes** — Aggregates history across all agents into a unified timeline with search, filters, and an activity graph. Includes an AI Overview tab that generates a structured synopsis of recent work. Off by default, gated behind a new "Encore Features" panel under settings. This is a precursor to an eventual plugin system, allowing for extensions and customizations without bloating the core app.
+
+🏷️ **Conductor Profile** — Available under Settings > General. Provide a short description on how Maestro agents should interface with you.
+
+🧠 **Three-State Thinking Toggle** — The thinking toggle now cycles through three modes: off, on, and sticky. Sticky mode keeps thinking content visible after the response completes. Cycle with CMD/CTRL+SHIFT+K.
+
+🤖 **Factory.ai Droid Support** — Added support for the [Factory.ai](https://factory.ai/product/cli) droid agent. Full session management and output parsing integration.
+
+## Change in v0.15.2
+
+Patch release with bug fixes, UX improvements, and cherry-picks from the 0.16.0 RC.
+
+### New Features
+
+- **Cmd+0 → Last Tab:** Remapped Cmd+0 to jump to last tab; Cmd+Shift+0 now resets font size
+- **Unsent draft protection:** Confirm dialog before closing tabs with unsent draft input
+- **Read-only CLI flag:** Added `--read-only` flag to `maestro-cli send` command
+- **Gemini read-only enforcement:** Gemini `-y` flag now works in read-only mode
+- **Capability-based providers:** Replaced hardcoded agent ID checks with capability flags and shared metadata
+
+### Bug Fixes
+
+- **Sticky overlay scroll:** Fixed sticky overlays breaking tab scroll-into-view
+- **Director's Notes stats:** Count only agents with entries in lookback window
+- **SSH remote config:** Check `sessionSshRemoteConfig` as primary SSH remote ID source
+- **.maestro file tree:** Always show .maestro directory even when dotfiles are hidden
+- **Provider hardening:** Prototype safety, capability gates, stale map cleanup
+- **Session search:** Per-session error resilience and metadata-based title matching
+- **File tree stale loads:** Load sequence counter prevents stale file tree updates
+- **File tree Unicode:** NFC normalization prevents duplicate entries
+- **File tree duplicates:** Tree-structured data resolves duplicate entries
+- **File tree auto-refresh:** Timer no longer destroyed on right panel tab switch
+- **Menu z-index:** Branding header menu renders above sidebar content
+- **Dropdown clipping:** Fixed hamburger menu and live overlay dropdown clipping
+- **Font size shortcuts:** Restored Cmd+/- font size shortcuts lost with custom menu
+- **Draft input preservation:** Replaying a previous message no longer discards current draft
+- **SSH directory collision:** Skip warning when agents are on different SSH hosts
+- **IPC error handling:** Handle expected IPC errors gracefully
+- **Auto-focus on mode switch:** Input field auto-focuses when toggling AI/Shell mode
+- **OpenCode parser:** Preserve JSON error events; reset resultEmitted on step_start
+- **NDJSON performance:** Eliminated triple JSON parsing on hot path
+- **Agent config overrides:** Apply config overrides in context groomer before spawning
+- **Stale closure fix:** Resolved model not saving in wizard agent config
+
+### Visual Polish
+
+- **Light theme contrast:** Improved syntax highlighting contrast across all light themes
+- **Context warning sash:** Dark text colors in light mode for readability
+- **Session name dimming:** Use `textMain` color to prevent visual dimming
+- **Session name pill:** Allow shrinking so date doesn't collide with type pill
+- **Scroll-to-bottom arrow:** Removed noisy indicator from terminal output view
+
+### Previous Releases in this Series
+
+- **v0.15.1** (March 3, 2026) - Maestro Symphony
+
+---
+
 ## v0.14.x - Doc Graphs, SSH Agents, Inline Wizard
 
 **Latest: v0.14.5** | Released January 24, 2026
@@ -431,7 +497,7 @@ Plus the pre-release ALPHA...
 
 ## Downloading Releases
 
-All releases are available on the [GitHub Releases page](https://github.com/pedramamini/Maestro/releases).
+All releases are available on the [GitHub Releases page](https://github.com/RunMaestro/Maestro/releases).
 
 Maestro is available for:
 - **macOS** - Apple Silicon (arm64) and Intel (x64)
