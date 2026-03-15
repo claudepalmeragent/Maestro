@@ -46,6 +46,13 @@ vi.mock('../../../../main/agents', () => ({
 		supportsResultMessages: false,
 		supportsModelSelection: false,
 		supportsStreamJsonInput: false,
+		supportsThinkingDisplay: false,
+		supportsContextMerge: false,
+		supportsContextExport: false,
+		supportsWizard: false,
+		supportsGroupChatModeration: false,
+		usesJsonLineOutput: false,
+		usesCombinedContextWindow: false,
 	},
 }));
 
@@ -65,9 +72,14 @@ vi.mock('../../../../main/utils/execFile', () => ({
 }));
 
 // Mock fs
-vi.mock('fs', () => ({
-	existsSync: vi.fn(),
-}));
+vi.mock('fs', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('fs')>();
+	return {
+		...actual,
+		default: actual,
+		existsSync: vi.fn(),
+	};
+});
 
 // Mock ssh-command-builder for remote model discovery tests
 vi.mock('../../../../main/utils/ssh-command-builder', () => ({

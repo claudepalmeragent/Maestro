@@ -18,7 +18,7 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import type { Theme, Session } from '../../types';
-import type { StatsTimeRange } from '../../hooks/useStats';
+import type { StatsTimeRange } from '../../hooks/stats/useStats';
 import { DataSourceToggle, type DataSource } from '../ui/DataSourceToggle';
 
 // Tooltip positioning constants

@@ -18,7 +18,7 @@ import React, { useState, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { format, parseISO } from 'date-fns';
 import type { Theme, Session } from '../../types';
-import type { StatsTimeRange, StatsAggregation } from '../../hooks/useStats';
+import type { StatsTimeRange, StatsAggregation } from '../../hooks/stats/useStats';
 import { COLORBLIND_AGENT_PALETTE } from '../../constants/colorblindPalettes';
 
 // Tooltip positioning constants

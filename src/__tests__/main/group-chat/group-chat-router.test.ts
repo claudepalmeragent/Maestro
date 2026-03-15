@@ -863,7 +863,7 @@ describe('group-chat-router', () => {
 			setGetSessionsCallback(() => [sshSession]);
 			setSshStore(mockSshStore);
 
-			// Add the participant (this triggers SSH wrapping during spawn)
+			// Add the SSH participant (this triggers SSH wrapping during spawn)
 			await addParticipant(
 				chat.id,
 				'SSHWorker',
@@ -876,8 +876,14 @@ describe('group-chat-router', () => {
 				{ sshRemoteName: 'PedTome', sshRemoteConfig },
 				mockSshStore
 			);
+			// Add a second participant so maxRounds >= 1 (maxRounds = participantCount - 1)
+			await addParticipant(chat.id, 'Helper', 'claude-code', mockProcessManager);
+
+			// routeUserMessage sets round state (maxRounds based on participant count)
+			await routeUserMessage(chat.id, 'Please help', mockProcessManager, mockAgentDetector);
 
 			mockWrapSpawnWithSsh.mockClear();
+			mockProcessManager.spawn.mockClear();
 
 			// Moderator mentions the SSH participant — batch spawn should use SSH wrapping
 			await routeModeratorResponse(

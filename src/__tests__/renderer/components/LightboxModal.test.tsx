@@ -25,7 +25,6 @@ vi.mock('lucide-react', () => ({
 	X: () => <svg data-testid="x-icon" />,
 }));
 
-
 // Mock navigator.clipboard
 const mockClipboardWrite = vi.fn();
 Object.defineProperty(navigator, 'clipboard', {
@@ -929,7 +928,7 @@ describe('LightboxModal', () => {
 				/>
 			);
 
-			expect(screen.getByTestId('trash2-icon')).toBeInTheDocument();
+			expect(screen.getByTestId('trash-icon')).toBeInTheDocument();
 			expect(screen.getByText(/Delete to remove/)).toBeInTheDocument();
 		});
 

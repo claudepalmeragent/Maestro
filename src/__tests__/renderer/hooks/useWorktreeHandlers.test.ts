@@ -7,6 +7,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+vi.unmock('../../../renderer/stores/modalStore');
 import { renderHook, act, cleanup } from '@testing-library/react';
 
 // Mock gitService before any imports that use it

@@ -2,6 +2,9 @@
  * Tests for modalStore - Zustand store for modal visibility state
  */
 
+// Unmock the store so we test the real implementation, not the global mock from setup.ts
+vi.unmock('../../../renderer/stores/modalStore');
+
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import {

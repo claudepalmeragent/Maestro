@@ -1407,7 +1407,7 @@ export function EditAgentModal({
 			}
 
 			// Load pricing configuration (for Claude agents only)
-			const isClaude = session.toolType === 'claude-code' || session.toolType === 'claude';
+			const isClaude = session.toolType === 'claude-code';
 			if (isClaude) {
 				// Fetch pricing config and detected auth in parallel
 				// Pass SSH remote ID if this session uses SSH remote execution
@@ -1443,7 +1443,7 @@ export function EditAgentModal({
 	// Fetch version when edit modal opens (for Claude Code agents)
 	useEffect(() => {
 		if (isOpen && session && window.maestro?.agents?.getVersion) {
-			const isClaude = session.toolType === 'claude-code' || session.toolType === 'claude';
+			const isClaude = session.toolType === 'claude-code';
 			if (isClaude) {
 				setAgentVersion(null);
 				setUpdateStatus('idle');
@@ -2150,7 +2150,7 @@ export function EditAgentModal({
 								isSshEnabled={isSshEnabled}
 							/>
 							{/* Version & Update (Claude Code only) — grouped with Model and Effort */}
-							{(session.toolType === 'claude-code' || session.toolType === 'claude') && (
+							{session.toolType === 'claude-code' && (
 								<div
 									className="p-3 rounded border mt-3"
 									style={{ borderColor: theme.colors.border, backgroundColor: theme.colors.bgMain }}

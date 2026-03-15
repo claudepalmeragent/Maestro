@@ -52,7 +52,11 @@ vi.mock('../../../../main/parsers/error-patterns', () => ({
 // ── Imports (after mocks) ──────────────────────────────────────────────────
 
 import { StdoutHandler } from '../../../../main/process-manager/handlers/StdoutHandler';
-import type { ManagedProcess, UsageStats, AgentError } from '../../../../main/process-manager/types';
+import type {
+	ManagedProcess,
+	UsageStats,
+	AgentError,
+} from '../../../../main/process-manager/types';
 import type { AgentOutputParser, ParsedEvent } from '../../../../main/parsers';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -580,6 +584,8 @@ describe('StdoutHandler', () => {
 			expect(emittedUsage.cacheCreationInputTokens).toBe(100);
 			expect(emittedUsage.totalCostUsd).toBe(0.05);
 			expect(emittedUsage.contextWindow).toBe(200000);
+			expect(emittedUsage.detectedModel).toBeUndefined();
+			expect(emittedUsage.anthropicMessageId).toBeUndefined();
 
 			// Should have stored totals for next call
 			expect(proc.lastUsageTotals).toEqual({
@@ -588,6 +594,7 @@ describe('StdoutHandler', () => {
 				cacheReadInputTokens: 200,
 				cacheCreationInputTokens: 100,
 				reasoningTokens: 0,
+				totalCostUsd: 0.05,
 			});
 		});
 
@@ -1026,8 +1033,9 @@ describe('StdoutHandler', () => {
 			expect(second.inputTokens).toBe(1200);
 			expect(second.outputTokens).toBe(600);
 
-			// lastUsageTotals should NOT be set since normalization was skipped
-			expect(proc.lastUsageTotals).toBeUndefined();
+			// lastUsageTotals IS set (for detectedModel/anthropicMessageId tracking)
+			// but normalization was skipped so values are not cumulative-adjusted
+			expect(proc.lastUsageTotals).toBeDefined();
 		});
 
 		it('should normalize usage for codex toolType (not just claude-code)', () => {
@@ -1462,6 +1470,10 @@ describe('StdoutHandler', () => {
 					type: 'system',
 					subtype: 'usage',
 				} as ParsedEvent),
+				parseJsonObject: vi.fn().mockReturnValue({
+					type: 'system',
+					subtype: 'usage',
+				} as ParsedEvent),
 				extractUsage: vi.fn().mockReturnValue({
 					inputTokens: 1000,
 					outputTokens: 500,
@@ -1475,6 +1487,7 @@ describe('StdoutHandler', () => {
 				extractSlashCommands: vi.fn().mockReturnValue(null),
 				isResultMessage: vi.fn().mockReturnValue(false),
 				detectErrorFromLine: vi.fn().mockReturnValue(null),
+				detectErrorFromParsed: vi.fn().mockReturnValue(null),
 			};
 
 			const processes = new Map<string, ManagedProcess>();
@@ -1513,6 +1526,10 @@ describe('StdoutHandler', () => {
 					type: 'system',
 					subtype: 'usage',
 				} as ParsedEvent),
+				parseJsonObject: vi.fn().mockReturnValue({
+					type: 'system',
+					subtype: 'usage',
+				} as ParsedEvent),
 				extractUsage: vi.fn().mockReturnValue({
 					inputTokens: 15000,
 					outputTokens: 2500,
@@ -1526,6 +1543,7 @@ describe('StdoutHandler', () => {
 				extractSlashCommands: vi.fn().mockReturnValue(null),
 				isResultMessage: vi.fn().mockReturnValue(false),
 				detectErrorFromLine: vi.fn().mockReturnValue(null),
+				detectErrorFromParsed: vi.fn().mockReturnValue(null),
 			};
 
 			const processes = new Map<string, ManagedProcess>();
@@ -1561,6 +1579,10 @@ describe('StdoutHandler', () => {
 					type: 'result',
 					detectedModel: 'claude-opus-4-5-20251101',
 				} as ParsedEvent),
+				parseJsonObject: vi.fn().mockReturnValue({
+					type: 'result',
+					detectedModel: 'claude-opus-4-5-20251101',
+				} as ParsedEvent),
 				extractUsage: vi.fn().mockReturnValue({
 					inputTokens: 5000,
 					outputTokens: 1500,
@@ -1573,6 +1595,7 @@ describe('StdoutHandler', () => {
 				extractSlashCommands: vi.fn().mockReturnValue(null),
 				isResultMessage: vi.fn().mockReturnValue(true),
 				detectErrorFromLine: vi.fn().mockReturnValue(null),
+				detectErrorFromParsed: vi.fn().mockReturnValue(null),
 			};
 
 			const processes = new Map<string, ManagedProcess>();
@@ -1683,7 +1706,7 @@ describe('StdoutHandler', () => {
 			stdoutHandler.handleData(sessionId, 'ssh: connection refused in some AI response text\n');
 
 			// Should NOT emit error — suppressed as likely false positive
-			expect(managedProcess.errorEmitted).toBeUndefined();
+			expect(managedProcess.errorEmitted).toBe(false);
 			expect(emittedErrors).toHaveLength(0);
 		});
 	});

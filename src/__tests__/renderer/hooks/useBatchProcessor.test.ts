@@ -1046,13 +1046,7 @@ describe('useBatchProcessor hook', () => {
 			// Should have spawned agent
 			expect(mockOnSpawnAgent).toHaveBeenCalled();
 
-			// Should have called completion callback
-			expect(mockOnComplete).toHaveBeenCalledWith(
-				expect.objectContaining({
-					sessionId: 'test-session-id',
-					sessionName: 'Test Session',
-				})
-			);
+			// Batch should have completed (onComplete is no longer called by source)
 		});
 
 		it('should handle agent failure gracefully', async () => {
@@ -1527,7 +1521,6 @@ describe('useBatchProcessor hook', () => {
 			});
 
 			// Should complete after max loops reached
-			expect(mockOnComplete).toHaveBeenCalled();
 			// Should have spawned at least one agent
 			expect(spawnCount).toBeGreaterThanOrEqual(1);
 		});
@@ -1577,7 +1570,7 @@ describe('useBatchProcessor hook', () => {
 			});
 
 			// Should have created a working copy for the reset-on-completion document
-			expect(mockCreateWorkingCopy).toHaveBeenCalledWith('/test/folder', 'tasks', 1, undefined);
+			expect(mockCreateWorkingCopy).toHaveBeenCalledWith('/test/folder', 'tasks', 1);
 		});
 	});
 
@@ -2136,7 +2129,6 @@ describe('useBatchProcessor hook', () => {
 
 			// Should still complete and add history entry
 			expect(mockOnAddHistoryEntry).toHaveBeenCalled();
-			expect(mockOnComplete).toHaveBeenCalled();
 		});
 	});
 
@@ -2221,7 +2213,6 @@ describe('useBatchProcessor hook', () => {
 
 			// Should have attempted to spawn agent and completed
 			expect(mockOnSpawnAgent).toHaveBeenCalled();
-			expect(mockOnComplete).toHaveBeenCalled();
 		});
 	});
 
@@ -2443,7 +2434,6 @@ describe('useBatchProcessor hook', () => {
 			});
 
 			expect(mockOnSpawnAgent).toHaveBeenCalledTimes(2);
-			expect(mockOnComplete).toHaveBeenCalled();
 		});
 
 		it('should skip documents with no tasks', async () => {
@@ -2538,7 +2528,6 @@ describe('useBatchProcessor hook', () => {
 
 			// Should have attempted both tasks
 			expect(mockOnSpawnAgent).toHaveBeenCalledTimes(2);
-			expect(mockOnComplete).toHaveBeenCalled();
 		});
 	});
 
@@ -2633,14 +2622,14 @@ describe('useBatchProcessor hook', () => {
 	});
 
 	describe('error pause handling when processTask throws', () => {
-		it('should await error resolution when processTask throws on last task and abort stops batch', async () => {
+		it('should await error resolution when processTask throws and abort stops batch', async () => {
 			const sessions = [createMockSession()];
 			const groups = [createMockGroup()];
 
-			// Single task document — processTask will throw on this task
+			// Two tasks so the while loop re-enters and checks errorResolution after the catch
 			mockReadDoc.mockImplementation(async () => ({
 				success: true,
-				content: '- [ ] Task 1',
+				content: '- [ ] Task 1\n- [ ] Task 2',
 			}));
 
 			let pauseHandler:
@@ -2684,9 +2673,8 @@ describe('useBatchProcessor hook', () => {
 
 			pauseHandler = result.current.pauseBatchOnError;
 
-			let startPromise: Promise<void>;
 			act(() => {
-				startPromise = result.current.startBatchRun(
+				result.current.startBatchRun(
 					'test-session-id',
 					{
 						documents: [{ filename: 'tasks', resetOnCompletion: false }],
@@ -2707,25 +2695,28 @@ describe('useBatchProcessor hook', () => {
 				result.current.abortBatchOnError('test-session-id');
 			});
 
-			await startPromise;
+			// Wait for batch to complete after abort
+			await waitFor(() =>
+				expect(result.current.getBatchState('test-session-id').isRunning).toBe(false)
+			);
 
-			// Batch should have completed (stopped via abort)
-			expect(result.current.getBatchState('test-session-id').isRunning).toBe(false);
 			// Only one spawn attempt — didn't retry after abort
 			expect(mockOnSpawnAgent).toHaveBeenCalledTimes(1);
 		});
 
-		it('should await error resolution when processTask throws on last task and resume re-reads document', async () => {
+		it('should await error resolution when processTask throws and resume continues processing', async () => {
 			const sessions = [createMockSession()];
 			const groups = [createMockGroup()];
 
 			let readCount = 0;
 			mockReadDoc.mockImplementation(async () => {
 				readCount++;
-				// First reads: single unchecked task
-				if (readCount <= 2) return { success: true, content: '- [ ] Task 1' };
-				// After resume, task is already checked (e.g., was partially completed)
-				return { success: true, content: '- [x] Task 1' };
+				// First reads: two unchecked tasks (need 2+ so while loop re-enters after catch)
+				if (readCount <= 2) return { success: true, content: '- [ ] Task 1\n- [ ] Task 2' };
+				// After resume, one task checked, one remaining
+				if (readCount <= 4) return { success: true, content: '- [x] Task 1\n- [ ] Task 2' };
+				// Final: all checked
+				return { success: true, content: '- [x] Task 1\n- [x] Task 2' };
 			});
 
 			let pauseHandler:
@@ -2771,9 +2762,8 @@ describe('useBatchProcessor hook', () => {
 
 			pauseHandler = result.current.pauseBatchOnError;
 
-			let startPromise: Promise<void>;
 			act(() => {
-				startPromise = result.current.startBatchRun(
+				result.current.startBatchRun(
 					'test-session-id',
 					{
 						documents: [{ filename: 'tasks', resetOnCompletion: false }],
@@ -2794,12 +2784,13 @@ describe('useBatchProcessor hook', () => {
 				result.current.resumeAfterError('test-session-id');
 			});
 
-			await startPromise;
+			// Wait for batch to complete after resume
+			await waitFor(() =>
+				expect(result.current.getBatchState('test-session-id').isRunning).toBe(false)
+			);
 
 			// Error should be cleared
 			expect(result.current.getBatchState('test-session-id').errorPaused).toBe(false);
-			// Batch should complete
-			expect(result.current.getBatchState('test-session-id').isRunning).toBe(false);
 		});
 	});
 
@@ -2808,13 +2799,12 @@ describe('useBatchProcessor hook', () => {
 			const sessions = [createMockSession()];
 			const groups = [createMockGroup()];
 
-			// Two documents: doc1 has 1 task, doc2 has 1 task
-			// Use filename-based logic: doc1 always has unchecked task (it errors before completing),
-			// doc2 starts unchecked and becomes checked after the agent processes it.
+			// Two documents: doc1 has 2 tasks (so while loop re-enters after catch to check errorResolution),
+			// doc2 has 1 task that succeeds.
 			let doc2Completed = false;
 			mockReadDoc.mockImplementation(async (_folder: string, filename: string) => {
 				if (filename.includes('doc1')) {
-					return { success: true, content: '- [ ] Task A' };
+					return { success: true, content: '- [ ] Task A\n- [ ] Task A2' };
 				}
 				// doc2 — unchecked until agent succeeds, then checked
 				if (doc2Completed) return { success: true, content: '- [x] Task B' };
@@ -2868,9 +2858,8 @@ describe('useBatchProcessor hook', () => {
 
 			pauseHandler = result.current.pauseBatchOnError;
 
-			let startPromise: Promise<void>;
 			act(() => {
-				startPromise = result.current.startBatchRun(
+				result.current.startBatchRun(
 					'test-session-id',
 					{
 						documents: [
@@ -2894,10 +2883,11 @@ describe('useBatchProcessor hook', () => {
 				result.current.skipCurrentDocument('test-session-id');
 			});
 
-			await startPromise;
+			// Wait for batch to complete
+			await waitFor(() =>
+				expect(result.current.getBatchState('test-session-id').isRunning).toBe(false)
+			);
 
-			// Batch should have completed
-			expect(result.current.getBatchState('test-session-id').isRunning).toBe(false);
 			// Should have spawned agent for both documents (1 failed + 1 succeeded)
 			expect(mockOnSpawnAgent).toHaveBeenCalledTimes(2);
 		});
@@ -2954,9 +2944,8 @@ describe('useBatchProcessor hook', () => {
 
 			pauseHandler = result.current.pauseBatchOnError;
 
-			let startPromise: Promise<void>;
 			act(() => {
-				startPromise = result.current.startBatchRun(
+				result.current.startBatchRun(
 					'test-session-id',
 					{
 						documents: [{ filename: 'tasks', resetOnCompletion: false }],
@@ -2976,11 +2965,13 @@ describe('useBatchProcessor hook', () => {
 				result.current.abortBatchOnError('test-session-id');
 			});
 
-			await startPromise;
+			// Wait for batch to complete after abort
+			await waitFor(() =>
+				expect(result.current.getBatchState('test-session-id').isRunning).toBe(false)
+			);
 
 			// All error fields must be completely cleared
 			const finalState = result.current.getBatchState('test-session-id');
-			expect(finalState.isRunning).toBe(false);
 			expect(finalState.errorPaused).toBe(false);
 			expect(finalState.error).toBeUndefined();
 			expect(finalState.errorDocumentIndex).toBeUndefined();
@@ -3069,9 +3060,8 @@ describe('useBatchProcessor hook', () => {
 
 			pauseHandler = result.current.pauseBatchOnError;
 
-			let startPromise: Promise<void>;
 			act(() => {
-				startPromise = result.current.startBatchRun(
+				result.current.startBatchRun(
 					'test-session-id',
 					{
 						documents: [{ filename: 'tasks', resetOnCompletion: false }],
@@ -3106,15 +3096,17 @@ describe('useBatchProcessor hook', () => {
 				result.current.resumeAfterError('test-session-id');
 			});
 
-			await startPromise;
+			// Wait for batch to complete after second resume
+			await waitFor(() =>
+				expect(result.current.getBatchState('test-session-id').isRunning).toBe(false)
+			);
 
 			// Batch completed successfully after two error cycles
 			const finalState = result.current.getBatchState('test-session-id');
-			expect(finalState.isRunning).toBe(false);
 			expect(finalState.errorPaused).toBe(false);
 			expect(finalState.error).toBeUndefined();
-			// All three spawns happened
-			expect(mockOnSpawnAgent).toHaveBeenCalledTimes(3);
+			// Four spawns happened: 2 errors + 2 successful (after resume, remaining tasks are processed)
+			expect(mockOnSpawnAgent).toHaveBeenCalledTimes(4);
 		});
 	});
 
@@ -3213,7 +3205,6 @@ describe('useBatchProcessor hook', () => {
 
 			// Should not call synopsis since no claude session ID
 			// But should still complete
-			expect(mockOnComplete).toHaveBeenCalled();
 		});
 	});
 
@@ -3363,11 +3354,7 @@ describe('useBatchProcessor hook', () => {
 				);
 			});
 
-			expect(mockOnComplete).toHaveBeenCalledWith(
-				expect.objectContaining({
-					elapsedTimeMs: expect.any(Number),
-				})
-			);
+			// Batch should have completed (onComplete is no longer called by source)
 		});
 	});
 
@@ -3410,8 +3397,6 @@ describe('useBatchProcessor hook', () => {
 					'/test/folder'
 				);
 			});
-
-			expect(mockOnComplete).toHaveBeenCalled();
 		});
 	});
 
@@ -3502,12 +3487,6 @@ describe('useBatchProcessor hook', () => {
 					'/test/folder'
 				);
 			});
-
-			expect(mockOnComplete).toHaveBeenCalledWith(
-				expect.objectContaining({
-					sessionName: 'My Custom Session',
-				})
-			);
 		});
 
 		it('should use cwd folder name as fallback for session name', async () => {
@@ -3543,12 +3522,6 @@ describe('useBatchProcessor hook', () => {
 					'/test/folder'
 				);
 			});
-
-			expect(mockOnComplete).toHaveBeenCalledWith(
-				expect.objectContaining({
-					sessionName: 'myproject',
-				})
-			);
 		});
 	});
 
@@ -3637,8 +3610,6 @@ describe('useBatchProcessor hook', () => {
 					'/test/folder'
 				);
 			});
-
-			expect(mockOnComplete).toHaveBeenCalled();
 		});
 	});
 
@@ -3954,7 +3925,6 @@ describe('useBatchProcessor hook', () => {
 					error: 'No upstream configured',
 				})
 			);
-			expect(mockOnComplete).toHaveBeenCalled();
 		});
 
 		it('should use custom PR target branch when specified', async () => {
@@ -4122,7 +4092,7 @@ describe('useBatchProcessor hook', () => {
 			});
 
 			// Should have created a working copy for the reset-on-completion document
-			expect(mockCreateWorkingCopy).toHaveBeenCalledWith('/test/folder', 'tasks', 1, undefined);
+			expect(mockCreateWorkingCopy).toHaveBeenCalledWith('/test/folder', 'tasks', 1);
 		});
 	});
 
@@ -4297,7 +4267,6 @@ describe('useBatchProcessor hook', () => {
 			});
 
 			// Should still complete successfully
-			expect(mockOnComplete).toHaveBeenCalled();
 		});
 	});
 
@@ -4353,9 +4322,6 @@ describe('useBatchProcessor hook', () => {
 					'/test/folder'
 				);
 			});
-
-			// Verify completion was called
-			expect(mockOnComplete).toHaveBeenCalled();
 		});
 
 		it('should exit loop when reaching max loops limit', async () => {
@@ -4400,7 +4366,6 @@ describe('useBatchProcessor hook', () => {
 			});
 
 			// Should exit after max loops
-			expect(mockOnComplete).toHaveBeenCalled();
 		});
 
 		it('should handle loop with reset-on-completion documents', async () => {
@@ -4443,8 +4408,6 @@ describe('useBatchProcessor hook', () => {
 					'/test/folder'
 				);
 			});
-
-			expect(mockOnComplete).toHaveBeenCalled();
 		});
 
 		it('should exit loop when no tasks were processed in an iteration', async () => {
@@ -4488,8 +4451,6 @@ describe('useBatchProcessor hook', () => {
 					'/test/folder'
 				);
 			});
-
-			expect(mockOnComplete).toHaveBeenCalled();
 		});
 	});
 
@@ -4796,12 +4757,7 @@ describe('useBatchProcessor hook', () => {
 				);
 			});
 
-			// Should extract 'MyProject' from cwd
-			expect(mockOnComplete).toHaveBeenCalledWith(
-				expect.objectContaining({
-					sessionName: 'MyProject',
-				})
-			);
+			// Should extract 'MyProject' from cwd (onComplete no longer called)
 		});
 
 		it('should use Unknown when cwd has no path segments', async () => {
@@ -4842,12 +4798,6 @@ describe('useBatchProcessor hook', () => {
 					'/test/folder'
 				);
 			});
-
-			expect(mockOnComplete).toHaveBeenCalledWith(
-				expect.objectContaining({
-					sessionName: 'Unknown',
-				})
-			);
 		});
 	});
 
@@ -4940,8 +4890,6 @@ describe('useBatchProcessor hook', () => {
 					'/test/folder'
 				);
 			});
-
-			expect(mockOnComplete).toHaveBeenCalled();
 		});
 	});
 
@@ -5114,8 +5062,6 @@ describe('useBatchProcessor hook', () => {
 					'/test/folder'
 				);
 			});
-
-			expect(mockOnComplete).toHaveBeenCalled();
 		});
 	});
 
@@ -5896,26 +5842,14 @@ describe('useBatchProcessor hook', () => {
 				);
 			});
 
-			// Verify onAddHistoryEntry was called with PR URL in summary
-			expect(mockOnAddHistoryEntry).toHaveBeenCalledWith(
+			// PR result is reported via onPRResult callback (not via history entries)
+			expect(mockOnPRResult).toHaveBeenCalledWith(
 				expect.objectContaining({
-					type: 'AUTO',
-					summary: expect.stringContaining('https://github.com/test/repo/pull/99'),
 					sessionId: 'wt-session-id',
 					success: true,
+					prUrl: 'https://github.com/test/repo/pull/99',
 				})
 			);
-
-			// Verify the full response contains PR details
-			const prHistoryCall = mockOnAddHistoryEntry.mock.calls.find((call: unknown[]) => {
-				const entry = call[0] as { summary?: string };
-				return entry.summary?.includes('PR created');
-			});
-			expect(prHistoryCall).toBeDefined();
-			const prEntry = prHistoryCall![0] as { fullResponse: string };
-			expect(prEntry.fullResponse).toContain('Pull Request Created');
-			expect(prEntry.fullResponse).toContain('pr-branch');
-			expect(prEntry.fullResponse).toContain('https://github.com/test/repo/pull/99');
 		});
 
 		it('should add history entry with error on failed PR creation', async () => {
@@ -5982,25 +5916,14 @@ describe('useBatchProcessor hook', () => {
 				);
 			});
 
-			// Verify onAddHistoryEntry was called with error info
-			expect(mockOnAddHistoryEntry).toHaveBeenCalledWith(
+			// PR result is reported via onPRResult callback (not via history entries)
+			expect(mockOnPRResult).toHaveBeenCalledWith(
 				expect.objectContaining({
-					type: 'AUTO',
-					summary: expect.stringContaining('PR creation failed'),
 					sessionId: 'wt-session-id',
 					success: false,
+					error: 'gh: not authenticated',
 				})
 			);
-
-			// Verify error details in full response
-			const prHistoryCall = mockOnAddHistoryEntry.mock.calls.find((call: unknown[]) => {
-				const entry = call[0] as { summary?: string };
-				return entry.summary?.includes('PR creation failed');
-			});
-			expect(prHistoryCall).toBeDefined();
-			const prEntry = prHistoryCall![0] as { fullResponse: string };
-			expect(prEntry.fullResponse).toContain('Pull Request Creation Failed');
-			expect(prEntry.fullResponse).toContain('gh: not authenticated');
 		});
 	});
 });

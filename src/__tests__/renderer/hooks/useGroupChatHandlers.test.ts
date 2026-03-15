@@ -3,6 +3,10 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
+
+// Use the REAL modalStore (not the global mock) since these tests verify store state changes
+vi.unmock('../../../renderer/stores/modalStore');
+
 import { useGroupChatHandlers } from '../../../renderer/hooks/groupChat/useGroupChatHandlers';
 import { useGroupChatStore } from '../../../renderer/stores/groupChatStore';
 import { useModalStore } from '../../../renderer/stores/modalStore';

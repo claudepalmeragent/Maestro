@@ -16,7 +16,7 @@ import React, { memo, useMemo } from 'react';
 import { Monitor, GitBranch, Folder, Laptop, Clock, Timer, Hash, Zap } from 'lucide-react';
 import type { Theme, Session, ToolType } from '../../types';
 import { COLORBLIND_AGENT_PALETTE } from '../../constants/colorblindPalettes';
-import type { StatsAggregation } from '../../hooks/useStats';
+import type { StatsAggregation } from '../../hooks/stats/useStats';
 
 interface SessionStatsProps {
 	/** Array of all sessions */
@@ -282,13 +282,19 @@ export const SessionStats = memo(function SessionStats({
 					/>
 					<StatCard
 						label="TOTAL TOKENS"
-						value={queryMetrics.totalTokens > 0 ? formatTokenCount(queryMetrics.totalTokens) : 'N/A'}
+						value={
+							queryMetrics.totalTokens > 0 ? formatTokenCount(queryMetrics.totalTokens) : 'N/A'
+						}
 						icon={<Hash className="w-4 h-4" style={{ color: theme.colors.accent }} />}
 						theme={theme}
 					/>
 					<StatCard
 						label="AVG THROUGHPUT"
-						value={queryMetrics.avgThroughput > 0 ? `${queryMetrics.avgThroughput.toFixed(1)} tok/s` : 'N/A'}
+						value={
+							queryMetrics.avgThroughput > 0
+								? `${queryMetrics.avgThroughput.toFixed(1)} tok/s`
+								: 'N/A'
+						}
 						icon={<Zap className="w-4 h-4" style={{ color: theme.colors.accent }} />}
 						theme={theme}
 					/>

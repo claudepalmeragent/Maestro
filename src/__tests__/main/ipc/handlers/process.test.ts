@@ -847,7 +847,8 @@ describe('process IPC handlers', () => {
 					source: 'session',
 				});
 
-				const { buildSshCommand } = await import('../../../../main/utils/ssh-command-builder');
+				const { buildSshCommandWithStdin } =
+					await import('../../../../main/utils/ssh-command-builder');
 
 				const handler = handlers.get('process:spawn');
 				await handler!({} as any, {
@@ -862,8 +863,8 @@ describe('process IPC handlers', () => {
 					},
 				});
 
-				// Verify buildSshCommand was called with the effort level in the env
-				expect(vi.mocked(buildSshCommand)).toHaveBeenCalledWith(
+				// Verify buildSshCommandWithStdin was called with the effort level in the env
+				expect(vi.mocked(buildSshCommandWithStdin)).toHaveBeenCalledWith(
 					expect.any(Object),
 					expect.objectContaining({
 						env: expect.objectContaining({

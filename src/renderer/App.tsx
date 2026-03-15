@@ -160,25 +160,17 @@ import { detectGitRepo } from './services/git';
 // autorunSynopsisPrompt, maestroSystemPrompt, parseSynopsis, formatRelativeTime moved to hooks
 
 // Import types and constants
-// Note: GroupChat, GroupChatState are now imported via GroupChatContext; GroupChatMessage still used locally
+// Note: GroupChat, GroupChatState are now imported via GroupChatContext
 import type {
 	ToolType,
 	SessionState,
 	RightPanelTab,
-	FocusArea,
 	LogEntry,
 	Session,
-	AITab,
-	UsageStats,
 	QueuedItem,
-	BatchRunConfig,
-	AgentError,
-	BatchRunState,
-	GroupChatMessage,
-	SpecKitCommand,
-	OpenSpecCommand,
-	LeaderboardRegistration,
 	CustomAICommand,
+	ThinkingItem,
+	PinnedItem,
 	PromptLibraryEntry,
 } from './types';
 import { THEMES } from './constants/themes';
@@ -267,6 +259,7 @@ function MaestroConsoleInner() {
 		processMonitorOpen,
 		setProcessMonitorOpen,
 		// Usage Dashboard
+		usageDashboardOpen,
 		setUsageDashboardOpen,
 		// pendingKeyboardMasteryLevel — now self-sourced in AppOverlays (Tier 1A)
 		// Playground Panel
@@ -316,6 +309,8 @@ function MaestroConsoleInner() {
 		setAgentSessionsOpen,
 		activeAgentSessionId,
 		setActiveAgentSessionId,
+		// Execution Queue Browser Modal
+		queueBrowserOpen,
 		// Batch Runner Modal
 		setBatchRunnerModalOpen,
 		// Auto Run Setup Modal
@@ -400,6 +395,7 @@ function MaestroConsoleInner() {
 		fontFamily,
 		fontSize,
 		activeThemeId,
+		setActiveThemeId,
 		customThemeColors,
 		setCustomThemeColors,
 		customThemeBaseId,
@@ -625,6 +621,15 @@ function MaestroConsoleInner() {
 		setGroupChatParticipantColors,
 	} = useGroupChatStore.getState();
 
+	// Group chat thinking state (local, not persisted)
+	const [groupChatShowThinking, setGroupChatShowThinking] = useState(false);
+	const [groupChatThinkingContent, setGroupChatThinkingContent] = useState<Map<string, string>>(
+		new Map()
+	);
+	const [groupChatThinkingCollapsed, setGroupChatThinkingCollapsed] = useState<
+		Map<string, boolean>
+	>(new Map());
+
 	// --- APP INITIALIZATION (extracted hook, Phase 2G) ---
 	const { ghCliAvailable, sshRemoteConfigs, speckitCommands, openspecCommands, saveFileGistUrl } =
 		useAppInitialization();
@@ -707,6 +712,7 @@ function MaestroConsoleInner() {
 
 	// Auto Run document management state (from batchStore)
 	// Content is per-session in session.autoRunContent
+	const batchRunStates = useBatchStore((s) => s.batchRunStates);
 	const autoRunDocumentList = useBatchStore((s) => s.documentList);
 	const autoRunDocumentTree = useBatchStore((s) => s.documentTree);
 	const {
@@ -729,49 +735,6 @@ function MaestroConsoleInner() {
 		[setActiveSessionId, setSessions]
 	);
 
-	const handleProcessMonitorNavigateToGroupChat = useCallback(
-		(groupChatId: string) => {
-			// Restore state for this group chat when navigating from ProcessMonitor
-			setActiveGroupChatId(groupChatId);
-			setGroupChatState(groupChatStates.get(groupChatId) ?? 'idle');
-			setParticipantStates(allGroupChatParticipantStates.get(groupChatId) ?? new Map());
-			setProcessMonitorOpen(false);
-		},
-		[
-			setActiveGroupChatId,
-			setGroupChatState,
-			groupChatStates,
-			setParticipantStates,
-			allGroupChatParticipantStates,
-		]
-	);
-
-	// LogViewer shortcut handler
-	const handleLogViewerShortcutUsed = useCallback(
-		(shortcutId: string) => {
-			const result = recordShortcutUsage(shortcutId);
-			if (result.newLevel !== null) {
-				onKeyboardMasteryLevelUp(result.newLevel);
-			}
-		},
-		[recordShortcutUsage, onKeyboardMasteryLevelUp]
-	);
-
-	// Sync toast duration setting to ToastContext
-	useEffect(() => {
-		setToastDefaultDuration(toastDuration);
-	}, [toastDuration, setToastDefaultDuration]);
-
-	// Sync audio feedback settings to ToastContext for TTS on toast notifications
-	useEffect(() => {
-		setAudioFeedback(audioFeedbackEnabled, audioFeedbackCommand);
-	}, [audioFeedbackEnabled, audioFeedbackCommand, setAudioFeedback]);
-
-	// Sync OS notifications setting to ToastContext
-	useEffect(() => {
-		setOsNotifications(osNotificationsEnabled);
-	}, [osNotificationsEnabled, setOsNotifications]);
-
 	// Expose playground() function for developer console
 	useEffect(() => {
 		(window as unknown as { playground: () => void }).playground = () => {
@@ -781,14 +744,6 @@ function MaestroConsoleInner() {
 			delete (window as unknown as { playground?: () => void }).playground;
 		};
 	}, []);
-
-	// Close file preview when switching sessions (history is now per-session)
-	// previewFile intentionally omitted: we only want to clear preview on session change, not when preview itself changes
-	useEffect(() => {
-		if (previewFile !== null) {
-			setPreviewFile(null);
-		}
-	}, [activeSessionId]);
 
 	// Restore a persisted session by respawning its process
 	/**
@@ -933,7 +888,7 @@ function MaestroConsoleInner() {
 			}
 
 			// Migrate legacy 'claude' toolType to 'claude-code'
-			if (aiAgentType === 'claude') {
+			if ((aiAgentType as string) === 'claude') {
 				aiAgentType = 'claude-code' as ToolType;
 				correctedSession = {
 					...correctedSession,
@@ -1097,8 +1052,6 @@ function MaestroConsoleInner() {
 		console.log('[App] Starting loadSessionsAndGroups');
 
 		const loadSessionsAndGroups = async () => {
-			let _hasSessionsLoaded = false;
-
 			try {
 				console.log('[App] About to call sessions.getAll()');
 				const savedSessions = await window.maestro.sessions.getAll();
@@ -1108,7 +1061,6 @@ function MaestroConsoleInner() {
 				// Handle sessions
 				if (savedSessions && savedSessions.length > 0) {
 					const restoredSessions = await Promise.all(savedSessions.map((s) => restoreSession(s)));
-					_hasSessionsLoaded = true;
 
 					// Restore last active session, or default to first session
 					if (
@@ -1218,10 +1170,10 @@ function MaestroConsoleInner() {
 				// Load group chats
 				try {
 					const savedGroupChats = await window.maestro.groupChat.list();
-					setGroupChats(savedGroupChats || []);
+					useGroupChatStore.getState().setGroupChats(savedGroupChats || []);
 				} catch (gcError) {
 					console.error('Failed to load group chats:', gcError);
-					setGroupChats([]);
+					useGroupChatStore.getState().setGroupChats([]);
 				}
 			} catch (e) {
 				console.error('Failed to load sessions/groups:', e);
@@ -1232,7 +1184,7 @@ function MaestroConsoleInner() {
 				initialLoadComplete.current = true;
 
 				// Mark sessions as loaded for splash screen coordination
-				setSessionsLoaded(true);
+				useSessionStore.getState().setSessionsLoaded(true);
 
 				// When no sessions exist, we show EmptyStateView which lets users
 				// choose between "New Agent" or "Wizard" - no auto-opening wizard
@@ -1275,59 +1227,6 @@ function MaestroConsoleInner() {
 		return () =>
 			document.removeEventListener('visibilitychange', handleLastSessionVisibilityChange);
 	}, [activeSession?.id, activeSession?.activeTabId, activeSession?.aiTabs]);
-
-	// Hide splash screen only when both settings and sessions have fully loaded
-	// This prevents theme flash on initial render
-	useEffect(() => {
-		console.log(
-			'[App] Splash check - settingsLoaded:',
-			settingsLoaded,
-			'sessionsLoaded:',
-			sessionsLoaded
-		);
-		if (settingsLoaded && sessionsLoaded) {
-			console.log('[App] Both loaded, hiding splash');
-			if (typeof window.__hideSplash === 'function') {
-				window.__hideSplash();
-			}
-		}
-	}, [settingsLoaded, sessionsLoaded]);
-
-	// Check GitHub CLI availability for gist publishing
-	useEffect(() => {
-		window.maestro.git
-			.checkGhCli()
-			.then((status) => {
-				setGhCliAvailable(status.installed && status.authenticated);
-			})
-			.catch(() => {
-				setGhCliAvailable(false);
-			});
-	}, []);
-
-	// Load file gist URLs from settings on startup
-	useEffect(() => {
-		window.maestro.settings
-			.get('fileGistUrls')
-			.then((savedUrls) => {
-				if (savedUrls && typeof savedUrls === 'object') {
-					setFileGistUrls(savedUrls as Record<string, GistInfo>);
-				}
-			})
-			.catch(() => {
-				// Ignore errors loading gist URLs
-			});
-	}, []);
-
-	// Helper to save a gist URL for a file path
-	const saveFileGistUrl = useCallback((filePath: string, gistInfo: GistInfo) => {
-		setFileGistUrls((prev) => {
-			const updated = { ...prev, [filePath]: gistInfo };
-			// Persist to settings
-			window.maestro.settings.set('fileGistUrls', updated);
-			return updated;
-		});
-	}, []);
 
 	// Expose debug helpers to window for console access
 	// No dependency array - always keep functions fresh
@@ -1435,6 +1334,7 @@ function MaestroConsoleInner() {
 		handleRequestTabRename,
 		handleUpdateTabByClaudeSessionId,
 		handleTabStar,
+		handleTabLock,
 		handleTabMarkUnread,
 		handleToggleTabReadOnlyMode,
 		handleToggleTabSaveToHistory,
@@ -1895,6 +1795,9 @@ function MaestroConsoleInner() {
 		pauseBatchOnErrorRef,
 		getBatchStateRef,
 		handleSyncAutoRunStats,
+		capacityCheckData,
+		onCapacityCancel,
+		onCapacityRunAnyway,
 	} = useBatchHandlers({
 		spawnAgentForSession,
 		rightPanelRef,
@@ -2187,274 +2090,6 @@ function MaestroConsoleInner() {
 		[setActiveSessionId]
 	);
 
-	// Handler to open lightbox with optional context images for navigation
-	// source: 'staged' allows deletion, 'history' is read-only
-	const handleSetLightboxImage = useCallback(
-		(image: string | null, contextImages?: string[], source: 'staged' | 'history' = 'history') => {
-			setLightboxIsGroupChat(activeGroupChatId !== null);
-			setLightboxAllowDelete(source === 'staged');
-
-			setLightboxImage(image);
-			setLightboxImages(contextImages || []);
-			setLightboxSource(source);
-		},
-		[activeGroupChatId]
-	);
-
-	// --- GROUP CHAT HANDLERS ---
-
-	const handleOpenGroupChat = useCallback(
-		async (id: string) => {
-			const chat = await window.maestro.groupChat.load(id);
-			if (chat) {
-				setActiveGroupChatId(id);
-				const messages = await window.maestro.groupChat.getMessages(id);
-				setGroupChatMessages(messages);
-
-				// Restore the state for this specific chat from the per-chat state map
-				// This prevents state from one chat bleeding into another when switching
-				setGroupChatState((_prev) => {
-					const savedState = groupChatStates.get(id);
-					return savedState ?? 'idle';
-				});
-
-				// Restore participant states for this chat
-				const savedParticipantStates = allGroupChatParticipantStates.get(id);
-				console.log(
-					`[GroupChat:UI] handleOpenGroupChat: restoring participantStates for ${id}: ${
-						savedParticipantStates ? JSON.stringify([...savedParticipantStates.entries()]) : 'none'
-					}`
-				);
-				setParticipantStates(savedParticipantStates ?? new Map());
-
-				// Load saved right tab preference for this group chat
-				const savedTab = await window.maestro.settings.get(`groupChatRightTab:${id}`);
-				if (savedTab === 'participants' || savedTab === 'history') {
-					setGroupChatRightTab(savedTab);
-				} else {
-					setGroupChatRightTab('participants'); // Default
-				}
-
-				// Start moderator if not running - this initializes the session ID prefix
-				const moderatorSessionId = await window.maestro.groupChat.startModerator(id);
-				// Update the group chat state with the moderator session ID
-				if (moderatorSessionId) {
-					setGroupChats((prev) =>
-						prev.map((c) => (c.id === id ? { ...c, moderatorSessionId } : c))
-					);
-				}
-
-				// Focus the input after the component renders
-				setTimeout(() => {
-					setActiveFocus('main');
-					groupChatInputRef.current?.focus();
-				}, 100);
-			}
-		},
-		[groupChatStates, allGroupChatParticipantStates]
-	);
-
-	const handleCloseGroupChat = useCallback(() => {
-		setActiveGroupChatId(null);
-		setGroupChatMessages([]);
-		setGroupChatState('idle');
-		setParticipantStates(new Map());
-		setGroupChatError(null);
-	}, []);
-
-	// Handle right panel tab change with persistence
-	const handleGroupChatRightTabChange = useCallback(
-		(tab: GroupChatRightTab) => {
-			setGroupChatRightTab(tab);
-			if (activeGroupChatId) {
-				window.maestro.settings.set(`groupChatRightTab:${activeGroupChatId}`, tab);
-			}
-		},
-		[activeGroupChatId]
-	);
-
-	// Jump to a message in the group chat by timestamp
-	const handleJumpToGroupChatMessage = useCallback((timestamp: number) => {
-		// Use the messages ref to scroll to the target message
-		groupChatMessagesRef.current?.scrollToMessage(timestamp);
-	}, []);
-
-	// Open the moderator session in the direct agent view
-	const handleOpenModeratorSession = useCallback(
-		(moderatorSessionId: string) => {
-			// Find the session that has this agent session ID
-			const session = sessions.find((s) =>
-				s.aiTabs?.some((tab) => tab.agentSessionId === moderatorSessionId)
-			);
-
-			if (session) {
-				// Close group chat
-				setActiveGroupChatId(null);
-				setGroupChatMessages([]);
-				setGroupChatState('idle');
-				setParticipantStates(new Map());
-
-				// Set the session as active
-				setActiveSessionId(session.id);
-
-				// Find and activate the tab with this agent session ID
-				const tab = session.aiTabs?.find((t) => t.agentSessionId === moderatorSessionId);
-				if (tab) {
-					setSessions((prev) =>
-						prev.map((s) => (s.id === session.id ? { ...s, activeTabId: tab.id } : s))
-					);
-				}
-			}
-		},
-		[sessions, setActiveSessionId]
-	);
-
-	const handleCreateGroupChat = useCallback(
-		async (
-			name: string,
-			moderatorAgentId: string,
-			moderatorConfig?: {
-				customPath?: string;
-				customArgs?: string;
-				customEnvVars?: Record<string, string>;
-			},
-			projectFolderId?: string
-		) => {
-			const chat = await window.maestro.groupChat.create(
-				name,
-				moderatorAgentId,
-				moderatorConfig,
-				projectFolderId
-			);
-			setGroupChats((prev) => [chat, ...prev]);
-			setShowNewGroupChatModal(false);
-			setCreateGroupChatForFolderId(undefined);
-			handleOpenGroupChat(chat.id);
-		},
-		[handleOpenGroupChat, setCreateGroupChatForFolderId]
-	);
-
-	const handleDeleteGroupChat = useCallback(
-		async (id: string) => {
-			await window.maestro.groupChat.delete(id);
-			setGroupChats((prev) => prev.filter((c) => c.id !== id));
-			if (activeGroupChatId === id) {
-				handleCloseGroupChat();
-			}
-			setShowDeleteGroupChatModal(null);
-		},
-		[activeGroupChatId, handleCloseGroupChat]
-	);
-
-	const handleRenameGroupChat = useCallback(async (id: string, newName: string) => {
-		await window.maestro.groupChat.rename(id, newName);
-		setGroupChats((prev) => prev.map((c) => (c.id === id ? { ...c, name: newName } : c)));
-		setShowRenameGroupChatModal(null);
-	}, []);
-
-	const handleUpdateGroupChat = useCallback(
-		async (
-			id: string,
-			name: string,
-			moderatorAgentId: string,
-			moderatorConfig?: {
-				customPath?: string;
-				customArgs?: string;
-				customEnvVars?: Record<string, string>;
-			}
-		) => {
-			const updated = await window.maestro.groupChat.update(id, {
-				name,
-				moderatorAgentId,
-				moderatorConfig,
-			});
-			setGroupChats((prev) => prev.map((c) => (c.id === id ? updated : c)));
-			setShowEditGroupChatModal(null);
-		},
-		[]
-	);
-
-	// --- GROUP CHAT MODAL HANDLERS ---
-	// Stable callback handlers for AppGroupChatModals component
-	const handleCloseNewGroupChatModal = useCallback(() => {
-		setShowNewGroupChatModal(false);
-		setCreateGroupChatForFolderId(undefined);
-	}, [setCreateGroupChatForFolderId]);
-	const handleCloseDeleteGroupChatModal = useCallback(() => setShowDeleteGroupChatModal(null), []);
-	const handleConfirmDeleteGroupChat = useCallback(() => {
-		if (showDeleteGroupChatModal) {
-			handleDeleteGroupChat(showDeleteGroupChatModal);
-		}
-	}, [showDeleteGroupChatModal, handleDeleteGroupChat]);
-	const handleCloseRenameGroupChatModal = useCallback(() => setShowRenameGroupChatModal(null), []);
-	const handleRenameGroupChatFromModal = useCallback(
-		(newName: string) => {
-			if (showRenameGroupChatModal) {
-				handleRenameGroupChat(showRenameGroupChatModal, newName);
-			}
-		},
-		[showRenameGroupChatModal, handleRenameGroupChat]
-	);
-	const handleCloseEditGroupChatModal = useCallback(() => setShowEditGroupChatModal(null), []);
-	const handleCloseGroupChatInfo = useCallback(() => setShowGroupChatInfo(false), []);
-
-	const handleSendGroupChatMessage = useCallback(
-		async (content: string, images?: string[], readOnly?: boolean) => {
-			if (!activeGroupChatId) return;
-
-			// If group chat is busy, queue the message instead of sending immediately
-			if (groupChatState !== 'idle') {
-				const queuedItem: QueuedItem = {
-					id: generateId(),
-					timestamp: Date.now(),
-					tabId: activeGroupChatId, // Use group chat ID as tab ID
-					type: 'message',
-					text: content,
-					images: images ? [...images] : undefined,
-					tabName: groupChats.find((c) => c.id === activeGroupChatId)?.name || 'Group Chat',
-					readOnlyMode: readOnly,
-				};
-				setGroupChatExecutionQueue((prev) => [...prev, queuedItem]);
-				return;
-			}
-
-			setGroupChatState('moderator-thinking');
-			setGroupChatStates((prev) => {
-				const next = new Map(prev);
-				next.set(activeGroupChatId, 'moderator-thinking');
-				return next;
-			});
-			await window.maestro.groupChat.sendToModerator(activeGroupChatId, content, images, readOnly);
-		},
-		[activeGroupChatId, groupChatState, groupChats]
-	);
-
-	// Handle draft message changes - update local state (persisted on switch/close)
-	const handleGroupChatDraftChange = useCallback(
-		(draft: string) => {
-			if (!activeGroupChatId) return;
-			setGroupChats((prev) =>
-				prev.map((c) => (c.id === activeGroupChatId ? { ...c, draftMessage: draft } : c))
-			);
-		},
-		[activeGroupChatId]
-	);
-
-	// Handle removing an item from the group chat execution queue
-	const handleRemoveGroupChatQueueItem = useCallback((itemId: string) => {
-		setGroupChatExecutionQueue((prev) => prev.filter((item) => item.id !== itemId));
-	}, []);
-
-	// Handle reordering items in the group chat execution queue
-	const handleReorderGroupChatQueueItems = useCallback((fromIndex: number, toIndex: number) => {
-		setGroupChatExecutionQueue((prev) => {
-			const queue = [...prev];
-			const [removed] = queue.splice(fromIndex, 1);
-			queue.splice(toIndex, 0, removed);
-			return queue;
-		});
-	}, []);
-
 	// --- SESSION SORTING ---
 	// Extracted hook for sorted and visible session lists (ignores leading emojis for alphabetization)
 	const { sortedSessions, visibleSessions } = useSortedSessions({
@@ -2698,50 +2333,6 @@ function MaestroConsoleInner() {
 		[createPRSession, activeSession]
 	);
 
-	const handleCloseDeleteWorktreeModal = useCallback(() => {
-		setDeleteWorktreeModalOpen(false);
-		setDeleteWorktreeSession(null);
-	}, []);
-
-	const handleConfirmDeleteWorktree = useCallback(() => {
-		if (!deleteWorktreeSession) return;
-		// Remove the session but keep the worktree on disk
-		setSessions((prev) => prev.filter((s) => s.id !== deleteWorktreeSession.id));
-	}, [deleteWorktreeSession]);
-
-	const handleConfirmAndDeleteWorktreeOnDisk = useCallback(async () => {
-		if (!deleteWorktreeSession) return;
-		// Remove the session AND delete the worktree from disk
-		const result = await window.maestro.git.removeWorktree(deleteWorktreeSession.cwd, true);
-		if (!result.success) {
-			throw new Error(result.error || 'Failed to remove worktree');
-		}
-		setSessions((prev) => prev.filter((s) => s.id !== deleteWorktreeSession.id));
-	}, [deleteWorktreeSession]);
-
-	// AppUtilityModals stable callbacks
-	const handleCloseLightbox = useCallback(() => {
-		setLightboxImage(null);
-		setLightboxImages([]);
-		setLightboxSource('history');
-		setLightboxIsGroupChat(false);
-		setLightboxAllowDelete(false);
-		// Return focus to input after closing carousel
-		setTimeout(() => inputRef.current?.focus(), 0);
-	}, []);
-	const handleNavigateLightbox = useCallback((img: string) => setLightboxImage(img), []);
-	const handleDeleteLightboxImage = useCallback(
-		(img: string) => {
-			if (lightboxIsGroupChat) {
-				setGroupChatStagedImages((prev) => prev.filter((i) => i !== img));
-			} else {
-				setStagedImages((prev) => prev.filter((i) => i !== img));
-			}
-		},
-		[lightboxIsGroupChat, setStagedImages]
-	);
-	const handleCloseAutoRunSetup = useCallback(() => setAutoRunSetupModalOpen(false), []);
-	const handleCloseBatchRunner = useCallback(() => setBatchRunnerModalOpen(false), []);
 	const handleSaveBatchPrompt = useCallback(
 		(prompt: string) => {
 			if (!activeSession) return;
@@ -2841,6 +2432,79 @@ function MaestroConsoleInner() {
 		startBatchRun,
 		inputRef,
 	});
+
+	// --- MISSING HANDLERS (TODO: migrate to appropriate hooks) ---
+
+	// Knowledge graph save handler
+	const handleSaveToKnowledgeGraph = useCallback(() => {
+		// TODO: Implement knowledge graph save for current tab
+	}, []);
+
+	// Prompt library handlers
+	const handleSaveToPromptLibrary = useCallback((_text: string, _images?: string[]) => {
+		// TODO: Implement save to prompt library
+	}, []);
+
+	const handleRateResponse = useCallback((_logId: string, _rating: 'liked' | 'disliked' | null) => {
+		// TODO: Implement response rating
+	}, []);
+
+	const handlePinMessage = useCallback((_logId: string) => {
+		// TODO: Implement message pinning
+	}, []);
+
+	// Pinned items — TODO: compute from session/tab pin state when implemented
+	const pinnedItems = useMemo<PinnedItem[]>(() => [], []);
+
+	const handleUnpinMessage = useCallback((_logId: string) => {
+		// TODO: Implement unpin message
+	}, []);
+
+	const handleReorderPins = useCallback((_orderedLogIds: string[]) => {
+		// TODO: Implement pin reordering
+	}, []);
+
+	const handleScrollToMessage = useCallback((_timestamp: number) => {
+		// TODO: Implement scroll to message
+	}, []);
+
+	// Per-prompt effort level and model change handlers
+	const handleEffortLevelChange = useCallback((_level: 'high' | 'medium' | 'low' | undefined) => {
+		// TODO: Implement per-prompt effort level change
+	}, []);
+
+	const handleModelChange = useCallback((_model: string) => {
+		// TODO: Implement per-prompt model change
+	}, []);
+
+	// Project folder drop handler for session list
+	const handleDropOnProjectFolder = useCallback((_folderId: string, _sessionId: string) => {
+		// TODO: Implement drag-drop session onto project folder
+	}, []);
+
+	// Git rescan handler for edit agent modal
+	const handleRescanGit = useCallback(async (_sessionId: string): Promise<boolean> => {
+		// TODO: Implement git rescan for session
+		return false;
+	}, []);
+
+	// Prompt library delete handler
+	const handlePromptLibraryDelete = useCallback((_deletedPrompt: PromptLibraryEntry) => {
+		// TODO: Implement prompt library deletion side effects
+	}, []);
+
+	// Interactive capacity check state and handlers
+	const [interactiveCapacityData, setInteractiveCapacityData] =
+		useState<CapacityCheckModalData | null>(null);
+
+	const handleInteractiveCapacityCancel = useCallback(() => {
+		setInteractiveCapacityData(null);
+	}, []);
+
+	const handleInteractiveCapacityRunAnyway = useCallback(() => {
+		setInteractiveCapacityData(null);
+		// TODO: Resume the interrupted interactive send
+	}, []);
 
 	// Update keyboardHandlerRef synchronously during render (before effects run)
 	// This must be placed after all handler functions and state are defined to avoid TDZ errors
@@ -3527,6 +3191,7 @@ function MaestroConsoleInner() {
 					onSaveEditAgent={handleSaveEditAgent}
 					onRescanGit={handleRescanGit}
 					editAgentSession={editAgentSession}
+					renameSessionModalOpen={renameInstanceModalOpen}
 					renameSessionValue={renameInstanceValue}
 					setRenameSessionValue={setRenameInstanceValue}
 					onCloseRenameSessionModal={handleCloseRenameSessionModal}
@@ -3647,7 +3312,6 @@ function MaestroConsoleInner() {
 					gitDiffPreview={gitDiffPreview}
 					gitViewerCwd={gitViewerCwd}
 					onCloseGitDiff={handleCloseGitDiff}
-					gitLogOpen={gitLogOpen}
 					gitLogSshRemoteId={gitLogSshRemoteId}
 					onCloseGitLog={handleCloseGitLog}
 					onCloseAutoRunSetup={handleCloseAutoRunSetup}
@@ -3667,6 +3331,12 @@ function MaestroConsoleInner() {
 					}
 					autoScrollAiMode={autoScrollAiMode}
 					setAutoScrollAiMode={setAutoScrollAiMode}
+					closedTabHistory={activeSession?.closedTabHistory ?? []}
+					onReopenClosedTab={(_closedTabIndex: number) => {
+						if (activeSession) {
+							reopenUnifiedClosedTab(activeSession);
+						}
+					}}
 					onCloseTabSwitcher={handleCloseTabSwitcher}
 					onTabSelect={handleUtilityTabSelect}
 					onFileTabSelect={handleUtilityFileTabSelect}
@@ -3740,7 +3410,6 @@ function MaestroConsoleInner() {
 							?.agentSessionId || undefined
 					}
 					onPromptLibraryDelete={handlePromptLibraryDelete}
-					queueBrowserOpen={queueBrowserOpen}
 					onCloseQueueBrowser={handleCloseQueueBrowser}
 					onRemoveQueueItem={handleRemoveQueueItem}
 					onSwitchQueueSession={handleSwitchQueueSession}

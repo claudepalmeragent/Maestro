@@ -394,7 +394,7 @@ export function AboutModal({
 												style={{ color: theme.colors.textMain }}
 											>
 												<span title="Maestro (billing-mode aware)">
-													${globalStats.totalCostUsd.toFixed(2)}
+													${(globalStats.totalCostUsd ?? 0).toFixed(2)}
 												</span>
 												<span style={{ color: theme.colors.textDim }}>|</span>
 												<span

@@ -32,7 +32,7 @@ export interface UseAutoRunHandlersDeps {
 	setAutoRunIsLoadingDocuments: React.Dispatch<React.SetStateAction<boolean>>;
 	setAutoRunSetupModalOpen: (open: boolean) => void;
 	setBatchRunnerModalOpen: (open: boolean) => void;
-	setActiveRightTab: React.Dispatch<React.SetStateAction<'files' | 'history' | 'autorun'>>;
+	setActiveRightTab: React.Dispatch<React.SetStateAction<'files' | 'history' | 'autorun' | 'pins'>>;
 	setRightPanelOpen: React.Dispatch<React.SetStateAction<boolean>>;
 	setActiveFocus: React.Dispatch<React.SetStateAction<'sidebar' | 'main' | 'right'>>;
 	setSuccessFlashNotification: React.Dispatch<React.SetStateAction<string | null>>;

@@ -15,7 +15,6 @@ import type {
 	ExtendedAuditResult,
 	AuditEntry,
 	BillingModeBreakdown,
-	ModelBreakdownEntry,
 } from '../Settings/AuditHistoryTable';
 
 export interface AuditReportPanelProps {

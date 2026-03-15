@@ -8,6 +8,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 
+// Use the REAL modalStore (not the global mock) since these tests verify store state changes
+vi.unmock('../../../renderer/stores/modalStore');
+
 // Mock useAgentErrorRecovery BEFORE importing the hook
 vi.mock('../../../renderer/hooks/agent/useAgentErrorRecovery', () => ({
 	useAgentErrorRecovery: vi.fn().mockReturnValue({ recoveryActions: [] }),

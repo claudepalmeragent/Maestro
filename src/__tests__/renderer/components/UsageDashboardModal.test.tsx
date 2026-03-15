@@ -2312,22 +2312,25 @@ describe('UsageDashboardModal', () => {
 		});
 
 		it('updates Interactive % when time range changes', async () => {
-			const dayData = createDataForTimeRange('day'); // 20/25 = 80%
-			const allData = createDataForTimeRange('all'); // 9000/12000 = 75%
+			const dayData = createDataForTimeRange('day'); // 20/25 = 80% interactive
+			// Override byLocation so Local % doesn't also show 80% (avoids duplicate text match)
+			dayData.byLocation = { local: 15, remote: 10 }; // 60% local
+			const allData = createDataForTimeRange('all'); // 9000/12000 = 75% interactive
+			allData.byLocation = { local: 7200, remote: 4800 }; // 60% local
 
-			// fetchStats('day') + weeklyLocalData('week') on mount, then fetchStats('all') on change
+			// weeklyLocalData effect fires first, then fetchStats effect
 			mockGetAggregation
-				.mockResolvedValueOnce(dayData) // fetchStats initial (day)
 				.mockResolvedValueOnce(dayData) // weeklyLocalData effect (week)
+				.mockResolvedValueOnce(dayData) // fetchStats initial (day)
 				.mockResolvedValueOnce(allData); // fetchStats after time range change
 
 			render(
 				<UsageDashboardModal isOpen={true} onClose={onClose} theme={theme} defaultTimeRange="day" />
 			);
 
-			// Wait for day data (80% interactive)
+			// Wait for day data - use the metric card aria-label to target Interactive % specifically
 			await waitFor(() => {
-				expect(screen.getByText('80%')).toBeInTheDocument();
+				expect(screen.getByRole('group', { name: /Interactive %: 80%/ })).toBeInTheDocument();
 			});
 
 			// Change to All Time
@@ -2336,36 +2339,35 @@ describe('UsageDashboardModal', () => {
 
 			// Should now show all time (75% interactive)
 			await waitFor(() => {
-				expect(screen.getByText('75%')).toBeInTheDocument();
+				expect(screen.getByRole('group', { name: /Interactive %: 75%/ })).toBeInTheDocument();
 			});
 		});
 
-		it('updates Sessions count when time range changes', async () => {
-			const weekData = createDataForTimeRange('week'); // 25 sessions
-			const yearData = createDataForTimeRange('year'); // 800 sessions
+		it('updates Queries/Session when time range changes', async () => {
+			// Agents count now comes from the sessions prop (not stats data),
+			// so test Queries/Session which derives from stats totalQueries / agentCount
+			const weekData = createDataForTimeRange('week'); // 150 queries
+			const yearData = createDataForTimeRange('year'); // 5000 queries = 5.0K
 
 			mockGetAggregation
-				.mockResolvedValueOnce(weekData) // fetchStats initial
 				.mockResolvedValueOnce(weekData) // weeklyLocalData effect
+				.mockResolvedValueOnce(weekData) // fetchStats initial
 				.mockResolvedValueOnce(yearData); // fetchStats after time range change
 
 			render(<UsageDashboardModal isOpen={true} onClose={onClose} theme={theme} />);
 
-			// Wait for week sessions (displayed as '25')
+			// Wait for week data - Total Queries card shows 150
 			await waitFor(() => {
-				// Sessions card shows 25
-				const sessionsLabel = screen.getByText('Sessions');
-				expect(sessionsLabel).toBeInTheDocument();
-				expect(screen.getByText('25')).toBeInTheDocument();
+				expect(screen.getByRole('group', { name: /Total Queries: 150/ })).toBeInTheDocument();
 			});
 
 			// Change to This Year
 			const select = screen.getByRole('combobox');
 			fireEvent.change(select, { target: { value: 'year' } });
 
-			// Should now show year sessions (800)
+			// Should now show year queries (5000 = "5.0K")
 			await waitFor(() => {
-				expect(screen.getByText('800')).toBeInTheDocument();
+				expect(screen.getByRole('group', { name: /Total Queries: 5\.0K/ })).toBeInTheDocument();
 			});
 		});
 

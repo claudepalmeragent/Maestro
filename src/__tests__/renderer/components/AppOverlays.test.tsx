@@ -8,6 +8,10 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
+
+// Use the REAL modalStore (not the global mock) since these tests verify store state changes
+vi.unmock('../../../renderer/stores/modalStore');
+
 import { AppOverlays } from '../../../renderer/components/AppOverlays';
 import { useModalStore } from '../../../renderer/stores/modalStore';
 import { useSettingsStore } from '../../../renderer/stores/settingsStore';

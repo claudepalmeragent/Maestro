@@ -31,6 +31,7 @@ import { generateId } from '../../utils/ids';
 import { useBatchProcessor } from './useBatchProcessor';
 import type { RightPanelHandle } from '../../components/RightPanel';
 import type { AgentSpawnResult } from '../agent/useAgentExecution';
+import type { CapacityCheckModalData } from '../../components/CapacityCheckModal';
 import * as Sentry from '@sentry/electron/renderer';
 
 // ============================================================================
@@ -99,6 +100,12 @@ export interface UseBatchHandlersReturn {
 		longestRunMs: number;
 		longestRunTimestamp: number;
 	}) => void;
+	/** Capacity check data for pre-run gate modal */
+	capacityCheckData: CapacityCheckModalData | null;
+	/** Cancel handler for capacity check modal */
+	onCapacityCancel: () => void;
+	/** Run anyway handler for capacity check modal */
+	onCapacityRunAnyway: () => void;
 }
 
 // ============================================================================
@@ -151,6 +158,9 @@ export function useBatchHandlers(deps: UseBatchHandlersDeps): UseBatchHandlersRe
 		startBatchRun,
 		stopBatchRun,
 		killBatchRun,
+		capacityCheckData,
+		onCapacityCancel,
+		onCapacityRunAnyway,
 		// Error handling (Phase 5.10)
 		pauseBatchOnError,
 		skipCurrentDocument,
@@ -715,5 +725,8 @@ export function useBatchHandlers(deps: UseBatchHandlersDeps): UseBatchHandlersRe
 		pauseBatchOnErrorRef,
 		getBatchStateRef,
 		handleSyncAutoRunStats,
+		capacityCheckData,
+		onCapacityCancel,
+		onCapacityRunAnyway,
 	};
 }

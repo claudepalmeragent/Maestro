@@ -958,11 +958,9 @@ describe('AboutModal', () => {
 				}
 			});
 
-			// Should render $0.00 instead of crashing ($ and 0.00 in same span)
-			const costSpan = screen.getByText((_content, element) => {
-				return (element?.tagName === 'SPAN' && element?.textContent?.includes('0.00')) || false;
-			});
-			expect(costSpan).toBeInTheDocument();
+			// Should render $0.00 instead of crashing ($ and 0.00 in same span with title)
+			const costSpan = screen.getByTitle('Maestro (billing-mode aware)');
+			expect(costSpan.textContent).toContain('0.00');
 		});
 	});
 

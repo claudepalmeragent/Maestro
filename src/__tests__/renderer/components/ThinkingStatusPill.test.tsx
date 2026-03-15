@@ -1091,13 +1091,23 @@ describe('ThinkingStatusPill', () => {
 			const updatedSession = {
 				...session,
 				aiTabs: [updatedTab],
+				currentCycleTokens: 1501, // Change to bypass React.memo comparison
 			};
-			rerender(<ThinkingStatusPill thinkingItems={[{ session: updatedSession, tab: null }]} theme={mockTheme} />);
+			rerender(
+				<ThinkingStatusPill
+					thinkingItems={[{ session: updatedSession, tab: null }]}
+					theme={mockTheme}
+				/>
+			);
 
-			// Should show updated cumulative totals
-			expect(screen.getByText('6.0K')).toBeInTheDocument(); // 5000+1000
-			expect(screen.getByText('/2.5K')).toBeInTheDocument(); // 2000+500 cache
-			expect(screen.getByText('($0.55)')).toBeInTheDocument();
+			// Should show updated cumulative totals in Session Tokens section
+			// sessionInputOutput = 5000+1000 = 6000 → 6.0K
+			// sessionCache = 2000+500 = 2500 → 2.5K
+			const sessionTokensLabel = screen.getByText('Session Tokens:');
+			const sessionTokensSection = sessionTokensLabel.closest('div')!;
+			expect(sessionTokensSection.textContent).toContain('6.0K');
+			expect(sessionTokensSection.textContent).toContain('2.5K');
+			expect(sessionTokensSection.textContent).toContain('$0.55');
 		});
 
 		it('shows tooltip with detailed breakdown', () => {

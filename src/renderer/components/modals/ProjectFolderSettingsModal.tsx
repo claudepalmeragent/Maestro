@@ -60,7 +60,7 @@ interface AgentRowData {
  * Check if a session is a Claude-based agent (supports billing mode)
  */
 function isClaudeAgent(session: Session): boolean {
-	return session.toolType === 'claude' || session.toolType === 'claude-code';
+	return session.toolType === 'claude-code';
 }
 
 /**

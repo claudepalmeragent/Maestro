@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import type { Theme } from '../../types';
 import type { ProjectFolder } from '../../../shared/types';
 import { MODAL_PRIORITIES } from '../../constants/modalPriorities';

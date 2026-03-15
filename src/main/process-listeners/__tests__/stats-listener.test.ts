@@ -76,15 +76,17 @@ describe('Stats Listener', () => {
 		// Wait for async processing
 		await vi.waitFor(() => {
 			expect(mockStatsDB.isReady).toHaveBeenCalled();
-			expect(mockStatsDB.insertQueryEvent).toHaveBeenCalledWith({
-				sessionId: testQueryData.sessionId,
-				agentType: testQueryData.agentType,
-				source: testQueryData.source,
-				startTime: testQueryData.startTime,
-				duration: testQueryData.duration,
-				projectPath: testQueryData.projectPath,
-				tabId: testQueryData.tabId,
-			});
+			expect(mockStatsDB.insertQueryEvent).toHaveBeenCalledWith(
+				expect.objectContaining({
+					sessionId: testQueryData.sessionId,
+					agentType: testQueryData.agentType,
+					source: testQueryData.source,
+					startTime: testQueryData.startTime,
+					duration: testQueryData.duration,
+					projectPath: testQueryData.projectPath,
+					tabId: testQueryData.tabId,
+				})
+			);
 			expect(mockSafeSend).toHaveBeenCalledWith('stats:updated');
 		});
 	});

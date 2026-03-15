@@ -2,7 +2,7 @@
  * Integration tests for combined subagent detection + document polling
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import {
 	ClaudeOutputParser,
 	TaskToolInvocation,

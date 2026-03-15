@@ -310,7 +310,7 @@ const Tab = memo(function Tab({
 		[canClose, onClose, tabId, tab.locked]
 	);
 
-	const handleCloseClick = useCallback(
+	const _handleCloseClick = useCallback(
 		(e: React.MouseEvent) => {
 			e.stopPropagation();
 			onClose(tabId);

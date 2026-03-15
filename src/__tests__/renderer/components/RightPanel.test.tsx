@@ -880,7 +880,7 @@ describe('RightPanel', () => {
 
 			expect(screen.getByText('Auto Run Paused')).toBeInTheDocument();
 			expect(screen.queryByText('Auto Run Active')).not.toBeInTheDocument();
-			expect(screen.getByTestId('alert-triangle')).toBeInTheDocument();
+			expect(screen.getByTestId('alert-triangle-icon')).toBeInTheDocument();
 			expect(screen.queryByTestId('loader')).not.toBeInTheDocument();
 		});
 

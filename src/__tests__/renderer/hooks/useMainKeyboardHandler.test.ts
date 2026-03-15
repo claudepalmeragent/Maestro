@@ -1,5 +1,9 @@
 import { renderHook, act } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
+
+// Use the REAL modalStore (not the global mock) since these tests verify store state changes
+vi.unmock('../../../renderer/stores/modalStore');
+
 import { useMainKeyboardHandler } from '../../../renderer/hooks';
 import { useSettingsStore } from '../../../renderer/stores/settingsStore';
 import { useModalStore } from '../../../renderer/stores/modalStore';

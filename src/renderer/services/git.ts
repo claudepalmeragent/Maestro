@@ -206,6 +206,7 @@ export const gitService = {
 			isWorktree: boolean;
 			branch: string | null;
 			repoRoot: string | null;
+			isBare?: boolean;
 		}>
 	> {
 		return createIpcMethod({

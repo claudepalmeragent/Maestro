@@ -76,7 +76,6 @@ vi.mock('lucide-react', () => ({
 	),
 }));
 
-
 // Test theme
 const mockTheme: Theme = {
 	id: 'test-theme',
@@ -221,7 +220,10 @@ describe('AchievementCard', () => {
 		it('renders share button', () => {
 			render(<AchievementCard theme={mockTheme} autoRunStats={baseAutoRunStats} />);
 
-			expect(screen.getByTestId('share2-icon')).toBeInTheDocument();
+			// Share2 icon renders via the lucide-react mock proxy
+			const shareBtn = screen.getByTitle('Share achievements');
+			expect(shareBtn).toBeInTheDocument();
+			expect(shareBtn.querySelector('svg')).toBeInTheDocument();
 		});
 
 		it('renders Maestro silhouette', () => {

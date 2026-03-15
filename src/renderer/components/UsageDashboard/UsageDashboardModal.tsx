@@ -85,7 +85,7 @@ type SectionId =
 const perfMetrics = getRendererPerfMetrics('UsageDashboard');
 
 // Import types from the shared stats hook
-import { type StatsAggregation, type StatsTimeRange } from '../../hooks/useStats';
+import { type StatsAggregation, type StatsTimeRange } from '../../hooks/stats/useStats';
 
 // View mode options for the dashboard
 type ViewMode = 'overview' | 'agents' | 'activity' | 'autorun' | 'dscomparison';

@@ -28,7 +28,6 @@ vi.mock('lucide-react', () => ({
 	X: () => <span data-testid="x-icon">X</span>,
 }));
 
-
 // Mock react-markdown
 vi.mock('react-markdown', () => ({
 	default: ({ children }: { children: string }) => (
@@ -212,7 +211,7 @@ describe('FilePreview', () => {
 				`View in Document Graph (${formatShortcutKeys(['Meta', 'Shift', 'g'])})`
 			);
 			expect(graphButton).toBeInTheDocument();
-			expect(screen.getByTestId('git-graph-icon')).toBeInTheDocument();
+			expect(screen.getByTestId('gitgraph-icon')).toBeInTheDocument();
 		});
 
 		it('calls onOpenInGraph when Document Graph button is clicked', () => {

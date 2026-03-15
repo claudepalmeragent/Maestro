@@ -124,6 +124,11 @@ vi.mock('../../../../../renderer/hooks/settings/useSettings', () => ({
 		setWakatimeApiKey: mockSetWakatimeApiKey,
 		wakatimeDetailedTracking: false,
 		setWakatimeDetailedTracking: mockSetWakatimeDetailedTracking,
+		// Context Management
+		contextManagementSettings: {
+			contextWarningsEnabled: true,
+		},
+		updateContextManagementSettings: vi.fn(),
 		...mockUseSettingsOverrides,
 	}),
 }));

@@ -78,6 +78,7 @@ export interface TabHandlersReturn {
 		updates: { name?: string | null; starred?: boolean }
 	) => void;
 	handleTabStar: (tabId: string, starred: boolean) => void;
+	handleTabLock: (tabId: string, locked: boolean) => void;
 	handleTabMarkUnread: (tabId: string) => void;
 	handleToggleTabReadOnlyMode: () => void;
 	handleToggleTabSaveToHistory: () => void;
@@ -1158,6 +1159,19 @@ export function useTabHandlers(): TabHandlersReturn {
 		);
 	}, []);
 
+	const handleTabLock = useCallback((tabId: string, locked: boolean) => {
+		const { setSessions, activeSessionId } = useSessionStore.getState();
+		setSessions((prev: Session[]) =>
+			prev.map((s) => {
+				if (s.id !== activeSessionId) return s;
+				return {
+					...s,
+					aiTabs: s.aiTabs.map((t) => (t.id === tabId ? { ...t, locked } : t)),
+				};
+			})
+		);
+	}, []);
+
 	const handleTabMarkUnread = useCallback((tabId: string) => {
 		const { setSessions, activeSessionId } = useSessionStore.getState();
 		setSessions((prev: Session[]) =>
@@ -1493,6 +1507,7 @@ export function useTabHandlers(): TabHandlersReturn {
 		handleRequestTabRename,
 		handleUpdateTabByClaudeSessionId,
 		handleTabStar,
+		handleTabLock,
 		handleTabMarkUnread,
 		handleToggleTabReadOnlyMode,
 		handleToggleTabSaveToHistory,

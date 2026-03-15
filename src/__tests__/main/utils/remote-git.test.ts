@@ -105,7 +105,7 @@ describe('remote-git.ts', () => {
 				command: 'git',
 				args: ['status', '--porcelain'],
 				cwd: '/remote/repo',
-				env: { GIT_AUTHOR_NAME: 'Test' },
+				env: { GIT_AUTHOR_NAME: 'Test', TERM: 'dumb' },
 			});
 		});
 
@@ -150,7 +150,7 @@ describe('remote-git.ts', () => {
 				command: 'git',
 				args: ['version'],
 				cwd: undefined,
-				env: undefined,
+				env: { TERM: 'dumb' },
 			});
 		});
 
@@ -165,7 +165,7 @@ describe('remote-git.ts', () => {
 			expect(mockBuildSshCommand).toHaveBeenCalledWith(
 				sshRemote,
 				expect.objectContaining({
-					env: { PATH: '/custom/bin', HOME: '/remote/home' },
+					env: { PATH: '/custom/bin', HOME: '/remote/home', TERM: 'dumb' },
 				})
 			);
 		});
@@ -214,7 +214,11 @@ describe('remote-git.ts', () => {
 			await execGit(['branch', '-a'], '/home/user/project', undefined);
 
 			expect(mockBuildSshCommand).not.toHaveBeenCalled();
-			expect(mockExecFileNoThrow).toHaveBeenCalledWith('git', ['branch', '-a'], '/home/user/project');
+			expect(mockExecFileNoThrow).toHaveBeenCalledWith(
+				'git',
+				['branch', '-a'],
+				'/home/user/project'
+			);
 		});
 
 		it('should dispatch to remote execution when sshRemote is provided', async () => {
@@ -228,7 +232,7 @@ describe('remote-git.ts', () => {
 				command: 'git',
 				args: ['rev-parse', 'HEAD'],
 				cwd: '/remote/repo',
-				env: undefined,
+				env: { TERM: 'dumb' },
 			});
 			expect(result).toEqual(expectedResult);
 		});
@@ -622,7 +626,7 @@ describe('remote-git.ts', () => {
 				command: 'git',
 				args: ['worktree', 'list', '--porcelain'],
 				cwd: '/remote/repo',
-				env: undefined,
+				env: { TERM: 'dumb' },
 			});
 		});
 	});
@@ -1138,7 +1142,7 @@ describe('remote-git.ts', () => {
 				command: 'git',
 				args: ['rev-parse', '--show-toplevel'],
 				cwd: '/repo/subdir',
-				env: undefined,
+				env: { TERM: 'dumb' },
 			});
 		});
 	});

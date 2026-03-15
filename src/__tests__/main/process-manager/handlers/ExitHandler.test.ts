@@ -422,7 +422,7 @@ describe('ExitHandler', () => {
 
 			// matchSshErrorPattern should not be called for clean exit with no stderr
 			expect(matchSshErrorPattern).not.toHaveBeenCalled();
-			expect(managedProcess.errorEmitted).toBeUndefined();
+			expect(managedProcess.errorEmitted).toBe(false);
 			expect(emittedErrors).toHaveLength(0);
 			// Should still emit normal exit event
 			expect(emittedExits).toHaveLength(1);

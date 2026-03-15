@@ -116,65 +116,69 @@ describe('estimateContextUsage', () => {
 		});
 	});
 
-	describe('envContextWindow override', () => {
-		it('should use envContextWindow when provided (priority over stats.contextWindow)', () => {
+	describe('context window fallback (stats-based)', () => {
+		it('should use stats.contextWindow when provided', () => {
 			const stats = createStats({ inputTokens: 16000, contextWindow: 200000 });
-			// envContextWindow=32768 should take priority over contextWindow=200000
-			const result = estimateContextUsage(stats, 'claude-code', 32768);
-			// 16000 / 32768 = 48.8% -> 49%
-			expect(result).toBe(49);
+			const result = estimateContextUsage(stats, 'claude-code');
+			// 16000 / 200000 = 8%
+			expect(result).toBe(8);
 		});
 
-		it('should use envContextWindow when stats.contextWindow is 0', () => {
+		it('should fall back to agent default when stats.contextWindow is 0', () => {
 			const stats = createStats({ inputTokens: 8000, contextWindow: 0 });
-			const result = estimateContextUsage(stats, 'claude-code', 32768);
-			// 8000 / 32768 = 24.4% -> 24%
-			expect(result).toBe(24);
+			const result = estimateContextUsage(stats, 'claude-code');
+			// 8000 / 200000 (agent default) = 4%
+			expect(result).toBe(4);
 		});
 
-		it('should ignore envContextWindow when it is 0', () => {
+		it('should use stats.contextWindow when valid', () => {
 			const stats = createStats({ inputTokens: 10000, contextWindow: 100000 });
-			const result = estimateContextUsage(stats, 'claude-code', 0);
-			// Should fall through to stats.contextWindow: 10000 / 100000 = 10%
+			const result = estimateContextUsage(stats, 'claude-code');
+			// 10000 / 100000 = 10%
 			expect(result).toBe(10);
 		});
 
-		it('should ignore envContextWindow when it is negative', () => {
+		it('should use stats.contextWindow over agent default', () => {
 			const stats = createStats({ inputTokens: 10000, contextWindow: 100000 });
-			const result = estimateContextUsage(stats, 'claude-code', -1);
-			// Should fall through to stats.contextWindow: 10000 / 100000 = 10%
+			const result = estimateContextUsage(stats, 'claude-code');
+			// 10000 / 100000 = 10%
 			expect(result).toBe(10);
 		});
 
-		it('should ignore envContextWindow when it is undefined', () => {
+		it('should fall back to agent default when stats.contextWindow is 0 and no env override', () => {
 			const stats = createStats({ inputTokens: 10000, contextWindow: 0 });
-			const result = estimateContextUsage(stats, 'claude-code', undefined);
-			// Should fall through to agent default: 10000 / 200000 = 5%
+			const result = estimateContextUsage(stats, 'claude-code');
+			// Falls through to agent default: 10000 / 200000 = 5%
 			expect(result).toBe(5);
 		});
 
-		it('should cap at 100% with envContextWindow', () => {
-			const stats = createStats({ inputTokens: 40000, cacheCreationInputTokens: 5000 });
-			const result = estimateContextUsage(stats, 'claude-code', 32768);
-			// (40000 + 5000) / 32768 = 137% -> capped at 100%
-			expect(result).toBe(100);
+		it('should return null when tokens exceed context window (accumulated turn)', () => {
+			const stats = createStats({
+				inputTokens: 40000,
+				cacheCreationInputTokens: 5000,
+				contextWindow: 0,
+			});
+			const result = estimateContextUsage(stats, 'claude-code');
+			// (40000 + 5000) = 45000, contextWindow falls back to 200000
+			// 45000 / 200000 = 22.5% -> 23%
+			expect(result).toBe(23);
 		});
 
-		it('should work correctly for local model with small context window', () => {
-			// Simulates a local Ollama model with 32k context
+		it('should fall back to agent default for local model with no stats.contextWindow', () => {
+			// Simulates a local model where stats.contextWindow is 0
 			const stats = createStats({
 				inputTokens: 3000,
 				outputTokens: 1000,
 				cacheCreationInputTokens: 2000,
 				contextWindow: 0, // Agent doesn't report context window
 			});
-			const result = estimateContextUsage(stats, 'claude-code', 32768);
-			// (3000 + 2000) / 32768 = 15.3% -> 15%
-			expect(result).toBe(15);
+			const result = estimateContextUsage(stats, 'claude-code');
+			// (3000 + 2000) / 200000 (agent default) = 2.5% -> 3%
+			expect(result).toBe(3);
 		});
 
-		it('should not affect behavior when envContextWindow is not provided (cloud VMs)', () => {
-			// Simulates cloud VM where env var is NOT set
+		it('should fall back to agent default when stats.contextWindow is not set (cloud VMs)', () => {
+			// Simulates cloud VM where contextWindow is not reported
 			const stats = createStats({ inputTokens: 10000, contextWindow: 0 });
 			const result = estimateContextUsage(stats, 'claude-code');
 			// Falls through to default: 10000 / 200000 = 5%

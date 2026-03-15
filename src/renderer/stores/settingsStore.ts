@@ -30,7 +30,9 @@ import type {
 	ThinkingMode,
 	DirectorNotesSettings,
 	EncoreFeatureFlags,
+	PlanCalibration,
 } from '../types';
+import type { HoneycombWarningSettings } from '../../main/stores/types';
 import { DEFAULT_CUSTOM_THEME_COLORS } from '../constants/themes';
 import { DEFAULT_SHORTCUTS, TAB_SHORTCUTS, FIXED_SHORTCUTS } from '../constants/shortcuts';
 import { getLevelIndex } from '../constants/keyboardMastery';
@@ -189,10 +191,14 @@ export interface SettingsStoreState {
 	activeThemeId: ThemeId;
 	customThemeColors: ThemeColors;
 	customThemeBaseId: ThemeId;
+	themeMode: 'manual' | 'system';
+	lightThemeId: ThemeId;
+	darkThemeId: ThemeId;
 	enterToSendAI: boolean;
 	enterToSendTerminal: boolean;
 	defaultSaveToHistory: boolean;
 	defaultShowThinking: ThinkingMode;
+	groupChatDefaultShowThinking: boolean;
 	leftSidebarWidth: number;
 	rightPanelWidth: number;
 	markdownEditMode: boolean;
@@ -208,6 +214,7 @@ export interface SettingsStoreState {
 	toastDuration: number;
 	checkForUpdatesOnStartup: boolean;
 	enableBetaUpdates: boolean;
+	checkForNewModelsOnStartup: boolean;
 	crashReportingEnabled: boolean;
 	logViewerSelectedLevels: string[];
 	shortcuts: Record<string, Shortcut>;
@@ -223,6 +230,14 @@ export interface SettingsStoreState {
 	leaderboardRegistration: LeaderboardRegistration | null;
 	webInterfaceUseCustomPort: boolean;
 	webInterfaceCustomPort: number;
+	honeycombWarningSettings: HoneycombWarningSettings;
+	honeycombDataSource: 'mcp' | 'api';
+	honeycombMcpApiKey: string;
+	honeycombEnvironmentSlug: string;
+	honeycombMcpRegion: 'us' | 'eu';
+	honeycombApiKey: string;
+	honeycombDatasetSlug: string;
+	planCalibration: PlanCalibration;
 	contextManagementSettings: ContextManagementSettings;
 	keyboardMasteryStats: KeyboardMasteryStats;
 	colorBlindMode: boolean;
@@ -232,6 +247,9 @@ export interface SettingsStoreState {
 	documentGraphLayoutType: DocumentGraphLayoutType;
 	statsCollectionEnabled: boolean;
 	defaultStatsTimeRange: 'day' | 'week' | 'month' | 'year' | 'all';
+	synopsisEnabled: boolean;
+	sshStatsTimeoutMs: number;
+	globalStatsRefreshIntervalMs: number;
 	preventSleepEnabled: boolean;
 	disableGpuAcceleration: boolean;
 	disableConfetti: boolean;
@@ -269,10 +287,14 @@ export interface SettingsStoreActions {
 	setActiveThemeId: (value: ThemeId) => void;
 	setCustomThemeColors: (value: ThemeColors) => void;
 	setCustomThemeBaseId: (value: ThemeId) => void;
+	setThemeMode: (value: 'manual' | 'system') => void;
+	setLightThemeId: (value: ThemeId) => void;
+	setDarkThemeId: (value: ThemeId) => void;
 	setEnterToSendAI: (value: boolean) => void;
 	setEnterToSendTerminal: (value: boolean) => void;
 	setDefaultSaveToHistory: (value: boolean) => void;
 	setDefaultShowThinking: (value: ThinkingMode) => void;
+	setGroupChatDefaultShowThinking: (value: boolean) => void;
 	setLeftSidebarWidth: (value: number) => void;
 	setRightPanelWidth: (value: number) => void;
 	setMarkdownEditMode: (value: boolean) => void;
@@ -286,6 +308,7 @@ export interface SettingsStoreActions {
 	setToastDuration: (value: number) => void;
 	setCheckForUpdatesOnStartup: (value: boolean) => void;
 	setEnableBetaUpdates: (value: boolean) => void;
+	setCheckForNewModelsOnStartup: (value: boolean) => void;
 	setCrashReportingEnabled: (value: boolean) => void;
 	setLogViewerSelectedLevels: (value: string[]) => void;
 	setShortcuts: (value: Record<string, Shortcut>) => void;
@@ -370,6 +393,29 @@ export interface SettingsStoreActions {
 		averagePhasesPerWizard: number;
 	};
 
+	// Honeycomb settings
+	setHoneycombWarningSettings: (value: HoneycombWarningSettings) => void;
+	updateHoneycombWarningSettings: (partial: Partial<HoneycombWarningSettings>) => void;
+	setHoneycombDataSource: (value: 'mcp' | 'api') => void;
+	setHoneycombMcpApiKey: (value: string) => void;
+	setHoneycombEnvironmentSlug: (value: string) => void;
+	setHoneycombMcpRegion: (value: 'us' | 'eu') => void;
+	setHoneycombApiKey: (value: string) => void;
+	setHoneycombDatasetSlug: (value: string) => void;
+
+	// Plan calibration
+	setPlanCalibration: (value: PlanCalibration) => void;
+	updatePlanCalibration: (partial: Partial<PlanCalibration>) => void;
+
+	// Synopsis
+	setSynopsisEnabled: (value: boolean) => void;
+
+	// SSH Stats timeout
+	setSshStatsTimeoutMs: (value: number) => void;
+
+	// Global Stats refresh interval
+	setGlobalStatsRefreshIntervalMs: (value: number) => void;
+
 	// Context management
 	setContextManagementSettings: (value: ContextManagementSettings) => void;
 	updateContextManagementSettings: (partial: Partial<ContextManagementSettings>) => void;
@@ -407,10 +453,14 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
 	activeThemeId: 'dracula',
 	customThemeColors: DEFAULT_CUSTOM_THEME_COLORS,
 	customThemeBaseId: 'dracula',
+	themeMode: 'manual',
+	lightThemeId: 'github-light',
+	darkThemeId: 'dracula',
 	enterToSendAI: false,
 	enterToSendTerminal: true,
 	defaultSaveToHistory: true,
 	defaultShowThinking: 'off',
+	groupChatDefaultShowThinking: false,
 	leftSidebarWidth: 256,
 	rightPanelWidth: 384,
 	markdownEditMode: false,
@@ -426,6 +476,7 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
 	toastDuration: 20,
 	checkForUpdatesOnStartup: true,
 	enableBetaUpdates: false,
+	checkForNewModelsOnStartup: true,
 	crashReportingEnabled: true,
 	logViewerSelectedLevels: ['debug', 'info', 'warn', 'error', 'toast'],
 	shortcuts: DEFAULT_SHORTCUTS,
@@ -441,6 +492,63 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
 	leaderboardRegistration: null,
 	webInterfaceUseCustomPort: false,
 	webInterfaceCustomPort: 8080,
+	honeycombWarningSettings: {
+		honeycombWarningsEnabled: false,
+		fiveHourWarningYellowUsd: 3.0,
+		fiveHourWarningRedUsd: 4.5,
+		fiveHourWarningYellowPct: 60,
+		fiveHourWarningRedPct: 90,
+		weeklyWarningYellowUsd: 30,
+		weeklyWarningRedUsd: 45,
+		weeklyWarningYellowPct: 60,
+		weeklyWarningRedPct: 90,
+		monthlySessionsWarning: 100,
+		honeycombPollIntervalMs: 300000,
+		warningMode: 'usd',
+		safetyBufferPct: 10,
+		capacityCheckAutoRun: true,
+		capacityCheckInteractive: false,
+		archiveEnabled: false,
+	},
+	honeycombDataSource: 'mcp',
+	honeycombMcpApiKey: '',
+	honeycombEnvironmentSlug: '',
+	honeycombMcpRegion: 'us',
+	honeycombApiKey: '',
+	honeycombDatasetSlug: '',
+	planCalibration: {
+		calibrationPoints: [],
+		currentEstimates: {
+			fiveHour: {
+				weightedMean: 0,
+				standardDeviation: 0,
+				confidencePct: 0,
+				activePoints: 0,
+				totalPoints: 0,
+			},
+			weekly: {
+				weightedMean: 0,
+				standardDeviation: 0,
+				confidencePct: 0,
+				activePoints: 0,
+				totalPoints: 0,
+			},
+			sonnetWeekly: {
+				weightedMean: 0,
+				standardDeviation: 0,
+				confidencePct: 0,
+				activePoints: 0,
+				totalPoints: 0,
+			},
+		},
+		weeklyResetDay: 'monday',
+		weeklyResetTime: '00:00',
+		weeklyResetTimezone: 'UTC',
+		lastCalibratedAt: '',
+		sonnetResetDay: 'monday',
+		sonnetResetTime: '00:00',
+		sonnetResetTimezone: 'UTC',
+	},
 	contextManagementSettings: DEFAULT_CONTEXT_MANAGEMENT_SETTINGS,
 	keyboardMasteryStats: DEFAULT_KEYBOARD_MASTERY_STATS,
 	colorBlindMode: false,
@@ -450,6 +558,9 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
 	documentGraphLayoutType: 'mindmap',
 	statsCollectionEnabled: true,
 	defaultStatsTimeRange: 'week',
+	synopsisEnabled: false,
+	sshStatsTimeoutMs: 30000,
+	globalStatsRefreshIntervalMs: 300000,
 	preventSleepEnabled: false,
 	disableGpuAcceleration: false,
 	disableConfetti: false,
@@ -545,6 +656,21 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
 		window.maestro.settings.set('customThemeBaseId', value);
 	},
 
+	setThemeMode: (value) => {
+		set({ themeMode: value });
+		window.maestro.settings.set('themeMode', value);
+	},
+
+	setLightThemeId: (value) => {
+		set({ lightThemeId: value });
+		window.maestro.settings.set('lightThemeId', value);
+	},
+
+	setDarkThemeId: (value) => {
+		set({ darkThemeId: value });
+		window.maestro.settings.set('darkThemeId', value);
+	},
+
 	setEnterToSendAI: (value) => {
 		set({ enterToSendAI: value });
 		window.maestro.settings.set('enterToSendAI', value);
@@ -563,6 +689,11 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
 	setDefaultShowThinking: (value) => {
 		set({ defaultShowThinking: value });
 		window.maestro.settings.set('defaultShowThinking', value);
+	},
+
+	setGroupChatDefaultShowThinking: (value) => {
+		set({ groupChatDefaultShowThinking: value });
+		window.maestro.settings.set('groupChatDefaultShowThinking', value);
 	},
 
 	setLeftSidebarWidth: (value) => {
@@ -629,6 +760,11 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
 	setEnableBetaUpdates: (value) => {
 		set({ enableBetaUpdates: value });
 		window.maestro.settings.set('enableBetaUpdates', value);
+	},
+
+	setCheckForNewModelsOnStartup: (value) => {
+		set({ checkForNewModelsOnStartup: value });
+		window.maestro.settings.set('checkForNewModelsOnStartup', value);
 	},
 
 	setCrashReportingEnabled: (value) => {
@@ -1160,6 +1296,91 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
 
 	// ============================================================================
 	// Context Management Actions
+	// ============================================================================
+
+	// ============================================================================
+	// Honeycomb Settings
+	// ============================================================================
+
+	setHoneycombWarningSettings: (value) => {
+		set({ honeycombWarningSettings: value });
+		window.maestro.settings.set('honeycombWarningSettings', value);
+	},
+
+	updateHoneycombWarningSettings: (partial) => {
+		const prev = get().honeycombWarningSettings;
+		const updated = { ...prev, ...partial };
+		set({ honeycombWarningSettings: updated });
+		window.maestro.settings.set('honeycombWarningSettings', updated);
+	},
+
+	setHoneycombDataSource: (value) => {
+		set({ honeycombDataSource: value });
+		window.maestro.settings.set('honeycombDataSource', value);
+	},
+
+	setHoneycombMcpApiKey: (value) => {
+		set({ honeycombMcpApiKey: value });
+		window.maestro.settings.set('honeycombMcpApiKey', value);
+	},
+
+	setHoneycombEnvironmentSlug: (value) => {
+		set({ honeycombEnvironmentSlug: value });
+		window.maestro.settings.set('honeycombEnvironmentSlug', value);
+	},
+
+	setHoneycombMcpRegion: (value) => {
+		set({ honeycombMcpRegion: value });
+		window.maestro.settings.set('honeycombMcpRegion', value);
+	},
+
+	setHoneycombApiKey: (value) => {
+		set({ honeycombApiKey: value });
+		window.maestro.settings.set('honeycombApiKey', value);
+	},
+
+	setHoneycombDatasetSlug: (value) => {
+		set({ honeycombDatasetSlug: value });
+		window.maestro.settings.set('honeycombDatasetSlug', value);
+	},
+
+	// ============================================================================
+	// Plan Calibration
+	// ============================================================================
+
+	setPlanCalibration: (value) => {
+		set({ planCalibration: value });
+		window.maestro.settings.set('planCalibration', value);
+	},
+
+	updatePlanCalibration: (partial) => {
+		const prev = get().planCalibration;
+		const updated = { ...prev, ...partial };
+		set({ planCalibration: updated });
+		window.maestro.settings.set('planCalibration', updated);
+	},
+
+	// ============================================================================
+	// Synopsis / SSH / Global Stats
+	// ============================================================================
+
+	setSynopsisEnabled: (value) => {
+		set({ synopsisEnabled: value });
+		window.maestro.settings.set('synopsisEnabled', value);
+	},
+
+	setSshStatsTimeoutMs: (value) => {
+		set({ sshStatsTimeoutMs: value });
+		window.maestro.settings.set('sshStatsTimeoutMs', value);
+	},
+
+	setGlobalStatsRefreshIntervalMs: (value) => {
+		set({ globalStatsRefreshIntervalMs: value });
+		window.maestro.settings.set('globalStatsRefreshIntervalMs', value);
+	},
+
+	// ============================================================================
+	// Context Management
 	// ============================================================================
 
 	setContextManagementSettings: (value) => {
@@ -1718,6 +1939,59 @@ export async function loadAllSettings(): Promise<void> {
 
 		if (allSettings['autoHideMenuBar'] !== undefined)
 			patch.autoHideMenuBar = allSettings['autoHideMenuBar'] as boolean;
+
+		// Theme mode settings
+		if (allSettings['themeMode'] !== undefined)
+			patch.themeMode = allSettings['themeMode'] as 'manual' | 'system';
+
+		if (allSettings['lightThemeId'] !== undefined)
+			patch.lightThemeId = allSettings['lightThemeId'] as ThemeId;
+
+		if (allSettings['darkThemeId'] !== undefined)
+			patch.darkThemeId = allSettings['darkThemeId'] as ThemeId;
+
+		if (allSettings['groupChatDefaultShowThinking'] !== undefined)
+			patch.groupChatDefaultShowThinking = allSettings['groupChatDefaultShowThinking'] as boolean;
+
+		if (allSettings['checkForNewModelsOnStartup'] !== undefined)
+			patch.checkForNewModelsOnStartup = allSettings['checkForNewModelsOnStartup'] as boolean;
+
+		if (allSettings['synopsisEnabled'] !== undefined)
+			patch.synopsisEnabled = allSettings['synopsisEnabled'] as boolean;
+
+		if (allSettings['sshStatsTimeoutMs'] !== undefined)
+			patch.sshStatsTimeoutMs = allSettings['sshStatsTimeoutMs'] as number;
+
+		if (allSettings['globalStatsRefreshIntervalMs'] !== undefined)
+			patch.globalStatsRefreshIntervalMs = allSettings['globalStatsRefreshIntervalMs'] as number;
+
+		// Honeycomb settings
+		if (allSettings['honeycombWarningSettings'] !== undefined)
+			patch.honeycombWarningSettings = allSettings[
+				'honeycombWarningSettings'
+			] as HoneycombWarningSettings;
+
+		if (allSettings['honeycombDataSource'] !== undefined)
+			patch.honeycombDataSource = allSettings['honeycombDataSource'] as 'mcp' | 'api';
+
+		if (allSettings['honeycombMcpApiKey'] !== undefined)
+			patch.honeycombMcpApiKey = allSettings['honeycombMcpApiKey'] as string;
+
+		if (allSettings['honeycombEnvironmentSlug'] !== undefined)
+			patch.honeycombEnvironmentSlug = allSettings['honeycombEnvironmentSlug'] as string;
+
+		if (allSettings['honeycombMcpRegion'] !== undefined)
+			patch.honeycombMcpRegion = allSettings['honeycombMcpRegion'] as 'us' | 'eu';
+
+		if (allSettings['honeycombApiKey'] !== undefined)
+			patch.honeycombApiKey = allSettings['honeycombApiKey'] as string;
+
+		if (allSettings['honeycombDatasetSlug'] !== undefined)
+			patch.honeycombDatasetSlug = allSettings['honeycombDatasetSlug'] as string;
+
+		// Plan calibration
+		if (allSettings['planCalibration'] !== undefined)
+			patch.planCalibration = allSettings['planCalibration'] as PlanCalibration;
 
 		// Apply the entire patch in one setState call
 		patch.settingsLoaded = true;

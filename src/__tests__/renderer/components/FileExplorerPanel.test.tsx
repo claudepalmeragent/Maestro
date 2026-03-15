@@ -631,14 +631,14 @@ describe('FileExplorerPanel', () => {
 			});
 
 			// Icon should be spinning after auto-refresh fires
-			const refreshIcon = screen.getByTestId('refresh-icon');
-			expect(refreshIcon.className).toContain('animate-spin');
+			const refreshIcon = screen.getByTestId('refresh-cw-icon');
+			expect(refreshIcon.getAttribute('class')).toContain('animate-spin');
 
 			// After 500ms the spin stops
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(500);
 			});
-			expect(refreshIcon.className).not.toContain('animate-spin');
+			expect(refreshIcon.getAttribute('class')).not.toContain('animate-spin');
 		});
 
 		it('calls refresh at interval repeatedly', async () => {

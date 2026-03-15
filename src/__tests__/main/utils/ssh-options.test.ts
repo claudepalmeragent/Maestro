@@ -17,7 +17,7 @@ describe('ssh-options', () => {
 		});
 
 		it('includes ControlPersist for connection keepalive', () => {
-			expect(MASTER_SSH_OPTIONS.ControlPersist).toBe('300');
+			expect(MASTER_SSH_OPTIONS.ControlPersist).toBe('600');
 		});
 
 		it('uses RequestTTY=no since master has no command', () => {

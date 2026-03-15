@@ -122,6 +122,16 @@ describe('agent-detector', () => {
 					supportsBatchMode: false,
 					supportsStreaming: false,
 					supportsResultMessages: false,
+					supportsModelSelection: false,
+					supportsStreamJsonInput: false,
+					supportsThinkingDisplay: false,
+					requiresPromptToStart: false,
+					supportsContextMerge: false,
+					supportsContextExport: false,
+					supportsWizard: false,
+					supportsGroupChatModeration: false,
+					usesJsonLineOutput: false,
+					usesCombinedContextWindow: false,
 				},
 			};
 			expect(config.id).toBe('test-agent');
@@ -157,6 +167,15 @@ describe('agent-detector', () => {
 					supportsStreaming: true,
 					supportsResultMessages: false,
 					supportsModelSelection: false,
+					supportsStreamJsonInput: false,
+					supportsThinkingDisplay: false,
+					requiresPromptToStart: false,
+					supportsContextMerge: false,
+					supportsContextExport: false,
+					supportsWizard: false,
+					supportsGroupChatModeration: false,
+					usesJsonLineOutput: false,
+					usesCombinedContextWindow: false,
 				},
 			};
 			expect(config.customPath).toBe('/custom/path');
@@ -182,6 +201,15 @@ describe('agent-detector', () => {
 				supportsStreaming: true,
 				supportsResultMessages: true,
 				supportsModelSelection: true,
+				supportsStreamJsonInput: true,
+				supportsThinkingDisplay: false,
+				requiresPromptToStart: false,
+				supportsContextMerge: false,
+				supportsContextExport: false,
+				supportsWizard: false,
+				supportsGroupChatModeration: false,
+				usesJsonLineOutput: false,
+				usesCombinedContextWindow: false,
 			};
 			expect(capabilities.supportsResume).toBe(true);
 			expect(capabilities.supportsModelSelection).toBe(true);

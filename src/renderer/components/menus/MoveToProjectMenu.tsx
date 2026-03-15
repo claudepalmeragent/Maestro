@@ -1,4 +1,4 @@
-import React, { memo } from 'react';
+import { memo } from 'react';
 import { Check, FolderPlus, Folder } from 'lucide-react';
 import type { ProjectFolder } from '../../../shared/types';
 import type { Theme } from '../../types';

@@ -284,13 +284,13 @@ describe('StatsDB class (mocked)', () => {
 			const db = new StatsDB();
 			db.initialize();
 
-			// Currently we have version 9 migration (v1: initial schema, v2: is_remote column, v3: session_lifecycle table, v4: token metrics, v5: cache tokens and cost, v6: agent_id column, v7: dual-source cost tracking, v8: claude_session_id for reconstruction, v9: model_id column)
-			expect(db.getTargetVersion()).toBe(9);
+			// Currently we have 10 migrations (v1-v9 plus v10: compound indexes for dashboard)
+			expect(db.getTargetVersion()).toBe(10);
 		});
 
 		it('should return false from hasPendingMigrations() when up to date', async () => {
 			mockDb.pragma.mockImplementation((sql: string) => {
-				if (sql === 'user_version') return [{ user_version: 9 }];
+				if (sql === 'user_version') return [{ user_version: 10 }];
 				return undefined;
 			});
 
@@ -305,8 +305,8 @@ describe('StatsDB class (mocked)', () => {
 			// This test verifies the hasPendingMigrations() logic
 			// by checking current version < target version
 
-			// Simulate a database that's already at version 9 (target version)
-			let currentVersion = 9;
+			// Simulate a database that's already at version 10 (target version)
+			let currentVersion = 10;
 			mockDb.pragma.mockImplementation((sql: string) => {
 				if (sql === 'user_version') return [{ user_version: currentVersion }];
 				// Handle version updates from migration
@@ -320,9 +320,9 @@ describe('StatsDB class (mocked)', () => {
 			const db = new StatsDB();
 			db.initialize();
 
-			// At version 9, target is 9, so no pending migrations
-			expect(db.getCurrentVersion()).toBe(9);
-			expect(db.getTargetVersion()).toBe(9);
+			// At version 10, target is 10, so no pending migrations
+			expect(db.getCurrentVersion()).toBe(10);
+			expect(db.getTargetVersion()).toBe(10);
 			expect(db.hasPendingMigrations()).toBe(false);
 		});
 

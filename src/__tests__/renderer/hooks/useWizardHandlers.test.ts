@@ -19,6 +19,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act, cleanup } from '@testing-library/react';
 
+// Use the REAL modalStore (not the global mock) since these tests verify store state changes
+vi.unmock('../../../renderer/stores/modalStore');
+
 // ============================================================================
 // Mocks
 // ============================================================================

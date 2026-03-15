@@ -1922,7 +1922,6 @@ export interface AppModalsProps {
 	onCloseCreateGroupModal: () => void;
 	onGroupCreated?: (groupId: string) => void;
 	createGroupForFolderId?: string; // Project folder context for new group
-	renameGroupModalOpen: boolean;
 	renameGroupId: string | null;
 	renameGroupValue: string;
 	setRenameGroupValue: (value: string) => void;
@@ -2033,7 +2032,6 @@ export interface AppModalsProps {
 	gitDiffPreview: string | null;
 	gitViewerCwd: string;
 	onCloseGitDiff: () => void;
-	gitLogOpen: boolean;
 	gitLogSshRemoteId?: string;
 	onCloseGitLog: () => void;
 	onCloseAutoRunSetup: () => void;
@@ -2070,7 +2068,6 @@ export interface AppModalsProps {
 	) => void;
 	closedTabHistory: ClosedTab[];
 	onReopenClosedTab: (closedTabIndex: number) => void;
-	fuzzyFileSearchOpen: boolean;
 	filteredFileTree: FileNode[];
 	fileExplorerExpanded?: string[];
 	onCloseFileSearch: () => void;
@@ -2105,7 +2102,6 @@ export interface AppModalsProps {
 	promptLibraryAgentName?: string;
 	promptLibraryAgentSessionId?: string;
 	onPromptLibraryDelete?: (deletedPrompt: PromptLibraryEntry) => void;
-	queueBrowserOpen: boolean;
 	onCloseQueueBrowser: () => void;
 	onRemoveQueueItem: (sessionId: string, itemId: string) => void;
 	onSwitchQueueSession: (sessionId: string) => void;
@@ -2287,7 +2283,6 @@ export const AppModals = memo(function AppModals(props: AppModalsProps) {
 		onNavigateToSession,
 		onNavigateToGroupChat,
 		batchRunStates,
-		usageDashboardOpen,
 		usageDashboardInitialTab,
 		onCloseUsageDashboard,
 		defaultStatsTimeRange,
@@ -2310,7 +2305,6 @@ export const AppModals = memo(function AppModals(props: AppModalsProps) {
 		onSaveEditAgent,
 		editAgentSession,
 		onRescanGit,
-		renameSessionModalOpen,
 		renameSessionValue,
 		setRenameSessionValue,
 		onCloseRenameSessionModal,
@@ -2325,7 +2319,6 @@ export const AppModals = memo(function AppModals(props: AppModalsProps) {
 		onCloseCreateGroupModal,
 		onGroupCreated,
 		createGroupForFolderId,
-		renameGroupModalOpen,
 		renameGroupId,
 		renameGroupValue,
 		setRenameGroupValue,
@@ -2428,7 +2421,6 @@ export const AppModals = memo(function AppModals(props: AppModalsProps) {
 		gitDiffPreview,
 		gitViewerCwd,
 		onCloseGitDiff,
-		gitLogOpen,
 		gitLogSshRemoteId,
 		onCloseGitLog,
 		onCloseAutoRunSetup,
@@ -2455,7 +2447,6 @@ export const AppModals = memo(function AppModals(props: AppModalsProps) {
 		onNamedSessionSelect,
 		closedTabHistory,
 		onReopenClosedTab,
-		fuzzyFileSearchOpen,
 		filteredFileTree,
 		fileExplorerExpanded,
 		onCloseFileSearch,
@@ -2486,7 +2477,6 @@ export const AppModals = memo(function AppModals(props: AppModalsProps) {
 		promptLibraryAgentName,
 		promptLibraryAgentSessionId,
 		onPromptLibraryDelete,
-		queueBrowserOpen,
 		onCloseQueueBrowser,
 		onRemoveQueueItem,
 		onSwitchQueueSession,

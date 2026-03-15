@@ -8,7 +8,7 @@
  */
 
 import { useMemo } from 'react';
-import type { Session, Theme, Shortcut, FocusArea, RightPanelTab, BatchRunState, PinnedItem } from '../../types';
+import type { Session, Theme, RightPanelTab, BatchRunState, PinnedItem } from '../../types';
 import type { FileTreeChanges } from '../../utils/fileExplorer';
 
 /**

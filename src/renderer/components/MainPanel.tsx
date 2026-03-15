@@ -45,8 +45,6 @@ import { useSettingsStore } from '../stores/settingsStore';
 import type {
 	Session,
 	Theme,
-	Shortcut,
-	FocusArea,
 	BatchRunState,
 	PinnedItem,
 	UnifiedTab,

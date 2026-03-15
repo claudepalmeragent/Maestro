@@ -39,7 +39,7 @@ export interface DatasourceComparisonTabProps {
 	// Honeycomb billable tokens getter for calibration
 	getHoneycombBillableTokens?: (window: '5hr' | 'weekly' | 'sonnet-weekly') => Promise<number>;
 	/** Currently selected time range from the dashboard dropdown */
-	timeRange: 'day' | 'week' | 'month' | 'year' | 'all';
+	timeRange: 'day' | 'week' | 'month' | 'quarter' | 'year' | 'all';
 	localInputTokens?: number;
 	localOutputTokens?: number;
 	localCacheCreationTokens?: number;

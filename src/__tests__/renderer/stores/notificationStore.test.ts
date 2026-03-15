@@ -9,6 +9,9 @@
  * - Non-React access
  */
 
+// Unmock the store so we test the real implementation, not the global mock from setup.ts
+vi.unmock('../../../renderer/stores/notificationStore');
+
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import {
 	useNotificationStore,

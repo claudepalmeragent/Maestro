@@ -1094,6 +1094,20 @@ interface MaestroAPI {
 			cost: number;
 			subagentCount: number;
 		}>;
+		getSessionStats: (
+			agentId: string,
+			projectPath: string,
+			sessionId: string,
+			sshRemoteId?: string
+		) => Promise<{
+			inputTokens: number;
+			outputTokens: number;
+			cacheReadTokens: number;
+			cacheCreationTokens: number;
+			costUsd: number;
+			messageCount: number;
+			durationSeconds: number;
+		}>;
 	};
 	dialog: {
 		selectFolder: () => Promise<string | null>;
@@ -2541,7 +2555,7 @@ interface MaestroAPI {
 			}>
 		>;
 		// Get daily costs for cost-over-time graph
-		getDailyCosts: (range: 'day' | 'week' | 'month' | 'year' | 'all') => Promise<
+		getDailyCosts: (range: 'day' | 'week' | 'month' | 'quarter' | 'year' | 'all') => Promise<
 			Array<{
 				date: string;
 				localCost: number;
@@ -2550,7 +2564,7 @@ interface MaestroAPI {
 			}>
 		>;
 		// Get costs by model for cost-by-model graph
-		getCostsByModel: (range: 'day' | 'week' | 'month' | 'year' | 'all') => Promise<
+		getCostsByModel: (range: 'day' | 'week' | 'month' | 'quarter' | 'year' | 'all') => Promise<
 			Array<{
 				model: string;
 				localCost: number;
@@ -2559,7 +2573,7 @@ interface MaestroAPI {
 			}>
 		>;
 		// Get costs by agent for cost-by-agent graph
-		getCostsByAgent: (range: 'day' | 'week' | 'month' | 'year' | 'all') => Promise<
+		getCostsByAgent: (range: 'day' | 'week' | 'month' | 'quarter' | 'year' | 'all') => Promise<
 			Array<{
 				agentId: string;
 				agentName: string;
@@ -2570,7 +2584,7 @@ interface MaestroAPI {
 			}>
 		>;
 		// Get free token stats for DS Comparison tab
-		getFreeTokenStats: (range: 'day' | 'week' | 'month' | 'year' | 'all') => Promise<{
+		getFreeTokenStats: (range: 'day' | 'week' | 'month' | 'quarter' | 'year' | 'all') => Promise<{
 			totalInputTokens: number;
 			totalOutputTokens: number;
 			totalCacheCreationTokens: number;
@@ -2716,6 +2730,7 @@ interface MaestroAPI {
 		stopScheduler: () => Promise<{ success: boolean }>;
 		autoCorrect: (entryIds: string[]) => Promise<{ corrected: number; total: number }>;
 		onAuditUpdate: (callback: () => void) => () => void;
+		delete: (generatedAt: number) => Promise<{ success: boolean }>;
 	};
 	// Reconstruction API (historical data reconstruction from JSONL files)
 	reconstruction: {

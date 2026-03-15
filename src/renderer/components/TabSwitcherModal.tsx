@@ -492,7 +492,7 @@ export function TabSwitcherModal({
 				searchableId = item.tab.extension + ' ' + item.tab.path;
 			} else if (item.type === 'closed') {
 				displayName = getClosedTabDisplayName(item.entry);
-				uuid = item.entry.tab.agentSessionId || '';
+				searchableId = item.entry.tab.agentSessionId || '';
 			} else {
 				displayName = item.session.sessionName;
 				searchableId = item.session.agentSessionId;

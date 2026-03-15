@@ -15,15 +15,7 @@ import {
 	Skull,
 	AlertTriangle,
 } from 'lucide-react';
-import type {
-	Session,
-	Theme,
-	RightPanelTab,
-	Shortcut,
-	BatchRunState,
-	FocusArea,
-	PinnedItem,
-} from '../types';
+import type { Session, Theme, RightPanelTab, BatchRunState, PinnedItem } from '../types';
 import type { FileTreeChanges } from '../utils/fileExplorer';
 import { FileExplorerPanel } from './FileExplorerPanel';
 import { HistoryPanel, HistoryPanelHandle } from './HistoryPanel';

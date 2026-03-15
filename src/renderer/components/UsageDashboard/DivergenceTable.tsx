@@ -30,13 +30,6 @@ function getStatus(deltaPct: number): { label: string; color: string } {
 	return { label: '● Normal', color: '#22c55e' };
 }
 
-function formatTokenDelta(tokens: number): string {
-	const sign = tokens >= 0 ? '+' : '';
-	if (Math.abs(tokens) >= 1_000_000) return `${sign}${(tokens / 1_000_000).toFixed(1)}M`;
-	if (Math.abs(tokens) >= 1_000) return `${sign}${(tokens / 1_000).toFixed(0)}K`;
-	return `${sign}${tokens}`;
-}
-
 export function DivergenceTable({ theme, rows }: DivergenceTableProps) {
 	if (rows.length === 0) {
 		return (

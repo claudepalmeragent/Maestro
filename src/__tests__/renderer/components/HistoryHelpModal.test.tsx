@@ -74,7 +74,6 @@ vi.mock('lucide-react', () => ({
 	),
 }));
 
-
 // Create a mock theme
 const mockTheme: Theme = {
 	id: 'test-theme',
@@ -425,7 +424,9 @@ describe('HistoryHelpModal', () => {
 			render(<HistoryHelpModal {...defaultProps} />);
 
 			expect(screen.getByText('Activity Graph')).toBeInTheDocument();
-			expect(screen.getByTestId('bar-chart2-icon')).toBeInTheDocument();
+			expect(
+				screen.getByText('Activity Graph').closest('div')?.querySelector('svg')
+			).toBeInTheDocument();
 		});
 
 		it('describes the activity graph', () => {
@@ -621,7 +622,7 @@ describe('HistoryHelpModal', () => {
 		it('applies accent color to BarChart2 icon', () => {
 			render(<HistoryHelpModal {...defaultProps} />);
 
-			const barChartIcon = screen.getByTestId('bar-chart2-icon');
+			const barChartIcon = screen.getByText('Activity Graph').closest('div')?.querySelector('svg');
 			expect(barChartIcon).toHaveStyle({ color: mockTheme.colors.accent });
 		});
 

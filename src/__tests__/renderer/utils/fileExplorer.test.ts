@@ -223,7 +223,7 @@ describe('fileExplorer utils', () => {
 			expect(result[2]).toEqual({ name: 'README.md', type: 'file' });
 		});
 
-		it('includes hidden files and directories (starting with .) except .git and .git-repo', async () => {
+		it('includes hidden files and directories (starting with .) including .git and .git-repo', async () => {
 			vi.mocked(window.maestro.fs.readDir)
 				.mockResolvedValueOnce([
 					{ name: '.git', isFile: false, isDirectory: true },
@@ -237,10 +237,10 @@ describe('fileExplorer utils', () => {
 
 			const result = await loadFileTree('/project');
 
-			// .git and .git-repo are safety-excluded — never loaded into the tree
-			expect(result).toHaveLength(4);
-			expect(result.find((n) => n.name === '.git')).toBeUndefined();
-			expect(result.find((n) => n.name === '.git-repo')).toBeUndefined();
+			// .git and .git-repo are no longer filtered out
+			expect(result).toHaveLength(6);
+			expect(result.find((n) => n.name === '.git')).toBeDefined();
+			expect(result.find((n) => n.name === '.git-repo')).toBeDefined();
 			// Other dot-prefixed files/dirs are still included
 			expect(result.find((n) => n.name === '.gitignore')).toBeDefined();
 			expect(result.find((n) => n.name === '.env')).toBeDefined();
@@ -248,7 +248,7 @@ describe('fileExplorer utils', () => {
 			expect(result.find((n) => n.name === 'README.md')).toBeDefined();
 		});
 
-		it('safety-excludes .git and .git-repo directories from file tree', async () => {
+		it('includes .git and .git-repo directories in file tree', async () => {
 			vi.mocked(window.maestro.fs.readDir)
 				.mockResolvedValueOnce([
 					{ name: '.git', isFile: false, isDirectory: true },
@@ -260,9 +260,9 @@ describe('fileExplorer utils', () => {
 
 			const result = await loadFileTree('/project');
 
-			// .git and .git-repo are never included regardless of showHiddenFiles
-			expect(result).toHaveLength(2);
-			expect(result.map((n) => n.name)).toEqual(['.config', 'src']);
+			// .git and .git-repo are now included in the tree
+			expect(result).toHaveLength(4);
+			expect(result.map((n) => n.name)).toEqual(['.config', '.git', '.git-repo', 'src']);
 		});
 
 		it('skips node_modules directory', async () => {

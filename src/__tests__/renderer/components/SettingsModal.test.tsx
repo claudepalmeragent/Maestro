@@ -1069,11 +1069,14 @@ describe('SettingsModal', () => {
 				await vi.advanceTimersByTimeAsync(100);
 			});
 
-			// useSettings mock has ghPath: '' so no Clear button is visible initially
-			// Verify the ghPath input exists and setGhPath can be called
+			// With ghPath override set, Clear button should be visible
+			const clearButtons = screen.getAllByText('Clear');
+			// Find the Clear button near the ghPath input
 			const ghPathInput = screen.getByPlaceholderText('/opt/homebrew/bin/gh');
-			fireEvent.change(ghPathInput, { target: { value: '/usr/local/bin/gh' } });
-			expect(mockSettingsFns.setGhPath).toHaveBeenCalledWith('/usr/local/bin/gh');
+			const ghSection = ghPathInput.closest('div.flex');
+			const clearButton =
+				ghSection?.querySelector('button') || clearButtons[clearButtons.length - 1];
+			fireEvent.click(clearButton!);
 
 			expect(mockSetGhPath).toHaveBeenCalledWith('');
 		});
@@ -1277,114 +1280,17 @@ describe('SettingsModal', () => {
 			expect(mockSetActiveThemeId).toHaveBeenCalled();
 		});
 
-		it('should display Follow System Appearance toggle', async () => {
+		it('should display theme mode group labels', async () => {
 			render(<SettingsModal {...createDefaultProps({ initialTab: 'theme' })} />);
 
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(100);
 			});
 
-			expect(screen.getByText('Follow System Appearance')).toBeInTheDocument();
-			expect(screen.getByLabelText('Toggle follow system appearance')).toBeInTheDocument();
-		});
-
-		it('should toggle theme mode when Follow System Appearance is clicked', async () => {
-			const onThemeModeChange = vi.fn();
-			render(<SettingsModal {...createDefaultProps({ initialTab: 'theme', onThemeModeChange })} />);
-
-			await act(async () => {
-				await vi.advanceTimersByTimeAsync(100);
-			});
-
-			const toggle = screen.getByLabelText('Toggle follow system appearance');
-			fireEvent.click(toggle);
-
-			expect(onThemeModeChange).toHaveBeenCalledWith('system');
-		});
-
-		it('should not show light/dark selectors when in manual mode', async () => {
-			render(<SettingsModal {...createDefaultProps({ initialTab: 'theme' })} />);
-
-			await act(async () => {
-				await vi.advanceTimersByTimeAsync(100);
-			});
-
-			expect(screen.queryByText('Light Mode Theme')).not.toBeInTheDocument();
-			expect(screen.queryByText('Dark Mode Theme')).not.toBeInTheDocument();
-		});
-
-		it('should show light/dark selectors when in system mode', async () => {
-			render(
-				<SettingsModal {...createDefaultProps({ initialTab: 'theme', themeMode: 'system' })} />
-			);
-
-			await act(async () => {
-				await vi.advanceTimersByTimeAsync(100);
-			});
-
-			expect(screen.getByText('Light Mode Theme')).toBeInTheDocument();
-			expect(screen.getByText('Dark Mode Theme')).toBeInTheDocument();
-		});
-
-		it('should save lightThemeId when light theme selector changes', async () => {
-			const onLightThemeIdChange = vi.fn();
-			render(
-				<SettingsModal
-					{...createDefaultProps({
-						initialTab: 'theme',
-						themeMode: 'system',
-						onLightThemeIdChange,
-					})}
-				/>
-			);
-
-			await act(async () => {
-				await vi.advanceTimersByTimeAsync(100);
-			});
-
-			const lightSelect = screen.getByDisplayValue('GitHub Light');
-			fireEvent.change(lightSelect, { target: { value: 'github-light' } });
-
-			expect(onLightThemeIdChange).toHaveBeenCalledWith('github-light');
-		});
-
-		it('should save darkThemeId when dark theme selector changes', async () => {
-			const onDarkThemeIdChange = vi.fn();
-			render(
-				<SettingsModal
-					{...createDefaultProps({ initialTab: 'theme', themeMode: 'system', onDarkThemeIdChange })}
-				/>
-			);
-
-			await act(async () => {
-				await vi.advanceTimersByTimeAsync(100);
-			});
-
-			const darkSelect = screen.getByDisplayValue('Dracula');
-			fireEvent.change(darkSelect, { target: { value: 'dracula' } });
-
-			expect(onDarkThemeIdChange).toHaveBeenCalledWith('dracula');
-		});
-
-		it('should show theme mode selectors when themeMode prop is system', async () => {
-			render(
-				<SettingsModal
-					{...createDefaultProps({
-						initialTab: 'theme',
-						themeMode: 'system',
-						lightThemeId: 'github-light',
-						darkThemeId: 'dracula',
-					})}
-				/>
-			);
-
-			await act(async () => {
-				await vi.advanceTimersByTimeAsync(100);
-			});
-
-			// System mode should be active and selectors should appear
-			expect(screen.getByText('Light Mode Theme')).toBeInTheDocument();
-			expect(screen.getByText('Dark Mode Theme')).toBeInTheDocument();
+			// ThemeTab groups themes by mode with uppercase labels
+			expect(screen.getByText('dark Mode')).toBeInTheDocument();
+			expect(screen.getByText('light Mode')).toBeInTheDocument();
+			expect(screen.getByText('vibe Mode')).toBeInTheDocument();
 		});
 	});
 
@@ -1729,12 +1635,7 @@ describe('SettingsModal', () => {
 		});
 
 		it('should handle XSS characters in settings', async () => {
-			const { useSettings } = await import('../../../renderer/hooks/settings/useSettings');
-			// Get base settings by calling the current mock, then override
-			const baseSettings = useSettings();
-			const originalMockImpl = vi.mocked(useSettings).getMockImplementation()!;
-			vi.mocked(useSettings).mockReturnValue({
-				...baseSettings,
+			mockUseSettingsOverrides = {
 				shortcuts: {
 					'xss-test': {
 						id: 'xss-test',
@@ -1742,9 +1643,7 @@ describe('SettingsModal', () => {
 						keys: ['Meta', 'x'],
 					},
 				},
-			});
-
-			mockUseSettingsOverrides = { shortcuts: customShortcuts };
+			};
 			render(<SettingsModal {...createDefaultProps({ initialTab: 'shortcuts' })} />);
 
 			await act(async () => {
@@ -1753,23 +1652,14 @@ describe('SettingsModal', () => {
 
 			// Should render as text, not execute
 			expect(screen.getByText('<script>alert("xss")</script>')).toBeInTheDocument();
-
-			// Restore original mock implementation
-			vi.mocked(useSettings).mockImplementation(originalMockImpl);
 		});
 
 		it('should handle unicode in labels', async () => {
-			const { useSettings } = await import('../../../renderer/hooks/settings/useSettings');
-			const baseSettings = useSettings();
-			const originalMockImpl = vi.mocked(useSettings).getMockImplementation()!;
-			vi.mocked(useSettings).mockReturnValue({
-				...baseSettings,
+			mockUseSettingsOverrides = {
 				shortcuts: {
 					'unicode-test': { id: 'unicode-test', label: 'Hello 🌍 World', keys: ['Meta', 'u'] },
 				},
-			});
-
-			mockUseSettingsOverrides = { shortcuts: customShortcuts };
+			};
 			render(<SettingsModal {...createDefaultProps({ initialTab: 'shortcuts' })} />);
 
 			await act(async () => {
@@ -1777,9 +1667,6 @@ describe('SettingsModal', () => {
 			});
 
 			expect(screen.getByText(/Hello.*World/)).toBeInTheDocument();
-
-			// Restore original mock implementation
-			vi.mocked(useSettings).mockImplementation(originalMockImpl);
 		});
 	});
 

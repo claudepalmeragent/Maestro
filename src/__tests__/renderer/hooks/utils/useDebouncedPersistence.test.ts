@@ -650,7 +650,7 @@ describe('useDebouncedPersistence', () => {
 		});
 
 		describe('session runtime fields removal', () => {
-			it('should remove closedTabHistory', () => {
+			it('should persist closedTabHistory with truncated logs', () => {
 				const closedTab = makeTab({ id: 'closed' });
 				const session = makeSession({
 					closedTabHistory: [{ tab: closedTab, index: 0, closedAt: Date.now() }],
@@ -664,7 +664,8 @@ describe('useDebouncedPersistence', () => {
 				});
 
 				const persisted = vi.mocked(window.maestro.sessions.setAll).mock.calls[0][0] as Session[];
-				expect(persisted[0].closedTabHistory).toBeUndefined();
+				expect(persisted[0].closedTabHistory).toBeDefined();
+				expect(persisted[0].closedTabHistory).toHaveLength(1);
 			});
 
 			it('should remove session-level agentError', () => {

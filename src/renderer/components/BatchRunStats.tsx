@@ -1,4 +1,3 @@
-import React from 'react';
 import type { Theme, BatchRunState } from '../types';
 import { formatTokensCompact } from '../utils/formatters';
 

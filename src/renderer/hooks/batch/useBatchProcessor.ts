@@ -1,4 +1,4 @@
-import { useCallback, useRef, useEffect, useMemo } from 'react';
+import { useCallback, useRef, useEffect, useMemo, useState } from 'react';
 import type {
 	BatchRunState,
 	BatchRunConfig,
@@ -27,7 +27,6 @@ import { notifyToast } from '../../stores/notificationStore';
 import { useTimeTracking } from './useTimeTracking';
 import { useWorktreeManager } from './useWorktreeManager';
 import { useDocumentProcessor } from './useDocumentProcessor';
-import { useDocumentPolling } from './useDocumentPolling';
 import { useSubagentStatsPoller } from './useSubagentStatsPoller';
 
 // Debounce delay for batch state updates (Quick Win 1)
@@ -240,6 +239,8 @@ export function useBatchProcessor({
 }: UseBatchProcessorProps): UseBatchProcessorReturn {
 	// Batch states per session — lives in batchStore, read reactively for re-renders
 	const batchRunStates = useBatchStore((s) => s.batchRunStates);
+	const batchRunStatesRef = useRef(batchRunStates);
+	batchRunStatesRef.current = batchRunStates;
 
 	// Dispatch batch actions through the store. The store applies batchReducer
 	// synchronously, eliminating the need for manual ref syncing.
@@ -290,7 +291,7 @@ export function useBatchProcessor({
 	 * @param checkedCount - The new count of checked tasks in the current document
 	 * @param uncheckedCount - The count of unchecked tasks remaining
 	 */
-	const handlePollingProgressUpdate = useCallback(
+	const _handlePollingProgressUpdate = useCallback(
 		(sessionId: string, checkedCount: number, uncheckedCount: number) => {
 			const state = batchRunStatesRef.current[sessionId];
 			if (!state || !state.isRunning) return;
@@ -1814,7 +1815,6 @@ export function useBatchProcessor({
 				} catch {
 					// Ignore history errors
 				}
-
 
 				// Process any queued items that were waiting during batch run
 				// This ensures pending user messages are processed after Auto Run ends

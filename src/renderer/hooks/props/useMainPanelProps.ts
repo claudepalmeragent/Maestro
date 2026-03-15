@@ -95,6 +95,9 @@ export interface UseMainPanelPropsDeps {
 	isWorktreeChild: boolean;
 
 	// Context management settings
+	contextWarningsEnabled?: boolean;
+	contextWarningYellowThreshold?: number;
+	contextWarningRedThreshold?: number;
 
 	// Summarization progress
 	summarizeProgress: SummarizeProgress | null;

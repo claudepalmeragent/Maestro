@@ -775,7 +775,7 @@ describe('SessionList', () => {
 			render(<SessionList {...props} />);
 
 			// Empty group should have delete button (visible on hover)
-			expect(screen.getByTitle('Delete group')).toBeInTheDocument();
+			expect(screen.getByTitle('Delete empty group')).toBeInTheDocument();
 		});
 
 		it('creates new group when button clicked', () => {
@@ -1240,8 +1240,10 @@ describe('SessionList', () => {
 			});
 			render(<SessionList {...props} />);
 
-			const wandIcons = screen.getAllByTestId('icon-wand');
-			const hasSparkle = wandIcons.some((el) => el.className.includes('wand-sparkle-active'));
+			const wandIcons = screen.getAllByTestId('wand2-icon');
+			const hasSparkle = wandIcons.some((el) =>
+				(el.getAttribute('class') || '').includes('wand-sparkle-active')
+			);
 			expect(hasSparkle).toBe(true);
 		});
 
@@ -1255,8 +1257,10 @@ describe('SessionList', () => {
 			});
 			render(<SessionList {...props} />);
 
-			const wandIcons = screen.getAllByTestId('icon-wand');
-			const hasSparkle = wandIcons.some((el) => el.className.includes('wand-sparkle-active'));
+			const wandIcons = screen.getAllByTestId('wand2-icon');
+			const hasSparkle = wandIcons.some((el) =>
+				(el.getAttribute('class') || '').includes('wand-sparkle-active')
+			);
 			expect(hasSparkle).toBe(true);
 		});
 
@@ -1269,8 +1273,10 @@ describe('SessionList', () => {
 			});
 			render(<SessionList {...props} />);
 
-			const wandIcons = screen.getAllByTestId('icon-wand');
-			const hasSparkle = wandIcons.some((el) => el.className.includes('wand-sparkle-active'));
+			const wandIcons = screen.getAllByTestId('wand2-icon');
+			const hasSparkle = wandIcons.some((el) =>
+				(el.getAttribute('class') || '').includes('wand-sparkle-active')
+			);
 			expect(hasSparkle).toBe(false);
 		});
 
