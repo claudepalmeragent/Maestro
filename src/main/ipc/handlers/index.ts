@@ -319,8 +319,8 @@ export function registerAllHandlers(deps: HandlerDependencies): void {
 		getAgentDetector: deps.getAgentDetector,
 		agentConfigsStore: deps.agentConfigsStore,
 	});
-	// Register Wakatime handlers
-	registerWakatimeHandlers();
+	// Note: Wakatime handlers are registered separately in main/index.ts
+	// because they require access to the WakaTimeManager instance.
 	// Setup logger event forwarding to renderer
 	setupLoggerEventForwarding(deps.getMainWindow);
 }

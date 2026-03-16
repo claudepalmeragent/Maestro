@@ -479,12 +479,9 @@ export const selectActiveTab = (
 /**
  * Select the active file preview tab from the active session.
  * Use with useSessionStore: `useSessionStore(selectActiveFileTab)`
-<<<<<<< HEAD
-=======
  *
  * @example
  * const activeFileTab = useSessionStore(selectActiveFileTab);
->>>>>>> upstream/main
  */
 export const selectActiveFileTab = (
 	state: ReturnType<typeof useSessionStore.getState>
@@ -497,12 +494,9 @@ export const selectActiveFileTab = (
 /**
  * Select unified tabs (AI + file) in order for the active session.
  * Use with useSessionStore: `useSessionStore(selectUnifiedTabs)`
-<<<<<<< HEAD
-=======
  *
  * @example
  * const unifiedTabs = useSessionStore(selectUnifiedTabs);
->>>>>>> upstream/main
  */
 export const selectUnifiedTabs = (
 	state: ReturnType<typeof useSessionStore.getState>
@@ -514,12 +508,9 @@ export const selectUnifiedTabs = (
 
 /**
  * Select a specific AI tab by ID from the active session.
-<<<<<<< HEAD
-=======
  *
  * @example
  * const tab = useSessionStore(selectTabById('tab-123'));
->>>>>>> upstream/main
  */
 export const selectTabById =
 	(tabId: string) =>
@@ -530,12 +521,9 @@ export const selectTabById =
 
 /**
  * Select a specific file preview tab by ID from the active session.
-<<<<<<< HEAD
-=======
  *
  * @example
  * const fileTab = useSessionStore(selectFileTabById('file-tab-123'));
->>>>>>> upstream/main
  */
 export const selectFileTabById =
 	(tabId: string) =>
@@ -546,12 +534,9 @@ export const selectFileTabById =
 
 /**
  * Select the count of AI tabs in the active session.
-<<<<<<< HEAD
-=======
  *
  * @example
  * const tabCount = useSessionStore(selectTabCount);
->>>>>>> upstream/main
  */
 export const selectTabCount = (state: ReturnType<typeof useSessionStore.getState>): number => {
 	const session = selectActiveSession(state);
@@ -560,12 +545,9 @@ export const selectTabCount = (state: ReturnType<typeof useSessionStore.getState
 
 /**
  * Select all AI tabs in the active session.
-<<<<<<< HEAD
-=======
  *
  * @example
  * const tabs = useSessionStore(selectAllTabs);
->>>>>>> upstream/main
  */
 export const selectAllTabs = (state: ReturnType<typeof useSessionStore.getState>): AITab[] => {
 	const session = selectActiveSession(state);
@@ -574,12 +556,9 @@ export const selectAllTabs = (state: ReturnType<typeof useSessionStore.getState>
 
 /**
  * Select all file preview tabs in the active session.
-<<<<<<< HEAD
-=======
  *
  * @example
  * const fileTabs = useSessionStore(selectAllFileTabs);
->>>>>>> upstream/main
  */
 export const selectAllFileTabs = (
 	state: ReturnType<typeof useSessionStore.getState>
@@ -594,12 +573,9 @@ export const selectAllFileTabs = (
 
 /**
  * Get current tab store state outside React.
-<<<<<<< HEAD
-=======
  *
  * @example
  * const { tabGistContent, fileGistUrls } = getTabState();
->>>>>>> upstream/main
  */
 export function getTabState() {
 	return useTabStore.getState();
@@ -607,12 +583,9 @@ export function getTabState() {
 
 /**
  * Get stable tab action references outside React.
-<<<<<<< HEAD
-=======
  *
  * @example
  * const { createTab, closeTab, selectTab } = getTabActions();
->>>>>>> upstream/main
  */
 export function getTabActions() {
 	const state = useTabStore.getState();

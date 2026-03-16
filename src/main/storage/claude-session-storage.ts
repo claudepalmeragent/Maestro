@@ -30,7 +30,6 @@ import {
 	batchDiscoverSessionFilesRemote,
 	batchExtractSessionPreviewsRemote,
 	batchSubagentStatsRemote,
-	searchSessionFilesRemote,
 } from '../utils/remote-fs';
 import type {
 	AgentSessionInfo,

@@ -634,7 +634,7 @@ Respond with ONLY the summary text, no additional commentary.`;
 							agentSessionId: participant.agentSessionId, // Resume existing session for context
 							readOnlyMode: true, // Summary is read-only
 							timeoutMs: 60000, // 60 second timeout for summary
-							sshRemoteConfig,
+							sessionSshRemoteConfig: sshRemoteConfig,
 						},
 						processManager,
 						agentDetector

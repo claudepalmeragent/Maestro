@@ -39,6 +39,15 @@ const mockGroupChat = {
 	onModeratorUsage: vi.fn().mockReturnValue(() => {}),
 	onParticipantState: vi.fn().mockReturnValue(() => {}),
 	onModeratorSessionIdChanged: vi.fn().mockReturnValue(() => {}),
+	onThinkingContent: vi.fn().mockReturnValue(() => {}),
+};
+
+// ---------------------------------------------------------------------------
+// Default params for useGroupChatHandlers
+// ---------------------------------------------------------------------------
+const defaultHandlerParams = {
+	groupChatShowThinking: false,
+	setGroupChatThinkingContent: vi.fn(),
 };
 
 // ---------------------------------------------------------------------------
@@ -87,7 +96,7 @@ describe('useGroupChatHandlers', () => {
 	// -----------------------------------------------------------------------
 	describe('refs', () => {
 		it('returns groupChatInputRef and groupChatMessagesRef', () => {
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			expect(result.current.groupChatInputRef).toBeDefined();
 			expect(result.current.groupChatMessagesRef).toBeDefined();
 			expect(result.current.groupChatInputRef.current).toBeNull();
@@ -104,14 +113,14 @@ describe('useGroupChatHandlers', () => {
 				groupChatError: { error: { type: 'authentication' } as any, groupChatId: 'gc-1' },
 			});
 
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			act(() => result.current.handleClearGroupChatError());
 
 			expect(useGroupChatStore.getState().groupChatError).toBeNull();
 		});
 
 		it('groupChatRecoveryActions is an array', () => {
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			expect(Array.isArray(result.current.groupChatRecoveryActions)).toBe(true);
 		});
 	});
@@ -129,7 +138,7 @@ describe('useGroupChatHandlers', () => {
 				groupChatError: { error: { type: 'authentication' } as any, groupChatId: 'gc-1' },
 			});
 
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			act(() => result.current.handleCloseGroupChat());
 
 			const state = useGroupChatStore.getState();
@@ -152,7 +161,7 @@ describe('useGroupChatHandlers', () => {
 			mockGroupChat.getMessages.mockResolvedValueOnce(messages);
 			mockGroupChat.startModerator.mockResolvedValueOnce('mod-session-1');
 
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			await act(async () => {
 				await result.current.handleOpenGroupChat('gc-1');
 			});
@@ -166,7 +175,7 @@ describe('useGroupChatHandlers', () => {
 		it('does nothing if chat load returns null', async () => {
 			mockGroupChat.load.mockResolvedValueOnce(null);
 
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			await act(async () => {
 				await result.current.handleOpenGroupChat('gc-nonexistent');
 			});
@@ -181,7 +190,7 @@ describe('useGroupChatHandlers', () => {
 			mockGroupChat.startModerator.mockResolvedValueOnce(null);
 			(window.maestro.settings.get as any).mockResolvedValueOnce('history');
 
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			await act(async () => {
 				await result.current.handleOpenGroupChat('gc-1');
 			});
@@ -202,7 +211,7 @@ describe('useGroupChatHandlers', () => {
 			mockGroupChat.getMessages.mockResolvedValueOnce([]);
 			mockGroupChat.startModerator.mockResolvedValueOnce(null);
 
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			await act(async () => {
 				await result.current.handleOpenGroupChat('gc-1');
 			});
@@ -221,7 +230,7 @@ describe('useGroupChatHandlers', () => {
 			mockGroupChat.getMessages.mockResolvedValueOnce([]);
 			mockGroupChat.startModerator.mockResolvedValueOnce(null);
 
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			await act(async () => {
 				await result.current.handleOpenGroupChat('gc-1');
 			});
@@ -242,7 +251,7 @@ describe('useGroupChatHandlers', () => {
 			mockGroupChat.startModerator.mockResolvedValueOnce('mod-id');
 			useModalStore.getState().openModal('newGroupChat');
 
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			await act(async () => {
 				await result.current.handleCreateGroupChat('New Chat', 'claude-code');
 			});
@@ -264,7 +273,7 @@ describe('useGroupChatHandlers', () => {
 			mockGroupChat.create.mockRejectedValueOnce(validationError);
 			useModalStore.getState().openModal('newGroupChat');
 
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			// Should NOT throw
 			await act(async () => {
 				await result.current.handleCreateGroupChat('Chat', 'bad-agent');
@@ -283,7 +292,7 @@ describe('useGroupChatHandlers', () => {
 			mockGroupChat.create.mockRejectedValueOnce(unexpectedError);
 			useModalStore.getState().openModal('newGroupChat');
 
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			await expect(
 				act(async () => {
 					await result.current.handleCreateGroupChat('Chat', 'claude-code');
@@ -303,7 +312,7 @@ describe('useGroupChatHandlers', () => {
 			mockGroupChat.startModerator.mockResolvedValueOnce(null);
 
 			const config = { customPath: '/usr/local/bin/claude', customModel: 'opus' };
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			await act(async () => {
 				await result.current.handleCreateGroupChat('Chat', 'claude-code', config);
 			});
@@ -321,7 +330,7 @@ describe('useGroupChatHandlers', () => {
 				groupChats: [{ id: 'gc-1', name: 'Chat 1' } as any, { id: 'gc-2', name: 'Chat 2' } as any],
 			});
 
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			await act(async () => {
 				await result.current.handleDeleteGroupChat('gc-1');
 			});
@@ -339,7 +348,7 @@ describe('useGroupChatHandlers', () => {
 				groupChatMessages: [{ role: 'user', content: 'test' }] as any,
 			});
 
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			await act(async () => {
 				await result.current.handleDeleteGroupChat('gc-1');
 			});
@@ -354,7 +363,7 @@ describe('useGroupChatHandlers', () => {
 			});
 			useModalStore.getState().openModal('deleteGroupChat', { groupChatId: 'gc-1' });
 
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			await act(async () => {
 				await result.current.handleDeleteGroupChat('gc-1');
 			});
@@ -373,7 +382,7 @@ describe('useGroupChatHandlers', () => {
 				groupChats: [{ id: 'gc-1', name: 'Old Name' } as any],
 			});
 
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			await act(async () => {
 				await result.current.handleRenameGroupChat('gc-1', 'New Name');
 			});
@@ -388,7 +397,7 @@ describe('useGroupChatHandlers', () => {
 			});
 			useModalStore.getState().openModal('renameGroupChat', { groupChatId: 'gc-1' });
 
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			await act(async () => {
 				await result.current.handleRenameGroupChat('gc-1', 'New');
 			});
@@ -409,7 +418,7 @@ describe('useGroupChatHandlers', () => {
 				groupChats: [{ id: 'gc-1', name: 'Old', moderatorAgentId: 'codex' } as any],
 			});
 
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			await act(async () => {
 				await result.current.handleUpdateGroupChat('gc-1', 'Updated', 'claude-code');
 			});
@@ -424,7 +433,7 @@ describe('useGroupChatHandlers', () => {
 			});
 			useModalStore.getState().openModal('editGroupChat', { groupChatId: 'gc-1' });
 
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			await act(async () => {
 				await result.current.handleUpdateGroupChat('gc-1', 'Updated', 'claude-code');
 			});
@@ -443,7 +452,7 @@ describe('useGroupChatHandlers', () => {
 				groupChats: [{ id: 'gc-1', name: 'My Chat' } as any],
 			});
 
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			act(() => result.current.deleteGroupChatWithConfirmation('gc-1'));
 
 			const confirmModal = useModalStore.getState().modals.get('confirm');
@@ -452,7 +461,7 @@ describe('useGroupChatHandlers', () => {
 		});
 
 		it('does nothing for nonexistent chat', () => {
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			act(() => result.current.deleteGroupChatWithConfirmation('gc-nonexistent'));
 
 			const confirmModal = useModalStore.getState().modals.get('confirm');
@@ -471,7 +480,7 @@ describe('useGroupChatHandlers', () => {
 				groupChats: [{ id: 'gc-1', name: 'Chat' } as any],
 			});
 
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			await act(async () => {
 				await result.current.handleSendGroupChatMessage('Hello', undefined, false);
 			});
@@ -487,7 +496,7 @@ describe('useGroupChatHandlers', () => {
 				groupChats: [{ id: 'gc-1', name: 'Chat' } as any],
 			});
 
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			await act(async () => {
 				await result.current.handleSendGroupChatMessage('Look at this', ['img1.png', 'img2.png']);
 			});
@@ -508,7 +517,7 @@ describe('useGroupChatHandlers', () => {
 				groupChatStates: new Map(),
 			});
 
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			await act(async () => {
 				await result.current.handleSendGroupChatMessage('Hello');
 			});
@@ -523,7 +532,7 @@ describe('useGroupChatHandlers', () => {
 				groupChats: [{ id: 'gc-1', name: 'Chat' } as any],
 			});
 
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			await act(async () => {
 				await result.current.handleSendGroupChatMessage('Queued message');
 			});
@@ -541,7 +550,7 @@ describe('useGroupChatHandlers', () => {
 				groupChats: [{ id: 'gc-1', name: 'My Chat' } as any],
 			});
 
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			await act(async () => {
 				await result.current.handleSendGroupChatMessage('msg', ['img.png'], true);
 			});
@@ -562,7 +571,7 @@ describe('useGroupChatHandlers', () => {
 		});
 
 		it('does nothing when no active group chat', async () => {
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			await act(async () => {
 				await result.current.handleSendGroupChatMessage('test');
 			});
@@ -581,7 +590,7 @@ describe('useGroupChatHandlers', () => {
 				groupChats: [{ id: 'gc-1', name: 'Chat', draftMessage: '' } as any],
 			});
 
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			act(() => result.current.handleGroupChatDraftChange('new draft'));
 
 			expect(useGroupChatStore.getState().groupChats[0].draftMessage).toBe('new draft');
@@ -592,7 +601,7 @@ describe('useGroupChatHandlers', () => {
 				groupChats: [{ id: 'gc-1', name: 'Chat', draftMessage: '' } as any],
 			});
 
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			act(() => result.current.handleGroupChatDraftChange('test'));
 
 			expect(useGroupChatStore.getState().groupChats[0].draftMessage).toBe('');
@@ -611,7 +620,7 @@ describe('useGroupChatHandlers', () => {
 				],
 			});
 
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			act(() => result.current.handleRemoveGroupChatQueueItem('q-1'));
 
 			const queue = useGroupChatStore.getState().groupChatExecutionQueue;
@@ -628,7 +637,7 @@ describe('useGroupChatHandlers', () => {
 				],
 			});
 
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			act(() => result.current.handleReorderGroupChatQueueItems(0, 2));
 
 			const queue = useGroupChatStore.getState().groupChatExecutionQueue;
@@ -645,7 +654,7 @@ describe('useGroupChatHandlers', () => {
 		it('changes the right tab and persists the preference', () => {
 			useGroupChatStore.setState({ activeGroupChatId: 'gc-1' });
 
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			act(() => result.current.handleGroupChatRightTabChange('history'));
 
 			expect(useGroupChatStore.getState().groupChatRightTab).toBe('history');
@@ -659,7 +668,7 @@ describe('useGroupChatHandlers', () => {
 	describe('handleJumpToGroupChatMessage', () => {
 		it('calls scrollToMessage on the messages ref', () => {
 			const mockScrollToMessage = vi.fn();
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			// Simulate mounting the ref
 			(result.current.groupChatMessagesRef as any).current = {
 				scrollToMessage: mockScrollToMessage,
@@ -671,7 +680,7 @@ describe('useGroupChatHandlers', () => {
 		});
 
 		it('does nothing if ref is null', () => {
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			// Should not throw
 			act(() => result.current.handleJumpToGroupChatMessage(1234567890));
 		});
@@ -693,7 +702,7 @@ describe('useGroupChatHandlers', () => {
 			});
 			useGroupChatStore.setState({ activeGroupChatId: 'gc-1' });
 
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			act(() => result.current.handleOpenModeratorSession('mod-session-1'));
 
 			expect(useGroupChatStore.getState().activeGroupChatId).toBeNull();
@@ -715,7 +724,7 @@ describe('useGroupChatHandlers', () => {
 				],
 			});
 
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			act(() => result.current.handleOpenModeratorSession('mod-session-1'));
 
 			const session = useSessionStore.getState().sessions[0];
@@ -732,7 +741,7 @@ describe('useGroupChatHandlers', () => {
 				groupChatState: 'moderator-thinking',
 			});
 
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			act(() => result.current.handleOpenModeratorSession('mod-1'));
 
 			expect(useGroupChatStore.getState().activeGroupChatId).toBeNull();
@@ -743,7 +752,7 @@ describe('useGroupChatHandlers', () => {
 		it('does nothing if session not found', () => {
 			useSessionStore.setState({ sessions: [] });
 
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			act(() => result.current.handleOpenModeratorSession('nonexistent'));
 
 			expect(useSessionStore.getState().activeSessionId).toBeNull();
@@ -761,7 +770,7 @@ describe('useGroupChatHandlers', () => {
 			});
 			useModalStore.getState().openModal('processMonitor');
 
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			act(() => result.current.handleProcessMonitorNavigateToGroupChat('gc-1'));
 
 			expect(useGroupChatStore.getState().activeGroupChatId).toBe('gc-1');
@@ -776,7 +785,7 @@ describe('useGroupChatHandlers', () => {
 	// -----------------------------------------------------------------------
 	describe('modal openers', () => {
 		it('handleNewGroupChat opens newGroupChat modal', () => {
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			act(() => result.current.handleNewGroupChat());
 
 			const modal = useModalStore.getState().modals.get('newGroupChat');
@@ -784,7 +793,7 @@ describe('useGroupChatHandlers', () => {
 		});
 
 		it('handleEditGroupChat opens editGroupChat modal with id', () => {
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			act(() => result.current.handleEditGroupChat('gc-1'));
 
 			const modal = useModalStore.getState().modals.get('editGroupChat');
@@ -793,7 +802,7 @@ describe('useGroupChatHandlers', () => {
 		});
 
 		it('handleOpenRenameGroupChatModal opens renameGroupChat modal with id', () => {
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			act(() => result.current.handleOpenRenameGroupChatModal('gc-1'));
 
 			const modal = useModalStore.getState().modals.get('renameGroupChat');
@@ -802,7 +811,7 @@ describe('useGroupChatHandlers', () => {
 		});
 
 		it('handleOpenDeleteGroupChatModal opens deleteGroupChat modal with id', () => {
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			act(() => result.current.handleOpenDeleteGroupChatModal('gc-1'));
 
 			const modal = useModalStore.getState().modals.get('deleteGroupChat');
@@ -817,7 +826,7 @@ describe('useGroupChatHandlers', () => {
 	describe('modal closers', () => {
 		it('handleCloseNewGroupChatModal closes the modal', () => {
 			useModalStore.getState().openModal('newGroupChat');
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			act(() => result.current.handleCloseNewGroupChatModal());
 
 			const modal = useModalStore.getState().modals.get('newGroupChat');
@@ -826,7 +835,7 @@ describe('useGroupChatHandlers', () => {
 
 		it('handleCloseDeleteGroupChatModal closes the modal', () => {
 			useModalStore.getState().openModal('deleteGroupChat', { groupChatId: 'gc-1' });
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			act(() => result.current.handleCloseDeleteGroupChatModal());
 
 			const modal = useModalStore.getState().modals.get('deleteGroupChat');
@@ -835,7 +844,7 @@ describe('useGroupChatHandlers', () => {
 
 		it('handleCloseRenameGroupChatModal closes the modal', () => {
 			useModalStore.getState().openModal('renameGroupChat', { groupChatId: 'gc-1' });
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			act(() => result.current.handleCloseRenameGroupChatModal());
 
 			const modal = useModalStore.getState().modals.get('renameGroupChat');
@@ -844,7 +853,7 @@ describe('useGroupChatHandlers', () => {
 
 		it('handleCloseEditGroupChatModal closes the modal', () => {
 			useModalStore.getState().openModal('editGroupChat', { groupChatId: 'gc-1' });
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			act(() => result.current.handleCloseEditGroupChatModal());
 
 			const modal = useModalStore.getState().modals.get('editGroupChat');
@@ -853,7 +862,7 @@ describe('useGroupChatHandlers', () => {
 
 		it('handleCloseGroupChatInfo closes the modal', () => {
 			useModalStore.getState().openModal('groupChatInfo');
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			act(() => result.current.handleCloseGroupChatInfo());
 
 			const modal = useModalStore.getState().modals.get('groupChatInfo');
@@ -871,7 +880,7 @@ describe('useGroupChatHandlers', () => {
 			});
 			useModalStore.getState().openModal('deleteGroupChat', { groupChatId: 'gc-1' });
 
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			await act(async () => {
 				result.current.handleConfirmDeleteGroupChat();
 			});
@@ -880,7 +889,7 @@ describe('useGroupChatHandlers', () => {
 		});
 
 		it('does nothing when no modal data', () => {
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			act(() => result.current.handleConfirmDeleteGroupChat());
 
 			expect(mockGroupChat.delete).not.toHaveBeenCalled();
@@ -897,7 +906,7 @@ describe('useGroupChatHandlers', () => {
 			});
 			useModalStore.getState().openModal('renameGroupChat', { groupChatId: 'gc-1' });
 
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			await act(async () => {
 				result.current.handleRenameGroupChatFromModal('New Name');
 			});
@@ -907,7 +916,7 @@ describe('useGroupChatHandlers', () => {
 		});
 
 		it('does nothing when no rename modal data', () => {
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			act(() => result.current.handleRenameGroupChatFromModal('New Name'));
 
 			expect(mockGroupChat.rename).not.toHaveBeenCalled();
@@ -919,7 +928,7 @@ describe('useGroupChatHandlers', () => {
 	// -----------------------------------------------------------------------
 	describe('IPC event listeners', () => {
 		it('registers global listeners on mount (without activeGroupChatId)', () => {
-			renderHook(() => useGroupChatHandlers());
+			renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 
 			// Global listeners registered unconditionally
 			expect(mockGroupChat.onStateChange).toHaveBeenCalled();
@@ -934,7 +943,7 @@ describe('useGroupChatHandlers', () => {
 
 		it('registers active-chat listeners when activeGroupChatId is set', () => {
 			useGroupChatStore.setState({ activeGroupChatId: 'gc-1' });
-			renderHook(() => useGroupChatHandlers());
+			renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 
 			expect(mockGroupChat.onMessage).toHaveBeenCalled();
 			expect(mockGroupChat.onModeratorUsage).toHaveBeenCalled();
@@ -951,7 +960,7 @@ describe('useGroupChatHandlers', () => {
 			mockGroupChat.onMessage.mockReturnValueOnce(cleanups[4]);
 			mockGroupChat.onModeratorUsage.mockReturnValueOnce(cleanups[5]);
 
-			const { unmount } = renderHook(() => useGroupChatHandlers());
+			const { unmount } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			unmount();
 
 			cleanups.forEach((fn) => expect(fn).toHaveBeenCalled());
@@ -969,7 +978,7 @@ describe('useGroupChatHandlers', () => {
 				return () => {};
 			});
 
-			renderHook(() => useGroupChatHandlers());
+			renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			act(() => messageCallback('gc-1', { role: 'assistant', content: 'new' }));
 
 			const msgs = useGroupChatStore.getState().groupChatMessages;
@@ -989,7 +998,7 @@ describe('useGroupChatHandlers', () => {
 				return () => {};
 			});
 
-			renderHook(() => useGroupChatHandlers());
+			renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			act(() => messageCallback('gc-other', { role: 'assistant', content: 'nope' }));
 
 			expect(useGroupChatStore.getState().groupChatMessages.length).toBe(0);
@@ -1008,7 +1017,7 @@ describe('useGroupChatHandlers', () => {
 				return () => {};
 			});
 
-			renderHook(() => useGroupChatHandlers());
+			renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			act(() => stateCallback('gc-1', 'agent-working'));
 
 			expect(useGroupChatStore.getState().groupChatState).toBe('agent-working');
@@ -1028,7 +1037,7 @@ describe('useGroupChatHandlers', () => {
 				return () => {};
 			});
 
-			renderHook(() => useGroupChatHandlers());
+			renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			act(() => stateCallback('gc-other', 'moderator-thinking'));
 
 			// Active chat state unchanged
@@ -1050,7 +1059,7 @@ describe('useGroupChatHandlers', () => {
 				return () => {};
 			});
 
-			renderHook(() => useGroupChatHandlers());
+			renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			const newParticipants = [{ name: 'Agent A' }, { name: 'Agent B' }];
 			act(() => participantsCallback('gc-1', newParticipants));
 
@@ -1068,7 +1077,7 @@ describe('useGroupChatHandlers', () => {
 				return () => {};
 			});
 
-			renderHook(() => useGroupChatHandlers());
+			renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			act(() => sessionIdCallback('gc-1', 'new-agent-session-42'));
 
 			expect(useGroupChatStore.getState().groupChats[0].moderatorAgentSessionId).toBe(
@@ -1089,7 +1098,7 @@ describe('useGroupChatHandlers', () => {
 				return () => {};
 			});
 
-			renderHook(() => useGroupChatHandlers());
+			renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			act(() => participantStateCallback('gc-1', 'Agent A', 'working'));
 
 			// Active chat participant states
@@ -1108,7 +1117,7 @@ describe('useGroupChatHandlers', () => {
 				return () => {};
 			});
 
-			renderHook(() => useGroupChatHandlers());
+			renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			act(() => usageCallback('gc-1', { contextUsage: 0.5, totalCost: 0.01, tokenCount: 100 }));
 
 			expect(useGroupChatStore.getState().moderatorUsage).toEqual({
@@ -1130,7 +1139,7 @@ describe('useGroupChatHandlers', () => {
 				return () => {};
 			});
 
-			renderHook(() => useGroupChatHandlers());
+			renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			act(() => usageCallback('gc-1', { contextUsage: -1, totalCost: 0.05, tokenCount: 200 }));
 
 			const usage = useGroupChatStore.getState().moderatorUsage;
@@ -1163,7 +1172,7 @@ describe('useGroupChatHandlers', () => {
 				groupChatExecutionQueue: [queuedItem],
 			});
 
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 
 			// Wait for effect to process
 			await act(async () => {
@@ -1187,7 +1196,7 @@ describe('useGroupChatHandlers', () => {
 				groupChatExecutionQueue: [{ id: 'q-1', text: 'msg' } as any],
 			});
 
-			renderHook(() => useGroupChatHandlers());
+			renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 
 			expect(mockGroupChat.sendToModerator).not.toHaveBeenCalled();
 		});
@@ -1199,7 +1208,7 @@ describe('useGroupChatHandlers', () => {
 				groupChatExecutionQueue: [{ id: 'q-1', text: 'msg' } as any],
 			});
 
-			renderHook(() => useGroupChatHandlers());
+			renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 
 			expect(mockGroupChat.sendToModerator).not.toHaveBeenCalled();
 		});
@@ -1212,7 +1221,7 @@ describe('useGroupChatHandlers', () => {
 		it('does not persist to settings when no active group chat', () => {
 			useGroupChatStore.setState({ activeGroupChatId: null });
 
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			act(() => result.current.handleGroupChatRightTabChange('history'));
 
 			expect(useGroupChatStore.getState().groupChatRightTab).toBe('history');

@@ -3,7 +3,6 @@ import * as path from 'path';
 import * as os from 'os';
 import { ipcMain } from 'electron';
 import Store from 'electron-store';
-import * as fs from 'fs';
 import { AgentDetector, AGENT_DEFINITIONS, getAgentCapabilities } from '../../agents';
 import { execFileNoThrow } from '../../utils/execFile';
 import { logger } from '../../utils/logger';

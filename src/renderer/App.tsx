@@ -141,7 +141,7 @@ import { useSymphonyContribution } from './hooks/symphony/useSymphonyContributio
 
 // Import contexts
 import { useLayerStack } from './contexts/LayerStackContext';
-import { useNotificationStore, notifyToast } from './stores/notificationStore';
+import { notifyToast } from './stores/notificationStore';
 import { useModalActions, useModalStore } from './stores/modalStore';
 import { GitStatusProvider } from './contexts/GitStatusContext';
 import { InputProvider, useInputContext } from './contexts/InputContext';
@@ -203,12 +203,6 @@ function MaestroConsoleInner() {
 	// --- LAYER STACK (for blocking shortcuts when modals are open) ---
 	const { hasOpenLayers, hasOpenModal } = useLayerStack();
 
-	// --- TOAST NOTIFICATIONS ---
-	const addToast = notifyToast;
-	const setToastDefaultDuration = useNotificationStore((s) => s.setDefaultDuration);
-	const setAudioFeedback = useNotificationStore((s) => s.setAudioFeedback);
-	const setOsNotifications = useNotificationStore((s) => s.setOsNotifications);
-
 	// --- PROJECT FOLDERS (for Prompt Library metadata) ---
 	const { getFolderById } = useProjectFoldersContext();
 
@@ -240,12 +234,7 @@ function MaestroConsoleInner() {
 		// Lightbox Modal
 		lightboxImage,
 		lightboxImages,
-		setLightboxImages,
-		setLightboxSource,
-		lightboxIsGroupChat,
 		lightboxAllowDelete,
-		setLightboxIsGroupChat,
-		setLightboxAllowDelete,
 		// About Modal
 		aboutModalOpen,
 		setAboutModalOpen,
@@ -309,8 +298,6 @@ function MaestroConsoleInner() {
 		setAgentSessionsOpen,
 		activeAgentSessionId,
 		setActiveAgentSessionId,
-		// Execution Queue Browser Modal
-		queueBrowserOpen,
 		// Batch Runner Modal
 		setBatchRunnerModalOpen,
 		// Auto Run Setup Modal
@@ -353,7 +340,6 @@ function MaestroConsoleInner() {
 		tourOpen,
 		setTourOpen,
 		tourFromWizard,
-		setTourFromWizard,
 		// Symphony Modal
 		symphonyModalOpen,
 		setSymphonyModalOpen,
@@ -366,7 +352,7 @@ function MaestroConsoleInner() {
 	const [usageDashboardInitialTab, setUsageDashboardInitialTab] = useState<string | undefined>(
 		undefined
 	);
-	const [createGroupChatForFolderId, setCreateGroupChatForFolderId] = useState<string | undefined>(
+	const [createGroupChatForFolderId, _setCreateGroupChatForFolderId] = useState<string | undefined>(
 		undefined
 	);
 
@@ -397,24 +383,13 @@ function MaestroConsoleInner() {
 		activeThemeId,
 		setActiveThemeId,
 		customThemeColors,
-		setCustomThemeColors,
-		customThemeBaseId,
-		setCustomThemeBaseId,
 		themeMode,
-		setThemeMode,
 		lightThemeId,
-		setLightThemeId,
 		darkThemeId,
-		setDarkThemeId,
 		enterToSendAI,
 		setEnterToSendAI,
 		defaultSaveToHistory,
 		defaultShowThinking,
-		setDefaultShowThinking,
-		groupChatDefaultShowThinking,
-		setGroupChatDefaultShowThinking,
-		leftSidebarWidth,
-		setLeftSidebarWidth,
 		rightPanelWidth,
 		setRightPanelWidth,
 		markdownEditMode,
@@ -431,10 +406,6 @@ function MaestroConsoleInner() {
 		maxOutputLines,
 		enableBetaUpdates,
 		setEnableBetaUpdates,
-		checkForNewModelsOnStartup,
-		setCheckForNewModelsOnStartup,
-		crashReportingEnabled,
-		setCrashReportingEnabled,
 		shortcuts,
 		tabShortcuts,
 		customAICommands,
@@ -463,12 +434,6 @@ function MaestroConsoleInner() {
 		documentGraphMaxNodes,
 		documentGraphPreviewCharLimit,
 		documentGraphLayoutType,
-
-		// Rendering settings
-		disableConfetti,
-
-		// Synopsis settings
-		synopsisEnabled,
 
 		// File tab refresh settings
 		fileTabAutoRefreshEnabled,
@@ -629,6 +594,21 @@ function MaestroConsoleInner() {
 	const [groupChatThinkingCollapsed, setGroupChatThinkingCollapsed] = useState<
 		Map<string, boolean>
 	>(new Map());
+
+	// Keep editAgentSession in sync with live sessions state.
+	// Without this, handleRescanGit updates sessions via store but
+	// editAgentSession remains a stale snapshot, causing git fields
+	// and other updated fields to not appear in the EditAgentModal.
+	useEffect(() => {
+		const editAgentData = useModalStore.getState().modals.get('editAgent');
+		const editAgentModalData = editAgentData?.data as { session?: Session } | undefined;
+		if (!editAgentData?.open || !editAgentModalData?.session) return;
+		const editSession = editAgentModalData.session;
+		const liveSession = sessions.find((s: Session) => s.id === editSession.id);
+		if (liveSession && liveSession !== editSession) {
+			useModalStore.getState().openModal('editAgent', { session: liveSession });
+		}
+	}, [sessions]);
 
 	// --- APP INITIALIZATION (extracted hook, Phase 2G) ---
 	const { ghCliAvailable, sshRemoteConfigs, speckitCommands, openspecCommands, saveFileGistUrl } =
@@ -1387,7 +1367,10 @@ function MaestroConsoleInner() {
 		handleRenameGroupChatFromModal,
 		handleCloseEditGroupChatModal,
 		handleCloseGroupChatInfo,
-	} = useGroupChatHandlers();
+	} = useGroupChatHandlers({
+		groupChatShowThinking,
+		setGroupChatThinkingContent,
+	});
 
 	// --- MODAL HANDLERS (open/close, error recovery, lightbox, celebrations) ---
 	const {
@@ -1901,6 +1884,11 @@ function MaestroConsoleInner() {
 		inputRef,
 	});
 
+	// Interactive capacity check state (declared early so useInputHandlers can reference it)
+	const [interactiveCapacityData, setInteractiveCapacityData] =
+		useState<CapacityCheckModalData | null>(null);
+	const interactiveCapacityResumeRef = useRef<(() => void) | null>(null);
+
 	// --- INPUT HANDLERS (state, completion, processing, keyboard, paste/drop) ---
 	const {
 		inputValue,
@@ -1935,6 +1923,8 @@ function MaestroConsoleInner() {
 		allCustomCommands,
 		sessionsRef,
 		activeSessionIdRef,
+		setInteractiveCapacityCheck: setInteractiveCapacityData,
+		interactiveCapacityResumeRef,
 	});
 
 	// This is used by context transfer to automatically send the transferred context to the agent
@@ -1987,6 +1977,19 @@ function MaestroConsoleInner() {
 
 	// Auto Run achievement tracking (progress intervals, peak usage stats)
 	useAutoRunAchievements({ activeBatchSessionIds });
+
+	// Safety valve: Ctrl+Shift+Alt+Q force-quits even with active tasks
+	useEffect(() => {
+		const handleSafetyValve = (e: KeyboardEvent) => {
+			if (e.ctrlKey && e.shiftKey && e.altKey && e.key.toLowerCase() === 'q') {
+				e.preventDefault();
+				e.stopPropagation();
+				window.maestro.app.forceQuit();
+			}
+		};
+		window.addEventListener('keydown', handleSafetyValve, true);
+		return () => window.removeEventListener('keydown', handleSafetyValve, true);
+	}, []);
 
 	// Handler for switching to autorun tab - shows setup modal if no folder configured
 	const handleSetActiveRightTab = useCallback(
@@ -2436,74 +2439,712 @@ function MaestroConsoleInner() {
 	// --- MISSING HANDLERS (TODO: migrate to appropriate hooks) ---
 
 	// Knowledge graph save handler
-	const handleSaveToKnowledgeGraph = useCallback(() => {
-		// TODO: Implement knowledge graph save for current tab
-	}, []);
+	const handleSaveToKnowledgeGraph = useCallback(async () => {
+		if (!activeSession) {
+			notifyToast({ type: 'error', title: 'No active session', message: '' });
+			return;
+		}
+
+		const activeTab = activeSession.aiTabs.find((t) => t.id === activeSession.activeTabId);
+		if (!activeTab) {
+			notifyToast({ type: 'error', title: 'No active tab', message: '' });
+			return;
+		}
+
+		const folderId = activeSession.projectFolderIds?.[0];
+		const folder = folderId ? getFolderById(folderId) : undefined;
+
+		// --- Build full conversation transcript ---
+		const allLogs = activeTab.logs || [];
+		const transcriptLines: string[] = [];
+		let exchangeCount = 0;
+
+		for (const log of allLogs) {
+			// Map log source to a readable label
+			let label: string;
+			switch (log.source) {
+				case 'user':
+					label = 'USER';
+					exchangeCount++;
+					break;
+				case 'ai':
+				case 'stdout':
+					label = 'AI';
+					break;
+				case 'system':
+					label = 'SYSTEM';
+					break;
+				case 'tool':
+					label = 'TOOL';
+					break;
+				case 'thinking':
+					label = 'THINKING';
+					break;
+				case 'error':
+				case 'stderr':
+					label = 'ERROR';
+					break;
+				default:
+					label = (log.source as string | undefined)?.toUpperCase() || 'UNKNOWN';
+			}
+
+			// Include all log entries with their full text
+			if (log.text && log.text.trim()) {
+				transcriptLines.push(`[${label}]\n${log.text.trim()}\n`);
+			}
+		}
+
+		const fullTranscript = transcriptLines.join('\n');
+
+		// --- Build structured Key Findings summary ---
+		const aiLogs = allLogs.filter((l) => l.source === 'ai' || l.source === 'stdout');
+		const userLogs = allLogs.filter((l) => l.source === 'user');
+
+		// Topic: derived from first user message
+		const firstUserMessage =
+			userLogs.length > 0 ? userLogs[0].text.trim() : 'No user query recorded';
+		const topic =
+			firstUserMessage.length > 300 ? firstUserMessage.substring(0, 300) + '...' : firstUserMessage;
+
+		// Resolution: derived from last AI response
+		const lastAiMessage =
+			aiLogs.length > 0 ? aiLogs[aiLogs.length - 1].text.trim() : 'No AI response recorded';
+		const resolution =
+			lastAiMessage.length > 1000 ? lastAiMessage.substring(0, 1000) + '...' : lastAiMessage;
+
+		const summaryBlock = [
+			`**Topic/Goal**: ${topic}`,
+			'',
+			`**Resolution**:`,
+			resolution,
+			'',
+			`**Session Metadata**:`,
+			`- Session: ${activeSession.name || activeTab.name || 'Unnamed'} (${activeSession.id})`,
+			`- Tab: ${activeTab.name || activeTab.id}`,
+			`- Agent: ${activeSession.toolType || 'claude-code'}`,
+			`- Project: ${folder?.name || 'Unassigned'} (${activeSession.fullPath || activeSession.cwd || 'N/A'})`,
+			`- Exchanges: ${exchangeCount} user messages, ${aiLogs.length} AI responses, ${allLogs.length} total entries`,
+			`- Cost: ${activeTab.usageStats?.totalCostUsd != null ? `$${activeTab.usageStats.totalCostUsd.toFixed(4)}` : 'N/A'}`,
+			`- Context Usage: ${activeSession.contextUsage != null ? `${activeSession.contextUsage.toFixed(1)}%` : 'N/A'}`,
+		].join('\n');
+
+		const entry = {
+			sessionName: activeSession.name || activeTab.name || 'Unnamed Session',
+			sessionId: activeSession.id,
+			tabId: activeTab.id,
+			agentType: activeSession.toolType || 'claude-code',
+			projectPath: activeSession.fullPath || activeSession.cwd || '',
+			projectName: folder?.name || 'Unassigned',
+			summary: summaryBlock,
+			detailedLearnings: fullTranscript,
+			totalQueries: aiLogs.length,
+			totalCost: activeTab.usageStats?.totalCostUsd,
+			contextUsage: activeSession.contextUsage,
+			exchangeCount,
+			totalLogEntries: allLogs.length,
+			detectedModel: activeTab.usageStats?.detectedModel,
+			timestamp: Date.now(),
+		};
+
+		try {
+			const filepath = await window.maestro.knowledgeGraph.save(entry);
+			showSuccessFlash('Saved to Knowledge Graph');
+			console.log('Knowledge graph entry saved to:', filepath);
+		} catch (error) {
+			console.error('Failed to save to knowledge graph:', error);
+			notifyToast({ type: 'error', title: 'Failed to save to Knowledge Graph', message: '' });
+		}
+	}, [activeSession, getFolderById, showSuccessFlash]);
 
 	// Prompt library handlers
-	const handleSaveToPromptLibrary = useCallback((_text: string, _images?: string[]) => {
-		// TODO: Implement save to prompt library
-	}, []);
+	const handleSaveToPromptLibrary = useCallback(
+		async (text: string, _images?: string[], logId?: string) => {
+			if (!activeSession) return;
 
-	const handleRateResponse = useCallback((_logId: string, _rating: 'liked' | 'disliked' | null) => {
-		// TODO: Implement response rating
-	}, []);
+			// Toggle: if already saved, remove from library instead
+			if (logId) {
+				const currentSessions = sessionsRef.current;
+				const currentSession = currentSessions.find((s) => s.id === activeSession.id);
+				const currentTab = currentSession?.aiTabs.find((t) => t.id === currentSession?.activeTabId);
+				const currentLog = currentTab?.logs.find((l) => l.id === logId);
 
-	const handlePinMessage = useCallback((_logId: string) => {
-		// TODO: Implement message pinning
-	}, []);
+				if (currentLog?.savedToLibrary && currentLog?.promptLibraryEntryId) {
+					try {
+						// Capture scroll position BEFORE async IPC call
+						const scrollContainer = document.querySelector('[data-terminal-scroll-container]');
+						const savedScrollTop = scrollContainer?.scrollTop ?? null;
 
-	// Pinned items — TODO: compute from session/tab pin state when implemented
-	const pinnedItems = useMemo<PinnedItem[]>(() => [], []);
+						await window.maestro.promptLibrary.delete(currentLog.promptLibraryEntryId);
 
-	const handleUnpinMessage = useCallback((_logId: string) => {
-		// TODO: Implement unpin message
-	}, []);
+						setSessions((prev) =>
+							prev.map((s) => {
+								if (s.id !== activeSession.id) return s;
+								return {
+									...s,
+									aiTabs: s.aiTabs.map((tab) =>
+										tab.id === activeSession.activeTabId
+											? {
+													...tab,
+													logs: tab.logs.map((l) =>
+														l.id === logId
+															? { ...l, savedToLibrary: false, promptLibraryEntryId: undefined }
+															: l
+													),
+												}
+											: tab
+									),
+								};
+							})
+						);
 
-	const handleReorderPins = useCallback((_orderedLogIds: string[]) => {
-		// TODO: Implement pin reordering
-	}, []);
+						if (savedScrollTop !== null) {
+							requestAnimationFrame(() => {
+								if (scrollContainer) {
+									scrollContainer.scrollTop = savedScrollTop;
+								}
+							});
+						}
 
-	const handleScrollToMessage = useCallback((_timestamp: number) => {
-		// TODO: Implement scroll to message
+						showSuccessFlash('Prompt removed from library.');
+					} catch (err) {
+						console.error('Failed to remove from prompt library:', err);
+					}
+					return; // Exit early — removal done
+				}
+			}
+
+			// Generate title from first line or first N words
+			const firstLine = text.split('\n')[0].trim();
+			const title = firstLine.length > 50 ? firstLine.substring(0, 47) + '...' : firstLine;
+
+			// Get project info
+			const folderId = activeSession.projectFolderIds?.[0];
+			const folder = folderId ? getFolderById(folderId) : undefined;
+			const projectName = folder
+				? folder.emoji
+					? `${folder.emoji} ${folder.name}`
+					: folder.name
+				: 'Unassigned';
+			const projectPath = activeSession.fullPath || activeSession.cwd || '';
+
+			const entry = {
+				title,
+				prompt: text,
+				description: '',
+				projectName,
+				projectPath,
+				projectFolderColor: folder?.highlightColor,
+				agentId: activeSession.id,
+				agentName: activeSession.name || 'Unknown Agent',
+				agentSessionId:
+					activeSession.aiTabs?.find((t) => t.id === activeSession.activeTabId)?.agentSessionId ||
+					undefined,
+				tags: [],
+				// Source log entry reference (for resetting savedToLibrary on delete)
+				sourceLogId: logId,
+				sourceSessionId: activeSession.id,
+				sourceTabId: activeSession.activeTabId,
+			};
+
+			try {
+				// Capture scroll position BEFORE async IPC call to prevent scroll pop
+				const scrollContainer = logId
+					? document.querySelector('[data-terminal-scroll-container]')
+					: null;
+				const savedScrollTop = scrollContainer?.scrollTop ?? null;
+
+				const savedEntry = await window.maestro.promptLibrary.add(entry);
+
+				// Mark the log entry as saved
+				if (logId && activeSession) {
+					setSessions((prev) =>
+						prev.map((s) => {
+							if (s.id !== activeSession.id) return s;
+							return {
+								...s,
+								aiTabs: s.aiTabs.map((tab) =>
+									tab.id === activeSession.activeTabId
+										? {
+												...tab,
+												logs: tab.logs.map((l) =>
+													l.id === logId
+														? { ...l, savedToLibrary: true, promptLibraryEntryId: savedEntry.id }
+														: l
+												),
+											}
+										: tab
+								),
+							};
+						})
+					);
+
+					if (savedScrollTop !== null) {
+						requestAnimationFrame(() => {
+							if (scrollContainer) {
+								scrollContainer.scrollTop = savedScrollTop;
+							}
+						});
+					}
+				}
+
+				showSuccessFlash('Prompt saved to library.');
+			} catch (error) {
+				console.error('Failed to save prompt to library:', error);
+			}
+		},
+		[activeSession, getFolderById, showSuccessFlash, setSessions]
+	);
+
+	const handleRateResponse = useCallback(
+		async (logId: string, rating: 'liked' | 'disliked' | null) => {
+			const currentSession = sessionsRef.current.find((s) => s.id === activeSessionIdRef.current);
+			if (!currentSession) return;
+
+			const activeTab = currentSession.aiTabs.find((t) => t.id === currentSession.activeTabId);
+			if (!activeTab) return;
+
+			const logs = activeTab.logs || [];
+			const logIndex = logs.findIndex((l) => l.id === logId);
+			const logEntry = logs[logIndex];
+			if (!logEntry) return;
+
+			// Find the previous user message for context
+			let userQuery = '';
+			for (let i = logIndex - 1; i >= 0; i--) {
+				if (logs[i].source === 'user') {
+					userQuery = logs[i].text;
+					break;
+				}
+			}
+
+			// Save scroll position before state update
+			const scrollContainer = document.querySelector('[data-terminal-scroll-container]');
+			const savedScrollTop = scrollContainer?.scrollTop ?? null;
+
+			// Update the log entry's rating in state
+			setSessions((prev) =>
+				prev.map((s) => {
+					if (s.id !== currentSession.id) return s;
+					return {
+						...s,
+						aiTabs: s.aiTabs.map((tab) =>
+							tab.id === activeTab.id
+								? {
+										...tab,
+										logs: tab.logs.map((l) => (l.id === logId ? { ...l, rating } : l)),
+									}
+								: tab
+						),
+					};
+				})
+			);
+
+			// Restore scroll position after React renders
+			if (savedScrollTop !== null) {
+				requestAnimationFrame(() => {
+					if (scrollContainer) {
+						scrollContainer.scrollTop = savedScrollTop;
+					}
+				});
+			}
+
+			// Record to feedback file if rating is set (not removed)
+			if (rating) {
+				try {
+					await window.maestro.feedback.record({
+						rating,
+						sessionId: currentSession.id,
+						sessionName: currentSession.name || 'Unnamed Session',
+						tabId: activeTab.id,
+						agentType: currentSession.toolType || 'claude-code',
+						userQuery,
+						aiResponse: logEntry.text,
+						timestamp: Date.now(),
+					});
+					showSuccessFlash(`Response ${rating}`);
+				} catch (error) {
+					console.error('Failed to record feedback:', error);
+				}
+			}
+		},
+		[setSessions, showSuccessFlash]
+	);
+
+	const handlePinMessage = useCallback(
+		(logId: string) => {
+			if (!activeSession) return;
+			const activeTab = activeSession.aiTabs.find((t) => t.id === activeSession.activeTabId);
+			if (!activeTab) return;
+
+			const targetLog = activeTab.logs.find((l) => l.id === logId);
+			if (!targetLog) return;
+
+			// Save scroll position before state update
+			const scrollContainer = document.querySelector('[data-terminal-scroll-container]');
+			const savedScrollTop = scrollContainer?.scrollTop ?? null;
+
+			// If already pinned, unpin it
+			if (targetLog.pinned) {
+				setSessions((prev) =>
+					prev.map((s) =>
+						s.id === activeSession.id
+							? {
+									...s,
+									aiTabs: s.aiTabs.map((tab) =>
+										tab.id === activeSession.activeTabId
+											? {
+													...tab,
+													logs: tab.logs.map((l) =>
+														l.id === logId
+															? {
+																	...l,
+																	pinned: false,
+																	pinnedAt: undefined,
+																	pinSortOrder: undefined,
+																}
+															: l
+													),
+												}
+											: tab
+									),
+								}
+							: s
+					)
+				);
+
+				// Restore scroll position after React renders
+				if (savedScrollTop !== null) {
+					requestAnimationFrame(() => {
+						if (scrollContainer) {
+							scrollContainer.scrollTop = savedScrollTop;
+						}
+					});
+				}
+				return;
+			}
+
+			// Check soft limit
+			const currentPinCount = activeTab.logs.filter((l) => l.pinned).length;
+			if (currentPinCount >= 20) {
+				// Show warning but allow — it's a soft limit
+				console.warn('Pin limit reached (20). Consider unpinning older items.');
+				showSuccessFlash('Pin limit reached (20). Consider unpinning older items.');
+			}
+
+			// Pin the message
+			setSessions((prev) =>
+				prev.map((s) =>
+					s.id === activeSession.id
+						? {
+								...s,
+								aiTabs: s.aiTabs.map((tab) =>
+									tab.id === activeSession.activeTabId
+										? {
+												...tab,
+												logs: tab.logs.map((l) =>
+													l.id === logId
+														? { ...l, pinned: true, pinnedAt: Date.now(), pinSortOrder: Date.now() }
+														: l
+												),
+											}
+										: tab
+								),
+							}
+						: s
+				)
+			);
+
+			// Restore scroll position after React renders
+			if (savedScrollTop !== null) {
+				requestAnimationFrame(() => {
+					if (scrollContainer) {
+						scrollContainer.scrollTop = savedScrollTop;
+					}
+				});
+			}
+		},
+		[activeSession, setSessions, showSuccessFlash]
+	);
+
+	// Pinned items — computed from session/tab pin state
+	const pinnedItems = useMemo<PinnedItem[]>(() => {
+		if (!activeSession) return [];
+		const activeTab = activeSession.aiTabs.find((t) => t.id === activeSession.activeTabId);
+		if (!activeTab) return [];
+		return activeTab.logs
+			.filter((l) => l.pinned)
+			.map((l) => ({
+				logId: l.id,
+				tabId: activeSession.activeTabId,
+				text: l.text,
+				source: l.source,
+				messageTimestamp: l.timestamp,
+				pinnedAt: l.pinnedAt || l.timestamp,
+				pinSortOrder: l.pinSortOrder ?? l.pinnedAt ?? l.timestamp,
+			}));
+	}, [activeSession]);
+
+	const handleUnpinMessage = useCallback(
+		(logId: string) => {
+			if (!activeSession) return;
+			setSessions((prev) =>
+				prev.map((s) =>
+					s.id === activeSession.id
+						? {
+								...s,
+								aiTabs: s.aiTabs.map((tab) =>
+									tab.id === activeSession.activeTabId
+										? {
+												...tab,
+												logs: tab.logs.map((l) =>
+													l.id === logId
+														? { ...l, pinned: false, pinnedAt: undefined, pinSortOrder: undefined }
+														: l
+												),
+											}
+										: tab
+								),
+							}
+						: s
+				)
+			);
+		},
+		[activeSession, setSessions]
+	);
+
+	const handleReorderPins = useCallback(
+		(orderedLogIds: string[]) => {
+			if (!activeSession) return;
+			setSessions((prev) =>
+				prev.map((s) =>
+					s.id === activeSession.id
+						? {
+								...s,
+								aiTabs: s.aiTabs.map((tab) =>
+									tab.id === activeSession.activeTabId
+										? {
+												...tab,
+												logs: tab.logs.map((l) => {
+													const newIndex = orderedLogIds.indexOf(l.id);
+													if (newIndex === -1) return l;
+													return { ...l, pinSortOrder: newIndex };
+												}),
+											}
+										: tab
+								),
+							}
+						: s
+				)
+			);
+		},
+		[activeSession, setSessions]
+	);
+
+	const handleScrollToMessage = useCallback((timestamp: number) => {
+		const scrollContainer = document.querySelector('[data-terminal-scroll-container]');
+		if (!scrollContainer) return;
+
+		let targetElement: Element | null = scrollContainer.querySelector(
+			`[data-message-timestamp="${timestamp}"]`
+		);
+
+		if (!targetElement) {
+			const allMessages = scrollContainer.querySelectorAll('[data-message-timestamp]');
+			let closestElement: Element | null = null;
+			let closestDiff = Infinity;
+
+			allMessages.forEach((el) => {
+				const msgTimestamp = el.getAttribute('data-message-timestamp');
+				if (msgTimestamp) {
+					const msgTime = Number(msgTimestamp);
+					const diff = Math.abs(msgTime - timestamp);
+					if (diff < closestDiff) {
+						closestDiff = diff;
+						closestElement = el;
+					}
+				}
+			});
+
+			if (closestElement && closestDiff < 5000) {
+				targetElement = closestElement;
+			}
+		}
+
+		if (targetElement) {
+			targetElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+			const element = targetElement as HTMLElement;
+			element.style.transition = 'background-color 0.3s ease';
+			const originalBg = element.style.backgroundColor;
+			element.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
+			setTimeout(() => {
+				element.style.backgroundColor = originalBg;
+			}, 1500);
+		}
 	}, []);
 
 	// Per-prompt effort level and model change handlers
-	const handleEffortLevelChange = useCallback((_level: 'high' | 'medium' | 'low' | undefined) => {
-		// TODO: Implement per-prompt effort level change
+	const handleEffortLevelChange = useCallback((level: 'high' | 'medium' | 'low' | undefined) => {
+		setSessions((prev) =>
+			prev.map((s) => {
+				if (s.id !== activeSessionIdRef.current) return s;
+				if (level === undefined) {
+					// Remove the env var
+					const { CLAUDE_CODE_EFFORT_LEVEL: _, ...rest } = s.customEnvVars || {};
+					return { ...s, customEnvVars: rest };
+				}
+				return {
+					...s,
+					customEnvVars: {
+						...s.customEnvVars,
+						CLAUDE_CODE_EFFORT_LEVEL: level,
+					},
+				};
+			})
+		);
 	}, []);
 
-	const handleModelChange = useCallback((_model: string) => {
-		// TODO: Implement per-prompt model change
+	const handleModelChange = useCallback((model: string) => {
+		setSessions((prev) =>
+			prev.map((s) => {
+				if (s.id !== activeSessionIdRef.current) return s;
+				return {
+					...s,
+					customModel: model || undefined,
+				};
+			})
+		);
 	}, []);
 
 	// Project folder drop handler for session list
-	const handleDropOnProjectFolder = useCallback((_folderId: string, _sessionId: string) => {
-		// TODO: Implement drag-drop session onto project folder
-	}, []);
+	const handleDropOnProjectFolder = useCallback(
+		(folderId: string, sessionId: string) => {
+			// Update React state to immediately reflect the change
+			setSessions((prev) =>
+				prev.map((s) => {
+					if (s.id === sessionId) {
+						const currentFolderIds = s.projectFolderIds || [];
+						if (!currentFolderIds.includes(folderId)) {
+							return { ...s, projectFolderIds: [...currentFolderIds, folderId] };
+						}
+					}
+					return s;
+				})
+			);
+			// Clear the dragging state
+			setDraggingSessionId(null);
+			// Persist to backend via IPC
+			window.maestro.projectFolders.addSession(folderId, sessionId);
+		},
+		[setSessions, setDraggingSessionId]
+	);
 
 	// Git rescan handler for edit agent modal
-	const handleRescanGit = useCallback(async (_sessionId: string): Promise<boolean> => {
-		// TODO: Implement git rescan for session
-		return false;
+	const handleRescanGit = useCallback(async (sessionId: string): Promise<boolean> => {
+		const session = sessionsRef.current.find((s) => s.id === sessionId);
+		if (!session) return false;
+
+		const sshRemoteId =
+			session.sshRemoteId || session.sessionSshRemoteConfig?.remoteId || undefined;
+		const cwd = session.sessionSshRemoteConfig?.workingDirOverride || session.cwd;
+
+		console.info(
+			`[handleRescanGit] Scanning for git repo: session=${sessionId}, cwd=${cwd}, ssh=${sshRemoteId || 'local'}`
+		);
+
+		// Timeout wrapper to prevent indefinite hangs on SSH operations
+		// 120s: each SSH command takes ~5s, detectGitRepo can issue ~13 commands sequentially
+		const withTimeout = <T,>(promise: Promise<T>, ms = 120000): Promise<T> =>
+			Promise.race([
+				promise,
+				new Promise<never>((_, reject) =>
+					setTimeout(() => reject(new Error(`[handleRescanGit] timed out after ${ms}ms`)), ms)
+				),
+			]);
+
+		try {
+			const result = await withTimeout(detectGitRepo(cwd, sshRemoteId, { enableSubdirScan: true }));
+
+			console.info(
+				`[handleRescanGit] Result: session=${sessionId}, isGitRepo=${result.isGitRepo}, gitRoot=${result.gitRoot || 'none'}`
+			);
+
+			setSessions((prev) =>
+				prev.map((s) =>
+					s.id === sessionId
+						? {
+								...s,
+								isGitRepo: result.isGitRepo,
+								isBareRepo: result.isBareRepo,
+								gitRoot: result.gitRoot,
+								gitBranches: result.gitBranches,
+								gitTags: result.gitTags,
+								gitRefsCacheTime: result.gitRefsCacheTime,
+							}
+						: s
+				)
+			);
+
+			return result.isGitRepo;
+		} catch (error) {
+			console.error(`[handleRescanGit] Failed for session ${sessionId}:`, error);
+			return false;
+		}
 	}, []);
 
 	// Prompt library delete handler
-	const handlePromptLibraryDelete = useCallback((_deletedPrompt: PromptLibraryEntry) => {
-		// TODO: Implement prompt library deletion side effects
-	}, []);
+	const handlePromptLibraryDelete = useCallback(
+		(deletedPrompt: PromptLibraryEntry) => {
+			const logId = deletedPrompt?.sourceLogId;
+			const sessionId = deletedPrompt?.sourceSessionId;
+			const tabId = deletedPrompt?.sourceTabId;
 
-	// Interactive capacity check state and handlers
-	const [interactiveCapacityData, setInteractiveCapacityData] =
-		useState<CapacityCheckModalData | null>(null);
+			if (!logId || !sessionId || !tabId) return;
 
+			const scrollContainer = document.querySelector('[data-terminal-scroll-container]');
+			const savedScrollTop = scrollContainer?.scrollTop ?? null;
+
+			setSessions((prev) =>
+				prev.map((s) => {
+					if (s.id !== sessionId) return s;
+					return {
+						...s,
+						aiTabs: s.aiTabs.map((tab) =>
+							tab.id === tabId
+								? {
+										...tab,
+										logs: tab.logs.map((l) =>
+											l.id === logId ? { ...l, savedToLibrary: false } : l
+										),
+									}
+								: tab
+						),
+					};
+				})
+			);
+
+			if (savedScrollTop !== null) {
+				requestAnimationFrame(() => {
+					if (scrollContainer) {
+						scrollContainer.scrollTop = savedScrollTop;
+					}
+				});
+			}
+		},
+		[setSessions]
+	);
+
+	// Interactive capacity check handlers
 	const handleInteractiveCapacityCancel = useCallback(() => {
 		setInteractiveCapacityData(null);
+		interactiveCapacityResumeRef.current = null;
 	}, []);
 
 	const handleInteractiveCapacityRunAnyway = useCallback(() => {
 		setInteractiveCapacityData(null);
-		// TODO: Resume the interrupted interactive send
+		const resume = interactiveCapacityResumeRef.current;
+		interactiveCapacityResumeRef.current = null;
+		if (resume) resume();
 	}, []);
 
 	// Update keyboardHandlerRef synchronously during render (before effects run)
@@ -3332,9 +3973,30 @@ function MaestroConsoleInner() {
 					autoScrollAiMode={autoScrollAiMode}
 					setAutoScrollAiMode={setAutoScrollAiMode}
 					closedTabHistory={activeSession?.closedTabHistory ?? []}
-					onReopenClosedTab={(_closedTabIndex: number) => {
-						if (activeSession) {
-							reopenUnifiedClosedTab(activeSession);
+					onReopenClosedTab={(closedTabIndex: number) => {
+						if (!activeSession) return;
+
+						const history = activeSession.closedTabHistory;
+						if (!history || closedTabIndex < 0 || closedTabIndex >= history.length) return;
+
+						// Reorder history so the selected entry is first, then call reopenUnifiedClosedTab
+						const selectedEntry = history[closedTabIndex];
+						const remainingHistory = [
+							...history.slice(0, closedTabIndex),
+							...history.slice(closedTabIndex + 1),
+						];
+						const reorderedSession = {
+							...activeSession,
+							closedTabHistory: [selectedEntry, ...remainingHistory],
+							// Clear unified history so reopenUnifiedClosedTab falls back to legacy
+							unifiedClosedTabHistory: [],
+						};
+
+						const result = reopenUnifiedClosedTab(reorderedSession);
+						if (result) {
+							setSessions((prev) =>
+								prev.map((s) => (s.id === activeSession.id ? result.session : s))
+							);
 						}
 					}}
 					onCloseTabSwitcher={handleCloseTabSwitcher}

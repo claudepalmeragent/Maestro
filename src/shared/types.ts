@@ -9,7 +9,7 @@ export type { AgentId } from './agentIds';
  * Union type of all valid agent IDs.
  * Derived from AGENT_IDS — the single source of truth in agentIds.ts.
  */
-export type ToolType = import('./agentIds').AgentId;
+export type ToolType = import('./agentIds').AgentId | 'claude';
 
 /**
  * ThinkingMode controls how AI reasoning/thinking content is displayed.

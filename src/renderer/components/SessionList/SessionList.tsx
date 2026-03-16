@@ -8,17 +8,20 @@ import {
 	X,
 	Radio,
 	Folder,
+	FolderPlus,
 	GitBranch,
 	Menu,
 	Bookmark,
 	Trophy,
 	Trash2,
+	Settings,
+	Edit3,
 } from 'lucide-react';
 import type { Session, Group, Theme } from '../../types';
 import { getBadgeForTime } from '../../constants/conductorBadges';
 import { SessionItem } from '../SessionItem';
 import { GroupChatList } from '../GroupChatList';
-import { useLiveOverlay, useResizablePanel } from '../../hooks';
+import { useLiveOverlay, useResizablePanel, useClickOutside } from '../../hooks';
 import { useGitFileStatus } from '../../contexts/GitStatusContext';
 import { useUIStore } from '../../stores/uiStore';
 import { useSessionStore } from '../../stores/sessionStore';
@@ -35,9 +38,149 @@ import { SkinnySidebar } from './SkinnySidebar';
 import { LiveOverlayPanel } from './LiveOverlayPanel';
 import { useSessionCategories } from '../../hooks/session/useSessionCategories';
 import { useSessionFilterMode } from '../../hooks/session/useSessionFilterMode';
+import { ProjectFolderHeader } from '../sidebar/ProjectFolderHeader';
+import { ProjectFolderModal } from '../modals/ProjectFolderModal';
+import { ProjectFolderSettingsModal } from '../modals/ProjectFolderSettingsModal';
+import { useProjectFoldersContext } from '../../contexts/ProjectFoldersContext';
+import type { ProjectFolder } from '../../../shared/types';
 
 // ============================================================================
-// SessionContextMenu - Right-click context menu for session items
+// ProjectFolderContextMenu - Right-click context menu for project folder items
+// ============================================================================
+
+interface ProjectFolderContextMenuProps {
+	x: number;
+	y: number;
+	theme: Theme;
+	folder: ProjectFolder;
+	onRename: () => void;
+	onEdit: () => void;
+	onSettings: () => void;
+	onDelete: () => void;
+	onDismiss: () => void;
+}
+
+function ProjectFolderContextMenu({
+	x,
+	y,
+	theme,
+	folder: _folder,
+	onRename,
+	onEdit,
+	onSettings,
+	onDelete,
+	onDismiss,
+}: ProjectFolderContextMenuProps) {
+	const menuRef = useRef<HTMLDivElement>(null);
+
+	// Use ref to avoid re-registering listener when onDismiss changes
+	const onDismissRef = useRef(onDismiss);
+	onDismissRef.current = onDismiss;
+
+	// Close on click outside
+	useClickOutside(menuRef, onDismiss);
+
+	// Close on Escape
+	useEffect(() => {
+		const handleKeyDown = (e: KeyboardEvent) => {
+			if (e.key === 'Escape') {
+				onDismissRef.current();
+			}
+		};
+		document.addEventListener('keydown', handleKeyDown);
+		return () => document.removeEventListener('keydown', handleKeyDown);
+	}, []);
+
+	// Adjust menu position to stay within viewport
+	const adjustedPosition = {
+		left: Math.min(x, window.innerWidth - 200),
+		top: Math.min(y, window.innerHeight - 150),
+	};
+
+	return (
+		<div
+			ref={menuRef}
+			className="fixed z-50 py-1 rounded-md shadow-xl border"
+			style={{
+				left: adjustedPosition.left,
+				top: adjustedPosition.top,
+				backgroundColor: theme.colors.bgSidebar,
+				borderColor: theme.colors.border,
+				minWidth: '160px',
+			}}
+		>
+			{/* Rename */}
+			<button
+				onClick={() => {
+					onRename();
+					onDismiss();
+				}}
+				className="w-full text-left px-3 py-1.5 text-xs hover:bg-white/5 transition-colors flex items-center gap-2"
+				style={{ color: theme.colors.textMain }}
+			>
+				<Edit3 className="w-3.5 h-3.5" />
+				Rename Folder
+			</button>
+
+			{/* Edit (opens modal with color picker) */}
+			<button
+				onClick={() => {
+					onEdit();
+					onDismiss();
+				}}
+				className="w-full text-left px-3 py-1.5 text-xs hover:bg-white/5 transition-colors flex items-center gap-2"
+				style={{ color: theme.colors.textMain }}
+			>
+				<Settings className="w-3.5 h-3.5" />
+				Edit Folder...
+			</button>
+
+			{/* Folder Settings (opens pricing/billing modal) */}
+			<button
+				onClick={() => {
+					onSettings();
+					onDismiss();
+				}}
+				className="w-full text-left px-3 py-1.5 text-xs hover:bg-white/5 transition-colors flex items-center gap-2"
+				style={{ color: theme.colors.textMain }}
+			>
+				<Settings className="w-3.5 h-3.5" />
+				Folder Settings...
+			</button>
+
+			{/* Delete */}
+			<div className="my-1 border-t" style={{ borderColor: theme.colors.border }} />
+			<button
+				onClick={() => {
+					onDelete();
+					onDismiss();
+				}}
+				className="w-full text-left px-3 py-1.5 text-xs hover:bg-white/5 transition-colors flex items-center gap-2"
+				style={{ color: theme.colors.error }}
+			>
+				<Trash2 className="w-3.5 h-3.5" />
+				Delete Folder
+			</button>
+		</div>
+	);
+}
+
+// Pre-compiled emoji regex for better performance
+const LEADING_EMOJI_REGEX =
+	/^(?:\p{Emoji_Presentation}|\p{Emoji}\uFE0F?|\p{Emoji_Modifier_Base}\p{Emoji_Modifier}?)+\s*/u;
+
+const stripLeadingEmojis = (str: string): string => {
+	return str.replace(LEADING_EMOJI_REGEX, '').trim();
+};
+
+const compareSessionNames = (a: string, b: string): number => {
+	const aStripped = stripLeadingEmojis(a);
+	const bStripped = stripLeadingEmojis(b);
+	return aStripped.localeCompare(bStripped);
+};
+
+// ============================================================================
+// SessionList - Main sidebar session list component
 // ============================================================================
 
 interface SessionListProps {
@@ -65,11 +208,12 @@ interface SessionListProps {
 	startRenamingGroup: (groupId: string) => void;
 	startRenamingSession: (sessId: string) => void;
 	showConfirmation: (message: string, onConfirm: () => void) => void;
-	createNewGroup: () => void;
+	createNewGroup: (folderId?: string) => void;
 	onCreateGroupAndMove?: (sessionId: string) => void;
 	addNewSession: () => void;
 	onDeleteSession?: (id: string) => void;
 	onDeleteWorktreeGroup?: (groupId: string) => void;
+	onDropSessionOnProjectFolder?: (folderId: string, sessionId: string) => void;
 
 	// Edit agent modal handler (for context menu edit)
 	onEditAgent: (session: Session) => void;
@@ -92,7 +236,7 @@ interface SessionListProps {
 
 	// Group Chat handlers
 	onOpenGroupChat?: (id: string) => void;
-	onNewGroupChat?: () => void;
+	onNewGroupChat?: (folderId?: string) => void;
 	onEditGroupChat?: (id: string) => void;
 	onRenameGroupChat?: (id: string) => void;
 	onDeleteGroupChat?: (id: string) => void;
@@ -184,6 +328,7 @@ function SessionListInner(props: SessionListProps) {
 		addNewSession,
 		onDeleteSession,
 		onDeleteWorktreeGroup,
+		onDropSessionOnProjectFolder,
 		onEditAgent,
 		onNewAgentSession,
 		onToggleWorktreeExpanded,
@@ -241,6 +386,37 @@ function SessionListInner(props: SessionListProps) {
 		setCopyFlash,
 		handleTunnelToggle,
 	} = useLiveOverlay(isLiveMode);
+
+	// Project Folders state and operations
+	const {
+		projectFolders,
+		getSortedFolders,
+		createFolder,
+		updateFolder,
+		deleteFolder: deleteProjectFolder,
+		reorderFolders,
+		addSessionToFolder,
+	} = useProjectFoldersContext();
+
+	// Project folder editing state
+	const [editingProjectFolderId, setEditingProjectFolderId] = useState<string | null>(null);
+	const [draggingProjectFolderId, setDraggingProjectFolderId] = useState<string | null>(null);
+	const [dragOverProjectFolderId, setDragOverProjectFolderId] = useState<string | null>(null);
+	const [projectFolderContextMenu, setProjectFolderContextMenu] = useState<{
+		x: number;
+		y: number;
+		folderId: string;
+	} | null>(null);
+	// Project folder modal state (for create/edit with color picker)
+	const [showProjectFolderModal, setShowProjectFolderModal] = useState(false);
+	const [editingProjectFolder, setEditingProjectFolder] = useState<ProjectFolder | undefined>(
+		undefined
+	);
+	// Project folder settings modal state
+	const [showProjectFolderSettingsModal, setShowProjectFolderSettingsModal] = useState(false);
+	const [settingsProjectFolder, setSettingsProjectFolder] = useState<ProjectFolder | undefined>(
+		undefined
+	);
 
 	// Context menu state
 	const [contextMenu, setContextMenu] = useState<{
@@ -422,6 +598,177 @@ function SessionListInner(props: SessionListProps) {
 		return map;
 	}, [sessions, toggleBookmark]);
 
+	// Project folders sorted by order
+	const sortedProjectFolders = useMemo(
+		() => getSortedFolders(),
+		[getSortedFolders, projectFolders]
+	);
+
+	// Helper: Get sessions that belong to a specific project folder
+	const getSessionsForProjectFolder = useCallback(
+		(folderId: string | null): Session[] => {
+			if (folderId === null) {
+				return sessions.filter(
+					(s) => !s.parentSessionId && (!s.projectFolderIds || s.projectFolderIds.length === 0)
+				);
+			}
+			return sessions.filter((s) => !s.parentSessionId && s.projectFolderIds?.includes(folderId));
+		},
+		[sessions]
+	);
+
+	// Helper: Get groups that belong to a specific project folder
+	const getGroupsForProjectFolder = useCallback(
+		(folderId: string | null): Group[] => {
+			if (folderId === null) {
+				return groups.filter((g) => !g.projectFolderId);
+			}
+			return groups.filter((g) => g.projectFolderId === folderId);
+		},
+		[groups]
+	);
+
+	// Helper: Get project folders that a session belongs to (for color bars)
+	const getSessionProjectFolders = useCallback(
+		(sessionId: string): ProjectFolder[] => {
+			const session = sessions.find((s) => s.id === sessionId);
+			if (!session?.projectFolderIds?.length) return [];
+			return projectFolders.filter((f) => session.projectFolderIds?.includes(f.id));
+		},
+		[sessions, projectFolders]
+	);
+
+	// Filter groups for context menu based on session's project folder
+	const contextMenuGroups = useMemo(() => {
+		if (!contextMenuSession) return groups;
+		const sessionFolderId = contextMenuSession.projectFolderIds?.[0] || null;
+		return getGroupsForProjectFolder(sessionFolderId);
+	}, [contextMenuSession, getGroupsForProjectFolder, groups]);
+
+	// Helper: Count items in a project folder
+	const getProjectFolderItemCount = useCallback(
+		(folderId: string): number => {
+			const folderSessions = getSessionsForProjectFolder(folderId);
+			const folderGroups = getGroupsForProjectFolder(folderId);
+			const folderGroupChats = groupChats.filter((gc: any) => gc.projectFolderId === folderId);
+			return folderSessions.length + folderGroups.length + folderGroupChats.length;
+		},
+		[getSessionsForProjectFolder, getGroupsForProjectFolder, groupChats]
+	);
+
+	// Project folder drag handlers
+	const handleProjectFolderDragStart = useCallback((e: React.DragEvent, folderId: string) => {
+		e.dataTransfer.effectAllowed = 'move';
+		e.dataTransfer.setData('text/plain', folderId);
+		setDraggingProjectFolderId(folderId);
+	}, []);
+
+	const handleProjectFolderDragOver = useCallback((e: React.DragEvent, folderId: string) => {
+		e.preventDefault();
+		e.dataTransfer.dropEffect = 'move';
+		setDragOverProjectFolderId(folderId);
+	}, []);
+
+	const handleProjectFolderDragLeave = useCallback((_e: React.DragEvent) => {
+		setDragOverProjectFolderId(null);
+	}, []);
+
+	const handleProjectFolderDrop = useCallback(
+		(e: React.DragEvent, targetFolderId: string) => {
+			e.preventDefault();
+			setDragOverProjectFolderId(null);
+
+			if (draggingSessionId) {
+				if (onDropSessionOnProjectFolder) {
+					onDropSessionOnProjectFolder(targetFolderId, draggingSessionId);
+				} else {
+					addSessionToFolder(targetFolderId, draggingSessionId);
+				}
+				return;
+			}
+
+			if (!draggingProjectFolderId || draggingProjectFolderId === targetFolderId) {
+				setDraggingProjectFolderId(null);
+				return;
+			}
+
+			const orderedIds = sortedProjectFolders.map((f) => f.id);
+			const dragIndex = orderedIds.indexOf(draggingProjectFolderId);
+			const dropIndex = orderedIds.indexOf(targetFolderId);
+
+			if (dragIndex !== -1 && dropIndex !== -1) {
+				orderedIds.splice(dragIndex, 1);
+				orderedIds.splice(dropIndex, 0, draggingProjectFolderId);
+				reorderFolders(orderedIds);
+			}
+
+			setDraggingProjectFolderId(null);
+		},
+		[
+			draggingProjectFolderId,
+			draggingSessionId,
+			sortedProjectFolders,
+			reorderFolders,
+			addSessionToFolder,
+			onDropSessionOnProjectFolder,
+		]
+	);
+
+	const handleProjectFolderDragEnd = useCallback((_e: React.DragEvent) => {
+		setDraggingProjectFolderId(null);
+		setDragOverProjectFolderId(null);
+	}, []);
+
+	// Toggle project folder collapse
+	const toggleProjectFolderCollapse = useCallback(
+		(folderId: string) => {
+			const folder = projectFolders.find((f) => f.id === folderId);
+			if (folder) {
+				updateFolder(folderId, { collapsed: !folder.collapsed });
+			}
+		},
+		[projectFolders, updateFolder]
+	);
+
+	const handleCreateProjectFolder = useCallback(() => {
+		setEditingProjectFolder(undefined);
+		setShowProjectFolderModal(true);
+	}, []);
+
+	const handleSaveProjectFolder = useCallback(
+		async (folderData: Omit<ProjectFolder, 'id' | 'createdAt' | 'updatedAt'>) => {
+			if (editingProjectFolder) {
+				await updateFolder(editingProjectFolder.id, folderData);
+			} else {
+				await createFolder({ ...folderData, order: projectFolders.length });
+			}
+			setShowProjectFolderModal(false);
+			setEditingProjectFolder(undefined);
+		},
+		[editingProjectFolder, createFolder, updateFolder, projectFolders.length]
+	);
+
+	const handleEditProjectFolder = useCallback((folder: ProjectFolder) => {
+		setEditingProjectFolder(folder);
+		setShowProjectFolderModal(true);
+	}, []);
+
+	const handleFinishRenamingProjectFolder = useCallback(
+		(folderId: string, newName: string) => {
+			if (newName.trim()) {
+				updateFolder(folderId, { name: newName.trim() });
+			}
+			setEditingProjectFolderId(null);
+		},
+		[updateFolder]
+	);
+
+	const handleProjectFolderContextMenu = useCallback((e: React.MouseEvent, folderId: string) => {
+		e.preventDefault();
+		e.stopPropagation();
+		setProjectFolderContextMenu({ x: e.clientX, y: e.clientY, folderId });
+	}, []);
+
 	// Helper component: Renders a session item with its worktree children (if any)
 	const renderSessionWithWorktrees = (
 		session: Session,
@@ -463,6 +810,7 @@ function SessionListInner(props: SessionListProps) {
 					gitFileCount={getFileCount(session.id)}
 					isInBatch={activeBatchSessionIds.includes(session.id)}
 					jumpNumber={getSessionJumpNumber(session.id)}
+					projectFolders={getSessionProjectFolders(session.id)}
 					onSelect={selectHandlers.get(session.id)!}
 					onDragStart={dragStartHandlers.get(session.id)!}
 					onDragOver={handleDragOver}
@@ -525,6 +873,7 @@ function SessionListInner(props: SessionListProps) {
 										gitFileCount={getFileCount(child.id)}
 										isInBatch={activeBatchSessionIds.includes(child.id)}
 										jumpNumber={getSessionJumpNumber(child.id)}
+										projectFolders={getSessionProjectFolders(child.id)}
 										onSelect={selectHandlers.get(child.id)!}
 										onDragStart={dragStartHandlers.get(child.id)!}
 										onContextMenu={contextMenuHandlers.get(child.id)!}
@@ -589,6 +938,255 @@ function SessionListInner(props: SessionListProps) {
 	const getSessionJumpNumber = (sessionId: string): string | null => {
 		return jumpNumberMap.get(sessionId) ?? null;
 	};
+
+	// Render sessions that belong to a specific project folder (or unassigned)
+	const renderFolderSessions = (
+		folderId: string | null,
+		folderGroups: Group[],
+		folderSessions: Session[]
+	) => {
+		const folderBookmarked = folderSessions.filter((s) => s.bookmarked);
+		// Include sessions with no groupId OR sessions whose groupId is not in this folder's groups
+		const folderGroupIds = new Set(folderGroups.map((g) => g.id));
+		const folderUngrouped = folderSessions.filter(
+			(s) => !s.groupId || !folderGroupIds.has(s.groupId)
+		);
+		const folderGroupedMap = new Map<string, Session[]>();
+		folderSessions.forEach((s) => {
+			if (s.groupId) {
+				const list = folderGroupedMap.get(s.groupId);
+				if (list) list.push(s);
+				else folderGroupedMap.set(s.groupId, [s]);
+			}
+		});
+
+		const sortFn = (a: Session, b: Session) => compareSessionNames(a.name, b.name);
+		const sortedFolderBookmarked = [...folderBookmarked].sort(sortFn);
+		const sortedFolderUngrouped = [...folderUngrouped].sort(sortFn);
+		const sortedFolderGroups = [...folderGroups].sort((a, b) =>
+			compareSessionNames(a.name, b.name)
+		);
+
+		return (
+			<>
+				{/* Bookmarks in this folder */}
+				{folderBookmarked.length > 0 && (
+					<div className="mb-1 ml-2">
+						<div
+							className="px-3 py-1 flex items-center gap-2 text-xs font-bold uppercase tracking-wider"
+							style={{ color: theme.colors.accent }}
+						>
+							<Bookmark className="w-3 h-3" fill={theme.colors.accent} />
+							<span>Bookmarks</span>
+						</div>
+						<div
+							className="flex flex-col border-l ml-4"
+							style={{ borderColor: theme.colors.accent }}
+						>
+							{sortedFolderBookmarked.map((session) => {
+								const group = groups.find((g) => g.id === session.groupId);
+								return renderSessionWithWorktrees(session, 'bookmark', {
+									keyPrefix: `folder-${folderId}-bookmark`,
+									group,
+								});
+							})}
+						</div>
+					</div>
+				)}
+
+				{/* Groups in this folder */}
+				{sortedFolderGroups.map((group) => {
+					const groupSessions = folderGroupedMap.get(group.id) || [];
+					const sortedGroupSessions = [...groupSessions].sort(sortFn);
+					return (
+						<div key={group.id} className="mb-1 ml-2">
+							<div
+								role="button"
+								tabIndex={0}
+								aria-expanded={!group.collapsed}
+								onKeyDown={(e) => {
+									if (e.key === 'Enter' || e.key === ' ') {
+										e.preventDefault();
+										toggleGroup(group.id);
+									}
+								}}
+								className="px-3 py-1 flex items-center justify-between cursor-pointer hover:bg-opacity-50 group"
+								onClick={() => toggleGroup(group.id)}
+							>
+								<div
+									className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider flex-1"
+									style={{ color: theme.colors.textDim }}
+								>
+									{group.collapsed ? (
+										<ChevronRight className="w-3 h-3" />
+									) : (
+										<ChevronDown className="w-3 h-3" />
+									)}
+									<span className="text-sm">{group.emoji}</span>
+									{editingGroupId === group.id ? (
+										<input
+											autoFocus
+											className="bg-transparent outline-none w-full border-b border-indigo-500"
+											defaultValue={group.name}
+											onClick={(e) => e.stopPropagation()}
+											onBlur={(e) => {
+												if (ignoreNextBlurRef.current) {
+													ignoreNextBlurRef.current = false;
+													return;
+												}
+												finishRenamingGroup(group.id, e.target.value);
+											}}
+											onKeyDown={(e) => {
+												e.stopPropagation();
+												if (e.key === 'Enter') {
+													ignoreNextBlurRef.current = true;
+													finishRenamingGroup(group.id, e.currentTarget.value);
+												}
+											}}
+										/>
+									) : (
+										<span onDoubleClick={() => startRenamingGroup(group.id)}>{group.name}</span>
+									)}
+								</div>
+								{/* Action buttons - visible on hover */}
+								<div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+									{/* Rename button */}
+									<button
+										onClick={(e) => {
+											e.stopPropagation();
+											startRenamingGroup(group.id);
+										}}
+										className="p-1 rounded hover:bg-white/10 transition-colors"
+										style={{ color: theme.colors.textDim }}
+										title="Rename group"
+									>
+										<Edit3 className="w-3 h-3" />
+									</button>
+									{/* Delete button */}
+									<button
+										onClick={(e) => {
+											e.stopPropagation();
+											const message =
+												groupSessions.length > 0
+													? `Are you sure you want to delete the group "${group.name}"? ${groupSessions.length} agent(s) will be moved to Ungrouped.`
+													: `Are you sure you want to delete the group "${group.name}"?`;
+											showConfirmation(message, () => {
+												// Move agents to ungrouped first if group has agents
+												if (groupSessions.length > 0) {
+													const sessionIds = groupSessions.map((s) => s.id);
+													setSessions((prev) =>
+														prev.map((s) =>
+															sessionIds.includes(s.id) ? { ...s, groupId: undefined } : s
+														)
+													);
+												}
+												// Delete the group
+												setGroups((prev) => prev.filter((g) => g.id !== group.id));
+											});
+										}}
+										className="p-1 rounded hover:bg-red-500/20 transition-colors"
+										style={{ color: theme.colors.error }}
+										title={
+											groupSessions.length > 0
+												? 'Delete group (agents will be ungrouped)'
+												: 'Delete group'
+										}
+									>
+										<Trash2 className="w-3 h-3" />
+									</button>
+								</div>
+							</div>
+							{!group.collapsed && (
+								<div
+									className="flex flex-col border-l ml-4"
+									style={{ borderColor: theme.colors.border }}
+								>
+									{sortedGroupSessions.map((session) =>
+										renderSessionWithWorktrees(session, 'group', {
+											keyPrefix: `folder-${folderId}-group-${group.id}`,
+											groupId: group.id,
+										})
+									)}
+								</div>
+							)}
+						</div>
+					);
+				})}
+
+				{/* Ungrouped sessions in this folder - always show header with New Group button */}
+				<div className="mb-1 ml-2">
+					<div
+						className="px-3 py-1 flex items-center justify-between text-xs font-bold uppercase tracking-wider"
+						style={{ color: theme.colors.textDim }}
+					>
+						<div className="flex items-center gap-2">
+							<Folder className="w-3 h-3" />
+							<span>Ungrouped</span>
+						</div>
+						<button
+							onClick={(e) => {
+								e.stopPropagation();
+								createNewGroup(folderId ?? undefined);
+							}}
+							className="px-2 py-0.5 rounded-full text-[10px] font-medium hover:opacity-80 transition-opacity flex items-center gap-1"
+							style={{
+								backgroundColor: theme.colors.accent + '20',
+								color: theme.colors.accent,
+								border: `1px solid ${theme.colors.accent}40`,
+							}}
+							title="Create new group"
+						>
+							<Plus className="w-3 h-3" />
+							<span>New Group</span>
+						</button>
+					</div>
+					{folderUngrouped.length > 0 && (
+						<div
+							className="flex flex-col border-l ml-4"
+							style={{ borderColor: theme.colors.border }}
+						>
+							{sortedFolderUngrouped.map((session) =>
+								renderSessionWithWorktrees(session, 'ungrouped', {
+									keyPrefix: `folder-${folderId}-ungrouped`,
+								})
+							)}
+						</div>
+					)}
+				</div>
+
+				{/* Group chats in this folder */}
+				{onNewGroupChat &&
+					onOpenGroupChat &&
+					onEditGroupChat &&
+					onRenameGroupChat &&
+					onDeleteGroupChat &&
+					sessions.filter((s) => s.toolType !== 'terminal').length >= 2 && (
+						<div className="ml-2">
+							<GroupChatList
+								theme={theme}
+								groupChats={groupChats}
+								activeGroupChatId={activeGroupChatId}
+								onOpenGroupChat={onOpenGroupChat}
+								onNewGroupChat={onNewGroupChat}
+								onEditGroupChat={onEditGroupChat}
+								onRenameGroupChat={onRenameGroupChat}
+								onDeleteGroupChat={onDeleteGroupChat}
+								onArchiveGroupChat={onArchiveGroupChat}
+								isExpanded={groupChatsExpanded}
+								onExpandedChange={setGroupChatsExpanded}
+								groupChatState={groupChatState}
+								participantStates={participantStates}
+								groupChatStates={groupChatStates}
+								allGroupChatParticipantStates={allGroupChatParticipantStates}
+								projectFolderId={folderId}
+							/>
+						</div>
+					)}
+			</>
+		);
+	};
+
+	const hasProjectFolders = sortedProjectFolders.length > 0;
 
 	return (
 		<div
@@ -786,6 +1384,23 @@ function SessionListInner(props: SessionListProps) {
 					className="flex-1 overflow-y-auto py-2 select-none scrollbar-thin flex flex-col"
 					data-tour="session-list"
 				>
+					{/* Create Project Folder Button - always visible */}
+					<div className="px-3 mb-2">
+						<button
+							onClick={handleCreateProjectFolder}
+							className="w-full px-3 py-1.5 rounded text-xs font-medium hover:opacity-80 transition-opacity flex items-center justify-center gap-2"
+							style={{
+								backgroundColor: theme.colors.bgActivity,
+								color: theme.colors.textDim,
+								border: `1px dashed ${theme.colors.border}`,
+							}}
+							title="Create a new project folder to organize your agents"
+						>
+							<FolderPlus className="w-3.5 h-3.5" />
+							<span>New Project Folder</span>
+						</button>
+					</div>
+
 					{/* Session Filter */}
 					{sessionFilterOpen && (
 						<div className="mx-3 mb-3">
@@ -807,184 +1422,165 @@ function SessionListInner(props: SessionListProps) {
 						</div>
 					)}
 
-					{/* BOOKMARKS SECTION - only show if there are bookmarked sessions */}
-					{bookmarkedSessions.length > 0 && (
-						<div className="mb-1">
-							<button
-								type="button"
-								className="w-full px-3 py-1.5 flex items-center justify-between cursor-pointer hover:bg-opacity-50 group"
-								onClick={() => setBookmarksCollapsed(!bookmarksCollapsed)}
-								aria-expanded={!bookmarksCollapsed}
-							>
-								<div
-									className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider flex-1"
-									style={{ color: theme.colors.accent }}
-								>
-									{bookmarksCollapsed ? (
-										<ChevronRight className="w-3 h-3" />
-									) : (
-										<ChevronDown className="w-3 h-3" />
-									)}
-									<Bookmark className="w-3.5 h-3.5" fill={theme.colors.accent} />
-									<span>Bookmarks</span>
-								</div>
-							</button>
+					{/* PROJECT FOLDERS HIERARCHY */}
+					{hasProjectFolders && (
+						<>
+							{sortedProjectFolders.map((folder) => {
+								const folderSessions = getSessionsForProjectFolder(folder.id);
+								const folderGroups = getGroupsForProjectFolder(folder.id);
+								const itemCount = getProjectFolderItemCount(folder.id);
 
-							{!bookmarksCollapsed ? (
-								<div
-									className="flex flex-col border-l ml-4"
-									style={{ borderColor: theme.colors.accent }}
-								>
-									{sortedBookmarkedSessions.map((session) => {
-										const group = groups.find((g) => g.id === session.groupId);
-										return renderSessionWithWorktrees(session, 'bookmark', {
-											keyPrefix: 'bookmark',
-											group,
-										});
-									})}
-								</div>
-							) : (
-								/* Collapsed Bookmarks Palette - uses subdivided pills for worktrees */
-								<div
-									className="ml-8 mr-3 mt-1 mb-2 flex gap-1 h-1.5 cursor-pointer"
-									onClick={() => setBookmarksCollapsed(false)}
-								>
-									{sortedBookmarkedParentSessions.map((s) => (
-										<CollapsedSessionPill
-											key={`bookmark-collapsed-${s.id}`}
-											session={s}
-											keyPrefix="bookmark-collapsed"
+								return (
+									<div key={folder.id} className="mb-2">
+										<ProjectFolderHeader
+											folder={folder}
 											theme={theme}
-											activeBatchSessionIds={activeBatchSessionIds}
-											leftSidebarWidth={leftSidebarWidthState}
-											contextWarningYellowThreshold={contextWarningYellowThreshold}
-											contextWarningRedThreshold={contextWarningRedThreshold}
-											getFileCount={getFileCount}
-											getWorktreeChildren={getWorktreeChildren}
-											setActiveSessionId={setActiveSessionId}
+											isCollapsed={folder.collapsed}
+											isEditing={editingProjectFolderId === folder.id}
+											itemCount={itemCount}
+											isDragging={draggingProjectFolderId === folder.id}
+											isDragOver={dragOverProjectFolderId === folder.id}
+											onToggleCollapse={() => toggleProjectFolderCollapse(folder.id)}
+											onStartRename={() => setEditingProjectFolderId(folder.id)}
+											onFinishRename={(newName) =>
+												handleFinishRenamingProjectFolder(folder.id, newName)
+											}
+											onContextMenu={(e) => handleProjectFolderContextMenu(e, folder.id)}
+											onDragStart={(e) => handleProjectFolderDragStart(e, folder.id)}
+											onDragOver={(e) => handleProjectFolderDragOver(e, folder.id)}
+											onDragLeave={handleProjectFolderDragLeave}
+											onDrop={(e) => handleProjectFolderDrop(e, folder.id)}
+											onDragEnd={handleProjectFolderDragEnd}
 										/>
-									))}
-								</div>
-							)}
-						</div>
+
+										{/* Folder contents (when expanded) */}
+										{!folder.collapsed && (
+											<div
+												className="border-l ml-3"
+												style={{
+													borderColor: folder.highlightColor || theme.colors.border,
+													borderLeftWidth: folder.highlightColor ? '3px' : '1px',
+													backgroundColor: folder.highlightColor
+														? folder.highlightColor + '10'
+														: 'transparent',
+													borderRadius: folder.highlightColor ? '0 4px 4px 0' : undefined,
+													paddingLeft: folder.highlightColor ? '2px' : undefined,
+												}}
+											>
+												{itemCount === 0 ? (
+													<div
+														className="text-xs px-3 py-2 ml-2 italic"
+														style={{ color: theme.colors.textDim }}
+													>
+														Drag agents here to organize
+													</div>
+												) : (
+													renderFolderSessions(folder.id, folderGroups, folderSessions)
+												)}
+											</div>
+										)}
+									</div>
+								);
+							})}
+
+							{/* Unassigned section - items without project folder */}
+							{(() => {
+								const unassignedSessions = getSessionsForProjectFolder(null);
+								const unassignedGroups = getGroupsForProjectFolder(null);
+								const unassignedGroupChats = groupChats.filter((gc) => !gc.projectFolderId);
+								const hasUnassigned =
+									unassignedSessions.length > 0 ||
+									unassignedGroups.length > 0 ||
+									unassignedGroupChats.length > 0;
+
+								if (!hasUnassigned) return null;
+
+								return (
+									<div className="mb-2 mt-4">
+										<div
+											className="px-3 py-1.5 flex items-center justify-between text-xs font-bold uppercase tracking-wider"
+											style={{ color: theme.colors.textDim }}
+										>
+											<div className="flex items-center gap-2">
+												<Folder className="w-3.5 h-3.5" />
+												<span>Unassigned</span>
+											</div>
+											<button
+												onClick={(e) => {
+													e.stopPropagation();
+													createNewGroup();
+												}}
+												className="px-2 py-0.5 rounded-full text-[10px] font-medium hover:opacity-80 transition-opacity flex items-center gap-1"
+												style={{
+													backgroundColor: theme.colors.accent + '20',
+													color: theme.colors.accent,
+													border: `1px solid ${theme.colors.accent}40`,
+												}}
+												title="Create new group"
+											>
+												<Plus className="w-3 h-3" />
+												<span>New Group</span>
+											</button>
+										</div>
+										<div className="border-l ml-3" style={{ borderColor: theme.colors.border }}>
+											{renderFolderSessions(null, unassignedGroups, unassignedSessions)}
+										</div>
+									</div>
+								);
+							})()}
+						</>
 					)}
 
-					{/* GROUPS */}
-					{sortedGroups.map((group) => {
-						const groupSessions = sortedGroupSessionsById.get(group.id) || [];
-						return (
-							<div key={group.id} className="mb-1">
-								<div
-									role="button"
-									tabIndex={0}
-									aria-expanded={!group.collapsed}
-									onKeyDown={(e) => {
-										if (e.key === 'Enter' || e.key === ' ') {
-											e.preventDefault();
-											toggleGroup(group.id);
-										}
-									}}
-									className="px-3 py-1.5 flex items-center justify-between cursor-pointer hover:bg-opacity-50 group"
-									onClick={() => toggleGroup(group.id)}
-									onDragOver={handleDragOver}
-									onDrop={() => handleDropOnGroup(group.id)}
-								>
-									<div
-										className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider flex-1"
-										style={{ color: theme.colors.textDim }}
+					{/* LEGACY VIEW - when no project folders exist */}
+					{!hasProjectFolders && (
+						<>
+							{/* BOOKMARKS SECTION - only show if there are bookmarked sessions */}
+							{bookmarkedSessions.length > 0 && (
+								<div className="mb-1">
+									<button
+										type="button"
+										className="w-full px-3 py-1.5 flex items-center justify-between cursor-pointer hover:bg-opacity-50 group"
+										onClick={() => setBookmarksCollapsed(!bookmarksCollapsed)}
+										aria-expanded={!bookmarksCollapsed}
 									>
-										{group.collapsed ? (
-											<ChevronRight className="w-3 h-3" />
-										) : (
-											<ChevronDown className="w-3 h-3" />
-										)}
-										<span className="text-sm">{group.emoji}</span>
-										{editingGroupId === group.id ? (
-											<input
-												autoFocus
-												className="bg-transparent outline-none w-full border-b border-indigo-500"
-												defaultValue={group.name}
-												onClick={(e) => e.stopPropagation()}
-												onBlur={(e) => {
-													if (ignoreNextBlurRef.current) {
-														ignoreNextBlurRef.current = false;
-														return;
-													}
-													finishRenamingGroup(group.id, e.target.value);
-												}}
-												onKeyDown={(e) => {
-													e.stopPropagation();
-													if (e.key === 'Enter') {
-														ignoreNextBlurRef.current = true;
-														finishRenamingGroup(group.id, e.currentTarget.value);
-													}
-												}}
-											/>
-										) : (
-											<span onDoubleClick={() => startRenamingGroup(group.id)}>{group.name}</span>
-										)}
-									</div>
-									{/* Delete button for empty groups */}
-									{groupSessions.length === 0 && (
-										<button
-											onClick={(e) => {
-												e.stopPropagation();
-												showConfirmation(
-													`Are you sure you want to delete the group "${group.name}"?`,
-													() => {
-														setGroups((prev) => prev.filter((g) => g.id !== group.id));
-													}
-												);
-											}}
-											className="p-1 rounded hover:bg-red-500/20 opacity-0 group-hover:opacity-100 transition-opacity"
-											style={{ color: theme.colors.error }}
-											title="Delete empty group"
+										<div
+											className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider flex-1"
+											style={{ color: theme.colors.accent }}
 										>
-											<X className="w-3 h-3" />
-										</button>
-									)}
-									{/* Delete button for worktree groups with agents */}
-									{group.emoji === '🌳' && groupSessions.length > 0 && onDeleteWorktreeGroup && (
-										<button
-											onClick={(e) => {
-												e.stopPropagation();
-												onDeleteWorktreeGroup(group.id);
-											}}
-											className="p-1 rounded hover:bg-red-500/20 opacity-0 group-hover:opacity-100 transition-opacity"
-											style={{ color: theme.colors.error }}
-											title="Remove group and all agents"
-										>
-											<Trash2 className="w-3 h-3" />
-										</button>
-									)}
-								</div>
+											{bookmarksCollapsed ? (
+												<ChevronRight className="w-3 h-3" />
+											) : (
+												<ChevronDown className="w-3 h-3" />
+											)}
+											<Bookmark className="w-3.5 h-3.5" fill={theme.colors.accent} />
+											<span>Bookmarks</span>
+										</div>
+									</button>
 
-								{!group.collapsed ? (
-									<div
-										className="flex flex-col border-l ml-4"
-										style={{ borderColor: theme.colors.border }}
-									>
-										{groupSessions.map((session) =>
-											renderSessionWithWorktrees(session, 'group', {
-												keyPrefix: `group-${group.id}`,
-												groupId: group.id,
-												onDrop: () => handleDropOnGroup(group.id),
-											})
-										)}
-									</div>
-								) : (
-									/* Collapsed Group Palette - uses subdivided pills for worktrees */
-									<div
-										className="ml-8 mr-3 mt-1 mb-2 flex gap-1 h-1.5 cursor-pointer"
-										onClick={() => toggleGroup(group.id)}
-									>
-										{groupSessions
-											.filter((s) => !s.parentSessionId)
-											.map((s) => (
+									{!bookmarksCollapsed ? (
+										<div
+											className="flex flex-col border-l ml-4"
+											style={{ borderColor: theme.colors.accent }}
+										>
+											{sortedBookmarkedSessions.map((session) => {
+												const group = groups.find((g) => g.id === session.groupId);
+												return renderSessionWithWorktrees(session, 'bookmark', {
+													keyPrefix: 'bookmark',
+													group,
+												});
+											})}
+										</div>
+									) : (
+										/* Collapsed Bookmarks Palette - uses subdivided pills for worktrees */
+										<div
+											className="ml-8 mr-3 mt-1 mb-2 flex gap-1 h-1.5 cursor-pointer"
+											onClick={() => setBookmarksCollapsed(false)}
+										>
+											{sortedBookmarkedParentSessions.map((s) => (
 												<CollapsedSessionPill
-													key={`group-collapsed-${group.id}-${s.id}`}
+													key={`bookmark-collapsed-${s.id}`}
 													session={s}
-													keyPrefix={`group-collapsed-${group.id}`}
+													keyPrefix="bookmark-collapsed"
 													theme={theme}
 													activeBatchSessionIds={activeBatchSessionIds}
 													leftSidebarWidth={leftSidebarWidthState}
@@ -995,140 +1591,281 @@ function SessionListInner(props: SessionListProps) {
 													setActiveSessionId={setActiveSessionId}
 												/>
 											))}
+										</div>
+									)}
+								</div>
+							)}
+
+							{/* GROUPS */}
+							{sortedGroups.map((group) => {
+								const groupSessions = sortedGroupSessionsById.get(group.id) || [];
+								return (
+									<div key={group.id} className="mb-1">
+										<div
+											role="button"
+											tabIndex={0}
+											aria-expanded={!group.collapsed}
+											onKeyDown={(e) => {
+												if (e.key === 'Enter' || e.key === ' ') {
+													e.preventDefault();
+													toggleGroup(group.id);
+												}
+											}}
+											className="px-3 py-1.5 flex items-center justify-between cursor-pointer hover:bg-opacity-50 group"
+											onClick={() => toggleGroup(group.id)}
+											onDragOver={handleDragOver}
+											onDrop={() => handleDropOnGroup(group.id)}
+										>
+											<div
+												className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider flex-1"
+												style={{ color: theme.colors.textDim }}
+											>
+												{group.collapsed ? (
+													<ChevronRight className="w-3 h-3" />
+												) : (
+													<ChevronDown className="w-3 h-3" />
+												)}
+												<span className="text-sm">{group.emoji}</span>
+												{editingGroupId === group.id ? (
+													<input
+														autoFocus
+														className="bg-transparent outline-none w-full border-b border-indigo-500"
+														defaultValue={group.name}
+														onClick={(e) => e.stopPropagation()}
+														onBlur={(e) => {
+															if (ignoreNextBlurRef.current) {
+																ignoreNextBlurRef.current = false;
+																return;
+															}
+															finishRenamingGroup(group.id, e.target.value);
+														}}
+														onKeyDown={(e) => {
+															e.stopPropagation();
+															if (e.key === 'Enter') {
+																ignoreNextBlurRef.current = true;
+																finishRenamingGroup(group.id, e.currentTarget.value);
+															}
+														}}
+													/>
+												) : (
+													<span onDoubleClick={() => startRenamingGroup(group.id)}>
+														{group.name}
+													</span>
+												)}
+											</div>
+											{/* Delete button for empty groups */}
+											{groupSessions.length === 0 && (
+												<button
+													onClick={(e) => {
+														e.stopPropagation();
+														showConfirmation(
+															`Are you sure you want to delete the group "${group.name}"?`,
+															() => {
+																setGroups((prev) => prev.filter((g) => g.id !== group.id));
+															}
+														);
+													}}
+													className="p-1 rounded hover:bg-red-500/20 opacity-0 group-hover:opacity-100 transition-opacity"
+													style={{ color: theme.colors.error }}
+													title="Delete empty group"
+												>
+													<X className="w-3 h-3" />
+												</button>
+											)}
+											{/* Delete button for worktree groups with agents */}
+											{group.emoji === '🌳' &&
+												groupSessions.length > 0 &&
+												onDeleteWorktreeGroup && (
+													<button
+														onClick={(e) => {
+															e.stopPropagation();
+															onDeleteWorktreeGroup(group.id);
+														}}
+														className="p-1 rounded hover:bg-red-500/20 opacity-0 group-hover:opacity-100 transition-opacity"
+														style={{ color: theme.colors.error }}
+														title="Remove group and all agents"
+													>
+														<Trash2 className="w-3 h-3" />
+													</button>
+												)}
+										</div>
+
+										{!group.collapsed ? (
+											<div
+												className="flex flex-col border-l ml-4"
+												style={{ borderColor: theme.colors.border }}
+											>
+												{groupSessions.map((session) =>
+													renderSessionWithWorktrees(session, 'group', {
+														keyPrefix: `group-${group.id}`,
+														groupId: group.id,
+														onDrop: () => handleDropOnGroup(group.id),
+													})
+												)}
+											</div>
+										) : (
+											/* Collapsed Group Palette - uses subdivided pills for worktrees */
+											<div
+												className="ml-8 mr-3 mt-1 mb-2 flex gap-1 h-1.5 cursor-pointer"
+												onClick={() => toggleGroup(group.id)}
+											>
+												{groupSessions
+													.filter((s) => !s.parentSessionId)
+													.map((s) => (
+														<CollapsedSessionPill
+															key={`group-collapsed-${group.id}-${s.id}`}
+															session={s}
+															keyPrefix={`group-collapsed-${group.id}`}
+															theme={theme}
+															activeBatchSessionIds={activeBatchSessionIds}
+															leftSidebarWidth={leftSidebarWidthState}
+															contextWarningYellowThreshold={contextWarningYellowThreshold}
+															contextWarningRedThreshold={contextWarningRedThreshold}
+															getFileCount={getFileCount}
+															getWorktreeChildren={getWorktreeChildren}
+															setActiveSessionId={setActiveSessionId}
+														/>
+													))}
+											</div>
+										)}
 									</div>
-								)}
-							</div>
-						);
-					})}
+								);
+							})}
 
-					{/* SESSIONS - Flat list when no groups exist, otherwise show Ungrouped folder */}
-					{sessions.length > 0 && groups.length === 0 ? (
-						/* FLAT LIST - No groups exist yet, show sessions directly with New Group button */
-						<>
-							<div className="flex flex-col">
-								{sortedFilteredSessions.map((session) =>
-									renderSessionWithWorktrees(session, 'flat', { keyPrefix: 'flat' })
-								)}
-							</div>
-							<div className="mt-4 px-3">
-								<button
-									onClick={createNewGroup}
-									className="w-full px-2 py-1.5 rounded-full text-[10px] font-medium hover:opacity-80 transition-opacity flex items-center justify-center gap-1"
-									style={{
-										backgroundColor: theme.colors.accent + '20',
-										color: theme.colors.accent,
-										border: `1px solid ${theme.colors.accent}40`,
-									}}
-									title="Create new group"
-								>
-									<Plus className="w-3 h-3" />
-									<span>New Group</span>
-								</button>
-							</div>
-						</>
-					) : groups.length > 0 && ungroupedSessions.length > 0 ? (
-						/* UNGROUPED FOLDER - Groups exist and there are ungrouped agents */
-						<div className="mb-1 mt-4">
-							<div
-								className="px-3 py-1.5 flex items-center justify-between cursor-pointer hover:bg-opacity-50 group"
-								onClick={() => setUngroupedCollapsed(!ungroupedCollapsed)}
-								onDragOver={handleDragOver}
-								onDrop={handleDropOnUngrouped}
-							>
-								<div
-									className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider flex-1"
-									style={{ color: theme.colors.textDim }}
-								>
-									{ungroupedCollapsed ? (
-										<ChevronRight className="w-3 h-3" />
+							{/* SESSIONS - Flat list when no groups exist, otherwise show Ungrouped folder */}
+							{sessions.length > 0 && groups.length === 0 ? (
+								/* FLAT LIST - No groups exist yet, show sessions directly with New Group button */
+								<>
+									<div className="flex flex-col">
+										{sortedFilteredSessions.map((session) =>
+											renderSessionWithWorktrees(session, 'flat', { keyPrefix: 'flat' })
+										)}
+									</div>
+									<div className="mt-4 px-3">
+										<button
+											onClick={() => createNewGroup()}
+											className="w-full px-2 py-1.5 rounded-full text-[10px] font-medium hover:opacity-80 transition-opacity flex items-center justify-center gap-1"
+											style={{
+												backgroundColor: theme.colors.accent + '20',
+												color: theme.colors.accent,
+												border: `1px solid ${theme.colors.accent}40`,
+											}}
+											title="Create new group"
+										>
+											<Plus className="w-3 h-3" />
+											<span>New Group</span>
+										</button>
+									</div>
+								</>
+							) : groups.length > 0 && ungroupedSessions.length > 0 ? (
+								/* UNGROUPED FOLDER - Groups exist and there are ungrouped agents */
+								<div className="mb-1 mt-4">
+									<div
+										className="px-3 py-1.5 flex items-center justify-between cursor-pointer hover:bg-opacity-50 group"
+										onClick={() => setUngroupedCollapsed(!ungroupedCollapsed)}
+										onDragOver={handleDragOver}
+										onDrop={handleDropOnUngrouped}
+									>
+										<div
+											className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider flex-1"
+											style={{ color: theme.colors.textDim }}
+										>
+											{ungroupedCollapsed ? (
+												<ChevronRight className="w-3 h-3" />
+											) : (
+												<ChevronDown className="w-3 h-3" />
+											)}
+											<Folder className="w-3.5 h-3.5" />
+											<span>Ungrouped Agents</span>
+										</div>
+										<button
+											onClick={(e) => {
+												e.stopPropagation();
+												createNewGroup();
+											}}
+											className="px-2 py-0.5 rounded-full text-[10px] font-medium hover:opacity-80 transition-opacity flex items-center gap-1"
+											style={{
+												backgroundColor: theme.colors.accent + '20',
+												color: theme.colors.accent,
+												border: `1px solid ${theme.colors.accent}40`,
+											}}
+											title="Create new group"
+										>
+											<Plus className="w-3 h-3" />
+											<span>New Group</span>
+										</button>
+									</div>
+
+									{!ungroupedCollapsed ? (
+										<div
+											className="flex flex-col border-l ml-4"
+											style={{ borderColor: theme.colors.border }}
+										>
+											{sortedUngroupedSessions.map((session) =>
+												renderSessionWithWorktrees(session, 'ungrouped', { keyPrefix: 'ungrouped' })
+											)}
+										</div>
 									) : (
-										<ChevronDown className="w-3 h-3" />
-									)}
-									<Folder className="w-3.5 h-3.5" />
-									<span>Ungrouped Agents</span>
-								</div>
-								<button
-									onClick={(e) => {
-										e.stopPropagation();
-										createNewGroup();
-									}}
-									className="px-2 py-0.5 rounded-full text-[10px] font-medium hover:opacity-80 transition-opacity flex items-center gap-1"
-									style={{
-										backgroundColor: theme.colors.accent + '20',
-										color: theme.colors.accent,
-										border: `1px solid ${theme.colors.accent}40`,
-									}}
-									title="Create new group"
-								>
-									<Plus className="w-3 h-3" />
-									<span>New Group</span>
-								</button>
-							</div>
-
-							{!ungroupedCollapsed ? (
-								<div
-									className="flex flex-col border-l ml-4"
-									style={{ borderColor: theme.colors.border }}
-								>
-									{sortedUngroupedSessions.map((session) =>
-										renderSessionWithWorktrees(session, 'ungrouped', { keyPrefix: 'ungrouped' })
+										/* Collapsed Ungrouped Palette - uses subdivided pills for worktrees */
+										<div
+											className="ml-8 mr-3 mt-1 mb-2 flex gap-1 h-1.5 cursor-pointer"
+											onClick={() => setUngroupedCollapsed(false)}
+										>
+											{sortedUngroupedParentSessions.map((s) => (
+												<CollapsedSessionPill
+													key={`ungrouped-collapsed-${s.id}`}
+													session={s}
+													keyPrefix="ungrouped-collapsed"
+													theme={theme}
+													activeBatchSessionIds={activeBatchSessionIds}
+													leftSidebarWidth={leftSidebarWidthState}
+													contextWarningYellowThreshold={contextWarningYellowThreshold}
+													contextWarningRedThreshold={contextWarningRedThreshold}
+													getFileCount={getFileCount}
+													getWorktreeChildren={getWorktreeChildren}
+													setActiveSessionId={setActiveSessionId}
+												/>
+											))}
+										</div>
 									)}
 								</div>
-							) : (
-								/* Collapsed Ungrouped Palette - uses subdivided pills for worktrees */
+							) : groups.length > 0 ? (
+								/* NO UNGROUPED AGENTS - Show drop zone for ungrouping + New Group button */
 								<div
-									className="ml-8 mr-3 mt-1 mb-2 flex gap-1 h-1.5 cursor-pointer"
-									onClick={() => setUngroupedCollapsed(false)}
+									className="mt-4 px-3"
+									onDragOver={handleDragOver}
+									onDrop={handleDropOnUngrouped}
 								>
-									{sortedUngroupedParentSessions.map((s) => (
-										<CollapsedSessionPill
-											key={`ungrouped-collapsed-${s.id}`}
-											session={s}
-											keyPrefix="ungrouped-collapsed"
-											theme={theme}
-											activeBatchSessionIds={activeBatchSessionIds}
-											leftSidebarWidth={leftSidebarWidthState}
-											contextWarningYellowThreshold={contextWarningYellowThreshold}
-											contextWarningRedThreshold={contextWarningRedThreshold}
-											getFileCount={getFileCount}
-											getWorktreeChildren={getWorktreeChildren}
-											setActiveSessionId={setActiveSessionId}
-										/>
-									))}
+									{/* Drop zone indicator when dragging */}
+									{draggingSessionId && (
+										<div
+											className="mb-2 px-3 py-2 rounded border-2 border-dashed text-center text-xs"
+											style={{
+												borderColor: theme.colors.accent,
+												color: theme.colors.textDim,
+												backgroundColor: theme.colors.accent + '10',
+											}}
+										>
+											Drop here to ungroup
+										</div>
+									)}
+									<button
+										onClick={() => createNewGroup()}
+										className="w-full px-2 py-1.5 rounded-full text-[10px] font-medium hover:opacity-80 transition-opacity flex items-center justify-center gap-1"
+										style={{
+											backgroundColor: theme.colors.accent + '20',
+											color: theme.colors.accent,
+											border: `1px solid ${theme.colors.accent}40`,
+										}}
+										title="Create new group"
+									>
+										<Plus className="w-3 h-3" />
+										<span>New Group</span>
+									</button>
 								</div>
-							)}
-						</div>
-					) : groups.length > 0 ? (
-						/* NO UNGROUPED AGENTS - Show drop zone for ungrouping + New Group button */
-						<div className="mt-4 px-3" onDragOver={handleDragOver} onDrop={handleDropOnUngrouped}>
-							{/* Drop zone indicator when dragging */}
-							{draggingSessionId && (
-								<div
-									className="mb-2 px-3 py-2 rounded border-2 border-dashed text-center text-xs"
-									style={{
-										borderColor: theme.colors.accent,
-										color: theme.colors.textDim,
-										backgroundColor: theme.colors.accent + '10',
-									}}
-								>
-									Drop here to ungroup
-								</div>
-							)}
-							<button
-								onClick={createNewGroup}
-								className="w-full px-2 py-1.5 rounded-full text-[10px] font-medium hover:opacity-80 transition-opacity flex items-center justify-center gap-1"
-								style={{
-									backgroundColor: theme.colors.accent + '20',
-									color: theme.colors.accent,
-									border: `1px solid ${theme.colors.accent}40`,
-								}}
-								title="Create new group"
-							>
-								<Plus className="w-3 h-3" />
-								<span>New Group</span>
-							</button>
-						</div>
-					) : null}
+							) : null}
+						</>
+					)}
 
 					{/* Flexible spacer to push group chats to bottom */}
 					<div className="flex-grow min-h-4" />
@@ -1193,7 +1930,7 @@ function SessionListInner(props: SessionListProps) {
 					y={contextMenu.y}
 					theme={theme}
 					session={contextMenuSession}
-					groups={groups}
+					groups={contextMenuGroups}
 					hasWorktreeChildren={sessions.some((s) => s.parentSessionId === contextMenuSession.id)}
 					onRename={() => {
 						setRenameInstanceValue(contextMenuSession.name);
@@ -1233,8 +1970,67 @@ function SessionListInner(props: SessionListProps) {
 					onCreateGroup={
 						onCreateGroupAndMove
 							? () => onCreateGroupAndMove(contextMenuSession.id)
-							: createNewGroup
+							: () => createNewGroup(contextMenuSession.projectFolderIds?.[0])
 					}
+				/>
+			)}
+
+			{/* Project Folder Context Menu */}
+			{projectFolderContextMenu &&
+				(() => {
+					const folder = projectFolders.find((f) => f.id === projectFolderContextMenu.folderId);
+					if (!folder) return null;
+					return (
+						<ProjectFolderContextMenu
+							x={projectFolderContextMenu.x}
+							y={projectFolderContextMenu.y}
+							theme={theme}
+							folder={folder}
+							onRename={() => {
+								setEditingProjectFolderId(folder.id);
+							}}
+							onEdit={() => {
+								handleEditProjectFolder(folder);
+							}}
+							onSettings={() => {
+								setSettingsProjectFolder(folder);
+								setShowProjectFolderSettingsModal(true);
+							}}
+							onDelete={() => {
+								deleteProjectFolder(folder.id);
+							}}
+							onDismiss={() => setProjectFolderContextMenu(null)}
+						/>
+					);
+				})()}
+
+			{/* Project Folder Modal (Create/Edit with Color Picker) */}
+			{showProjectFolderModal && (
+				<ProjectFolderModal
+					theme={theme}
+					onClose={() => {
+						setShowProjectFolderModal(false);
+						setEditingProjectFolder(undefined);
+					}}
+					onSave={handleSaveProjectFolder}
+					existingFolder={editingProjectFolder}
+				/>
+			)}
+
+			{/* Project Folder Settings Modal (Billing Configuration) */}
+			{showProjectFolderSettingsModal && settingsProjectFolder && (
+				<ProjectFolderSettingsModal
+					theme={theme}
+					folder={settingsProjectFolder}
+					sessions={sessions}
+					groups={groups}
+					onClose={() => {
+						setShowProjectFolderSettingsModal(false);
+						setSettingsProjectFolder(undefined);
+					}}
+					onSave={() => {
+						// Refresh will happen through normal state management
+					}}
 				/>
 			)}
 		</div>

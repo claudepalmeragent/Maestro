@@ -29,6 +29,7 @@ import type {
 import { notifyToast } from '../../stores/notificationStore';
 import type { HistoryEntryInput } from './useAgentSessionManagement';
 import { useSessionStore } from '../../stores/sessionStore';
+import { useSettingsStore } from '../../stores/settingsStore';
 import { useModalStore } from '../../stores/modalStore';
 import { gitService } from '../../services/git';
 import { generateId } from '../../utils/ids';
@@ -294,6 +295,8 @@ export function useAgentListeners(deps: UseAgentListenersDeps): void {
 					timestamp: new Date().toISOString(),
 				});
 
+				const synopsisEnabled = useSettingsStore.getState().synopsisEnabled;
+
 				let actualSessionId: string;
 				let isFromAi: boolean;
 				let tabIdFromSession: string | undefined;
@@ -468,6 +471,7 @@ export function useAgentListeners(deps: UseAgentListenersDeps): void {
 						};
 
 						const shouldSynopsis =
+							synopsisEnabled !== false &&
 							currentSession.executionQueue.length === 0 &&
 							(completedTab?.agentSessionId || currentSession.agentSessionId) &&
 							(completedTab?.saveToHistory || currentSession.pendingAICommandForSynopsis);

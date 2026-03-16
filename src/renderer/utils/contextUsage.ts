@@ -6,6 +6,7 @@
  */
 
 import type { ToolType } from '../types';
+import type { AgentId } from '../../shared/agentIds';
 import { DEFAULT_CONTEXT_WINDOWS, COMBINED_CONTEXT_AGENTS } from '../../shared/agentConstants';
 
 // Re-export for consumers that import from this module
@@ -50,7 +51,7 @@ export function calculateContextTokens(
 	agentId?: ToolType | string
 ): number {
 	// OpenAI models have combined input+output context limits
-	if (agentId && COMBINED_CONTEXT_AGENTS.has(agentId as ToolType)) {
+	if (agentId && COMBINED_CONTEXT_AGENTS.has(agentId as AgentId)) {
 		return (
 			(stats.inputTokens || 0) + (stats.cacheCreationInputTokens || 0) + (stats.outputTokens || 0)
 		);
@@ -101,7 +102,7 @@ export function estimateContextUsage(
 		stats.contextWindow && stats.contextWindow > 0
 			? stats.contextWindow
 			: agentId && agentId !== 'terminal'
-				? DEFAULT_CONTEXT_WINDOWS[agentId as ToolType] || 0
+				? DEFAULT_CONTEXT_WINDOWS[agentId as AgentId] || 0
 				: 0;
 
 	if (!effectiveContextWindow || effectiveContextWindow <= 0) {

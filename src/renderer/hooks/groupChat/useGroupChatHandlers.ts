@@ -118,7 +118,15 @@ function resetGroupChatUI(): void {
 // Hook
 // ---------------------------------------------------------------------------
 
-export function useGroupChatHandlers(): GroupChatHandlersReturn {
+export interface GroupChatHandlersParams {
+	groupChatShowThinking: boolean;
+	setGroupChatThinkingContent: React.Dispatch<React.SetStateAction<Map<string, string>>>;
+}
+
+export function useGroupChatHandlers({
+	groupChatShowThinking,
+	setGroupChatThinkingContent,
+}: GroupChatHandlersParams): GroupChatHandlersReturn {
 	// --- Refs ---
 	const groupChatInputRef = useRef<HTMLTextAreaElement>(null);
 	const groupChatMessagesRef = useRef<GroupChatMessagesHandle>(null);
@@ -251,11 +259,25 @@ export function useGroupChatHandlers(): GroupChatHandlersReturn {
 			}
 		});
 
+		const unsubThinkingContent = window.maestro.groupChat.onThinkingContent?.(
+			(id, participantName, content) => {
+				if (id === activeGroupChatId && groupChatShowThinking) {
+					setGroupChatThinkingContent((prev) => {
+						const next = new Map(prev);
+						const existing = next.get(participantName) || '';
+						next.set(participantName, existing + content);
+						return next;
+					});
+				}
+			}
+		);
+
 		return () => {
 			unsubMessage();
 			unsubModeratorUsage?.();
+			unsubThinkingContent?.();
 		};
-	}, [activeGroupChatId]);
+	}, [activeGroupChatId, groupChatShowThinking, setGroupChatThinkingContent]);
 
 	// =======================================================================
 	// Execution queue processor
@@ -286,6 +308,16 @@ export function useGroupChatHandlers(): GroupChatHandlersReturn {
 			);
 		}
 	}, [groupChatState, groupChatExecutionQueue, activeGroupChatId]);
+
+	// =======================================================================
+	// Clear thinking content when group chat becomes idle
+	// =======================================================================
+
+	useEffect(() => {
+		if (groupChatState === 'idle') {
+			setGroupChatThinkingContent(new Map());
+		}
+	}, [groupChatState, setGroupChatThinkingContent]);
 
 	// =======================================================================
 	// Navigate to group chat from ProcessMonitor

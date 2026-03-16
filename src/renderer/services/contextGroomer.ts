@@ -101,6 +101,28 @@ export const AGENT_ARTIFACTS: Partial<Record<ToolType, string[]>> = {
 		'Opus',
 		'Sonnet',
 	],
+	aider: [
+		// Slash commands
+		'/add',
+		'/drop',
+		'/commit',
+		'/diff',
+		'/undo',
+		'/clear',
+		'/run',
+		'/voice',
+		'/help',
+		'/quit',
+		'/ls',
+		'/map',
+		// Brand references
+		'Aider',
+		'aider',
+		// Model references
+		'gpt-4',
+		'gpt-3.5',
+		'GPT',
+	],
 	terminal: [
 		// Terminal has no agent-specific artifacts
 	],
@@ -133,6 +155,12 @@ export const AGENT_TARGET_NOTES: Partial<Record<ToolType, string>> = {
     It supports multiple model providers (Claude, GPT, Gemini).
     It can read and edit files, run commands, search code, and interact with git.
     It has tiered autonomy levels for controlling operation permissions.
+  `,
+	aider: `
+    Aider is an AI pair programming tool.
+    It works with git repositories and can make commits.
+    It uses /add to include files in context and /drop to remove them.
+    It focuses on code changes and git workflow.
   `,
 	terminal: `
     Terminal is a raw shell interface.

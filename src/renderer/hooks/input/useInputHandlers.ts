@@ -29,6 +29,7 @@ import type { TabCompletionSuggestion } from './useTabCompletion';
 import { useAtMentionCompletion, type AtMentionSuggestion } from './useAtMentionCompletion';
 import { useInputProcessing } from './useInputProcessing';
 import { useInputKeyDown } from './useInputKeyDown';
+import type { CapacityCheckModalData } from '../../components/CapacityCheckModal';
 
 // ============================================================================
 // Dependencies interface
@@ -82,6 +83,10 @@ export interface UseInputHandlersDeps {
 	sessionsRef: React.MutableRefObject<Session[]>;
 	/** Active session ID ref for non-reactive access */
 	activeSessionIdRef: React.MutableRefObject<string>;
+	/** Set interactive capacity check modal data */
+	setInteractiveCapacityCheck?: (data: CapacityCheckModalData | null) => void;
+	/** Ref for resuming interrupted interactive send */
+	interactiveCapacityResumeRef?: React.MutableRefObject<(() => void) | null>;
 }
 
 // ============================================================================
@@ -418,6 +423,8 @@ export function useInputHandlers(deps: UseInputHandlersDeps): UseInputHandlersRe
 		onSkillsCommand: handleSkillsCommand,
 		automaticTabNamingEnabled,
 		conductorProfile,
+		setInteractiveCapacityCheck: deps.setInteractiveCapacityCheck,
+		interactiveCapacityResumeRef: deps.interactiveCapacityResumeRef,
 	});
 
 	// processInputRef — maintained for access in memoized callbacks without stale closures

@@ -827,9 +827,24 @@ export function useBatchProcessor({
 				worktreePath = session.cwd;
 				worktreeBranch = session.worktreeBranch || config.worktree?.branchName;
 			} else {
+				// Validate: if session has SSH config enabled but no resolvable remote ID, log a warning
+				if (session.sessionSshRemoteConfig?.enabled && !sshRemoteId) {
+					window.maestro.logger.log(
+						'warn',
+						'Batch spawn: session has SSH config enabled but no resolvable SSH remote ID. ' +
+							'Processes may spawn locally instead of remotely.',
+						'BatchProcessor',
+						{ sessionId: session.id, remoteId: session.sessionSshRemoteConfig?.remoteId }
+					);
+				}
+
 				// Normal path: set up worktree from scratch if config.worktree is enabled
 				const worktreeWithSsh = worktree ? { ...worktree, sshRemoteId } : undefined;
-				const worktreeResult = await worktreeManager.setupWorktree(session.cwd, worktreeWithSsh);
+				const worktreeResult = await worktreeManager.setupWorktree(
+					session.cwd,
+					worktreeWithSsh,
+					session.gitRoot
+				);
 				if (!worktreeResult.success) {
 					window.maestro.logger.log('error', 'Worktree setup failed', 'BatchProcessor', {
 						sessionId,
@@ -1814,6 +1829,22 @@ export function useBatchProcessor({
 					});
 				} catch {
 					// Ignore history errors
+				}
+
+				// Call completion callback if provided (only if still mounted to avoid warnings)
+				if (isMountedRef.current && onComplete) {
+					onComplete({
+						sessionId,
+						sessionName: session.name || session.cwd.split('/').pop() || 'Unknown',
+						completedTasks: totalCompletedTasks,
+						totalTasks: initialTotalTasks,
+						wasStopped,
+						elapsedTimeMs: totalElapsedMs,
+						inputTokens: totalInputTokens,
+						outputTokens: totalOutputTokens,
+						totalCostUsd: totalCost,
+						documentsProcessed: documents.length,
+					});
 				}
 
 				// Process any queued items that were waiting during batch run

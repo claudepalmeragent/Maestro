@@ -59,6 +59,7 @@ export function useAppInitialization(): AppInitializationReturn {
 	const suppressWindowsWarning = useSettingsStore((s) => s.suppressWindowsWarning);
 	const enableBetaUpdates = useSettingsStore((s) => s.enableBetaUpdates);
 	const checkForUpdatesOnStartup = useSettingsStore((s) => s.checkForUpdatesOnStartup);
+	const checkForNewModelsOnStartup = useSettingsStore((s) => s.checkForNewModelsOnStartup);
 	const leaderboardAuthToken = useSettingsStore((s) => s.leaderboardRegistration?.authToken);
 	const toastDuration = useSettingsStore((s) => s.toastDuration);
 	const audioFeedbackEnabled = useSettingsStore((s) => s.audioFeedbackEnabled);
@@ -160,6 +161,55 @@ export function useAppInitialization(): AppInitializationReturn {
 			return () => clearTimeout(timer);
 		}
 	}, [settingsLoaded, checkForUpdatesOnStartup, enableBetaUpdates]);
+
+	// --- Check for new Claude models on startup ---
+	useEffect(() => {
+		if (settingsLoaded && checkForNewModelsOnStartup) {
+			const timer = setTimeout(async () => {
+				try {
+					const result = await window.maestro.updates.checkNewModels();
+					if (!result.skipped && !result.error && result.newModels.length > 0) {
+						for (const model of result.newModels) {
+							try {
+								await window.maestro.updates.addDetectedModel({
+									name: model.name,
+									inputPricePerMillion: model.inputPricePerMillion,
+									outputPricePerMillion: model.outputPricePerMillion,
+								});
+							} catch (err) {
+								console.error(`Failed to add model ${model.name} to registry:`, err);
+							}
+						}
+
+						const MAX_INDIVIDUAL_TOASTS = 3;
+						if (result.newModels.length <= MAX_INDIVIDUAL_TOASTS) {
+							for (const model of result.newModels) {
+								const priceInfo =
+									model.inputPricePerMillion !== undefined
+										? ` (Input: $${model.inputPricePerMillion}/MTok, Output: $${model.outputPricePerMillion}/MTok)`
+										: '';
+								notifyToast({
+									type: 'info',
+									title: 'New Claude Model Added',
+									message: `${model.name}${priceInfo} has been automatically added to Maestro's pricing registry.`,
+								});
+							}
+						} else {
+							const names = result.newModels.map((m) => m.name).join(', ');
+							notifyToast({
+								type: 'info',
+								title: 'New Claude Models Added',
+								message: `${result.newModels.length} new models (${names}) have been automatically added to Maestro's pricing registry.`,
+							});
+						}
+					}
+				} catch (error) {
+					console.error('Failed to check for new Claude models on startup:', error);
+				}
+			}, 5000);
+			return () => clearTimeout(timer);
+		}
+	}, [settingsLoaded, checkForNewModelsOnStartup]);
 
 	// --- Leaderboard startup sync ---
 	useEffect(() => {
