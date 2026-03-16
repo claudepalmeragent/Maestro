@@ -31,6 +31,7 @@ import {
 	renameRemote,
 	deleteRemote,
 	countItemsRemote,
+	loadFileTreeRemote,
 } from '../../utils/remote-fs';
 import { getSshRemoteById } from '../../stores';
 
@@ -456,4 +457,28 @@ export function registerFilesystemHandlers(): void {
 			return null;
 		}
 	});
+
+	// Load full file tree in a single command (SSH remote only)
+	// Uses `find` on the remote host to return all paths in one round-trip,
+	// replacing the recursive readDir approach that requires N SSH calls.
+	ipcMain.handle(
+		'fs:loadFileTree',
+		async (
+			_,
+			dirPath: string,
+			sshRemoteId: string,
+			maxDepth: number = 10,
+			ignorePatterns: string[] = []
+		) => {
+			const sshConfig = getSshRemoteById(sshRemoteId);
+			if (!sshConfig) {
+				throw new Error(`SSH remote not found: ${sshRemoteId}`);
+			}
+			const result = await loadFileTreeRemote(dirPath, sshConfig, maxDepth, ignorePatterns);
+			if (!result.success) {
+				throw new Error(result.error || 'Failed to load remote file tree');
+			}
+			return result.data;
+		}
+	);
 }

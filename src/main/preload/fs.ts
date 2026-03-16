@@ -49,6 +49,14 @@ export interface ItemCountInfo {
 }
 
 /**
+ * Remote file tree entry from find-based loading
+ */
+export interface RemoteFileTreeEntry {
+	relativePath: string;
+	isDirectory: boolean;
+}
+
+/**
  * Creates the filesystem API object for preload exposure
  */
 export function createFsApi() {
@@ -121,6 +129,18 @@ export function createFsApi() {
 		 */
 		countItems: (dirPath: string, sshRemoteId?: string): Promise<ItemCountInfo> =>
 			ipcRenderer.invoke('fs:countItems', dirPath, sshRemoteId),
+
+		/**
+		 * Load complete file tree from a remote host in a single SSH command.
+		 * Only available for SSH remotes (uses find-based approach).
+		 */
+		loadFileTree: (
+			dirPath: string,
+			sshRemoteId: string,
+			maxDepth?: number,
+			ignorePatterns?: string[]
+		): Promise<RemoteFileTreeEntry[]> =>
+			ipcRenderer.invoke('fs:loadFileTree', dirPath, sshRemoteId, maxDepth, ignorePatterns),
 	};
 }
 

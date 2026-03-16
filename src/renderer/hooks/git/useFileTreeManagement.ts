@@ -155,6 +155,10 @@ export function useFileTreeManagement(
 	// older sequence number will discard its result instead of calling setSessions.
 	const loadSeqMapRef = useRef<Map<string, number>>(new Map());
 
+	// Per-session AbortControllers to cancel in-flight file tree loads.
+	// When a new load starts, the previous load's controller is aborted.
+	const abortControllersRef = useRef<Map<string, AbortController>>(new Map());
+
 	/** Increment and return the next sequence number for a session. */
 	const nextSeq = useCallback((sessionId: string): number => {
 		const seq = (loadSeqMapRef.current.get(sessionId) || 0) + 1;
@@ -193,6 +197,15 @@ export function useFileTreeManagement(
 	const refreshFileTree = useCallback(
 		async (sessionId: string): Promise<FileTreeChanges | undefined> => {
 			const seq = nextSeq(sessionId);
+
+			// Cancel any in-flight load for this session
+			const prevController = abortControllersRef.current.get(sessionId);
+			if (prevController) {
+				prevController.abort();
+			}
+			const controller = new AbortController();
+			abortControllersRef.current.set(sessionId, controller);
+
 			// Use sessionsRef to avoid dependency on sessions state (prevents timer reset on every session change)
 			const session = sessionsRef.current.find((s) => s.id === sessionId);
 			if (!session) return undefined;
@@ -218,10 +231,16 @@ export function useFileTreeManagement(
 
 				const newTree = await loadFileTree(treeRoot, 10, 0, sshContext, undefined, localOptions);
 
+				// Check if this load was cancelled
+				if (controller.signal.aborted) return undefined;
+
 				// Discard if a newer load started for this session while we were awaiting
 				if (isStale(sessionId, seq)) return undefined;
 
 				const stats = await statsPromise;
+
+				// Check if cancelled during stats await
+				if (controller.signal.aborted) return undefined;
 
 				// Re-check after stats await — another load may have started during directorySize
 				if (isStale(sessionId, seq)) return undefined;
@@ -269,6 +288,15 @@ export function useFileTreeManagement(
 	const refreshGitFileState = useCallback(
 		async (sessionId: string) => {
 			const seq = nextSeq(sessionId);
+
+			// Cancel any in-flight load for this session
+			const prevController = abortControllersRef.current.get(sessionId);
+			if (prevController) {
+				prevController.abort();
+			}
+			const controller = new AbortController();
+			abortControllersRef.current.set(sessionId, controller);
+
 			const session = sessions.find((s) => s.id === sessionId);
 			if (!session) return;
 
@@ -303,6 +331,8 @@ export function useFileTreeManagement(
 					loadFileTree(treeRoot, 10, 0, sshContext, undefined, localOptions),
 					gitService.isRepo(gitRoot, sshContext?.sshRemoteId),
 				]);
+
+				if (controller.signal.aborted) return;
 
 				// Discard if a newer load started for this session while we were awaiting
 				if (isStale(sessionId, seq)) return;
@@ -448,6 +478,14 @@ export function useFileTreeManagement(
 			// Increment per-session load sequence so concurrent loads can detect staleness
 			const seq = nextSeq(sessionId);
 
+			// Cancel any in-flight load for this session
+			const prevInitController = abortControllersRef.current.get(sessionId);
+			if (prevInitController) {
+				prevInitController.abort();
+			}
+			const initController = new AbortController();
+			abortControllersRef.current.set(sessionId, initController);
+
 			// Load tree with progress callback for SSH sessions
 			const treePromise = sshContext
 				? loadFileTree(treeRoot, 10, 0, sshContext, onProgress, localOptions)
@@ -466,6 +504,18 @@ export function useFileTreeManagement(
 
 			treePromise
 				.then(async (tree) => {
+					// Bail out if cancelled
+					if (initController.signal.aborted) {
+						setSessions((prev) =>
+							prev.map((s) =>
+								s.id === sessionId
+									? { ...s, fileTreeLoading: false, fileTreeLoadingProgress: undefined }
+									: s
+							)
+						);
+						return;
+					}
+
 					// Discard if a newer load started for this session while we were awaiting
 					if (isStale(sessionId, seq)) {
 						// Reset loading state so this session can retry later

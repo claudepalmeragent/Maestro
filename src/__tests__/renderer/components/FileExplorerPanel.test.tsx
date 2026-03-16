@@ -1814,4 +1814,34 @@ describe('FileExplorerPanel', () => {
 			expect(cancelButton).toBeInTheDocument();
 		});
 	});
+
+	describe('refresh debounce', () => {
+		it('ignores rapid clicks while refresh is in flight', async () => {
+			let resolveRefresh: (value: any) => void;
+			const slowRefreshFileTree = vi.fn(
+				() =>
+					new Promise((resolve) => {
+						resolveRefresh = resolve;
+					})
+			);
+
+			render(<FileExplorerPanel {...defaultProps} refreshFileTree={slowRefreshFileTree} />);
+
+			// Click refresh button
+			const refreshButton = screen.getByTitle('Refresh file tree');
+			fireEvent.click(refreshButton);
+
+			// Click again while first is in flight
+			fireEvent.click(refreshButton);
+			fireEvent.click(refreshButton);
+
+			// Only one call should have been made (debounced)
+			expect(slowRefreshFileTree).toHaveBeenCalledTimes(1);
+
+			// Resolve the first refresh
+			await act(async () => {
+				resolveRefresh!({ totalChanges: 0 });
+			});
+		});
+	});
 });
