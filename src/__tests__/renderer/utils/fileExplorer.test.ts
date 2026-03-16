@@ -385,17 +385,20 @@ describe('fileExplorer utils', () => {
 			expect(result[0].name).toBe('regular.txt');
 		});
 
-		it('passes SSH context to loadFileTree for remote file operations', async () => {
-			vi.mocked(window.maestro.fs.loadFileTree).mockResolvedValueOnce([
-				{ relativePath: 'src', isDirectory: true },
-				{ relativePath: 'README.md', isDirectory: false },
-			]);
+		it('passes SSH context to readDir for remote file operations', async () => {
+			vi.mocked(window.maestro.fs.readDir)
+				.mockResolvedValueOnce([
+					{ name: 'src', isFile: false, isDirectory: true },
+					{ name: 'README.md', isFile: true, isDirectory: false },
+				])
+				.mockResolvedValue([]); // Empty children for src folder
 
 			const sshContext = { sshRemoteId: 'remote-1', remoteCwd: '/home/user' };
 			const result = await loadFileTree('/project', 10, 0, sshContext);
 
-			// Verify SSH remote ID is passed to loadFileTree
-			expect(window.maestro.fs.loadFileTree).toHaveBeenCalledWith('/project', 'remote-1', 10, []);
+			// Verify SSH remote ID is passed to all readDir calls
+			expect(window.maestro.fs.readDir).toHaveBeenCalledWith('/project', 'remote-1');
+			expect(window.maestro.fs.readDir).toHaveBeenCalledWith('/project/src', 'remote-1');
 			expect(result).toHaveLength(2);
 		});
 
@@ -453,10 +456,12 @@ describe('fileExplorer utils', () => {
 		});
 
 		it('does not apply localOptions to SSH contexts', async () => {
-			vi.mocked(window.maestro.fs.loadFileTree).mockResolvedValueOnce([
-				{ relativePath: '.git', isDirectory: true },
-				{ relativePath: 'src', isDirectory: true },
-			]);
+			vi.mocked(window.maestro.fs.readDir)
+				.mockResolvedValueOnce([
+					{ name: '.git', isFile: false, isDirectory: true },
+					{ name: 'src', isFile: false, isDirectory: true },
+				])
+				.mockResolvedValue([]);
 
 			// SSH context with its own ignore patterns
 			const sshContext = {
@@ -467,14 +472,10 @@ describe('fileExplorer utils', () => {
 				ignorePatterns: ['.git'],
 			});
 
-			// .git should NOT be ignored — SSH uses its own ignorePatterns (build), not localOptions (.git)
+			// .git should NOT be ignored — SSH uses its own ignorePatterns, not localOptions
 			expect(result).toHaveLength(2);
 			expect(result.find((n) => n.name === '.git')).toBeDefined();
 			expect(result.find((n) => n.name === 'src')).toBeDefined();
-			// Verify loadFileTree was called with SSH ignore patterns, not local ones
-			expect(window.maestro.fs.loadFileTree).toHaveBeenCalledWith('/project', 'remote-1', 10, [
-				'build',
-			]);
 		});
 
 		it('deduplicates entries returned by readDir', async () => {
@@ -1231,56 +1232,6 @@ describe('fileExplorer utils', () => {
 			expect(shouldIgnore('first', patterns)).toBe(true);
 			expect(shouldIgnore('second', patterns)).toBe(true);
 			expect(shouldIgnore('third', patterns)).toBe(true);
-		});
-	});
-
-	// ============================================================================
-	// loadFileTree via find (remote)
-	// ============================================================================
-	describe('loadFileTree via find (remote)', () => {
-		it('builds nested tree from flat find output', async () => {
-			// Mock the loadFileTree IPC call to return flat entries
-			const mockLoadFileTree = vi.fn().mockResolvedValue([
-				{ relativePath: 'src', isDirectory: true },
-				{ relativePath: 'src/index.ts', isDirectory: false },
-				{ relativePath: 'src/utils', isDirectory: true },
-				{ relativePath: 'src/utils/helper.ts', isDirectory: false },
-				{ relativePath: 'README.md', isDirectory: false },
-			]);
-
-			// Set the mock on window.maestro.fs
-			const originalLoadFileTree = window.maestro?.fs?.loadFileTree;
-			if (window.maestro?.fs) {
-				window.maestro.fs.loadFileTree = mockLoadFileTree;
-			}
-
-			try {
-				const tree = await loadFileTree('/remote/project', 10, 0, {
-					sshRemoteId: 'test-remote',
-					remoteCwd: '/remote/project',
-				});
-
-				// Root should have 2 entries: src/ and README.md
-				expect(tree.length).toBe(2);
-
-				// Find src folder
-				const srcFolder = tree.find((n) => n.name === 'src');
-				expect(srcFolder).toBeDefined();
-				expect(srcFolder!.type).toBe('folder');
-				expect(srcFolder!.children).toBeDefined();
-				expect(srcFolder!.children!.length).toBe(2); // index.ts and utils/
-
-				// Verify nested structure
-				const utilsFolder = srcFolder!.children!.find((n) => n.name === 'utils');
-				expect(utilsFolder).toBeDefined();
-				expect(utilsFolder!.type).toBe('folder');
-				expect(utilsFolder!.children!.length).toBe(1); // helper.ts
-			} finally {
-				// Restore original
-				if (window.maestro?.fs) {
-					window.maestro.fs.loadFileTree = originalLoadFileTree as any;
-				}
-			}
 		});
 	});
 });

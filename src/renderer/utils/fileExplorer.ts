@@ -231,30 +231,20 @@ export async function loadFileTree(
 				// Silently ignore - .gitignore may not exist or be readable
 			}
 		}
+	} else {
+		// For local: use configurable patterns from settings, falling back to hardcoded defaults
+		ignorePatterns = localOptions?.ignorePatterns ?? LOCAL_IGNORE_DEFAULTS;
 
-		// Use find-based single-command approach for SSH remotes
-		return loadFileTreeViaFind(
-			dirPath,
-			maxDepth,
-			sshContext!.sshRemoteId!,
-			ignorePatterns,
-			onProgress
-		);
-	}
-
-	// Local path: use existing recursive approach
-	// For local: use configurable patterns from settings, falling back to hardcoded defaults
-	ignorePatterns = localOptions?.ignorePatterns ?? LOCAL_IGNORE_DEFAULTS;
-
-	// If honor gitignore is enabled, try to parse the local .gitignore
-	if (localOptions?.honorGitignore) {
-		try {
-			const content = await window.maestro.fs.readFile(`${dirPath}/.gitignore`);
-			if (content) {
-				ignorePatterns = [...ignorePatterns, ...parseGitignoreContent(content)];
+		// If honor gitignore is enabled, try to parse the local .gitignore
+		if (localOptions?.honorGitignore) {
+			try {
+				const content = await window.maestro.fs.readFile(`${dirPath}/.gitignore`);
+				if (content) {
+					ignorePatterns = [...ignorePatterns, ...parseGitignoreContent(content)];
+				}
+			} catch {
+				// .gitignore may not exist or be readable — not an error
 			}
-		} catch {
-			// .gitignore may not exist or be readable — not an error
 		}
 	}
 
@@ -264,128 +254,10 @@ export async function loadFileTree(
 		filesFound: 0,
 		onProgress,
 		ignorePatterns,
-		isRemote: false,
+		isRemote,
 	};
 
-	return loadFileTreeRecursive(dirPath, maxDepth, currentDepth, undefined, state);
-}
-
-/**
- * Load a file tree from a remote host using a single `find` command.
- * Converts the flat list of relative paths into a nested FileTreeNode structure.
- *
- * This replaces N sequential SSH readDir calls with exactly 1 SSH round-trip,
- * dramatically improving performance for deep or large directory trees.
- */
-async function loadFileTreeViaFind(
-	dirPath: string,
-	maxDepth: number,
-	sshRemoteId: string,
-	ignorePatterns: string[],
-	onProgress?: FileTreeProgressCallback
-): Promise<FileTreeNode[]> {
-	// Report initial progress
-	if (onProgress) {
-		onProgress({
-			directoriesScanned: 0,
-			filesFound: 0,
-			currentDirectory: dirPath,
-		});
-	}
-
-	const entries = await window.maestro.fs.loadFileTree(
-		dirPath,
-		sshRemoteId,
-		maxDepth,
-		ignorePatterns
-	);
-
-	// Build nested tree from flat path list
-	// Use a map to track folder nodes by their path for O(1) insertion
-	const root: FileTreeNode[] = [];
-	const folderMap = new Map<string, FileTreeNode>();
-
-	// Sort entries so parent directories come before their children
-	const sorted = [...entries].sort((a, b) => a.relativePath.localeCompare(b.relativePath));
-
-	let filesFound = 0;
-	let directoriesScanned = 0;
-
-	for (const entry of sorted) {
-		const parts = entry.relativePath.split('/');
-		const name = parts[parts.length - 1];
-
-		if (!name) continue;
-
-		// Apply client-side ignore patterns for any patterns the server-side
-		// find command didn't handle (e.g., glob patterns with special chars)
-		if (shouldIgnore(name, ignorePatterns)) continue;
-
-		const node: FileTreeNode = {
-			name,
-			type: entry.isDirectory ? 'folder' : 'file',
-			...(entry.isDirectory ? { children: [] } : {}),
-		};
-
-		if (entry.isDirectory) {
-			directoriesScanned++;
-			folderMap.set(entry.relativePath, node);
-		} else {
-			filesFound++;
-		}
-
-		// Find parent
-		if (parts.length === 1) {
-			// Top-level entry
-			root.push(node);
-		} else {
-			const parentPath = parts.slice(0, -1).join('/');
-			const parent = folderMap.get(parentPath);
-			if (parent && parent.children) {
-				parent.children.push(node);
-			} else {
-				// Parent not in map — this can happen if find returns files
-				// before their parent directory. Add to root as fallback.
-				root.push(node);
-			}
-		}
-
-		// Report progress periodically
-		if (onProgress && (filesFound + directoriesScanned) % 100 === 0) {
-			onProgress({
-				directoriesScanned,
-				filesFound,
-				currentDirectory: entry.isDirectory ? entry.relativePath : '',
-			});
-		}
-	}
-
-	// Sort each folder's children: folders first, then alphabetically
-	const sortChildren = (nodes: FileTreeNode[]) => {
-		nodes.sort((a, b) => {
-			if (a.type === 'folder' && b.type !== 'folder') return -1;
-			if (a.type !== 'folder' && b.type === 'folder') return 1;
-			return a.name.localeCompare(b.name);
-		});
-		for (const node of nodes) {
-			if (node.children) {
-				sortChildren(node.children);
-			}
-		}
-	};
-
-	sortChildren(root);
-
-	// Final progress report
-	if (onProgress) {
-		onProgress({
-			directoriesScanned,
-			filesFound,
-			currentDirectory: dirPath,
-		});
-	}
-
-	return root;
+	return loadFileTreeRecursive(dirPath, maxDepth, currentDepth, sshContext, state);
 }
 
 /**

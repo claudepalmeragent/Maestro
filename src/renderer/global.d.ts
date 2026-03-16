@@ -759,12 +759,6 @@ interface MaestroAPI {
 			dirPath: string,
 			sshRemoteId?: string
 		) => Promise<{ fileCount: number; folderCount: number }>;
-		loadFileTree: (
-			dirPath: string,
-			sshRemoteId: string,
-			maxDepth?: number,
-			ignorePatterns?: string[]
-		) => Promise<Array<{ relativePath: string; isDirectory: boolean }>>;
 	};
 	webserver: {
 		getUrl: () => Promise<string>;

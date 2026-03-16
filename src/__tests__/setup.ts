@@ -517,7 +517,6 @@ const mockMaestro = {
 			folderCount: 10,
 		}),
 		homeDir: vi.fn().mockResolvedValue('/home/testuser'),
-		loadFileTree: vi.fn().mockResolvedValue([]),
 	},
 	agents: {
 		detect: vi.fn().mockResolvedValue([]),
