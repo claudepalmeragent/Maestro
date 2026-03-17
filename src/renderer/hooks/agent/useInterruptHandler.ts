@@ -439,7 +439,15 @@ export function useInterruptHandler(deps: UseInterruptHandlerDeps): UseInterrupt
 				}
 			}
 		}
-	}, [activeSession, setSessions, cancelPendingSynopsis, sessionsRef, processQueuedItem]);
+	}, [
+		activeSession?.id,
+		activeSession?.inputMode,
+		activeSession?.activeTabId,
+		setSessions,
+		cancelPendingSynopsis,
+		sessionsRef,
+		processQueuedItem,
+	]);
 
 	return { handleInterrupt };
 }

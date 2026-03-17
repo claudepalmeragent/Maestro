@@ -228,7 +228,12 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 			async (cwd: string, sshRemoteId?: string, remoteCwd?: string) => {
 				const sshRemote = getSshRemoteById(sshRemoteId);
 				const effectiveRemoteCwd = sshRemote ? remoteCwd || cwd : undefined;
-				const result = await execGit(['--no-pager', 'tag', '--list'], cwd, sshRemote, effectiveRemoteCwd);
+				const result = await execGit(
+					['--no-pager', 'tag', '--list'],
+					cwd,
+					sshRemote,
+					effectiveRemoteCwd
+				);
 				if (result.exitCode !== 0) {
 					return { tags: [], stderr: result.stderr };
 				}
@@ -248,8 +253,18 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 				const effectiveRemoteCwd = sshRemote ? remoteCwd || cwd : undefined;
 				// Get comprehensive git info in a single call
 				const [branchResult, remoteResult, statusResult, behindAheadResult] = await Promise.all([
-					execGit(['--no-pager', 'rev-parse', '--abbrev-ref', 'HEAD'], cwd, sshRemote, effectiveRemoteCwd),
-					execGit(['--no-pager', 'remote', 'get-url', 'origin'], cwd, sshRemote, effectiveRemoteCwd),
+					execGit(
+						['--no-pager', 'rev-parse', '--abbrev-ref', 'HEAD'],
+						cwd,
+						sshRemote,
+						effectiveRemoteCwd
+					),
+					execGit(
+						['--no-pager', 'remote', 'get-url', 'origin'],
+						cwd,
+						sshRemote,
+						effectiveRemoteCwd
+					),
 					execGit(['--no-pager', 'status', '--porcelain'], cwd, sshRemote, effectiveRemoteCwd),
 					execGit(
 						['--no-pager', 'rev-list', '--left-right', '--count', '@{upstream}...HEAD'],

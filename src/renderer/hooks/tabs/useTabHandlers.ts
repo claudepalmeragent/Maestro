@@ -194,11 +194,14 @@ export function useTabHandlers(): TabHandlersReturn {
 				prev.map((s) => {
 					if (s.id !== activeSessionId) return s;
 
+					// Ensure filePreviewTabs exists (may be missing on sessions restored from older storage)
+					const filePreviewTabs = s.filePreviewTabs ?? [];
+
 					// Check if a tab with this path already exists
-					const existingTab = s.filePreviewTabs.find((tab) => tab.path === file.path);
+					const existingTab = filePreviewTabs.find((tab) => tab.path === file.path);
 					if (existingTab) {
 						// Tab exists - update content and lastModified if provided and select it
-						const updatedTabs = s.filePreviewTabs.map((tab) =>
+						const updatedTabs = filePreviewTabs.map((tab) =>
 							tab.id === existingTab.id
 								? {
 										...tab,
@@ -220,14 +223,14 @@ export function useTabHandlers(): TabHandlersReturn {
 					// If not opening in new tab and there's an active file tab, replace its content
 					if (!openInNewTab && s.activeFileTabId) {
 						const currentTabId = s.activeFileTabId;
-						const currentTab = s.filePreviewTabs.find((tab) => tab.id === currentTabId);
+						const currentTab = filePreviewTabs.find((tab) => tab.id === currentTabId);
 						const extension = file.name.includes('.') ? '.' + file.name.split('.').pop() : '';
 						const nameWithoutExtension = extension
 							? file.name.slice(0, -extension.length)
 							: file.name;
 
 						// Replace current tab's content with new file and update navigation history
-						const updatedTabs = s.filePreviewTabs.map((tab) => {
+						const updatedTabs = filePreviewTabs.map((tab) => {
 							if (tab.id !== currentTabId) return tab;
 
 							// Build updated navigation history
@@ -341,7 +344,7 @@ export function useTabHandlers(): TabHandlersReturn {
 
 					return {
 						...s,
-						filePreviewTabs: [...s.filePreviewTabs, newFileTab],
+						filePreviewTabs: [...filePreviewTabs, newFileTab],
 						unifiedTabOrder: updatedUnifiedTabOrder,
 						activeFileTabId: newTabId,
 					};

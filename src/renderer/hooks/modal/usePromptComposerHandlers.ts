@@ -130,7 +130,7 @@ export function usePromptComposerHandlers(
 				};
 			})
 		);
-	}, [activeSession]);
+	}, [activeSession?.id]);
 
 	const handlePromptToggleTabReadOnlyMode = useCallback(() => {
 		if (activeGroupChatId) {
@@ -151,7 +151,7 @@ export function usePromptComposerHandlers(
 				})
 			);
 		}
-	}, [activeGroupChatId, activeSession]);
+	}, [activeGroupChatId, activeSession?.id]);
 
 	const handlePromptToggleTabShowThinking = useCallback(() => {
 		if (!activeSession) return;
@@ -184,7 +184,7 @@ export function usePromptComposerHandlers(
 				};
 			})
 		);
-	}, [activeSession]);
+	}, [activeSession?.id]);
 
 	const handlePromptToggleEnterToSend = useCallback(
 		() => setEnterToSendAI(!enterToSendAI),

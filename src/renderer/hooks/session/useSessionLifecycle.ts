@@ -273,7 +273,7 @@ export function useSessionLifecycle(deps: SessionLifecycleDeps): SessionLifecycl
 				})
 			);
 		},
-		[activeSession, renameTabId]
+		[activeSession?.id, renameTabId]
 	);
 
 	const performDeleteSession = useCallback(

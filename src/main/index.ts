@@ -492,14 +492,26 @@ app.whenReady().then(async () => {
 			{ role: 'appMenu' },
 			{ role: 'editMenu' },
 			{
+				label: 'View',
+				submenu: [{ role: 'toggleDevTools' }],
+			},
+			{
 				label: 'Window',
 				submenu: [{ role: 'minimize' }, { role: 'zoom' }, { role: 'close' }],
 			},
 		];
 		Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 	} else {
-		// On Windows/Linux, hide the menu bar entirely (Maestro uses its own UI)
-		Menu.setApplicationMenu(null);
+		// On Windows/Linux, set a minimal menu with DevTools toggle so Ctrl+Shift+I works.
+		// The menu bar itself stays hidden via autoHideMenuBar in window options,
+		// but the accelerator is still active.
+		const template: Electron.MenuItemConstructorOptions[] = [
+			{
+				label: 'View',
+				submenu: [{ role: 'toggleDevTools' }],
+			},
+		];
+		Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 	}
 
 	// Create main window

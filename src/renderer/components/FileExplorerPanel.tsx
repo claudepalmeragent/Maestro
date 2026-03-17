@@ -411,6 +411,7 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 	const autoRefreshTimerRef = useRef<NodeJS.Timeout | null>(null);
 	const autoRefreshSpinTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const autoRefreshInFlightRef = useRef(false);
+	const manualRefreshInFlightRef = useRef(false);
 
 	// Context menu state for file tree items
 	const [contextMenu, setContextMenu] = useState<{
@@ -470,7 +471,10 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 	const autoRefreshInterval = session.fileTreeAutoRefreshInterval ?? 180;
 
 	// Handle refresh with animation and flash notification
+	// Prevents re-entry: if a refresh is already in flight, additional clicks are ignored
 	const handleRefresh = useCallback(async () => {
+		if (manualRefreshInFlightRef.current) return;
+		manualRefreshInFlightRef.current = true;
 		setIsRefreshing(true);
 
 		try {
@@ -486,7 +490,10 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 			}
 		} finally {
 			// Keep spinner visible for at least 500ms for visual feedback
-			setTimeout(() => setIsRefreshing(false), 500);
+			setTimeout(() => {
+				setIsRefreshing(false);
+				manualRefreshInFlightRef.current = false;
+			}, 500);
 		}
 	}, [refreshFileTree, session.id, onShowFlash]);
 

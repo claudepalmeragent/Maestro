@@ -719,6 +719,7 @@ interface MaestroAPI {
 		) => () => void;
 	};
 	fs: {
+		diagLog: (tag: string, data?: Record<string, unknown>) => Promise<void>;
 		homeDir: () => Promise<string>;
 		readDir: (dirPath: string, sshRemoteId?: string) => Promise<DirectoryEntry[]>;
 		readFile: (filePath: string, sshRemoteId?: string) => Promise<string | null>;
@@ -759,6 +760,12 @@ interface MaestroAPI {
 			dirPath: string,
 			sshRemoteId?: string
 		) => Promise<{ fileCount: number; folderCount: number }>;
+		loadFileTree: (
+			dirPath: string,
+			sshRemoteId: string,
+			maxDepth?: number,
+			ignorePatterns?: string[]
+		) => Promise<Array<{ relativePath: string; isDirectory: boolean }>>;
 	};
 	webserver: {
 		getUrl: () => Promise<string>;

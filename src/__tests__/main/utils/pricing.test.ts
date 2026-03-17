@@ -421,8 +421,10 @@ describe('pricing utilities', () => {
 				outputTokens: 500_000,
 			});
 
-			const expectedInputCost = (2_000_000 / TOKENS_PER_MILLION) * DEFAULT_PRICING.INPUT_PER_MILLION;
-			const expectedOutputCost = (500_000 / TOKENS_PER_MILLION) * DEFAULT_PRICING.OUTPUT_PER_MILLION;
+			const expectedInputCost =
+				(2_000_000 / TOKENS_PER_MILLION) * DEFAULT_PRICING.INPUT_PER_MILLION;
+			const expectedOutputCost =
+				(500_000 / TOKENS_PER_MILLION) * DEFAULT_PRICING.OUTPUT_PER_MILLION;
 			const expected = expectedInputCost + expectedOutputCost;
 
 			expect(cost).toBeCloseTo(expected, 10);
@@ -728,8 +730,7 @@ describe('pricing utilities', () => {
 			// Small: 1 / 1_000_000 * 25 = 0.000025
 			// Total should be 500.000025
 			const expected =
-				100 * DEFAULT_PRICING.INPUT_PER_MILLION +
-				DEFAULT_PRICING.OUTPUT_PER_MILLION / 1_000_000;
+				100 * DEFAULT_PRICING.INPUT_PER_MILLION + DEFAULT_PRICING.OUTPUT_PER_MILLION / 1_000_000;
 			expect(cost).toBeCloseTo(expected, 10);
 		});
 

@@ -181,7 +181,15 @@ export function useAppHandlers(deps: UseAppHandlersDeps): UseAppHandlersReturn {
 
 	const handleFileClick = useCallback(
 		async (node: { name: string; type: string }, path: string) => {
-			if (!activeSession) return; // Guard against null session
+			window.maestro.fs.diagLog('handleFileClick ENTER', {
+				name: node.name,
+				type: node.type,
+				path,
+			});
+			if (!activeSession) {
+				window.maestro.fs.diagLog('handleFileClick BAIL: no activeSession');
+				return;
+			}
 			if (node.type === 'file') {
 				// Construct full file path using projectRoot (not fullPath which can diverge from file tree root)
 				// The file tree is rooted at projectRoot, so paths are relative to it
@@ -192,6 +200,14 @@ export function useAppHandlers(deps: UseAppHandlersDeps): UseAppHandlersReturn {
 				// (set before spawn). This ensures file operations work for both AI and terminal-only SSH sessions.
 				const sshRemoteId =
 					activeSession.sshRemoteId || activeSession.sessionSshRemoteConfig?.remoteId || undefined;
+
+				window.maestro.fs.diagLog('handleFileClick resolved', {
+					fullPath,
+					sshRemoteId: sshRemoteId ?? 'none',
+					treeRoot,
+					inputMode: activeSession.inputMode,
+					hasOnOpenFileTab: !!onOpenFileTab,
+				});
 
 				// Check if file should be opened externally (only for local files)
 				if (!sshRemoteId && shouldOpenExternally(node.name)) {
@@ -215,14 +231,33 @@ export function useAppHandlers(deps: UseAppHandlersDeps): UseAppHandlersReturn {
 				try {
 					// Pass SSH remote ID for remote sessions
 					// Fetch both content and stat for lastModified timestamp
+					window.maestro.fs.diagLog('handleFileClick calling readFile + stat');
+					const startTime = Date.now();
 					const [content, stat] = await Promise.all([
 						window.maestro.fs.readFile(fullPath, sshRemoteId),
-						window.maestro.fs.stat(fullPath, sshRemoteId),
+						window.maestro.fs.stat(fullPath, sshRemoteId).catch(() => {
+							return null;
+						}),
 					]);
-					if (content === null) return;
+					window.maestro.fs.diagLog('handleFileClick IPC completed', {
+						elapsed: `${Date.now() - startTime}ms`,
+						contentIsNull: content === null,
+						contentLength: content?.length ?? 0,
+						statIsNull: stat === null,
+					});
+					if (content === null) {
+						window.maestro.fs.diagLog('handleFileClick BAIL: content is null');
+						return;
+					}
 					const lastModified = stat?.modifiedAt ? new Date(stat.modifiedAt).getTime() : Date.now();
 
 					// Open file in tab-based file preview
+					window.maestro.fs.diagLog('handleFileClick calling onOpenFileTab', {
+						path: fullPath,
+						name: node.name,
+						contentLength: content.length,
+						hasOnOpenFileTab: !!onOpenFileTab,
+					});
 					onOpenFileTab?.({
 						path: fullPath,
 						name: node.name,
@@ -231,8 +266,9 @@ export function useAppHandlers(deps: UseAppHandlersDeps): UseAppHandlersReturn {
 						lastModified,
 					});
 					setActiveFocus('main');
+					window.maestro.fs.diagLog('handleFileClick SUCCESS');
 				} catch (error) {
-					console.error('Failed to read file:', error);
+					window.maestro.fs.diagLog('handleFileClick FAILED', { error: String(error) });
 				} finally {
 					// Clear loading state
 					useFileExplorerStore.getState().setFilePreviewLoading(null);

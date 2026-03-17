@@ -811,7 +811,15 @@ export function useModalHandlers(
 		if (diff.diff) {
 			getModalActions().setGitDiffPreview(diff.diff);
 		}
-	}, [activeSession]);
+	}, [
+		activeSession?.id,
+		activeSession?.isGitRepo,
+		activeSession?.inputMode,
+		activeSession?.shellCwd,
+		activeSession?.cwd,
+		activeSession?.sshRemoteId,
+		activeSession?.sessionSshRemoteConfig,
+	]);
 
 	// ====================================================================
 	// Director's Notes Session Navigation (Tier 3C)

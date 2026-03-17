@@ -567,7 +567,7 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
 	disableConfetti: false,
 	localIgnorePatterns: [...DEFAULT_LOCAL_IGNORE_PATTERNS],
 	localHonorGitignore: true,
-	sshRemoteIgnorePatterns: ['.git', '*cache*'],
+	sshRemoteIgnorePatterns: ['.git', '.git-repo', 'node_modules', '*cache*'],
 	sshRemoteHonorGitignore: true,
 	automaticTabNamingEnabled: true,
 	fileTabAutoRefreshEnabled: false,

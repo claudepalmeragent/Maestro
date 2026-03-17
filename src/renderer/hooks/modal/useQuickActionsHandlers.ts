@@ -99,7 +99,7 @@ export function useQuickActionsHandlers(
 				})
 			);
 		}
-	}, [activeSession]);
+	}, [activeSession?.id, activeSession?.inputMode, activeSession?.activeTabId]);
 
 	const handleQuickActionsToggleTabShowThinking = useCallback(() => {
 		if (activeSession?.inputMode === 'ai' && activeSession.activeTabId) {
@@ -131,7 +131,7 @@ export function useQuickActionsHandlers(
 				})
 			);
 		}
-	}, [activeSession]);
+	}, [activeSession?.id, activeSession?.inputMode, activeSession?.activeTabId]);
 
 	const handleQuickActionsRefreshGitFileState = useCallback(async () => {
 		if (activeSessionId) {

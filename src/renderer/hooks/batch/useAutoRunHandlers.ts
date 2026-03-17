@@ -404,7 +404,13 @@ export function useAutoRunHandlers(
 			// Documents stay with the parent session's autoRunFolderPath; execution targets the worktree agent
 			startBatchRun(targetSessionId, config, activeSession.autoRunFolderPath);
 		},
-		[activeSession, startBatchRun, setBatchRunnerModalOpen]
+		[
+			activeSession?.id,
+			activeSession?.autoRunFolderPath,
+			activeSession?.name,
+			startBatchRun,
+			setBatchRunnerModalOpen,
+		]
 	);
 
 	// Memoized function to get task count for a document (used by BatchRunnerModal)
@@ -439,7 +445,7 @@ export function useAutoRunHandlers(
 				prev.map((s) => (s.id === activeSession.id ? { ...s, autoRunContent: content } : s))
 			);
 		},
-		[activeSession, setSessions]
+		[activeSession?.id, setSessions]
 	);
 
 	// Auto Run mode change handler
@@ -450,7 +456,7 @@ export function useAutoRunHandlers(
 				prev.map((s) => (s.id === activeSession.id ? { ...s, autoRunMode: mode } : s))
 			);
 		},
-		[activeSession, setSessions]
+		[activeSession?.id, setSessions]
 	);
 
 	// Auto Run state change handler (scroll/cursor positions)
@@ -476,7 +482,7 @@ export function useAutoRunHandlers(
 				)
 			);
 		},
-		[activeSession, setSessions]
+		[activeSession?.id, setSessions]
 	);
 
 	// Auto Run document selection handler
@@ -509,7 +515,13 @@ export function useAutoRunHandlers(
 				)
 			);
 		},
-		[activeSession, setSessions]
+		[
+			activeSession?.id,
+			activeSession?.autoRunFolderPath,
+			activeSession?.sshRemoteId,
+			activeSession?.sessionSshRemoteConfig?.remoteId,
+			setSessions,
+		]
 	);
 
 	// Auto Run refresh handler - reload document list and show flash notification
@@ -634,7 +646,15 @@ export function useAutoRunHandlers(
 				return false;
 			}
 		},
-		[activeSession, setSessions, setAutoRunDocumentList, setAutoRunDocumentTree]
+		[
+			activeSession?.id,
+			activeSession?.autoRunFolderPath,
+			activeSession?.sshRemoteId,
+			activeSession?.sessionSshRemoteConfig?.remoteId,
+			setSessions,
+			setAutoRunDocumentList,
+			setAutoRunDocumentTree,
+		]
 	);
 
 	return {

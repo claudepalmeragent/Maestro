@@ -53,9 +53,6 @@ export function useSymphonyContribution(
 ): UseSymphonyContributionReturn {
 	const { startBatchRun, inputRef } = deps;
 
-	// --- Reactive subscriptions ---
-	const sessions = useSessionStore((s) => s.sessions);
-
 	// --- Store actions (stable via getState) ---
 	const { setSessions, setActiveSessionId } = useSessionStore.getState();
 	const { setSymphonyModalOpen } = getModalActions();
@@ -85,7 +82,7 @@ export function useSymphonyContribution(
 				data.sessionName,
 				data.localPath,
 				data.agentType as ToolType,
-				sessions
+				useSessionStore.getState().sessions
 			);
 			if (!validation.valid) {
 				console.error(`Session validation failed: ${validation.error}`);
@@ -257,7 +254,7 @@ export function useSymphonyContribution(
 				}, 500);
 			}
 		},
-		[sessions, defaultSaveToHistory, startBatchRun]
+		[defaultSaveToHistory, startBatchRun]
 	);
 
 	return { handleStartContribution };

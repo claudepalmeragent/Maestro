@@ -924,7 +924,7 @@ export function useWizardHandlers(deps: UseWizardHandlersDeps): UseWizardHandler
 		if (!activeSession || !inlineWizardActive) return false;
 		const activeTab = getActiveTab(activeSession);
 		return activeTab?.id === inlineWizardTabId;
-	}, [activeSession, activeSession?.activeTabId, inlineWizardActive, inlineWizardTabId]);
+	}, [activeSession?.activeTabId, inlineWizardActive, inlineWizardTabId]);
 
 	// ========================================================================
 	// handleWizardComplete — converts wizard tab to normal session

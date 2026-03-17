@@ -561,21 +561,19 @@ export function HistoryDetailModal({
 					<div className="flex items-center gap-2">
 						{/* Delete button - only shown when onDelete handler is provided */}
 						{onDelete ? (
-						<button
-							onClick={() => setShowDeleteConfirm(true)}
-							className="flex items-center gap-2 px-3 py-2 rounded text-sm font-medium transition-colors hover:opacity-90"
-							style={{
-								backgroundColor: theme.colors.error + '20',
-								color: theme.colors.error,
-								border: `1px solid ${theme.colors.error}40`,
-							}}
-							title="Delete this history entry"
-						>
-							<Trash2 className="w-4 h-4" />
-							Delete
-						</button>
-
-
+							<button
+								onClick={() => setShowDeleteConfirm(true)}
+								className="flex items-center gap-2 px-3 py-2 rounded text-sm font-medium transition-colors hover:opacity-90"
+								style={{
+									backgroundColor: theme.colors.error + '20',
+									color: theme.colors.error,
+									border: `1px solid ${theme.colors.error}40`,
+								}}
+								title="Delete this history entry"
+							>
+								<Trash2 className="w-4 h-4" />
+								Delete
+							</button>
 						) : (
 							<div />
 						)}

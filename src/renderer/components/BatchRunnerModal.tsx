@@ -822,7 +822,10 @@ export function BatchRunnerModal(props: BatchRunnerModalProps) {
 						<div className="flex items-center gap-2">
 							<span
 								className="px-1.5 py-0.5 rounded border text-[10px] font-mono"
-								style={{ borderColor: theme.colors.border, backgroundColor: theme.colors.bgActivity }}
+								style={{
+									borderColor: theme.colors.border,
+									backgroundColor: theme.colors.bgActivity,
+								}}
 							>
 								{formatMetaKey()} + Drag
 							</span>

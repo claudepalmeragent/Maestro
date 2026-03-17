@@ -137,13 +137,15 @@ export function useFileExplorerEffects(
 
 			// Check if file should be opened externally (PDF, etc.)
 			if (!sshRemoteId && shouldOpenExternally(filename)) {
-				const fullPath = `${currentSession.fullPath}/${relativePath}`;
+				const treeRoot = currentSession.projectRoot || currentSession.fullPath;
+				const fullPath = `${treeRoot}/${relativePath}`;
 				window.maestro.shell.openPath(fullPath);
 				return;
 			}
 
 			try {
-				const fullPath = `${currentSession.fullPath}/${relativePath}`;
+				const treeRoot = currentSession.projectRoot || currentSession.fullPath;
+				const fullPath = `${treeRoot}/${relativePath}`;
 				// Fetch content and stat in parallel for efficiency
 				const [content, stat] = await Promise.all([
 					window.maestro.fs.readFile(fullPath, sshRemoteId),
@@ -170,9 +172,14 @@ export function useFileExplorerEffects(
 				);
 				setActiveFocus('main');
 			} catch (error) {
+				console.error('Failed to open file:', {
+					filename,
+					sshRemoteId,
+					error: error instanceof Error ? error.message : error,
+				});
 				captureException(error, {
 					extra: {
-						fullPath: `${currentSession.fullPath}/${relativePath}`,
+						fullPath: `${currentSession.projectRoot || currentSession.fullPath}/${relativePath}`,
 						filename,
 						sshRemoteId,
 						operation: 'file-open',

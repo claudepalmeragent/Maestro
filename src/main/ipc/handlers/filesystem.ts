@@ -31,6 +31,7 @@ import {
 	renameRemote,
 	deleteRemote,
 	countItemsRemote,
+	loadFileTreeRemote,
 } from '../../utils/remote-fs';
 import { getSshRemoteById } from '../../stores';
 
@@ -85,6 +86,12 @@ function isPrivateHostname(hostname: string): boolean {
  * Register all filesystem-related IPC handlers.
  */
 export function registerFilesystemHandlers(): void {
+	// Diagnostic logging relay — renderer calls this to log to main process
+	// since console.* is stripped in production renderer builds
+	ipcMain.handle('fs:diagLog', (_, tag: string, data?: Record<string, unknown>) => {
+		logger.info(`[DIAG] ${tag}`, 'Renderer', data ?? {});
+	});
+
 	// Get user home directory
 	ipcMain.handle('fs:homeDir', () => {
 		return os.homedir();
@@ -129,15 +136,27 @@ export function registerFilesystemHandlers(): void {
 
 	// Read file contents (supports SSH remote, with image base64 encoding)
 	ipcMain.handle('fs:readFile', async (_, filePath: string, sshRemoteId?: string) => {
+		const startTime = Date.now();
+		logger.info('[DIAG] fs:readFile ENTER', 'Filesystem', {
+			filePath,
+			sshRemoteId: sshRemoteId ?? 'local',
+		});
 		try {
 			// SSH remote: dispatch to remote fs operations
 			if (sshRemoteId) {
 				const sshConfig = getSshRemoteById(sshRemoteId);
 				if (!sshConfig) {
+					logger.info('[DIAG] fs:readFile FAIL: SSH remote not found', 'Filesystem', {
+						sshRemoteId,
+					});
 					throw new Error(`SSH remote not found: ${sshRemoteId}`);
 				}
 				const result = await readFileRemote(filePath, sshConfig);
 				if (!result.success) {
+					logger.info('[DIAG] fs:readFile FAIL: remote read failed', 'Filesystem', {
+						filePath,
+						error: result.error,
+					});
 					throw new Error(result.error || 'Failed to read remote file');
 				}
 				// For images over SSH, we'd need to base64 encode on remote and decode here
@@ -148,8 +167,17 @@ export function registerFilesystemHandlers(): void {
 					// The remote readFile returns raw bytes as string - convert to base64 data URL
 					const mimeType = ext === 'svg' ? 'image/svg+xml' : `image/${ext}`;
 					const base64 = Buffer.from(result.data!, 'binary').toString('base64');
+					logger.info('[DIAG] fs:readFile OK (SSH image)', 'Filesystem', {
+						filePath,
+						elapsed: `${Date.now() - startTime}ms`,
+					});
 					return `data:${mimeType};base64,${base64}`;
 				}
+				logger.info('[DIAG] fs:readFile OK (SSH text)', 'Filesystem', {
+					filePath,
+					length: result.data?.length ?? 0,
+					elapsed: `${Date.now() - startTime}ms`,
+				});
 				return result.data!;
 			}
 
@@ -163,10 +191,19 @@ export function registerFilesystemHandlers(): void {
 				const buffer = await fs.readFile(filePath);
 				const base64 = buffer.toString('base64');
 				const mimeType = ext === 'svg' ? 'image/svg+xml' : `image/${ext}`;
+				logger.info('[DIAG] fs:readFile OK (local image)', 'Filesystem', {
+					filePath,
+					elapsed: `${Date.now() - startTime}ms`,
+				});
 				return `data:${mimeType};base64,${base64}`;
 			} else {
 				// Read text files as UTF-8
 				const content = await fs.readFile(filePath, 'utf-8');
+				logger.info('[DIAG] fs:readFile OK (local text)', 'Filesystem', {
+					filePath,
+					length: content.length,
+					elapsed: `${Date.now() - startTime}ms`,
+				});
 				return content;
 			}
 		} catch (error: any) {
@@ -174,28 +211,48 @@ export function registerFilesystemHandlers(): void {
 			// Prevents noisy Electron IPC error logging when callers
 			// expect files that may not exist (e.g., .gitignore).
 			if (error?.code === 'ENOENT') {
+				logger.info('[DIAG] fs:readFile ENOENT (returning null)', 'Filesystem', { filePath });
 				return null;
 			}
+			logger.info('[DIAG] fs:readFile EXCEPTION', 'Filesystem', {
+				filePath,
+				sshRemoteId: sshRemoteId ?? 'local',
+				error: error?.message || String(error),
+			});
 			throw new Error(`Failed to read file: ${error}`);
 		}
 	});
 
 	// Get file/directory statistics (supports SSH remote)
 	ipcMain.handle('fs:stat', async (_, filePath: string, sshRemoteId?: string) => {
+		const startTime = Date.now();
+		logger.info('[DIAG] fs:stat ENTER', 'Filesystem', {
+			filePath,
+			sshRemoteId: sshRemoteId ?? 'local',
+		});
 		try {
 			// SSH remote: dispatch to remote fs operations
 			if (sshRemoteId) {
 				const sshConfig = getSshRemoteById(sshRemoteId);
 				if (!sshConfig) {
+					logger.info('[DIAG] fs:stat FAIL: SSH remote not found', 'Filesystem', { sshRemoteId });
 					throw new Error(`SSH remote not found: ${sshRemoteId}`);
 				}
 				const result = await statRemote(filePath, sshConfig);
 				if (!result.success) {
+					logger.info('[DIAG] fs:stat FAIL: remote stat failed', 'Filesystem', {
+						filePath,
+						error: result.error,
+					});
 					throw new Error(result.error || 'Failed to get remote file stats');
 				}
 				// Map remote stat result to match local format
 				// Note: remote stat doesn't provide createdAt (birthtime), use mtime as fallback
 				const mtimeDate = new Date(result.data!.mtime);
+				logger.info('[DIAG] fs:stat OK (SSH)', 'Filesystem', {
+					filePath,
+					elapsed: `${Date.now() - startTime}ms`,
+				});
 				return {
 					size: result.data!.size,
 					createdAt: mtimeDate.toISOString(), // Fallback: use mtime for createdAt
@@ -207,6 +264,10 @@ export function registerFilesystemHandlers(): void {
 
 			// Local: use standard fs operations
 			const stats = await fs.stat(filePath);
+			logger.info('[DIAG] fs:stat OK (local)', 'Filesystem', {
+				filePath,
+				elapsed: `${Date.now() - startTime}ms`,
+			});
 			return {
 				size: stats.size,
 				createdAt: stats.birthtime.toISOString(),
@@ -214,7 +275,12 @@ export function registerFilesystemHandlers(): void {
 				isDirectory: stats.isDirectory(),
 				isFile: stats.isFile(),
 			};
-		} catch (error) {
+		} catch (error: any) {
+			logger.info('[DIAG] fs:stat EXCEPTION', 'Filesystem', {
+				filePath,
+				sshRemoteId: sshRemoteId ?? 'local',
+				error: error?.message || String(error),
+			});
 			throw new Error(`Failed to get file stats: ${error}`);
 		}
 	});
@@ -456,4 +522,28 @@ export function registerFilesystemHandlers(): void {
 			return null;
 		}
 	});
+
+	// Load full file tree in a single command (SSH remote only)
+	// Uses `find` on the remote host to return all paths in one round-trip,
+	// replacing the recursive readDir approach that requires N SSH calls.
+	ipcMain.handle(
+		'fs:loadFileTree',
+		async (
+			_,
+			dirPath: string,
+			sshRemoteId: string,
+			maxDepth: number = 10,
+			ignorePatterns: string[] = []
+		) => {
+			const sshConfig = getSshRemoteById(sshRemoteId);
+			if (!sshConfig) {
+				throw new Error(`SSH remote not found: ${sshRemoteId}`);
+			}
+			const result = await loadFileTreeRemote(dirPath, sshConfig, maxDepth, ignorePatterns);
+			if (!result.success) {
+				throw new Error(result.error || 'Failed to load remote file tree');
+			}
+			return result.data;
+		}
+	);
 }

@@ -21,7 +21,7 @@ import type { Theme } from '../../types';
 import { IgnorePatternsSection } from './IgnorePatternsSection';
 
 /** Default SSH remote ignore patterns */
-const SSH_DEFAULT_PATTERNS = ['.git', '*cache*'];
+const SSH_DEFAULT_PATTERNS = ['.git', '.git-repo', 'node_modules', '*cache*'];
 
 export interface SshRemoteIgnoreSectionProps {
 	/** Theme object for styling */

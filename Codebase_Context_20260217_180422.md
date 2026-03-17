@@ -1,8 +1,8 @@
 ---
 type: reference
-title: "Maestro Codebase Context — Comprehensive Analysis"
+title: 'Maestro Codebase Context — Comprehensive Analysis'
 created: 2026-02-17
-version: "0.14.5"
+version: '0.14.5'
 tags:
   - codebase-context
   - architecture
@@ -10,12 +10,12 @@ tags:
   - electron
   - react
 related:
-  - "[[CLAUDE.md]]"
-  - "[[ARCHITECTURE.md]]"
-  - "[[CONTRIBUTING.md]]"
-  - "[[CLAUDE-PATTERNS.md]]"
-  - "[[CLAUDE-IPC.md]]"
-  - "[[CLAUDE-AGENTS.md]]"
+  - '[[CLAUDE.md]]'
+  - '[[ARCHITECTURE.md]]'
+  - '[[CONTRIBUTING.md]]'
+  - '[[CLAUDE-PATTERNS.md]]'
+  - '[[CLAUDE-IPC.md]]'
+  - '[[CLAUDE-AGENTS.md]]'
 ---
 
 # Maestro Codebase Context Document
@@ -34,6 +34,7 @@ related:
 Maestro is an **Electron desktop application** for managing multiple AI coding assistants simultaneously with a keyboard-first interface. It supports Claude Code, OpenAI Codex, OpenCode, and terminal sessions in a unified workspace with multi-tab conversations, group chat (multi-agent collaboration), Auto Run (batch task orchestration), SSH remote execution, and comprehensive usage analytics.
 
 ### Key Statistics
+
 - **Source Files:** ~500+ TypeScript/TSX files across 5 major subsystems
 - **App.tsx:** 468KB / 13,943 lines — the main coordinator component
 - **IPC Channels:** ~340 channels across 32 handler modules
@@ -46,6 +47,7 @@ Maestro is an **Electron desktop application** for managing multiple AI coding a
 - **183 commits since 2026-01-31** with significant new features
 
 ### Key Capabilities
+
 - Multi-agent session management (Claude Code, Codex, OpenCode, terminal)
 - Multi-tab AI conversations per session
 - Group Chat: coordinated multi-agent discussions with AI moderator
@@ -246,6 +248,7 @@ src/
 A **wiring harness** that connects all subsystems. Progressively refactored from a monolith into modular imports.
 
 **Startup Sequence (inside `app.whenReady()`):**
+
 1. Configure logger (level, buffer size)
 2. Log startup info (version, platform)
 3. `checkWslEnvironment()` — warn if WSL with Windows mount
@@ -270,28 +273,29 @@ A **wiring harness** that connects all subsystems. Progressively refactored from
 
 ### IPC Handlers — 32 Modules, ~340 Channels
 
-| Namespace | Count | Module | Key Purpose |
-|-----------|-------|--------|-------------|
-| `agents:*` | 24 | agents.ts | Agent detection, config, paths, models, auth |
-| `agentSessions:*` | 16 | agentSessions.ts | Session storage (list, read, search, subagents) |
-| `process:*` | 7 | process.ts | Spawn, write, kill, resize, remote commands |
-| `claude:*` | 15 | claude.ts | **LEGACY** — Claude-specific session management |
-| `groupChat:*` | 23 | groupChat.ts | Multi-agent chat creation, messaging, participants |
-| `settings:*` / `sessions:*` / `groups:*` | 8 | persistence.ts | Settings and session persistence |
-| `projectFolders:*` | 11 | projectFolders.ts | Project folder CRUD + pricing |
-| `git:*` | 26 | git.ts | Git operations, worktree, PR creation |
-| `fs:*` | 10 | filesystem.ts | File system operations |
-| `stats:*` | 17 | stats.ts | Usage analytics, cost breakdowns |
-| `audit:*` | 9 | audit.ts | Anthropic vs Maestro usage auditing |
-| `autorun:*` | 14 | autorun.ts | Auto Run document management |
-| `promptLibrary:*` | 9 | prompt-library.ts | Saved prompts CRUD |
-| `knowledgeGraph:*` | 4 | knowledge-graph.ts | Session learnings as Markdown |
-| `feedback:*` | 2 | feedback.ts | Like/dislike AI response ratings |
-| Plus 15+ more | Various | Various | system, web, leaderboard, etc. |
+| Namespace                                | Count   | Module             | Key Purpose                                        |
+| ---------------------------------------- | ------- | ------------------ | -------------------------------------------------- |
+| `agents:*`                               | 24      | agents.ts          | Agent detection, config, paths, models, auth       |
+| `agentSessions:*`                        | 16      | agentSessions.ts   | Session storage (list, read, search, subagents)    |
+| `process:*`                              | 7       | process.ts         | Spawn, write, kill, resize, remote commands        |
+| `claude:*`                               | 15      | claude.ts          | **LEGACY** — Claude-specific session management    |
+| `groupChat:*`                            | 23      | groupChat.ts       | Multi-agent chat creation, messaging, participants |
+| `settings:*` / `sessions:*` / `groups:*` | 8       | persistence.ts     | Settings and session persistence                   |
+| `projectFolders:*`                       | 11      | projectFolders.ts  | Project folder CRUD + pricing                      |
+| `git:*`                                  | 26      | git.ts             | Git operations, worktree, PR creation              |
+| `fs:*`                                   | 10      | filesystem.ts      | File system operations                             |
+| `stats:*`                                | 17      | stats.ts           | Usage analytics, cost breakdowns                   |
+| `audit:*`                                | 9       | audit.ts           | Anthropic vs Maestro usage auditing                |
+| `autorun:*`                              | 14      | autorun.ts         | Auto Run document management                       |
+| `promptLibrary:*`                        | 9       | prompt-library.ts  | Saved prompts CRUD                                 |
+| `knowledgeGraph:*`                       | 4       | knowledge-graph.ts | Session learnings as Markdown                      |
+| `feedback:*`                             | 2       | feedback.ts        | Like/dislike AI response ratings                   |
+| Plus 15+ more                            | Various | Various            | system, web, leaderboard, etc.                     |
 
 ### Process Management
 
 **PTY vs child_process Selection:**
+
 - **PTY** (`node-pty`): terminal sessions, explicit `requiresPty`. xterm-256color, 100x30 default.
 - **child_process**: All AI agents (batch/streaming). Windows `.cmd`/`.bat` with `shell: true`.
 
@@ -304,6 +308,7 @@ A **wiring harness** that connects all subsystems. Progressively refactored from
 | `terminal` | No parser | PTY raw output, control sequence stripping |
 
 **Output Pipeline:**
+
 ```
 stdout → StdoutHandler (JSON parse) → DataBufferManager (50ms/8KB batch) → emit('data')
 stderr → StderrHandler (error detection) → emit('stderr') / emit('agent-error')
@@ -311,6 +316,7 @@ exit   → ExitHandler (batch parse, cleanup) → emit('exit')
 ```
 
 **Three-Layer Error Detection:**
+
 1. Line-level: `outputParser.detectErrorFromLine()` + `matchSshErrorPattern()`
 2. Exit-level: `outputParser.detectErrorFromExit(code, stderr, stdout)`
 3. Spawn failure: `childProcess.on('error')` → emit agent-error with recoverable flag
@@ -319,16 +325,16 @@ exit   → ExitHandler (batch parse, cleanup) → emit('exit')
 
 **Schema (9 migrations, 7 tables):**
 
-| Table | Purpose |
-|-------|---------|
-| `_migrations` | Migration audit log |
-| `_meta` | Internal key-value |
-| `query_events` | Core analytics — one row per AI query/response with dual costs |
-| `auto_run_sessions` | One row per Auto Run batch execution |
-| `auto_run_tasks` | One row per agent invocation within Auto Run |
-| `session_lifecycle` | Session open/close tracking |
-| `audit_snapshots` | Periodic cost comparison snapshots |
-| `audit_schedule` | Scheduled audit configuration |
+| Table               | Purpose                                                        |
+| ------------------- | -------------------------------------------------------------- |
+| `_migrations`       | Migration audit log                                            |
+| `_meta`             | Internal key-value                                             |
+| `query_events`      | Core analytics — one row per AI query/response with dual costs |
+| `auto_run_sessions` | One row per Auto Run batch execution                           |
+| `auto_run_tasks`    | One row per agent invocation within Auto Run                   |
+| `session_lifecycle` | Session open/close tracking                                    |
+| `audit_snapshots`   | Periodic cost comparison snapshots                             |
+| `audit_schedule`    | Scheduled audit configuration                                  |
 
 **Dual-Cost Model:** `COALESCE(SUM(maestro_cost_usd), SUM(total_cost_usd), 0)` for backward compat. Savings = Anthropic cost - Maestro cost (Max/free tier).
 
@@ -336,18 +342,18 @@ exit   → ExitHandler (batch parse, cleanup) → emit('exit')
 
 ### App State Stores — 10 electron-store Instances
 
-| Store | Path | Synced? | Purpose |
-|-------|------|---------|---------|
-| `maestro-bootstrap` | `userData/` | Per-device | Sync path config |
-| `maestro-settings` | `syncPath/` | Yes | All user preferences |
-| `maestro-sessions` | `syncPath/` | Yes | Session definitions |
-| `maestro-groups` | `syncPath/` | Yes | Session groups |
-| `maestro-project-folders` | `syncPath/` | Yes | Project folder list |
-| `maestro-agent-configs` | `productionDataPath/` | **Always production** | Per-agent configs |
-| `maestro-window-state` | `userData/` | Per-device | Window geometry |
-| `maestro-claude-session-origins` | `syncPath/` | Yes | Claude session metadata |
-| `maestro-agent-session-origins` | `syncPath/` | Yes | Non-Claude agent metadata |
-| `maestro-model-registry` | `productionDataPath/` | Per-device | Claude model pricing, aliases, metadata (runtime-updateable) |
+| Store                            | Path                  | Synced?               | Purpose                                                      |
+| -------------------------------- | --------------------- | --------------------- | ------------------------------------------------------------ |
+| `maestro-bootstrap`              | `userData/`           | Per-device            | Sync path config                                             |
+| `maestro-settings`               | `syncPath/`           | Yes                   | All user preferences                                         |
+| `maestro-sessions`               | `syncPath/`           | Yes                   | Session definitions                                          |
+| `maestro-groups`                 | `syncPath/`           | Yes                   | Session groups                                               |
+| `maestro-project-folders`        | `syncPath/`           | Yes                   | Project folder list                                          |
+| `maestro-agent-configs`          | `productionDataPath/` | **Always production** | Per-agent configs                                            |
+| `maestro-window-state`           | `userData/`           | Per-device            | Window geometry                                              |
+| `maestro-claude-session-origins` | `syncPath/`           | Yes                   | Claude session metadata                                      |
+| `maestro-agent-session-origins`  | `syncPath/`           | Yes                   | Non-Claude agent metadata                                    |
+| `maestro-model-registry`         | `productionDataPath/` | Per-device            | Claude model pricing, aliases, metadata (runtime-updateable) |
 
 ### Group Chat System
 
@@ -356,6 +362,7 @@ exit   → ExitHandler (batch parse, cleanup) → emit('exit')
 **Critical Design:** Moderator is **NOT a persistent process**. Each message spawns a fresh batch process with full context. Prevents context window exhaustion.
 
 **Routing Flow:**
+
 ```
 User message → routeUserMessage()
   → Auto-detect @mentions, auto-add matching sessions
@@ -396,6 +403,7 @@ Synthesis → moderator with synthesis prompt + last 30 messages
 ### App.tsx — Main Coordinator (468KB, 13,943 lines)
 
 **State Architecture:**
+
 - 8 local `useState` — input values kept local for performance (avoids context re-renders per keystroke)
 - 11 `useRef` — stale closure prevention, one-time guards, stable callback access
 - 44 `useEffect` — session loading, ref sync, persistence, focus management, tour sync
@@ -403,29 +411,33 @@ Synthesis → moderator with synthesis prompt + last 30 messages
 - 16 `useMemo` — computed values (activeTab, theme, suggestions)
 
 **Context Provider Wrapping:**
+
 ```jsx
 <SessionProvider>
-  <ProjectFoldersProvider>
-    <AutoRunProvider>
-      <GroupChatProvider>
-        <InlineWizardProvider>
-          <InputProvider>
-            <MaestroConsoleInner />
-          </InputProvider>
-        </InlineWizardProvider>
-      </GroupChatProvider>
-    </AutoRunProvider>
-  </ProjectFoldersProvider>
+	<ProjectFoldersProvider>
+		<AutoRunProvider>
+			<GroupChatProvider>
+				<InlineWizardProvider>
+					<InputProvider>
+						<MaestroConsoleInner />
+					</InputProvider>
+				</InlineWizardProvider>
+			</GroupChatProvider>
+		</AutoRunProvider>
+	</ProjectFoldersProvider>
 </SessionProvider>
 ```
+
 Plus `<GitStatusProvider>` wrapping the return JSX.
 
 **Entry point wrapping (`main.tsx`):**
+
 ```
 ErrorBoundary → ToastProvider → LayerStackProvider → ModalProvider → UILayoutProvider → WizardProvider → MaestroConsole
 ```
 
 **JSX Layout:**
+
 ```
 <GitStatusProvider>
   <div flex h-screen>
@@ -452,21 +464,22 @@ ErrorBoundary → ToastProvider → LayerStackProvider → ModalProvider → UIL
 
 ### Context Providers (11 total)
 
-| Context | Key Purpose |
-|---------|-------------|
-| SessionContext | Sessions, groups, active session, batched updates, memoized selectors |
-| ModalContext | 45+ centralized modal visibility states |
-| UILayoutContext | Sidebar, focus, file explorer, drag/drop, flash notifications |
-| InputContext | Slash commands, tab completion, @mentions, command history |
-| GroupChatContext | Group chat state, participants, thinking, error |
-| AutoRunContext | Document list, tree, loading, task counts |
-| GitStatusContext | Three-context split: branch, file status, detail (re-render optimization) |
-| InlineWizardContext | Inline /wizard command state |
-| LayerStackContext | Global Escape key handling, modal/overlay priority |
-| ProjectFoldersContext | Project folder management with IPC persistence |
-| ToastContext | Toast queue, audio TTS, OS notifications |
+| Context               | Key Purpose                                                               |
+| --------------------- | ------------------------------------------------------------------------- |
+| SessionContext        | Sessions, groups, active session, batched updates, memoized selectors     |
+| ModalContext          | 45+ centralized modal visibility states                                   |
+| UILayoutContext       | Sidebar, focus, file explorer, drag/drop, flash notifications             |
+| InputContext          | Slash commands, tab completion, @mentions, command history                |
+| GroupChatContext      | Group chat state, participants, thinking, error                           |
+| AutoRunContext        | Document list, tree, loading, task counts                                 |
+| GitStatusContext      | Three-context split: branch, file status, detail (re-render optimization) |
+| InlineWizardContext   | Inline /wizard command state                                              |
+| LayerStackContext     | Global Escape key handling, modal/overlay priority                        |
+| ProjectFoldersContext | Project folder management with IPC persistence                            |
+| ToastContext          | Toast queue, audio TTS, OS notifications                                  |
 
 **All contexts follow the same pattern:**
+
 - `createContext<T | null>(null)` with null default
 - Custom `use*()` hooks with null-check error throwing
 - `useMemo` for context value to prevent unnecessary re-renders
@@ -527,6 +540,7 @@ ProjectFolder (top-level organizational container)
 ### Key Types
 
 **Session** (`src/renderer/types/index.ts`) — 50+ fields organized into domains:
+
 - Identity: `id`, `groupId?`, `name`, `toolType`, `state`
 - Paths: `cwd`, `fullPath`, `projectRoot`, `remoteCwd?`
 - Multi-tab: `aiTabs: AITab[]`, `activeTabId`, `closedTabHistory`
@@ -548,15 +562,15 @@ ProjectFolder (top-level organizational container)
 
 ### Agent Capabilities (19 flags)
 
-| Flag | claude-code | codex | opencode | terminal |
-|------|-------------|-------|----------|----------|
-| supportsResume | Yes | Yes | Yes | No |
-| supportsReadOnlyMode | Yes | No | Yes | No |
-| supportsImageInput | Yes | No | Yes | No |
-| supportsSlashCommands | Yes | No | No | No |
-| supportsModelSelection | Yes | Yes | No | No |
-| supportsBatchMode | Yes | Yes | Yes | No |
-| supportsRemoteExecution | Yes | No | No | No |
+| Flag                    | claude-code | codex | opencode | terminal |
+| ----------------------- | ----------- | ----- | -------- | -------- |
+| supportsResume          | Yes         | Yes   | Yes      | No       |
+| supportsReadOnlyMode    | Yes         | No    | Yes      | No       |
+| supportsImageInput      | Yes         | No    | Yes      | No       |
+| supportsSlashCommands   | Yes         | No    | No       | No       |
+| supportsModelSelection  | Yes         | Yes   | No       | No       |
+| supportsBatchMode       | Yes         | Yes   | Yes      | No       |
+| supportsRemoteExecution | Yes         | No    | No       | No       |
 
 7 total agents defined: `claude-code`, `terminal`, `codex`, `gemini-cli`, `qwen3-coder`, `aider`, `opencode`.
 
@@ -577,49 +591,49 @@ ProjectFolder (top-level organizational container)
 
 ### Configuration Files
 
-| File | Purpose |
-|------|---------|
-| `package.json` | v0.14.5, 42 prod deps, 35 dev deps, 30+ npm scripts, electron-builder config |
-| `tsconfig.json` | Base TypeScript config (renderer), ES2020 target, ESNext module |
-| `tsconfig.main.json` | Main process, CommonJS output to dist/ |
-| `tsconfig.cli.json` | CLI, CommonJS output to dist/cli/ |
-| `vite.config.mts` | Desktop renderer, port 5173 |
-| `vite.config.web.mts` | Web interface, port 5174, chunk splitting |
-| `eslint.config.mjs` | Flat config, TypeScript + React + Prettier |
-| `tailwind.config.mjs` | Content: renderer + web, JetBrains Mono font |
+| File                  | Purpose                                                                      |
+| --------------------- | ---------------------------------------------------------------------------- |
+| `package.json`        | v0.14.5, 42 prod deps, 35 dev deps, 30+ npm scripts, electron-builder config |
+| `tsconfig.json`       | Base TypeScript config (renderer), ES2020 target, ESNext module              |
+| `tsconfig.main.json`  | Main process, CommonJS output to dist/                                       |
+| `tsconfig.cli.json`   | CLI, CommonJS output to dist/cli/                                            |
+| `vite.config.mts`     | Desktop renderer, port 5173                                                  |
+| `vite.config.web.mts` | Web interface, port 5174, chunk splitting                                    |
+| `eslint.config.mjs`   | Flat config, TypeScript + React + Prettier                                   |
+| `tailwind.config.mjs` | Content: renderer + web, JetBrains Mono font                                 |
 
 ### Test Configuration
 
-| Config | Environment | Timeout | Notes |
-|--------|-------------|---------|-------|
-| `vitest.config.mts` | jsdom | 10s | V8 coverage, excludes integration/e2e/perf |
-| `vitest.integration.config.ts` | jsdom | 180s | Forked, sequential, bail on first failure |
-| `vitest.performance.config.mts` | jsdom | 30s | Performance benchmarks |
-| `vitest.e2e.config.ts` | node | 30s | WebSocket/server tests |
-| `playwright.config.ts` | Electron | 60s | Sequential, single worker |
+| Config                          | Environment | Timeout | Notes                                      |
+| ------------------------------- | ----------- | ------- | ------------------------------------------ |
+| `vitest.config.mts`             | jsdom       | 10s     | V8 coverage, excludes integration/e2e/perf |
+| `vitest.integration.config.ts`  | jsdom       | 180s    | Forked, sequential, bail on first failure  |
+| `vitest.performance.config.mts` | jsdom       | 30s     | Performance benchmarks                     |
+| `vitest.e2e.config.ts`          | node        | 30s     | WebSocket/server tests                     |
+| `playwright.config.ts`          | Electron    | 60s     | Sequential, single worker                  |
 
 ### Key Dependencies
 
-| Package | Purpose |
-|---------|---------|
-| `electron` ^28.3.3 | Runtime |
-| `react` / `react-dom` ^18.2.0 | UI framework |
-| `better-sqlite3` ^12.5.0 | Stats database |
-| `node-pty` ^1.1.0 | PTY for terminal sessions |
-| `fastify` ^4.25.2 | Web server |
-| `tailwindcss` ^3.4.1 | CSS framework |
-| `recharts` ^3.6.0 | Charts (Usage Dashboard) |
-| `reactflow` ^11.11.4 | Node graph UI |
-| `mermaid` ^11.12.1 | Diagram rendering |
-| `js-tiktoken` ^1.0.21 | Token counting |
+| Package                       | Purpose                   |
+| ----------------------------- | ------------------------- |
+| `electron` ^28.3.3            | Runtime                   |
+| `react` / `react-dom` ^18.2.0 | UI framework              |
+| `better-sqlite3` ^12.5.0      | Stats database            |
+| `node-pty` ^1.1.0             | PTY for terminal sessions |
+| `fastify` ^4.25.2             | Web server                |
+| `tailwindcss` ^3.4.1          | CSS framework             |
+| `recharts` ^3.6.0             | Charts (Usage Dashboard)  |
+| `reactflow` ^11.11.4          | Node graph UI             |
+| `mermaid` ^11.12.1            | Diagram rendering         |
+| `js-tiktoken` ^1.0.21         | Token counting            |
 
 ### Platform Packaging
 
-| Platform | Formats | Architectures |
-|----------|---------|---------------|
-| macOS | DMG, ZIP | x64, arm64 |
-| Windows | NSIS, Portable | x64 |
-| Linux | AppImage, DEB, RPM | default |
+| Platform | Formats            | Architectures |
+| -------- | ------------------ | ------------- |
+| macOS    | DMG, ZIP           | x64, arm64    |
+| Windows  | NSIS, Portable     | x64           |
+| Linux    | AppImage, DEB, RPM | default       |
 
 ---
 
@@ -630,6 +644,7 @@ ProjectFolder (top-level organizational container)
 The preload (`src/main/preload/index.ts`) uses a single `contextBridge.exposeInMainWorld('maestro', {...})` call to expose 37 namespaces. Each namespace is built by a factory function returning a plain object of methods.
 
 **Security:**
+
 - `contextIsolation: true`, `nodeIntegration: false`
 - macOS `hardenedRuntime: true`
 - All event handlers discard `_event` parameter
@@ -640,11 +655,11 @@ The preload (`src/main/preload/index.ts`) uses a single `contextBridge.exposeInM
 
 ### Agent Session Storage (3 implementations)
 
-| Storage | Location | Format |
-|---------|----------|--------|
-| ClaudeSessionStorage | `~/.claude/projects/<encoded-path>/` | JSONL |
-| CodexSessionStorage | `~/.codex/sessions/YYYY/MM/DD/` | JSONL (two formats) |
-| OpenCodeSessionStorage | `~/.local/share/opencode/storage/` | Individual JSON files |
+| Storage                | Location                             | Format                |
+| ---------------------- | ------------------------------------ | --------------------- |
+| ClaudeSessionStorage   | `~/.claude/projects/<encoded-path>/` | JSONL                 |
+| CodexSessionStorage    | `~/.codex/sessions/YYYY/MM/DD/`      | JSONL (two formats)   |
+| OpenCodeSessionStorage | `~/.local/share/opencode/storage/`   | Individual JSON files |
 
 Common interface: `listSessions`, `listSessionsPaginated`, `readSessionMessages`, `searchSessions`, `getSessionPath`, `deleteMessagePair`.
 
@@ -696,14 +711,14 @@ Common interface: `listSessions`, `listSessionsPaginated`, `readSessionMessages`
 
 ### State Update Patterns
 
-| Pattern | Mechanism | Purpose |
-|---------|-----------|---------|
-| Streaming batch | 150ms flush interval | Batches 100+ IPC events/sec into single setState |
-| Per-session debounce | 200ms pending updates | Batch progress updates |
-| Session persistence | 2s debounce | Disk writes limited to 1/2s |
-| Ref mirrors | `xRef.current = x` every render | Stale closure prevention |
-| State machine | `useReducer` + pure FSM | Batch processing (6 states, 18 actions) |
-| Context value stability | `useMemo` wrapping | Prevent cascade re-renders |
+| Pattern                 | Mechanism                       | Purpose                                          |
+| ----------------------- | ------------------------------- | ------------------------------------------------ |
+| Streaming batch         | 150ms flush interval            | Batches 100+ IPC events/sec into single setState |
+| Per-session debounce    | 200ms pending updates           | Batch progress updates                           |
+| Session persistence     | 2s debounce                     | Disk writes limited to 1/2s                      |
+| Ref mirrors             | `xRef.current = x` every render | Stale closure prevention                         |
+| State machine           | `useReducer` + pure FSM         | Batch processing (6 states, 18 actions)          |
+| Context value stability | `useMemo` wrapping              | Prevent cascade re-renders                       |
 
 ### Logging
 
@@ -747,21 +762,21 @@ Common interface: `listSessions`, `listSessionsPaginated`, `readSessionMessages`
 
 ### Common Tasks → Key Files
 
-| Task | Primary Files |
-|------|---------------|
-| Add IPC handler | `src/main/ipc/handlers/`, `src/main/preload/`, `src/main/index.ts` |
-| Add UI component | `src/renderer/components/` |
-| Add keyboard shortcut | `src/renderer/constants/shortcuts.ts`, `App.tsx` |
-| Add theme | `src/shared/themes.ts` |
-| Add modal | Component + `src/renderer/constants/modalPriorities.ts` + register in ModalContext |
-| Add setting | `src/renderer/hooks/useSettings.ts`, `src/main/stores/types.ts` |
-| Add template variable | `src/shared/templateVariables.ts` |
-| Modify system prompts | `src/prompts/*.md` |
-| Configure agent | `src/main/agents/definitions.ts`, `src/main/agents/capabilities.ts` |
-| Add agent parser | `src/main/parsers/`, register in `initializeOutputParsers()` |
-| Add CLI command | `src/cli/commands/`, `src/cli/index.ts` |
-| Add stats feature | `src/main/stats/`, `src/main/ipc/handlers/stats.ts` |
-| Add Usage Dashboard chart | `src/renderer/components/UsageDashboard/` |
+| Task                      | Primary Files                                                                      |
+| ------------------------- | ---------------------------------------------------------------------------------- |
+| Add IPC handler           | `src/main/ipc/handlers/`, `src/main/preload/`, `src/main/index.ts`                 |
+| Add UI component          | `src/renderer/components/`                                                         |
+| Add keyboard shortcut     | `src/renderer/constants/shortcuts.ts`, `App.tsx`                                   |
+| Add theme                 | `src/shared/themes.ts`                                                             |
+| Add modal                 | Component + `src/renderer/constants/modalPriorities.ts` + register in ModalContext |
+| Add setting               | `src/renderer/hooks/useSettings.ts`, `src/main/stores/types.ts`                    |
+| Add template variable     | `src/shared/templateVariables.ts`                                                  |
+| Modify system prompts     | `src/prompts/*.md`                                                                 |
+| Configure agent           | `src/main/agents/definitions.ts`, `src/main/agents/capabilities.ts`                |
+| Add agent parser          | `src/main/parsers/`, register in `initializeOutputParsers()`                       |
+| Add CLI command           | `src/cli/commands/`, `src/cli/index.ts`                                            |
+| Add stats feature         | `src/main/stats/`, `src/main/ipc/handlers/stats.ts`                                |
+| Add Usage Dashboard chart | `src/renderer/components/UsageDashboard/`                                          |
 
 ### Quick Commands
 
@@ -780,23 +795,23 @@ npm run package       # Package for all platforms
 
 ### Standardized UI Terms
 
-| Term | Meaning | Component |
-|------|---------|-----------|
-| Left Bar | Left sidebar with session list | `SessionList.tsx` |
-| Right Bar | Right sidebar with Files, History, Auto Run tabs | `RightPanel.tsx` |
-| Main Window | Center workspace | `MainPanel.tsx` |
-| AI Terminal | Main window in AI mode | Part of MainPanel |
-| Command Terminal | Main window in terminal/shell mode | Part of MainPanel |
-| System Log Viewer | Special view for system logs | `LogViewer.tsx` |
+| Term              | Meaning                                          | Component         |
+| ----------------- | ------------------------------------------------ | ----------------- |
+| Left Bar          | Left sidebar with session list                   | `SessionList.tsx` |
+| Right Bar         | Right sidebar with Files, History, Auto Run tabs | `RightPanel.tsx`  |
+| Main Window       | Center workspace                                 | `MainPanel.tsx`   |
+| AI Terminal       | Main window in AI mode                           | Part of MainPanel |
+| Command Terminal  | Main window in terminal/shell mode               | Part of MainPanel |
+| System Log Viewer | Special view for system logs                     | `LogViewer.tsx`   |
 
 ### Session State Colors
 
-| Color | Meaning |
-|-------|---------|
-| Green | Ready/idle |
-| Yellow | Agent thinking/busy |
-| Red | No connection/error |
-| Pulsing Orange | Connecting |
+| Color          | Meaning             |
+| -------------- | ------------------- |
+| Green          | Ready/idle          |
+| Yellow         | Agent thinking/busy |
+| Red            | No connection/error |
+| Pulsing Orange | Connecting          |
 
 ---
 

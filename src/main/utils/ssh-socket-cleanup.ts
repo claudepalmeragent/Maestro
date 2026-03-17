@@ -60,6 +60,14 @@ export function cleanupStaleSshSockets(): number {
 }
 
 /**
+ * Cache of recent socket validation results.
+ * Key: "username@host:port", Value: timestamp of last successful validation.
+ * Avoids redundant ssh -O check calls during rapid file tree loads.
+ */
+const socketValidationCache = new Map<string, number>();
+const SOCKET_VALIDATION_CACHE_TTL_MS = 30000; // 30 seconds
+
+/**
  * Validate that the ControlMaster socket for a given SSH config is alive.
  *
  * This is a pre-flight check designed to be called before SSH operations.
@@ -80,6 +88,13 @@ export async function validateSshSocket(
 	port: number = 22,
 	username: string = ''
 ): Promise<boolean> {
+	// Fast path: skip validation if recently validated
+	const cacheKey = `${username}@${host}:${port}`;
+	const lastValidated = socketValidationCache.get(cacheKey);
+	if (lastValidated && Date.now() - lastValidated < SOCKET_VALIDATION_CACHE_TTL_MS) {
+		return true;
+	}
+
 	// Find matching socket files for this host
 	// ControlPath uses %C which is a hash - we can't predict it exactly,
 	// so we check all maestro sockets and use ssh -O check to validate
@@ -123,6 +138,7 @@ export async function validateSshSocket(
 				}
 			);
 			// Socket is alive
+			socketValidationCache.set(cacheKey, Date.now());
 			return true;
 		} catch (checkError: unknown) {
 			// ssh -O check failed - socket is stale or no master exists
@@ -138,6 +154,7 @@ export async function validateSshSocket(
 						LOG_CONTEXT
 					);
 				}
+				socketValidationCache.set(cacheKey, Date.now());
 				return true;
 			}
 
@@ -276,4 +293,11 @@ export async function closeSshConnections(): Promise<void> {
 	} catch {
 		// Not critical - sockets will timeout eventually
 	}
+}
+
+/**
+ * Clear the socket validation cache. Exported for testing.
+ */
+export function clearSocketValidationCache(): void {
+	socketValidationCache.clear();
 }

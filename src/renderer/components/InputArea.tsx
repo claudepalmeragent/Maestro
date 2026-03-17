@@ -18,7 +18,15 @@ import {
 	Library,
 	Pin,
 } from 'lucide-react';
-import type { Session, Theme, BatchRunState, Shortcut, PinnedItem, ThinkingMode, ThinkingItem } from '../types';
+import type {
+	Session,
+	Theme,
+	BatchRunState,
+	Shortcut,
+	PinnedItem,
+	ThinkingMode,
+	ThinkingItem,
+} from '../types';
 import {
 	formatShortcutKeys,
 	formatEnterToSend,

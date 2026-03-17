@@ -188,6 +188,11 @@ export function useSessionRestoration(): SessionRestorationReturn {
 				};
 			}
 
+			// Migration: ensure filePreviewTabs is initialized (for sessions created before this field was added)
+			if (!session.filePreviewTabs) {
+				session = { ...session, filePreviewTabs: [], activeFileTabId: null };
+			}
+
 			// Fix inconsistency: activeFileTabId should only be set in AI mode.
 			// If inputMode is 'terminal' but a file tab is still active, clear it to prevent
 			// rendering a file preview without a tab bar (orphaned file preview bug).

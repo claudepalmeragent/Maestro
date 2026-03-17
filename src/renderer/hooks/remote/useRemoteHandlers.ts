@@ -89,6 +89,11 @@ export function useRemoteHandlers(deps: UseRemoteHandlersDeps): UseRemoteHandler
 	// sessionSshRemoteNames — memoized map for group chat participant cards
 	// ====================================================================
 
+	// NOTE: This useMemo has `sessions` in deps intentionally.
+	// It builds a session-name → SSH-remote-name map by iterating all sessions.
+	// The computation is O(n) in-memory and sub-millisecond.
+	// Narrowing would require per-session SSH config change tracking, which adds complexity
+	// without meaningful performance benefit.
 	const sessionSshRemoteNames = useMemo(() => {
 		const map = new Map<string, string>();
 		for (const session of sessions) {

@@ -53,9 +53,7 @@ describe('remote-fs SSH concurrency limiting', () => {
 		resetHostLimiter(baseConfig);
 	});
 
-	function createSlowMockDeps(
-		delayMs: number
-	): RemoteFsDeps & {
+	function createSlowMockDeps(delayMs: number): RemoteFsDeps & {
 		callCount: () => number;
 		concurrentCount: () => number;
 		maxConcurrent: () => number;

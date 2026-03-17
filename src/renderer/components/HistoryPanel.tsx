@@ -43,7 +43,6 @@ export interface HistoryPanelHandle {
 // Module-level storage for scroll positions (persists across session switches)
 const scrollPositionCache = new Map<string, number>();
 
-
 export const HistoryPanel = React.memo(
 	forwardRef<HistoryPanelHandle, HistoryPanelProps>(function HistoryPanel(
 		{

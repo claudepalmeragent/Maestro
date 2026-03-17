@@ -223,7 +223,7 @@ describe('fileExplorer utils', () => {
 			expect(result[2]).toEqual({ name: 'README.md', type: 'file' });
 		});
 
-		it('includes hidden files and directories (starting with .) including .git and .git-repo', async () => {
+		it('includes hidden files/dirs (starting with .) but excludes .git and .git-repo for safety', async () => {
 			vi.mocked(window.maestro.fs.readDir)
 				.mockResolvedValueOnce([
 					{ name: '.git', isFile: false, isDirectory: true },
@@ -237,10 +237,10 @@ describe('fileExplorer utils', () => {
 
 			const result = await loadFileTree('/project');
 
-			// .git and .git-repo are no longer filtered out
-			expect(result).toHaveLength(6);
-			expect(result.find((n) => n.name === '.git')).toBeDefined();
-			expect(result.find((n) => n.name === '.git-repo')).toBeDefined();
+			// .git and .git-repo are always excluded (safety: prevents accidental repo corruption)
+			expect(result).toHaveLength(4);
+			expect(result.find((n) => n.name === '.git')).toBeUndefined();
+			expect(result.find((n) => n.name === '.git-repo')).toBeUndefined();
 			// Other dot-prefixed files/dirs are still included
 			expect(result.find((n) => n.name === '.gitignore')).toBeDefined();
 			expect(result.find((n) => n.name === '.env')).toBeDefined();
@@ -248,7 +248,7 @@ describe('fileExplorer utils', () => {
 			expect(result.find((n) => n.name === 'README.md')).toBeDefined();
 		});
 
-		it('includes .git and .git-repo directories in file tree', async () => {
+		it('excludes .git and .git-repo directories from file tree (safety exclusions)', async () => {
 			vi.mocked(window.maestro.fs.readDir)
 				.mockResolvedValueOnce([
 					{ name: '.git', isFile: false, isDirectory: true },
@@ -260,9 +260,9 @@ describe('fileExplorer utils', () => {
 
 			const result = await loadFileTree('/project');
 
-			// .git and .git-repo are now included in the tree
-			expect(result).toHaveLength(4);
-			expect(result.map((n) => n.name)).toEqual(['.config', '.git', '.git-repo', 'src']);
+			// .git and .git-repo are always excluded regardless of settings
+			expect(result).toHaveLength(2);
+			expect(result.map((n) => n.name)).toEqual(['.config', 'src']);
 		});
 
 		it('skips node_modules directory', async () => {
@@ -385,21 +385,21 @@ describe('fileExplorer utils', () => {
 			expect(result[0].name).toBe('regular.txt');
 		});
 
-		it('passes SSH context to readDir for remote file operations', async () => {
-			vi.mocked(window.maestro.fs.readDir)
-				.mockResolvedValueOnce([
-					{ name: 'src', isFile: false, isDirectory: true },
-					{ name: 'README.md', isFile: true, isDirectory: false },
-				])
-				.mockResolvedValue([]); // Empty children for src folder
+		it('uses find-based loadFileTree for SSH remote file operations', async () => {
+			vi.mocked(window.maestro.fs.loadFileTree).mockResolvedValueOnce([
+				{ relativePath: 'src', isDirectory: true },
+				{ relativePath: 'src/index.ts', isDirectory: false },
+				{ relativePath: 'README.md', isDirectory: false },
+			]);
 
 			const sshContext = { sshRemoteId: 'remote-1', remoteCwd: '/home/user' };
 			const result = await loadFileTree('/project', 10, 0, sshContext);
 
-			// Verify SSH remote ID is passed to all readDir calls
-			expect(window.maestro.fs.readDir).toHaveBeenCalledWith('/project', 'remote-1');
-			expect(window.maestro.fs.readDir).toHaveBeenCalledWith('/project/src', 'remote-1');
-			expect(result).toHaveLength(2);
+			// Verify loadFileTree IPC is called instead of readDir
+			expect(window.maestro.fs.loadFileTree).toHaveBeenCalledWith('/project', 'remote-1', 10, []);
+			// Should NOT use readDir for SSH
+			expect(window.maestro.fs.readDir).not.toHaveBeenCalled();
+			expect(result).toHaveLength(2); // src/ and README.md at root
 		});
 
 		it('passes undefined to readDir when no SSH context is provided', async () => {
@@ -441,27 +441,27 @@ describe('fileExplorer utils', () => {
 					{ name: 'node_modules', isFile: false, isDirectory: true },
 					{ name: '__pycache__', isFile: false, isDirectory: true },
 					{ name: 'src', isFile: false, isDirectory: true },
+					{ name: 'lib', isFile: false, isDirectory: true },
 				])
 				.mockResolvedValue([]);
 
 			// No localOptions — should use defaults (node_modules, __pycache__)
+			// .git, node_modules, __pycache__ are all safety-excluded by hardcoded check
 			const result = await loadFileTree('/project');
 
-			// .git should be included (not in defaults), node_modules and __pycache__ excluded
 			expect(result).toHaveLength(2);
-			expect(result.find((n) => n.name === '.git')).toBeDefined();
 			expect(result.find((n) => n.name === 'src')).toBeDefined();
+			expect(result.find((n) => n.name === 'lib')).toBeDefined();
+			expect(result.find((n) => n.name === '.git')).toBeUndefined();
 			expect(result.find((n) => n.name === 'node_modules')).toBeUndefined();
 			expect(result.find((n) => n.name === '__pycache__')).toBeUndefined();
 		});
 
-		it('does not apply localOptions to SSH contexts', async () => {
-			vi.mocked(window.maestro.fs.readDir)
-				.mockResolvedValueOnce([
-					{ name: '.git', isFile: false, isDirectory: true },
-					{ name: 'src', isFile: false, isDirectory: true },
-				])
-				.mockResolvedValue([]);
+		it('does not apply localOptions to SSH contexts (uses find-based path)', async () => {
+			vi.mocked(window.maestro.fs.loadFileTree).mockResolvedValueOnce([
+				{ relativePath: '.gitignore', isDirectory: false },
+				{ relativePath: 'src', isDirectory: true },
+			]);
 
 			// SSH context with its own ignore patterns
 			const sshContext = {
@@ -469,12 +469,16 @@ describe('fileExplorer utils', () => {
 				ignorePatterns: ['build'],
 			};
 			const result = await loadFileTree('/project', 10, 0, sshContext, undefined, {
-				ignorePatterns: ['.git'],
+				ignorePatterns: ['.gitignore'],
 			});
 
-			// .git should NOT be ignored — SSH uses its own ignorePatterns, not localOptions
+			// SSH passes its own ignorePatterns to loadFileTree IPC, not localOptions
+			expect(window.maestro.fs.loadFileTree).toHaveBeenCalledWith('/project', 'remote-1', 10, [
+				'build',
+			]);
+			// .gitignore should NOT be ignored — SSH uses its own ignorePatterns, not localOptions
 			expect(result).toHaveLength(2);
-			expect(result.find((n) => n.name === '.git')).toBeDefined();
+			expect(result.find((n) => n.name === '.gitignore')).toBeDefined();
 			expect(result.find((n) => n.name === 'src')).toBeDefined();
 		});
 
@@ -851,6 +855,57 @@ describe('fileExplorer utils', () => {
 
 			expect(result).toHaveLength(1);
 			expect(result[0].fullPath).toBe('empty');
+		});
+	});
+
+	// ============================================================================
+	// loadFileTree via find (remote)
+	// ============================================================================
+	describe('loadFileTree via find (remote)', () => {
+		it('builds nested tree from flat find output', async () => {
+			vi.mocked(window.maestro.fs.loadFileTree).mockResolvedValueOnce([
+				{ relativePath: 'src', isDirectory: true },
+				{ relativePath: 'src/index.ts', isDirectory: false },
+				{ relativePath: 'src/utils', isDirectory: true },
+				{ relativePath: 'src/utils/helper.ts', isDirectory: false },
+				{ relativePath: 'README.md', isDirectory: false },
+			]);
+
+			const tree = await loadFileTree('/remote/project', 10, 0, {
+				sshRemoteId: 'test-remote',
+				remoteCwd: '/remote/project',
+			});
+
+			// Root should have 2 entries: src/ and README.md
+			expect(tree.length).toBe(2);
+
+			const srcFolder = tree.find((n) => n.name === 'src');
+			expect(srcFolder).toBeDefined();
+			expect(srcFolder!.type).toBe('folder');
+			expect(srcFolder!.children).toBeDefined();
+			expect(srcFolder!.children!.length).toBe(2); // index.ts and utils/
+
+			const utilsFolder = srcFolder!.children!.find((n) => n.name === 'utils');
+			expect(utilsFolder).toBeDefined();
+			expect(utilsFolder!.type).toBe('folder');
+			expect(utilsFolder!.children!.length).toBe(1); // helper.ts
+		});
+
+		it('sorts folders before files alphabetically', async () => {
+			vi.mocked(window.maestro.fs.loadFileTree).mockResolvedValueOnce([
+				{ relativePath: 'zebra.txt', isDirectory: false },
+				{ relativePath: 'alpha', isDirectory: true },
+				{ relativePath: 'beta.txt', isDirectory: false },
+			]);
+
+			const tree = await loadFileTree('/remote/project', 10, 0, {
+				sshRemoteId: 'test-remote',
+				remoteCwd: '/remote/project',
+			});
+
+			expect(tree[0].name).toBe('alpha'); // folder first
+			expect(tree[1].name).toBe('beta.txt'); // then files alphabetically
+			expect(tree[2].name).toBe('zebra.txt');
 		});
 	});
 

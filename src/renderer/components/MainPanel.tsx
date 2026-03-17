@@ -1564,6 +1564,7 @@ export const MainPanel = React.memo(
 						)}
 
 						{/* Content area: Show FilePreview when file tab is active, otherwise show terminal output */}
+						{/* File preview only renders in AI mode — terminal mode uses the full panel for terminal output */}
 						{/* Skip rendering when loading remote file - loading state takes over entire main area */}
 						{activeSession.inputMode === 'ai' &&
 						((filePreviewLoading && !activeFileTabId) || activeFileTab?.isLoading) ? (

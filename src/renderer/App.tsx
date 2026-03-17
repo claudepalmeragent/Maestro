@@ -1187,7 +1187,7 @@ function MaestroConsoleInner() {
 
 		window.addEventListener('beforeunload', handleBeforeUnload);
 		return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-	}, [activeSession?.id, activeSession?.activeTabId, activeSession?.aiTabs]);
+	}, [activeSession?.id, activeSession?.activeTabId]);
 
 	// Also save when window loses focus (user switches apps/tabs)
 	useEffect(() => {
@@ -2882,7 +2882,7 @@ function MaestroConsoleInner() {
 				pinnedAt: l.pinnedAt || l.timestamp,
 				pinSortOrder: l.pinSortOrder ?? l.pinnedAt ?? l.timestamp,
 			}));
-	}, [activeSession]);
+	}, [activeSession?.id, activeSession?.activeTabId, activeSession?.aiTabs]);
 
 	const handleUnpinMessage = useCallback(
 		(logId: string) => {
