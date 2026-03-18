@@ -25,6 +25,8 @@ See [Performance Guidelines](#performance-guidelines) for specific practices.
 - [Linting & Pre-commit Hooks](#linting--pre-commit-hooks)
 - [Common Development Tasks](#common-development-tasks)
 - [Encore Features (Feature Gating)](#encore-features-feature-gating)
+- [Zustand Store Guidelines](#zustand-store-guidelines)
+- [SSH Testing Requirements](#ssh-testing-requirements)
 - [Adding a New AI Agent](#adding-a-new-ai-agent)
 - [Code Style](#code-style)
 - [Performance Guidelines](#performance-guidelines)
@@ -71,7 +73,8 @@ maestro/
 │   │   ├── components/    # React components
 │   │   ├── hooks/         # Custom React hooks
 │   │   ├── services/      # IPC wrappers (git, process)
-│   │   ├── contexts/      # React contexts
+│   │   ├── stores/        # Zustand state stores
+│   │   ├── contexts/      # React contexts (LayerStack, etc.)
 │   │   ├── constants/     # Themes, shortcuts, priorities
 │   │   ├── types/         # TypeScript definitions
 │   │   └── utils/         # Frontend utilities
@@ -173,7 +176,7 @@ This allows you to develop and test different branches simultaneously without po
 
 ## Testing
 
-Run the test suite with Jest:
+Run the test suite with Vitest:
 
 ```bash
 npm test                              # Run all tests
@@ -184,7 +187,7 @@ npm test -- --coverage                # Run with coverage report
 
 ### Watch Mode
 
-Watch mode keeps Jest running and automatically re-runs tests when you save changes:
+Watch mode keeps Vitest running and automatically re-runs tests when you save changes:
 
 - Watches source and test files for changes
 - Re-runs only tests affected by changed files
@@ -503,6 +506,101 @@ The flags live in `useSettings.ts` and persist via `window.maestro.settings`. Th
 | Feature          | Flag            | Description                                   |
 | ---------------- | --------------- | --------------------------------------------- |
 | Director's Notes | `directorNotes` | AI-generated synopsis of work across sessions |
+
+## Zustand Store Guidelines
+
+Maestro uses [Zustand](https://github.com/pmndrs/zustand) for state management. Stores live in `src/renderer/stores/`.
+
+### Creating a New Store
+
+```typescript
+// src/renderer/stores/myStore.ts
+import { create } from 'zustand';
+
+interface MyStoreState {
+	items: string[];
+	addItem: (item: string) => void;
+	reset: () => void;
+}
+
+export const useMyStore = create<MyStoreState>((set) => ({
+	items: [],
+	addItem: (item) => set((s) => ({ items: [...s.items, item] })),
+	reset: () => set({ items: [] }),
+}));
+```
+
+### Dual-Access Pattern (Hook + getState)
+
+Zustand stores support two access modes — use the right one for each context:
+
+- **In React components** — use the hook with a selector to subscribe to specific slices:
+
+  ```typescript
+  const items = useMyStore((s) => s.items);
+  ```
+
+- **Outside React / in callbacks** — use `getState()` for one-shot reads that don't trigger re-renders:
+  ```typescript
+  const currentItems = useMyStore.getState().items;
+  ```
+
+The `getState()` pattern is critical in `useEffect` callbacks and event handlers where you need the latest value without subscribing (see the sessionsRef pattern in [CLAUDE-PATTERNS.md](CLAUDE-PATTERNS.md)).
+
+### Selector Best Practices
+
+- **Subscribe to specific slices**, not the entire store:
+
+  ```typescript
+  // Good: re-renders only when activeSessionId changes
+  const activeId = useSessionStore((s) => s.activeSessionId);
+
+  // Bad: re-renders on ANY store change
+  const store = useSessionStore();
+  ```
+
+- **Use selector equality functions** to prevent re-renders when derived values haven't changed:
+  ```typescript
+  import { shallow } from 'zustand/shallow';
+  const { ids, count } = useMyStore(
+  	(s) => ({ ids: s.items.map((i) => i.id), count: s.items.length }),
+  	shallow
+  );
+  ```
+
+### Existing Stores
+
+| Store               | Purpose                                         |
+| ------------------- | ----------------------------------------------- |
+| `sessionStore`      | Session lifecycle, active session, session list |
+| `settingsStore`     | User preferences and app settings               |
+| `modalStore`        | Modal registry (openModal/closeModal pattern)   |
+| `tabStore`          | Tab management and ordering                     |
+| `uiStore`           | Transient UI state (sidebar, panels)            |
+| `fileExplorerStore` | File tree state                                 |
+| `agentStore`        | AI agent detection and capabilities             |
+| `groupChatStore`    | Group chat sessions                             |
+| `batchStore`        | Batch operation tracking                        |
+| `notificationStore` | In-app notifications                            |
+| `operationStore`    | Long-running operation status                   |
+
+## SSH Testing Requirements
+
+SSH-related features require an SSH remote configuration for testing. These features cannot be fully tested in CI or without a remote host.
+
+**What to test manually:**
+
+- SSH session creation and file tree loading
+- Socket validation and reconnection
+- File operations over SSH (read, write, search)
+
+**Architecture considerations:**
+
+- SSH connections use `p-limit` concurrency of 8 slots (from OpenSSH `MaxSessions 10` minus 2 reserved for control)
+- Safety exclusions (`.git`, `node_modules`, `__pycache__`) are always applied to prevent exhausting concurrency on deep traversal
+- File trees are loaded via a single `find -printf` command instead of recursive `readDir` calls
+
+See [CLAUDE-PATTERNS.md](CLAUDE-PATTERNS.md) for SSH-specific code patterns and [CLAUDE-PERFORMANCE.md](CLAUDE-PERFORMANCE.md) for the setSessions cascade architecture.
 
 ## Adding a New AI Agent
 

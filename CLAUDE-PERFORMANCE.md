@@ -69,6 +69,92 @@ const activeTab = useMemo(
 // Use activeTab directly in JSX - no repeated lookups
 ```
 
+## Zustand Selector Optimization
+
+**Subscribe to specific slices, not the entire store:**
+
+```typescript
+// BAD: Re-renders on ANY store change (sessions, groups, activeSessionId, etc.)
+const { sessions, activeSessionId } = useSessionStore();
+
+// GOOD: Only re-renders when activeSessionId changes
+const activeSessionId = useSessionStore((s) => s.activeSessionId);
+
+// GOOD: Only re-renders when sessions array changes
+const sessions = useSessionStore((s) => s.sessions);
+```
+
+**Use selector equality functions for derived data:**
+
+```typescript
+// BAD: New array reference every render → always re-renders consumers
+const activeSessions = useSessionStore((s) => s.sessions.filter((s) => s.isActive));
+
+// GOOD: shallow comparison prevents re-render if result is equivalent
+import { shallow } from 'zustand/shallow';
+const activeSessions = useSessionStore((s) => s.sessions.filter((s) => s.isActive), shallow);
+```
+
+**Use `getState()` for one-shot reads outside React or in callbacks:**
+
+```typescript
+// In event handlers, effects, or non-React code — no subscription overhead
+const sessions = useSessionStore.getState().sessions;
+const activeId = useSessionStore.getState().activeSessionId;
+```
+
+> **Note:** The remaining Context Provider Memoization section below still applies to `LayerStackContext` and other non-store contexts. For state that has migrated to Zustand stores, prefer selectors over context consumption.
+
+## setSessions Cascade Architecture
+
+The `setSessions` call is the most performance-sensitive operation in the renderer. Understanding its cascade is critical for SSH performance.
+
+**The cascade problem:**
+
+```
+setSessions(newSessions)
+  → new sessions array reference
+    → ~13 useSessionStore((s) => s.sessions) subscribers re-render
+      → useEffect dependencies re-evaluate
+        → SSH commands queued (file tree refresh, git status, etc.)
+          → p-limit concurrency slots consumed (8 max per host)
+```
+
+**Mitigations:**
+
+1. **sessionsRef pattern** — Read sessions via `useSessionStore.getState().sessions` (or a ref) inside effects instead of subscribing. This avoids re-triggering effects on every `setSessions` call. See [[CLAUDE-PATTERNS.md]] section 14.
+
+   ```typescript
+   // BAD: Effect re-runs on every setSessions call
+   useEffect(() => {
+   	const session = sessions.find((s) => s.id === activeSessionId);
+   	refreshFileTree(session);
+   }, [sessions, activeSessionId]); // sessions changes constantly
+
+   // GOOD: Read sessions from store on-demand, only depend on activeSessionId
+   useEffect(() => {
+   	const session = useSessionStore.getState().sessions.find((s) => s.id === activeSessionId);
+   	refreshFileTree(session);
+   }, [activeSessionId]); // Only re-runs when active session changes
+   ```
+
+2. **Stats migration sentinel** — One-time effects (like migrating file tree stats for older sessions) use a sentinel check to run once per session, not on every state change.
+
+3. **Debounced persistence** — Session persistence uses a 2-second debounce (`useDebouncedPersistence`) so rapid `setSessions` calls don't cause excessive disk I/O.
+
+**SSH p-limit concurrency:**
+
+```typescript
+// src/main/utils/remote-fs.ts
+// OpenSSH default MaxSessions = 10, minus 2 reserved for agent + overhead = 8 concurrent slots
+const DEFAULT_MAX_SSH_SESSIONS = 10;
+const RESERVED_SSH_CHANNELS = 2;
+// Per-host limiter: calls exceeding the limit are queued FIFO, never dropped
+const limiter = pLimit(Math.max(1, maxSessions - RESERVED_SSH_CHANNELS));
+```
+
+Exceeding SSH concurrency limits causes `connection refused` errors. Every unnecessary `setSessions` → effect → SSH command chain eats into these 8 slots.
+
 ## Data Structure Pre-computation
 
 **Build indices once, reuse in renders:**
@@ -222,6 +308,8 @@ document.addEventListener('visibilitychange', handleVisibilityChange);
 ```
 
 ## Context Provider Memoization
+
+> **Note:** Most shared state now lives in Zustand stores (see Zustand Selector Optimization above). This section applies to the remaining React Contexts like `LayerStackContext`.
 
 **Always memoize context values:**
 

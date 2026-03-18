@@ -56,6 +56,8 @@
 							"symphony",
 							"git-worktrees",
 							"group-chat",
+							"project-folders",
+							"prompt-library",
 							"remote-control",
 							"ssh-remote-execution",
 							"configuration"

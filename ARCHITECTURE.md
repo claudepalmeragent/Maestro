@@ -8,6 +8,7 @@ Deep technical documentation for Maestro's architecture and design patterns. For
 - [IPC Security Model](#ipc-security-model)
 - [Process Manager](#process-manager)
 - [Layer Stack System](#layer-stack-system)
+- [State Management](#state-management)
 - [Custom Hooks](#custom-hooks)
 - [Services Layer](#services-layer)
 - [Custom AI Commands](#custom-ai-commands)
@@ -16,6 +17,7 @@ Deep technical documentation for Maestro's architecture and design patterns. For
 - [Claude Provider Sessions API](#claude-provider-sessions-api)
 - [Auto Run System](#auto-run-system)
 - [Achievement System](#achievement-system)
+- [Project Folders](#project-folders)
 - [AI Tab System](#ai-tab-system)
 - [File Preview Tab System](#file-preview-tab-system)
 - [Execution Queue](#execution-queue)
@@ -104,15 +106,16 @@ Node.js backend with full system access:
 
 React frontend with no direct Node.js access:
 
-| Directory     | Purpose                                                           |
-| ------------- | ----------------------------------------------------------------- |
-| `components/` | React UI components                                               |
-| `hooks/`      | Custom React hooks (15 hooks - see [Custom Hooks](#custom-hooks)) |
-| `services/`   | IPC wrappers (git.ts, process.ts)                                 |
-| `contexts/`   | React contexts (LayerStackContext, ToastContext)                  |
-| `constants/`  | Themes, shortcuts, modal priorities                               |
-| `types/`      | TypeScript definitions                                            |
-| `utils/`      | Frontend utilities                                                |
+| Directory     | Purpose                                                                                    |
+| ------------- | ------------------------------------------------------------------------------------------ |
+| `components/` | React UI components                                                                        |
+| `hooks/`      | Custom React hooks organized by domain (20 categories - see [Custom Hooks](#custom-hooks)) |
+| `stores/`     | Zustand stores (11 stores - see [State Management](#state-management))                     |
+| `services/`   | IPC wrappers (git.ts, process.ts)                                                          |
+| `contexts/`   | React contexts (LayerStackContext, ProjectFoldersContext)                                  |
+| `constants/`  | Themes, shortcuts, modal priorities                                                        |
+| `types/`      | TypeScript definitions                                                                     |
+| `utils/`      | Frontend utilities                                                                         |
 
 ### Agent Model (Session Interface)
 
@@ -384,105 +387,200 @@ onEscape: () => {
 
 ---
 
+## State Management
+
+Maestro uses [Zustand](https://github.com/pmndrs/zustand) for all application state. Eleven stores provide centralized, selector-based state management with no prop drilling and no unnecessary re-renders.
+
+### Store Inventory
+
+| Store         | File                   | Purpose                                             | React Hook             | Non-React Access                                     |
+| ------------- | ---------------------- | --------------------------------------------------- | ---------------------- | ---------------------------------------------------- |
+| Session       | `sessionStore.ts`      | Sessions, groups, active session, worktree tracking | `useSessionStore`      | `getSessionState()`, `getSessionActions()`           |
+| Agent         | `agentStore.ts`        | Agent detection, error recovery, status tracking    | `useAgentStore`        | `getAgentState()`, `getAgentActions()`               |
+| Tab           | `tabStore.ts`          | Tab CRUD, unified ordering, selectors               | `useTabStore`          | `getTabState()`, `getTabActions()`                   |
+| Modal         | `modalStore.ts`        | Modal registry (31+ modals), open/close state       | `useModalStore`        | `getModalActions()`                                  |
+| UI            | `uiStore.ts`           | Sidebar, focus, layout state                        | `useUIStore`           | `getUIState()`                                       |
+| Settings      | `settingsStore.ts`     | App config, shortcuts, usage stats                  | `useSettingsStore`     | `getSettingsState()`, `getSettingsActions()`         |
+| Group Chat    | `groupChatStore.ts`    | Multi-agent chat orchestration                      | `useGroupChatStore`    | `getGroupChatState()`, `getGroupChatActions()`       |
+| Batch         | `batchStore.ts`        | Auto Run state machine                              | `useBatchStore`        | `getBatchState()`, `getBatchActions()`               |
+| Operation     | `operationStore.ts`    | Context merge/transfer operations                   | `useOperationStore`    | `getOperationState()`, `getOperationActions()`       |
+| Notification  | `notificationStore.ts` | Toast queue, notification lifecycle                 | `useNotificationStore` | `getNotificationState()`, `getNotificationActions()` |
+| File Explorer | `fileExplorerStore.ts` | File tree UI state, selection, filter               | `useFileExplorerStore` | `getFileExplorerState()`, `getFileExplorerActions()` |
+
+All stores live in `src/renderer/stores/` and re-export from `stores/index.ts`.
+
+### Dual-Access Pattern
+
+Every store exposes two access modes:
+
+1. **React components** — subscribe via hook with a selector:
+
+```typescript
+// Only re-renders when activeSessionId changes
+const activeId = useSessionStore((s) => s.activeSessionId);
+```
+
+2. **Services, callbacks, and effects** — read/write without subscribing:
+
+```typescript
+// Get current state snapshot (no subscription, no re-render)
+const { sessions } = getSessionState();
+
+// Dispatch actions from outside React
+getSessionActions().updateSession(id, { name: 'New Name' });
+```
+
+### Selector Equality Optimization
+
+Zustand uses `Object.is` equality by default. Selecting a primitive field like `useSessionStore((s) => s.activeSessionId)` prevents re-renders when other state changes. For derived data, use `useShallow` or memoized selectors to avoid object identity churn.
+
+---
+
 ## Custom Hooks
 
-Maestro uses 15 custom hooks for state management and functionality.
+Hooks are organized by domain in `src/renderer/hooks/<category>/`, with barrel re-exports via `index.ts` files.
 
-### Core Hooks
+### Hook Directory Structure
 
-#### useSettings (`src/renderer/hooks/useSettings.ts`)
+| Category         | Directory               | Hook Count | Purpose                                                                                                            |
+| ---------------- | ----------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------ |
+| Agent            | `hooks/agent/`          | 21         | Agent execution, listeners, error recovery, interruption, merge/transfer, queue processing, billing mode           |
+| Batch / Auto Run | `hooks/batch/`          | 22         | Batch processor, Auto Run handlers, document loading/polling, worktree management, achievements, marketplace       |
+| Git / Files      | `hooks/git/`            | 3          | File tree management, file explorer effects/keyboard, git status polling                                           |
+| GPU              | `hooks/gpu/`            | 1          | GPU metrics polling                                                                                                |
+| Group Chat       | `hooks/groupChat/`      | 1          | Multi-agent chat handlers                                                                                          |
+| Input            | `hooks/input/`          | 7          | Input handlers, key-down processing, @-mention completion, tab completion, template autocomplete, input sync       |
+| Keyboard         | `hooks/keyboard/`       | 4          | Main keyboard handler, keyboard navigation, list navigation, shortcut helpers                                      |
+| Modal            | `hooks/modal/`          | 3          | Modal handlers, prompt composer, quick actions                                                                     |
+| Prompt Library   | `hooks/prompt-library/` | 1          | Prompt library CRUD and search                                                                                     |
+| Props            | `hooks/props/`          | 3          | Prop composition for MainPanel, RightPanel, SessionList                                                            |
+| Remote           | `hooks/remote/`         | 7          | SSH remotes, live mode, CLI activity monitoring, web broadcasting                                                  |
+| Session          | `hooks/session/`        | 14         | Session CRUD, restoration/migration, lifecycle, navigation, group management, activity tracking, filtering/sorting |
+| Settings         | `hooks/settings/`       | 2          | Settings management, theme sync                                                                                    |
+| Stats            | `hooks/stats/`          | 1          | Usage statistics                                                                                                   |
+| Symphony         | `hooks/symphony/`       | 4          | Orchestration contributions and contributor stats                                                                  |
+| Tabs             | `hooks/tabs/`           | 2          | Tab CRUD/reorder/close, tab export (gist/markdown)                                                                 |
+| UI               | `hooks/ui/`             | 13         | App initialization, layer stack, resizable panels, tooltips, scroll management, theme styles, tour                 |
+| Utils            | `hooks/utils/`          | 2          | Debounced persistence, throttle                                                                                    |
+| Wizard           | `hooks/wizard/`         | 1          | Inline wizard handlers                                                                                             |
+| Worktree         | `hooks/worktree/`       | 1          | Git worktree session handlers                                                                                      |
 
-Manages all application settings with automatic persistence.
+Top-level hooks (not in subdirectories):
 
-**What it manages:**
+- `useHoneycombUsage.ts` — Honeycomb usage data polling
+- `useProjectFolders.ts` — Project folder CRUD via ProjectFoldersContext
 
-- LLM settings (provider, model, API key)
-- Agent settings (default agent, custom agent paths)
-- Shell settings (default shell)
-- Font settings (family, size, custom fonts)
-- UI settings (theme, enter-to-send modes, panel widths, markdown mode)
-- Terminal settings (width)
-- Logging settings (level, buffer size)
-- Output settings (max lines)
-- Keyboard shortcuts
-- Custom AI commands
+### Key Orchestration Hooks
 
-#### useSessionManager (`src/renderer/hooks/useSessionManager.ts`)
+#### useSessionRestoration (`hooks/session/useSessionRestoration.ts`)
 
-Manages agents and groups with CRUD operations.
+Session loading, hydration, migration, and corruption recovery on app startup.
 
-**Key methods:**
+- Migrates legacy session fields (e.g., missing `filePreviewTabs`, stale runtime state)
+- Recovers corrupted session data with safe defaults
+- Resets runtime state (`sessionState: 'idle'`, clears `isProcessing` flags)
+- Coordinates splash screen via `initialLoadComplete` proxy ref (bridges ref API to store boolean)
+- Loads both sessions and group chats on mount with React Strict Mode guard
 
-- `createNewSession(agentId, workingDir, name)` - Creates new agent with dual processes
-- `deleteSession(id, showConfirmation)` - Delete agent with confirmation
-- `toggleInputMode()` - Switch between AI and terminal mode
-- `updateScratchPad(content)` - Update session scratchpad
-- `createNewGroup(name, emoji, moveSession, activeSessionId)`
-- Drag and drop handlers
+#### useTabHandlers (`hooks/tabs/useTabHandlers.ts`)
 
-#### useFileTreeManagement (`src/renderer/hooks/useFileTreeManagement.ts`)
+Full tab operation set: create, close, reorder, rename, star, undo, file tab navigation.
 
-Manages file tree refresh/filter state and git-related file metadata.
+- Three-layer architecture: `tabHelpers` (pure functions) → `useTabHandlers` (React bridge) → `tabStore` (persistence)
+- Close guards: prevents closing tabs with active wizards, drafts, edits, or locked state
+- Undo system: dual-stack (`closedAiTabHistory` / `closedFileTabHistory`) with duplicate detection
+- File tab navigation: per-tab back/forward history with scroll preservation
 
-**Key methods:**
+#### useFileTreeManagement (`hooks/git/useFileTreeManagement.ts`)
 
-- `refreshFileTree(sessionId)` - Reload directory tree and return change stats
-- `refreshGitFileState(sessionId)` - Refresh tree + git repo metadata
-- `filteredFileTree` - Derived tree based on filter string
+File tree loading, refresh, filtering, and git metadata for both local and SSH remote sessions.
 
-#### useBatchProcessor (`src/renderer/hooks/useBatchProcessor.ts`)
+- Uses `sessionsRef` pattern to avoid effect re-triggering (see [sessionsRef Pattern](#sessionsref-pattern))
+- Supports SSH remote file trees via `SshContext`
+- Derives file/folder counts from loaded tree (avoids SSH `du`/`find` commands)
+- Retry logic with 20-second delay on file tree errors
 
-Manages Auto Run batch execution logic.
+#### useFileExplorerEffects (`hooks/git/useFileExplorerEffects.ts`)
 
-**Key methods:**
+File explorer side effects and keyboard navigation (extracted from App.tsx).
 
-- `startBatchRun(config)` - Start batch document processing
-- `stopBatchRun()` - Stop current batch run
-- `pauseBatchRun()` / `resumeBatchRun()` - Pause/resume execution
+- Scroll position restore on session switch
+- Flat file list computation for keyboard-navigable list
+- Pending jump path handler (`/jump` command)
+- `handleMainPanelFileClick` for `[[wiki]]` links and file path clicks
+- `stableFileTree` memo to prevent unnecessary re-renders
 
-### UI Management Hooks
+#### useAutoRunHandlers (`hooks/batch/useAutoRunHandlers.ts`)
 
-#### useLayerStack (`src/renderer/hooks/useLayerStack.ts`)
+Auto Run orchestration: folder selection, batch run start, document management, content editing.
 
-Core layer management for modals and overlays.
+- Handles worktree creation for batch runs (`buildWorktreeSession`)
+- Document list refresh and task count extraction
+- Content change persistence and mode switching (edit/preview)
 
-**Key methods:**
+#### useInterruptHandler (`hooks/agent/useInterruptHandler.ts`)
 
-- `registerLayer(config)` - Register a modal/overlay
-- `unregisterLayer(id)` - Remove a layer
-- `updateLayerHandler(id, handler)` - Update escape handler
+Agent interruption with graceful degradation.
 
-#### useNavigationHistory (`src/renderer/hooks/useNavigationHistory.ts`)
+- Sends SIGINT to active process (AI or terminal mode, based on `inputMode`)
+- Cancels pending synopsis before interrupting
+- Cleans up thinking/tool logs from interrupted tabs
+- Processes execution queue after interruption
+- Falls back to force-kill if graceful interrupt fails
 
-Back/forward navigation through sessions and tabs. See [Navigation History](#navigation-history).
+### Architectural Patterns
 
-### Input & Autocomplete Hooks
+#### sessionsRef Pattern
 
-#### useAtMentionCompletion (`src/renderer/hooks/useAtMentionCompletion.ts`)
+Many hooks accept a `sessionsRef: React.MutableRefObject<Session[]>` dependency. This provides non-reactive access to the current sessions array inside `useCallback` and `useEffect` bodies without triggering effect re-runs:
 
-Handles @-mention autocomplete for file references in prompts.
+```typescript
+// Instead of this (causes re-runs when sessions change):
+const sessions = useSessionStore((s) => s.sessions);
+useEffect(() => {
+	/* uses sessions */
+}, [sessions]); // re-triggers on every session update
 
-#### useTabCompletion (`src/renderer/hooks/useTabCompletion.ts`)
+// Use this (stable ref, no re-triggers):
+const sessionsRef = useRef(sessions);
+sessionsRef.current = sessions;
+useEffect(() => {
+	/* uses sessionsRef.current */
+}, []); // runs once
+```
 
-Tab completion utilities for terminal-style input.
+This pattern is used in 14 hooks across `agent/`, `batch/`, `git/`, `input/`, `remote/`, `tabs/`, and `utils/` categories.
 
-#### useTemplateAutocomplete (`src/renderer/hooks/useTemplateAutocomplete.ts`)
+#### Cascade Avoidance Strategy
 
-Template variable autocomplete (e.g., `{{date}}`, `{{time}}`).
+Hooks read store state via `useSessionStore.getState()` inside callbacks and effects rather than subscribing to store slices. This prevents cascading re-renders and infinite effect loops:
 
-### Feature Hooks
+```typescript
+// Stable action references extracted once via useMemo:
+const { setSessions, setActiveSessionId } = useMemo(
+	() => useSessionStore.getState(),
+	[] // Empty deps — Zustand actions are stable singletons
+);
 
-#### useAchievements (`src/renderer/hooks/useAchievements.ts`)
+// Reading current state inside callbacks (not reactive):
+const currentSession = selectActiveSession(useSessionStore.getState());
+```
 
-Achievement/badge system for Auto Run usage. See [Achievement System](#achievement-system).
+#### Dependency Injection via Interfaces
 
-#### useActivityTracker (`src/renderer/hooks/useActivityTracker.ts`)
+Most hooks accept a typed `deps` parameter instead of importing dependencies directly. This makes hooks testable and decouples them from specific component trees:
 
-User activity tracking for agent idle detection and status.
+```typescript
+interface UseInterruptHandlerDeps {
+	sessionsRef: React.RefObject<Session[]>;
+	cancelPendingSynopsis: (sessionId: string) => Promise<void>;
+	processQueuedItem: (sessionId: string, item: QueuedItem) => Promise<void>;
+}
 
-#### useMobileLandscape (`src/renderer/hooks/useMobileLandscape.ts`)
-
-Mobile landscape orientation detection for responsive layouts.
+export function useInterruptHandler(deps: UseInterruptHandlerDeps): UseInterruptHandlerReturn {
+	// Hook implementation uses deps instead of direct imports
+}
+```
 
 ---
 
@@ -963,70 +1061,423 @@ When a new badge is unlocked:
 
 ---
 
-## AI Tab System
+## Project Folders
 
-Multi-tab support within each agent, allowing parallel conversations with separate provider sessions.
+Organize agents and groups into logical project groups in the Left Bar. Folders provide visual organization, drag-and-drop reordering, and per-folder pricing configuration.
 
-### Features
+### Data Model
 
-- **Multiple tabs per agent**: Each tab maintains its own provider session ID
-- **Tab management**: Create, close, rename, star tabs
-- **Read-only mode**: Per-tab toggle to prevent accidental input
-- **Save-to-history toggle**: Per-tab control over history persistence
-- **Tab switcher modal**: Quick navigation via `Alt+Cmd+T`
-- **Unread filtering**: Filter to show only tabs with unread messages
-
-### Tab Interface
+The `ProjectFolder` type is defined in `src/shared/types.ts`:
 
 ```typescript
-interface AITab {
-	id: string;
-	name: string;
-	agentSessionId?: string; // Separate provider session per tab
-	aiLogs: LogEntry[]; // Tab-specific conversation history
-	isStarred: boolean;
-	readOnlyMode: boolean;
-	saveToHistory: boolean;
-	unreadCount: number;
-	createdAt: number;
+interface ProjectFolder {
+	id: string; // UUID
+	name: string; // User-defined name
+	emoji?: string; // Optional emoji prefix
+	collapsed: boolean; // UI collapsed state
+	highlightColor?: string; // Hex color (e.g., "#3B82F6")
+	order: number; // Drag-and-drop position
+	createdAt: number; // Timestamp
+	updatedAt: number; // Timestamp
+	pricingConfig?: ProjectFolderPricingConfig; // Default billing mode
 }
 ```
 
-### Session Fields
+**Relationships:**
+
+- **Sessions**: `Session.projectFolderIds?: string[]` — a session can belong to multiple folders. Empty/undefined = "Unassigned" section.
+- **Groups**: `Group.projectFolderId?: string` — groups have a 1:1 relationship with folders.
+
+### Architecture
+
+Project Folders uses a **React Context + IPC** pattern (not a Zustand store):
+
+| Layer            | File                                              | Role                                             |
+| ---------------- | ------------------------------------------------- | ------------------------------------------------ |
+| Type definitions | `src/shared/types.ts`                             | `ProjectFolder`, `ProjectFolderPricingConfig`    |
+| IPC handlers     | `src/main/ipc/handlers/projectFolders.ts`         | CRUD, session/group assignment, reorder, pricing |
+| Preload API      | `src/main/preload/projectFolders.ts`              | `window.maestro.projectFolders.*`                |
+| React Context    | `src/renderer/contexts/ProjectFoldersContext.tsx` | State, CRUD operations, refs for callbacks       |
+
+### IPC Channels
+
+| Channel                                  | Purpose                                              |
+| ---------------------------------------- | ---------------------------------------------------- |
+| `projectFolders:getAll`                  | Get all folders sorted by order                      |
+| `projectFolders:saveAll`                 | Bulk save all folders                                |
+| `projectFolders:create`                  | Create a new folder (auto-generates ID + timestamps) |
+| `projectFolders:update`                  | Update folder properties                             |
+| `projectFolders:delete`                  | Delete folder + clean up session/group references    |
+| `projectFolders:addSession`              | Assign a session to a folder                         |
+| `projectFolders:removeSession`           | Remove a session from a folder                       |
+| `projectFolders:assignGroup`             | Assign/unassign a group (pass `null` to unassign)    |
+| `projectFolders:reorder`                 | Reorder folders by ID array                          |
+| `projectFolders:getPricingConfig`        | Get folder pricing config                            |
+| `projectFolders:setPricingConfig`        | Set folder pricing config                            |
+| `projectFolders:applyPricingToAllAgents` | Apply billing mode to all agents in folder           |
+
+### Preload API
+
+All operations are exposed via `window.maestro.projectFolders`:
 
 ```typescript
-// In Session interface
-aiTabs: AITab[];              // Array of AI tabs
-activeAITabId: string;        // Currently active tab ID
+window.maestro.projectFolders.getAll();
+window.maestro.projectFolders.create(folder);
+window.maestro.projectFolders.update(id, updates);
+window.maestro.projectFolders.delete(id);
+window.maestro.projectFolders.addSession(folderId, sessionId);
+window.maestro.projectFolders.removeSession(folderId, sessionId);
+window.maestro.projectFolders.assignGroup(folderId, groupId);
+window.maestro.projectFolders.reorder(orderedIds);
+window.maestro.projectFolders.getPricingConfig(folderId);
+window.maestro.projectFolders.setPricingConfig(folderId, config);
+window.maestro.projectFolders.applyPricingToAllAgents(folderId, billingMode);
 ```
 
-### Shortcuts
+### Pricing Configuration
 
-| Shortcut      | Action            |
-| ------------- | ----------------- |
-| `Cmd+T`       | New tab           |
-| `Cmd+W`       | Close current tab |
-| `Alt+Cmd+T`   | Open tab switcher |
-| `Cmd+Shift+]` | Next tab          |
-| `Cmd+Shift+[` | Previous tab      |
+Each folder can have a `ProjectFolderPricingConfig` with a `billingMode` (`ClaudeBillingMode`). The `applyPricingToAllAgents` channel propagates the billing mode to every agent in the folder, updating `agentConfigs` store entries.
+
+### Deletion Cascade
+
+When a folder is deleted, the IPC handler automatically:
+
+1. Removes the folder from `projectFoldersStore`
+2. Clears `projectFolderId` from any groups assigned to the folder
+3. Removes the folder ID from `projectFolderIds` on all sessions
 
 ---
 
-## File Preview Tab System
+## Prompt Library
 
-In-tab file viewing that integrates file previews alongside AI conversation tabs. Files open as separate tabs within the tab bar, maintaining their own state and scroll positions.
+Save, search, and reuse prompts across projects with full-text search, usage tracking, and per-project filtering.
 
-### Features
+### Data Model
 
-- **Unified tab bar**: File tabs appear alongside AI tabs with consistent styling
-- **Deduplication**: Same file opened twice within a session activates existing tab
-- **Multi-session support**: Same file can be open in multiple sessions simultaneously
-- **State persistence**: Scroll position, search query, and edit mode preserved across restarts
-- **SSH remote files**: Supports viewing files from remote SSH hosts with loading states
-- **Extension badges**: Color-coded file extension badges with theme-aware and colorblind-safe palettes
-- **Overlay menu**: Right-click or hover menu for file operations (copy path, reveal in finder, etc.)
+The `PromptLibraryEntry` type is defined in both `src/main/prompt-library-manager.ts` and `src/main/preload/promptLibrary.ts`:
 
-### File Tab Interface
+```typescript
+interface PromptLibraryEntry {
+	id: string; // Auto-generated (prompt-{timestamp}-{random})
+	title: string; // User-defined or auto-generated from first line
+	prompt: string; // Prompt content (supports {{variables}})
+	description?: string; // Optional description
+	projectName: string; // Origin project name
+	projectPath: string; // Origin project path
+	agentId: string; // Origin agent ID
+	agentName: string; // Origin agent name
+	agentSessionId?: string; // Origin session ID
+	createdAt: number; // Timestamp
+	updatedAt: number; // Timestamp
+	lastUsedAt?: number; // Last usage timestamp
+	useCount: number; // Usage counter
+	tags?: string[]; // User-defined tags
+}
+```
+
+### Architecture
+
+| Layer               | File                                      | Role                                           |
+| ------------------- | ----------------------------------------- | ---------------------------------------------- |
+| Manager (singleton) | `src/main/prompt-library-manager.ts`      | CRUD, search, usage tracking, disk persistence |
+| IPC handlers        | `src/main/ipc/handlers/prompt-library.ts` | Expose manager operations via IPC              |
+| Preload API         | `src/main/preload/promptLibrary.ts`       | `window.maestro.promptLibrary.*`               |
+
+**Storage:** Prompts are persisted as JSON in `{userData}/prompt-library/prompts.json` with schema versioning and automatic backup on migration. Maximum 1000 prompts (evicts least-used when exceeded).
+
+### IPC Channels
+
+| Channel                      | Purpose                                                    |
+| ---------------------------- | ---------------------------------------------------------- |
+| `promptLibrary:getAll`       | Get all prompts (sorted by most recently used)             |
+| `promptLibrary:getById`      | Get a single prompt by ID                                  |
+| `promptLibrary:search`       | Full-text search across title, content, description, tags  |
+| `promptLibrary:add`          | Add a new prompt (auto-generates ID, timestamps, useCount) |
+| `promptLibrary:update`       | Update prompt fields (preserves ID and createdAt)          |
+| `promptLibrary:delete`       | Delete a prompt by ID                                      |
+| `promptLibrary:recordUsage`  | Increment use count and update lastUsedAt                  |
+| `promptLibrary:getByProject` | Get prompts filtered by project path                       |
+| `promptLibrary:getStats`     | Get library statistics (total, unique projects, most used) |
+
+### Preload API
+
+All operations are exposed via `window.maestro.promptLibrary`:
+
+```typescript
+window.maestro.promptLibrary.getAll();
+window.maestro.promptLibrary.getById(id);
+window.maestro.promptLibrary.search(query);
+window.maestro.promptLibrary.add(entry);
+window.maestro.promptLibrary.update(id, updates);
+window.maestro.promptLibrary.delete(id);
+window.maestro.promptLibrary.recordUsage(id);
+window.maestro.promptLibrary.getByProject(projectPath);
+window.maestro.promptLibrary.getStats();
+```
+
+### Chat Integration
+
+Log entries track prompt library association via two fields on `LogEntry`:
+
+- `savedToLibrary?: boolean` — whether the prompt was saved to the library
+- `promptLibraryEntryId?: string` — links back to the library entry
+
+The `PromptLibraryEntry` type also includes `sourceLogId` and `sourceSessionId` fields to reference the originating log entry, enabling `savedToLibrary` reset when a library entry is deleted.
+
+---
+
+## GPU Monitoring
+
+Hardware capability detection and real-time metrics for GPU, CPU, memory, and local LLM (Ollama) status. Cross-platform with enhanced Apple Silicon support via `macmon`.
+
+### Architecture
+
+| Layer         | File                                   | Role                                                                   |
+| ------------- | -------------------------------------- | ---------------------------------------------------------------------- |
+| Probe utility | `src/main/utils/gpu-probe.ts`          | Platform detection, Ollama polling, macmon parsing, OS memory fallback |
+| IPC handlers  | `src/main/ipc/handlers/gpu-monitor.ts` | Expose probe results via IPC with caching                              |
+| Preload API   | `src/main/preload/gpuMonitor.ts`       | `window.maestro.gpuMonitor.*`                                          |
+
+### Capability Detection
+
+On first request, `detectGpuCapabilities()` probes the system for available monitoring tools:
+
+| Tool       | Detection          | Platform              | Provides                                                |
+| ---------- | ------------------ | --------------------- | ------------------------------------------------------- |
+| Ollama     | `which ollama`     | All                   | Loaded model status, VRAM allocation                    |
+| macmon     | `which macmon`     | macOS (Apple Silicon) | GPU/CPU utilization, power, temperature, unified memory |
+| nvidia-smi | `which nvidia-smi` | Linux/Windows         | NVIDIA GPU detection                                    |
+
+Results are cached in-memory (`cachedCapabilities`). Use `refreshCapabilities` to force re-detection (e.g., after user installs macmon). On macOS, `PATH` is augmented with `/opt/homebrew/bin`, `/usr/local/bin`, `~/.nix-profile/bin`, and `~/.local/bin` to find Dock-launched binaries.
+
+### Data Types
+
+```typescript
+interface GpuCapabilities {
+	platform: string; // 'darwin' | 'linux' | 'win32'
+	hasOllama: boolean;
+	ollamaHost: string; // Default: 'http://localhost:11434'
+	hasMacmon: boolean;
+	hasNvidiaSmi: boolean;
+}
+
+interface GpuMetrics {
+	timestamp: number;
+	ollama?: OllamaMetrics; // Loaded models + total VRAM
+	macmon?: MacmonMetrics; // GPU/CPU/memory/power/temp
+	error?: string;
+}
+
+interface SocInfo {
+	// Apple Silicon hardware identity (cached)
+	macModel: string;
+	chipName: string;
+	memoryGB: number;
+	ecpuCores: number;
+	pcpuCores: number;
+	gpuCores: number;
+	ecpuFreqs: number[];
+	pcpuFreqs: number[];
+	gpuFreqs: number[];
+}
+```
+
+### IPC Channels
+
+| Channel                          | Purpose                                              | Caching                 |
+| -------------------------------- | ---------------------------------------------------- | ----------------------- |
+| `gpuMonitor:getCapabilities`     | Detect available monitoring tools                    | Cached after first call |
+| `gpuMonitor:refreshCapabilities` | Force re-detection of capabilities                   | Replaces cache          |
+| `gpuMonitor:getSocInfo`          | Get SoC hardware identity (chip, cores, frequencies) | Cached after first call |
+| `gpuMonitor:getMetrics`          | Get current GPU/CPU/memory metrics                   | Polled fresh each call  |
+
+### Preload API
+
+All operations are exposed via `window.maestro.gpuMonitor`:
+
+```typescript
+window.maestro.gpuMonitor.getCapabilities(); // → GpuCapabilities
+window.maestro.gpuMonitor.refreshCapabilities(); // → GpuCapabilities
+window.maestro.gpuMonitor.getSocInfo(); // → SocInfo | null
+window.maestro.gpuMonitor.getMetrics(); // → GpuMetrics
+```
+
+### Metrics Fallback Chain
+
+The `getMetrics` handler aggregates data from multiple sources with fallbacks:
+
+1. **Ollama** — queried if `hasOllama` is true (`/api/ps` endpoint, 5s timeout)
+2. **macmon** — queried if `hasMacmon` is true (`macmon raw -s 1`, 5s timeout)
+3. **OS memory fallback** — on macOS, if macmon is unavailable, `os.totalmem()`/`os.freemem()` provides basic memory data so the Memory gauge always renders
+
+---
+
+## Honeycomb Telemetry
+
+Observability and usage tracking via Honeycomb integration. Provides real-time spend monitoring, capacity checking, and historical archival with dual data source support (MCP server or direct REST API).
+
+### Architecture
+
+| Layer              | File                                                  | Role                                                                  |
+| ------------------ | ----------------------------------------------------- | --------------------------------------------------------------------- |
+| Query client       | `src/main/services/honeycomb-query-client.ts`         | Singleton HTTP client with caching, rate limiting, backoff, dedup     |
+| Usage service      | `src/main/services/honeycomb-usage-service.ts`        | Background polling for spend/token metrics (default: 5 min interval)  |
+| Archive service    | `src/main/services/honeycomb-archive-service.ts`      | Daily archival of historical usage data                               |
+| Archive DB         | `src/main/services/honeycomb-archive-db.ts`           | Persistent storage for archived daily data                            |
+| MCP client         | `src/main/services/honeycomb-mcp-client.ts`           | MCP server integration for query execution + environment discovery    |
+| Capacity checker   | `src/main/services/capacity-checker.ts`               | Pre-task capacity gate (budget % checks with task complexity scoring) |
+| Local token ledger | `src/main/services/local-token-ledger.ts`             | Local token tracking with flush status                                |
+| IPC handlers       | `src/main/ipc/handlers/honeycomb.ts`                  | Core Honeycomb IPC surface (query, usage, archive, config)            |
+| Capacity handler   | `src/main/ipc/handlers/honeycomb-capacity-handler.ts` | Capacity check IPC (task descriptor → proceed/block decision)         |
+| Preload API        | `src/main/preload/honeycomb.ts`                       | `window.maestro.honeycomb.*`                                          |
+
+### Data Source Modes
+
+The query client supports two modes, configurable via `honeycombDataSource` setting:
+
+| Mode            | Auth                                               | How it works                                     |
+| --------------- | -------------------------------------------------- | ------------------------------------------------ |
+| `mcp` (default) | Management API key + environment slug              | Queries via Honeycomb MCP server (`mcpRunQuery`) |
+| `api`           | Team API key (settings or `HONEYCOMB_API_KEY` env) | Direct REST API calls to `api.honeycomb.io`      |
+
+### HoneycombQueryClient
+
+Singleton shared by all services. Key features:
+
+- **TTL caching** — per-query-type TTLs (5 min for 5-hour window, 15 min for weekly, 60 min for sessions, 24 hr for archive)
+- **Request deduplication** — concurrent identical queries share one HTTP call
+- **Stale-while-revalidate** — serves cached data on error
+- **Exponential backoff** — 5 min initial, 2x multiplier, 60 min max
+- **Rate-limit self-regulation** — parses `Ratelimit-*` headers, warns at >80% consumed
+- **Persistent cache** — in-memory + electron-store for restart persistence
+
+### HoneycombUsageService
+
+Background poller that runs four parallel queries each cycle:
+
+| Query               | Window                                  | TTL    | Data                                                |
+| ------------------- | --------------------------------------- | ------ | --------------------------------------------------- |
+| 5hr-usage           | 5-hour (aligned to calibration anchor)  | 5 min  | `SUM(cost_usd)`, input/output/cache_creation tokens |
+| weekly-usage        | Weekly (aligned to plan reset schedule) | 15 min | Same columns as 5hr                                 |
+| sonnet-weekly-usage | Weekly, Sonnet models only              | 15 min | Same columns, filtered to `model contains 'sonnet'` |
+| monthly-sessions    | 28 days rolling                         | 60 min | `COUNT_DISTINCT(session.id)`                        |
+
+Broadcasts `honeycomb:usage-update` to all renderer windows after each poll. Pauses when app is unfocused, resumes on focus.
+
+### Capacity Checking
+
+The `honeycomb:capacity-check` handler evaluates whether a task can proceed based on current usage vs. budget:
+
+1. Reads latest usage from `HoneycombUsageService`
+2. Reads plan calibration data (budget estimates) from settings
+3. Builds a `LedgerProvider` with 5-hour and weekly estimates (including safety buffer)
+4. Scores task complexity via `TaskDescriptor`
+5. Returns `CapacityCheckResult` with `canProceed`, usage estimates, task complexity, and safety buffer
+
+### IPC Channels
+
+| Channel                        | Purpose                                           |
+| ------------------------------ | ------------------------------------------------- |
+| `honeycomb:query`              | Execute a Honeycomb query (with caching/dedup)    |
+| `honeycomb:is-configured`      | Check if integration is configured and ready      |
+| `honeycomb:rate-limit-state`   | Get current rate limit state                      |
+| `honeycomb:backoff-state`      | Get current backoff state                         |
+| `honeycomb:clear-cache`        | Clear all cached query results                    |
+| `honeycomb:flush-status-get`   | Get local token ledger flush status               |
+| `honeycomb:usage-get`          | Get latest cached usage data (no API call)        |
+| `honeycomb:usage-refresh`      | Force immediate usage poll (bypasses cache)       |
+| `honeycomb:usage-is-running`   | Check if usage polling service is running         |
+| `honeycomb:best-estimate`      | Get best available usage estimate for a window    |
+| `honeycomb:archive-state`      | Get archive state (last archive date, total days) |
+| `honeycomb:archive-now`        | Manually trigger archival                         |
+| `honeycomb:archive-is-running` | Check if archival is in progress                  |
+| `honeycomb:archive-get-daily`  | Get archived daily data for a date range          |
+| `honeycomb:archive-backfill`   | Run historical backfill for model breakdowns      |
+| `honeycomb:data-source-mode`   | Get current data source mode (`mcp` or `api`)     |
+| `honeycomb:test-connection`    | Test MCP connection with given env/dataset slugs  |
+| `honeycomb:auto-discover-env`  | Auto-discover environment slug via MCP            |
+| `honeycomb:capacity-check`     | Pre-task capacity gate (from capacity handler)    |
+
+### Preload API
+
+All operations are exposed via `window.maestro.honeycomb`:
+
+```typescript
+window.maestro.honeycomb.query(querySpec, options?)   // → HoneycombQueryResult
+window.maestro.honeycomb.isConfigured()               // → boolean
+window.maestro.honeycomb.getRateLimitState()           // → RateLimitState
+window.maestro.honeycomb.getBackoffState()             // → { inBackoff, remainingMs }
+window.maestro.honeycomb.clearCache()                  // → { success: boolean }
+window.maestro.honeycomb.getUsage()                    // → UsageData | null
+window.maestro.honeycomb.refreshUsage()                // → UsageData
+window.maestro.honeycomb.isUsageServiceRunning()       // → boolean
+window.maestro.honeycomb.onUsageUpdate(callback)       // → unsubscribe function
+window.maestro.honeycomb.getFlushStatus()              // → FlushStatus
+window.maestro.honeycomb.getBestEstimate(tokens, budget, safety?) // → UsageEstimate
+window.maestro.honeycomb.capacityCheck(task)            // → CapacityCheckResult
+window.maestro.honeycomb.onFlushStatusUpdate(callback)  // → unsubscribe function
+window.maestro.honeycomb.getArchiveState()              // → ArchiveState
+window.maestro.honeycomb.archiveNow()                   // → ArchiveState
+window.maestro.honeycomb.runArchiveBackfill()            // → { updatedDates, errors }
+window.maestro.honeycomb.isArchiveRunning()              // → boolean
+window.maestro.honeycomb.getArchivedDailyData(query, start, end, breakdown?) // → DailyData[]
+window.maestro.honeycomb.getDataSourceMode()             // → 'mcp' | 'api'
+window.maestro.honeycomb.testConnection(envSlug, datasetSlug) // → { success, error? }
+window.maestro.honeycomb.autoDiscoverEnv()               // → string | null
+```
+
+### Event Channels
+
+| Event                    | Direction                   | Data                                |
+| ------------------------ | --------------------------- | ----------------------------------- |
+| `honeycomb:usage-update` | Main → Renderer (broadcast) | `UsageData` with spend/token totals |
+| `honeycomb:flush-status` | Main → Renderer (broadcast) | Local token ledger flush status     |
+
+---
+
+## Unified Tab System
+
+Maestro uses a unified tab system that combines AI conversation tabs and file preview tabs in a single tab bar. Both tab types share the same visual ordering and lifecycle management via `unifiedTabOrder`.
+
+### Tab Types
+
+| Type             | Interface        | Purpose                                                            |
+| ---------------- | ---------------- | ------------------------------------------------------------------ |
+| AI Tab           | `AITab`          | Conversation with an agent — each tab has its own provider session |
+| File Preview Tab | `FilePreviewTab` | In-tab file viewer with edit mode, search, and navigation history  |
+| Unified Tab Ref  | `UnifiedTabRef`  | Ordering reference: `{ type: 'ai' \| 'file'; id: string }`         |
+
+### AITab Interface
+
+```typescript
+interface AITab {
+	id: string; // Unique tab ID (UUID)
+	agentSessionId: string | null; // Agent session UUID (null for new tabs)
+	name: string | null; // User-defined name (null = show UUID octet)
+	starred: boolean; // Whether session is starred
+	locked?: boolean; // Prevents tab closure when true
+	logs: LogEntry[]; // Conversation history
+	agentError?: AgentError; // Tab-specific agent error (shown in banner)
+	inputValue: string; // Pending input text
+	stagedImages: string[]; // Staged images (base64)
+	usageStats?: UsageStats; // Token usage (current context window)
+	cumulativeUsageStats?: UsageStats; // Cumulative token usage (never decreases)
+	createdAt: number; // Timestamp for ordering
+	state: 'idle' | 'busy'; // Write-mode tracking
+	readOnlyMode?: boolean; // Agent operates in plan/read-only mode
+	saveToHistory?: boolean; // Request synopsis after completions
+	showThinking?: ThinkingMode; // 'off' | 'on' (temporary) | 'sticky' (persistent)
+	scrollTop?: number; // Saved scroll position
+	hasUnread?: boolean; // New messages user hasn't seen
+	isAtBottom?: boolean; // User scrolled to bottom
+	pendingMergedContext?: string; // Context from merge for next message
+	autoSendOnActivate?: boolean; // Auto-send inputValue when tab activates
+	wizardState?: SessionWizardState; // Per-tab inline wizard state
+	isGeneratingName?: boolean; // Auto tab naming in progress
+}
+```
+
+### FilePreviewTab Interface
 
 ```typescript
 interface FilePreviewTab {
@@ -1037,38 +1488,94 @@ interface FilePreviewTab {
 	content: string; // File content (loaded on open)
 	scrollTop: number; // Preserved scroll position
 	searchQuery: string; // Preserved search query
-	editMode: boolean; // Whether tab was in edit mode
-	editContent?: string; // Unsaved edit content (if pending changes)
+	editMode: boolean; // Whether tab is in edit mode
+	editContent: string | undefined; // Unsaved edit content
 	createdAt: number; // Timestamp for ordering
 	lastModified: number; // File modification time (for refresh detection)
 	sshRemoteId?: string; // SSH remote ID for remote files
 	isLoading?: boolean; // True while content is being fetched
+	navigationHistory?: FilePreviewHistoryEntry[]; // Back/forward navigation stack
+	navigationIndex?: number; // Current position in history
 }
-```
-
-### Unified Tab System
-
-AI and file tabs share a unified tab order managed by `unifiedTabOrder`:
-
-```typescript
-// Reference to any tab type
-type UnifiedTabRef = { type: 'ai' | 'file'; id: string };
-
-// Discriminated union for rendering
-type UnifiedTab =
-	| { type: 'ai'; id: string; data: AITab }
-	| { type: 'file'; id: string; data: FilePreviewTab };
 ```
 
 ### Session Fields
 
 ```typescript
-// In Session interface
+// AI tabs
+aiTabs: AITab[];                     // Array of AI tabs
+activeTabId: string;                 // Currently active AI tab ID
+
+// File preview tabs
 filePreviewTabs: FilePreviewTab[];   // Array of file preview tabs
 activeFileTabId: string | null;      // Active file tab (null if AI tab active)
-unifiedTabOrder: UnifiedTabRef[];    // Visual order of all tabs
-unifiedClosedTabHistory: ClosedTabEntry[]; // Undo stack for Cmd+Shift+T
+
+// Unified ordering and undo
+unifiedTabOrder: UnifiedTabRef[];    // Visual order of all tabs in TabBar
+closedTabHistory: ClosedTab[];       // Legacy AI-only undo stack
+unifiedClosedTabHistory: ClosedTabEntry[]; // Unified undo stack for Cmd+Shift+T
 ```
+
+**Note:** `activeFileTabId` and `activeTabId` are mutually exclusive for display — when a file tab is active, the AI tab referenced by `activeTabId` still exists but is not shown. Selecting an AI tab clears `activeFileTabId` to `null`.
+
+### Tab Operations
+
+Operations are split across three layers:
+
+| Layer          | File                | Purpose                                                                                                                   |
+| -------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Pure functions | `tabHelpers.ts`     | Stateless `Session → Session` transforms (`createTab`, `closeTab`, `closeFileTab`, `reopenUnifiedClosedTab`, etc.)        |
+| React hook     | `useTabHandlers.ts` | Wires tab operations to sessionStore mutations with UI concerns (confirmation modals, file content loading, auto-refresh) |
+| Zustand store  | `tabStore.ts`       | Clean action API over sessionStore — replaces ~43 prop-drilled callbacks with `getTabActions()` for non-React access      |
+
+**Tab CRUD operations:**
+
+- **Create**: `createTab(session, options)` — appends to `aiTabs` and `unifiedTabOrder`, sets as active, clears `activeFileTabId`
+- **Close AI tab**: `closeTab(session, tabId)` — removes from `aiTabs`/`unifiedTabOrder`, selects adjacent tab, adds to `closedTabHistory`. If closing the last tab, creates a fresh replacement tab
+- **Close file tab**: `closeFileTab(session, tabId)` — removes from `filePreviewTabs`/`unifiedTabOrder`, selects adjacent tab (may switch to AI tab type)
+- **Reorder**: `handleUnifiedTabReorder(from, to)` — splice-based reorder in `unifiedTabOrder` for drag-to-reorder
+- **Rename**: Opens `renameTab` modal with `getInitialRenameValue(tab)` — returns `''` for auto-named tabs
+- **Star/Lock/Read-only**: Direct property toggles on `AITab`
+
+**Tab close guards:**
+
+- Wizard tabs prompt "Close this wizard? Your progress will be lost"
+- Tabs with draft input prompt "This tab has an unsent draft"
+- File tabs with `editContent !== undefined` prompt about unsaved changes
+- Locked tabs (`locked: true`) prevent closure entirely
+
+### Undo System
+
+Closed tabs are stored in two history stacks (max 25 entries each):
+
+| Stack                     | Type               | Scope                             |
+| ------------------------- | ------------------ | --------------------------------- |
+| `closedTabHistory`        | `ClosedTab[]`      | Legacy AI-only (backwards compat) |
+| `unifiedClosedTabHistory` | `ClosedTabEntry[]` | Both AI and file tabs             |
+
+`Cmd+Shift+T` calls `reopenUnifiedClosedTab()` which:
+
+1. Pops from `unifiedClosedTabHistory` (falls back to legacy `closedTabHistory`)
+2. Checks for duplicates (same `agentSessionId` for AI, same `path` for file tabs)
+3. If duplicate found, switches to existing tab instead of restoring
+4. Otherwise, restores at original `unifiedIndex` position with a new generated ID
+5. Wizard tabs are excluded from history (`skipHistory: true`)
+
+Closed tab logs are truncated to first/last 3 entries to reduce persistence size.
+
+### File Tab Navigation
+
+Each file tab maintains its own back/forward navigation history via `navigationHistory` and `navigationIndex`:
+
+- **Single-tab navigation**: Opening a new file in an existing tab (when `openInNewTab: false`) pushes the current file onto the history stack and navigates to the new file
+- **Back/Forward**: `handleFileTabNavigateBack()` / `handleFileTabNavigateForward()` traverse the history, reloading file content from disk
+- **Navigate to index**: `handleFileTabNavigateToIndex(index)` jumps to a specific history entry (for breadcrumb clicks)
+- **Scroll preservation**: Each history entry stores its `scrollTop` position, restored on navigation
+- **Auto-refresh**: When `fileTabAutoRefreshEnabled` is set, selecting a file tab checks `lastModified` against disk and reloads if changed (skipped when `editContent` has pending changes)
+
+### Legacy Migration
+
+Sessions restored from older storage may lack `filePreviewTabs`. The `filePreviewTabs ?? []` pattern is used throughout to handle this gracefully (see `handleOpenFileTab` in `useTabHandlers.ts`).
 
 ### Critical Invariant
 
@@ -1076,15 +1583,29 @@ unifiedClosedTabHistory: ClosedTabEntry[]; // Undo stack for Cmd+Shift+T
 
 When adding or activating tabs, always update `unifiedTabOrder`. Use `ensureInUnifiedTabOrder()` from `tabHelpers.ts` when activating existing tabs defensively. See [[CLAUDE-PATTERNS.md]] section 6 for code examples.
 
-The shared `buildUnifiedTabs(session)` function in `tabHelpers.ts` is the canonical way to compute the tab list for rendering. It follows `unifiedTabOrder` and appends any orphaned tabs as a safety net.
+The shared `buildUnifiedTabs(session)` function in `tabHelpers.ts` is the canonical way to compute the tab list for rendering. It follows `unifiedTabOrder` and appends any orphaned tabs as a safety net. The companion `getRepairedUnifiedTabOrder()` performs the same orphan repair for navigation functions.
 
 ### Behavior
 
 - **Opening files**: Double-click in file explorer, click file links in AI output, or use Go to File (`Cmd+P`)
-- **Tab switching**: Click tab or use `Cmd+Shift+[`/`]` to navigate
-- **Tab closing**: Click X button, use `Cmd+W`, or right-click → Close
-- **Restore closed**: `Cmd+Shift+T` restores recently closed tabs (both AI and file)
+- **Tab switching**: Click tab or use `Cmd+Shift+[`/`]` to navigate unified tab order
+- **Tab closing**: Click X button, use `Cmd+W`, or right-click → Close (with guards for drafts/edits)
+- **Restore closed**: `Cmd+Shift+T` restores recently closed tabs (both AI and file) with duplicate detection
 - **Edit mode**: Toggle edit mode in file preview; unsaved changes prompt on close
+- **Tab name extraction**: `extractQuickTabName()` auto-names tabs from GitHub URLs, Jira tickets, PR/issue references
+
+### Shortcuts
+
+| Shortcut        | Action                         |
+| --------------- | ------------------------------ |
+| `Cmd+T`         | New AI tab                     |
+| `Cmd+W`         | Close current tab (AI or file) |
+| `Alt+Cmd+T`     | Open tab switcher              |
+| `Cmd+Shift+]`   | Next tab (unified order)       |
+| `Cmd+Shift+[`   | Previous tab (unified order)   |
+| `Cmd+Shift+T`   | Reopen closed tab              |
+| `Cmd+1`–`Cmd+9` | Jump to tab by position        |
+| `Cmd+0`         | Jump to last tab               |
 
 ### Extension Color Mapping
 
@@ -1104,15 +1625,15 @@ File tabs display a colored badge based on file extension. Colors are theme-awar
 
 ### Key Files
 
-| File                         | Purpose                                                                                             |
-| ---------------------------- | --------------------------------------------------------------------------------------------------- |
-| `TabBar.tsx`                 | Unified tab rendering with AI and file tabs                                                         |
-| `FilePreview.tsx`            | File content viewer with edit mode                                                                  |
-| `MainPanel.tsx`              | Coordinates tab display and file loading                                                            |
-| `tabHelpers.ts`              | Shared tab utilities (`buildUnifiedTabs`, `ensureInUnifiedTabOrder`, `createTab`, `closeTab`, etc.) |
-| `useTabHandlers.ts`          | Tab operation hooks including `handleOpenFileTab`                                                   |
-| `tabStore.ts`                | Zustand selectors for tab state (`selectUnifiedTabs`, `selectActiveTab`)                            |
-| `useDebouncedPersistence.ts` | Persists file tabs across sessions                                                                  |
+| File                         | Purpose                                                                                                      |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `TabBar.tsx`                 | Unified tab rendering with AI and file tabs, drag-to-reorder                                                 |
+| `FilePreview.tsx`            | File content viewer with edit mode and navigation breadcrumbs                                                |
+| `MainPanel.tsx`              | Coordinates tab display and file loading                                                                     |
+| `tabHelpers.ts`              | Pure tab functions (`buildUnifiedTabs`, `createTab`, `closeTab`, `reopenUnifiedClosedTab`, navigation, etc.) |
+| `useTabHandlers.ts`          | React hook — 40+ tab operation callbacks with UI concerns (modals, file I/O, auto-refresh)                   |
+| `tabStore.ts`                | Zustand action layer + selectors (`selectUnifiedTabs`, `selectActiveTab`, `getTabActions()`)                 |
+| `useDebouncedPersistence.ts` | Persists file tabs across sessions                                                                           |
 
 ---
 

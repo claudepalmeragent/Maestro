@@ -4,17 +4,20 @@ Agent support documentation for the Maestro codebase. For the main guide, see [[
 
 ## Supported Agents
 
-| ID              | Name          | Status     | Notes                                                            |
-| --------------- | ------------- | ---------- | ---------------------------------------------------------------- |
-| `claude-code`   | Claude Code   | **Active** | Primary agent, `--print --verbose --output-format stream-json`   |
-| `codex`         | Codex         | **Active** | Full support, `--json`, YOLO mode default                        |
-| `opencode`      | OpenCode      | **Active** | Multi-provider support (75+ LLMs), stub provider session storage |
-| `factory-droid` | Factory Droid | **Active** | Factory's AI coding assistant, `-o stream-json`                  |
-| `terminal`      | Terminal      | Internal   | Hidden from UI, used for shell sessions                          |
+| ID              | Name          | Status          | Notes                                                            |
+| --------------- | ------------- | --------------- | ---------------------------------------------------------------- |
+| `claude-code`   | Claude Code   | **Active**      | Primary agent, `--print --verbose --output-format stream-json`   |
+| `codex`         | Codex         | **Active**      | Full support, `--json`, YOLO mode default                        |
+| `gemini-cli`    | Gemini CLI    | **Placeholder** | Google Gemini CLI, `--output-format stream-json`                 |
+| `qwen3-coder`   | Qwen3 Coder   | **Placeholder** | Alibaba Qwen coding model, capabilities TBD                      |
+| `opencode`      | OpenCode      | **Active**      | Multi-provider support (75+ LLMs), stub provider session storage |
+| `factory-droid` | Factory Droid | **Active**      | Factory's AI coding assistant, `-o stream-json`                  |
+| `aider`         | Aider         | **Placeholder** | AI pair programming, capabilities TBD                            |
+| `terminal`      | Terminal      | Internal        | Hidden from UI, used for shell sessions                          |
 
 ## Agent Capabilities
 
-Each agent declares capabilities that control UI feature availability. See `src/main/agents/capabilities.ts` for the full interface (23 boolean flags + 1 optional). The table below shows key capabilities; see [AGENT_SUPPORT.md](AGENT_SUPPORT.md) for the complete list.
+Each agent declares capabilities that control UI feature availability. See `src/main/agents/capabilities.ts` for the full `AgentCapabilities` interface (23 boolean flags + 1 optional). The complete capability list is shown below.
 
 | Capability                    | Description                              | UI Feature Controlled      |
 | ----------------------------- | ---------------------------------------- | -------------------------- |
@@ -51,6 +54,23 @@ Each agent declares capabilities that control UI feature availability. See `src/
 | Renderer callbacks  | `hasCapabilityCached(agentId, 'flagName')` | `src/renderer/hooks/agent/useAgentCapabilities.ts` |
 | Renderer components | `useAgentCapabilities(toolType)` hook      | Same file                                          |
 
+### Agent Detection Flow
+
+Agent availability is determined at runtime by `AgentDetector` (`src/main/agents/detector.ts`):
+
+1. **PATH probing** — checks if each agent's `binaryName` exists via `checkBinaryExists()` (from `path-prober.ts`)
+2. **Custom path fallback** — if user has configured a custom path, checks that first; falls back to PATH
+3. **Capability assignment** — merges static `AGENT_CAPABILITIES` from `capabilities.ts` into the detected `AgentConfig`
+4. **Cache** — results are cached after first detection; cleared when custom paths change
+5. **Promise deduplication** — concurrent detection calls share the same promise to avoid parallel probing
+
+On the renderer side, `agentStore.ts` (Zustand store) manages the detection lifecycle:
+
+- `refreshAgents()` calls `window.maestro.agents.detect()` IPC and caches results in `availableAgents`
+- `getAgentConfig(agentId)` retrieves a cached agent config by ID
+- `agentsDetected` boolean tracks whether detection has completed at least once
+- Error recovery actions (`clearAgentError`, `restartAgentAfterError`, etc.) compose `sessionStore` mutations with IPC calls
+
 ### Display Names & Beta Classification
 
 Centralized in `src/shared/agentMetadata.ts` (importable from any process):
@@ -80,6 +100,21 @@ Centralized in `src/shared/agentMetadata.ts` (importable from any process):
 - **YOLO Mode:** `--dangerously-bypass-approvals-and-sandbox` (enabled by default)
 - **Session Storage:** `~/.codex/sessions/YYYY/MM/DD/*.jsonl`
 
+### Gemini CLI
+
+- **Binary:** `gemini`
+- **JSON Output:** `--output-format stream-json`
+- **YOLO Mode:** `-y` (auto-approve)
+- **Working Dir:** `--include-directories <dir>`
+- **Model Selection:** `-m <model>` (auto, pro, flash, flash-lite, or full model IDs)
+- **Read-only:** Not CLI-enforced; prompt-only enforcement (plan mode requires experimental config)
+- **Status:** Placeholder — most capabilities disabled until Gemini CLI is stable and tested
+
+### Qwen3 Coder
+
+- **Binary:** `qwen3-coder`
+- **Status:** Placeholder — minimal definition, no argument builders or config options yet
+
 ### OpenCode
 
 - **Binary:** `opencode`
@@ -87,8 +122,28 @@ Centralized in `src/shared/agentMetadata.ts` (importable from any process):
 - **Batch Mode:** `run` subcommand
 - **Resume:** `--session <session-id>`
 - **Read-only:** `--agent plan`
-- **YOLO Mode:** Auto-enabled in batch mode (no flag needed)
+- **YOLO Mode:** Auto-enabled via `OPENCODE_CONFIG_CONTENT` env var (blanket `"*":"allow"`)
 - **Multi-Provider:** Supports 75+ LLMs including Ollama, LM Studio, llama.cpp
+- **Image Input:** `-f <path>` (file attachment)
+
+### Factory Droid
+
+- **Binary:** `droid`
+- **JSON Output:** `-o stream-json`
+- **Batch Mode:** `exec` subcommand
+- **Resume:** `-s <session-id>` (requires a prompt)
+- **Read-only:** Default mode in `droid exec` (no flag needed)
+- **YOLO Mode:** `--skip-permissions-unsafe`
+- **Working Dir:** `--cwd <dir>`
+- **Image Input:** `-f <path>`
+- **Model Selection:** `-m <model>` (GPT, Claude, Gemini models)
+- **Session Storage:** `~/.factory/sessions/` (JSONL files)
+
+### Aider
+
+- **Binary:** `aider`
+- **Model Selection:** `--model` flag
+- **Status:** Placeholder — capabilities are conservative defaults pending integration
 
 ## Adding New Agents
 

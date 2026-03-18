@@ -361,3 +361,145 @@ Director's Notes is the first Encore Feature and serves as the canonical example
 When adding a new Encore Feature, mirror this pattern across all access points.
 
 See [CONTRIBUTING.md → Encore Features](CONTRIBUTING.md#encore-features-feature-gating) for the full contributor guide.
+
+## 13. Modal Store Registry Pattern
+
+The modal system uses a Zustand-based registry (`modalStore.ts`) instead of individual boolean state fields. This replaces 90+ boolean fields from the legacy `ModalContext` with a single `Map<ModalId, ModalEntry>`.
+
+**Core API:**
+
+```typescript
+import { useModalStore } from '../stores/modalStore';
+
+// Open a modal with optional typed data
+useModalStore
+	.getState()
+	.openModal('confirm', { message: 'Are you sure?', onConfirm: handleDelete });
+
+// Close a modal
+useModalStore.getState().closeModal('settings');
+
+// Subscribe to a specific modal's open state (granular re-renders)
+const isOpen = useModalStore(selectModalOpen('settings'));
+
+// Get modal data
+const data = useModalStore(selectModalData('settings'));
+```
+
+**Why this pattern:**
+
+- **Granular subscriptions:** Components subscribe to specific modal IDs only, avoiding re-renders when unrelated modals change
+- **Type-safe:** `ModalId` union type prevents typos; `ModalDataMap` maps each ID to its data type
+- **Replaces prop-drilling:** Components use `useModalStore` directly instead of receiving modal state through App.tsx props
+- **Incremental migration:** `getModalActions()` and `useModalActions()` provide backward-compatible APIs matching the old `ModalContext` shape
+
+See `src/renderer/stores/modalStore.ts` for the full implementation and type definitions.
+
+## 14. sessionsRef Pattern (Cascade Avoidance)
+
+When accessing sessions inside effects or callbacks, use `sessionsRef.current` (or `useSessionStore.getState().sessions`) instead of subscribing to the `sessions` array reactively. This prevents cascading re-renders and effect re-evaluations.
+
+```typescript
+// WRONG — effect re-runs on every setSessions call, triggering SSH commands
+useEffect(() => {
+	const session = sessions.find((s) => s.id === activeSessionId);
+	if (session) loadFileTree(session);
+}, [sessions, activeSessionId]); // sessions changes constantly
+
+// CORRECT — effect only re-runs when activeSessionId changes
+useEffect(() => {
+	const session = sessionsRef.current.find((s) => s.id === activeSessionId);
+	if (session) loadFileTree(session);
+}, [activeSessionId, sessionsRef]);
+```
+
+**Why this matters:** Every `setSessions` call creates a new sessions array reference → 13+ subscribers re-render → effects re-evaluate → SSH commands get queued. For SSH sessions with `p-limit(8)` concurrency, this can exhaust all available slots and cause timeouts. The `sessionsRef` pattern breaks this cascade by reading the latest value without subscribing to changes.
+
+See `src/renderer/hooks/git/useFileTreeManagement.ts` for the canonical implementation.
+
+## 15. Defensive Array Guard Pattern
+
+When accessing array fields on sessions restored from storage, always provide a fallback default. Sessions saved by older versions of Maestro may lack fields added in later releases.
+
+```typescript
+// WRONG — crashes if filePreviewTabs is undefined (older session format)
+const existingTab = s.filePreviewTabs.find((tab) => tab.path === file.path);
+
+// CORRECT — defensive guard with nullish coalescing
+const filePreviewTabs = s.filePreviewTabs ?? [];
+const existingTab = filePreviewTabs.find((tab) => tab.path === file.path);
+```
+
+**Motivating bug:** The `filePreviewTabs` field was added after the initial release. Sessions restored from storage before this field existed had `undefined` for `filePreviewTabs`, causing `.find()` to throw. The fix is a simple `?? []` guard before any array method call.
+
+**When to apply:** Any time you access an array field on a `Session` object that was added after the initial session schema — especially in `setSessions` callbacks where you're iterating over restored sessions.
+
+See `src/renderer/hooks/tabs/useTabHandlers.ts` (`handleOpenFileTab`) for the pattern in use.
+
+## 16. SSH Safety Exclusions (Hardcoded)
+
+The file tree loader always excludes certain directories regardless of user-configured ignore patterns. These are hardcoded safety exclusions that prevent catastrophic SSH performance degradation:
+
+**Always excluded:** `.git`, `.git-repo`, `node_modules`, `__pycache__`
+
+```typescript
+// From src/renderer/utils/fileExplorer.ts — loadFileTreeRecursive()
+if (
+	entry.name === 'node_modules' ||
+	entry.name === '__pycache__' ||
+	entry.name === '.git' ||
+	entry.name === '.git-repo'
+) {
+	continue;
+}
+```
+
+**Why this matters:** For SSH remotes, each subdirectory requires a separate `readDir` SSH call (in the recursive fallback path). Traversing `node_modules` (which can contain thousands of nested directories) would exhaust the `p-limit(8)` SSH concurrency limiter, blocking all other SSH operations and causing timeouts. The `.git` exclusion prevents accidental repository corruption.
+
+User-configured ignore patterns from settings are applied **in addition** to these hardcoded exclusions.
+
+## 17. Find-Based SSH Tree Loading
+
+SSH file tree loading uses a single `find -printf` command instead of N recursive `readDir` SSH calls. This is the primary performance optimization for remote file explorer:
+
+```typescript
+// Single SSH round-trip replaces N sequential calls
+// IPC: window.maestro.fs.loadFileTree(dirPath, sshRemoteId, maxDepth, ignorePatterns)
+// Main process: loadFileTreeRemote() in src/main/utils/remote-fs.ts
+
+// The find command runs entirely on the remote host:
+find <path> -maxdepth 10 -mindepth 1 \( -name 'node_modules' -prune \) -o -printf '%y\t%P\n'
+// Output: "d\tsrc" or "f\tsrc/index.ts" (type + relative path)
+```
+
+**Architecture:**
+
+- **SSH remotes** use `fs:loadFileTree` IPC channel → `loadFileTreeRemote()` → single `find -printf` command
+- **Local paths** use `fs:readDir` IPC channel → recursive `readDirSync` calls
+
+**Fallback:** If `find -printf` is unavailable (macOS/BSD), falls back to `stat -c` based approach.
+
+The flat path list is converted to a nested `FileTreeNode[]` tree client-side in `loadFileTreeViaFind()` (`src/renderer/utils/fileExplorer.ts`).
+
+## 18. SSH Socket Validation Cache
+
+SSH socket validation results are cached with a 30-second TTL to avoid redundant `ssh -O check` calls during rapid file tree loads:
+
+```typescript
+// From src/main/utils/ssh-socket-cleanup.ts
+const socketValidationCache = new Map<string, number>(); // key → last-validated timestamp
+const SOCKET_VALIDATION_CACHE_TTL_MS = 30000; // 30 seconds
+
+// Called before every SSH operation in execRemoteCommandInner():
+await validateSshSocket(config.host, config.port, config.username);
+// Fast path: returns immediately if validated within last 30s
+```
+
+**What `validateSshSocket` does:**
+
+1. Checks cache — if validated within TTL, returns immediately (~0ms)
+2. Runs `ssh -O check` to verify the ControlMaster socket is alive (~1ms, local only)
+3. If socket is stale or missing, triggers master re-establishment via `sshHealthMonitor`
+4. Updates cache on success
+
+**Why this matters:** During a file tree load, `execRemoteCommand` is called many times in quick succession. Without the cache, each call would run `ssh -O check` (spawning a child process), adding ~1ms overhead per operation that compounds during bulk operations.

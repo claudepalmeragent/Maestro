@@ -12,7 +12,7 @@ Maestro is a cross-platform desktop app for orchestrating your fleet of AI agent
 
 Collaborate with AI to create detailed specification documents, then let Auto Run execute them automatically, each task in a fresh session with clean context. Allowing for long-running unattended sessions, my current record is nearly 24 hours of continuous runtime.
 
-Run multiple agents in parallel with a Linear/Superhuman-level responsive interface. Currently supporting **Claude Code**, **OpenAI Codex**, **OpenCode**, and **Factory Droid** with plans for additional agentic coding tools (Gemini CLI, Qwen3 Coder) based on user demand.
+Run multiple agents in parallel with a Linear/Superhuman-level responsive interface. Currently supporting **Claude Code**, **OpenAI Codex**, **Gemini CLI**, **Qwen3 Coder**, **OpenCode**, **Factory Droid**, and **Aider** with plans for additional agentic coding tools based on user demand.
 
 > **How It Works:** Maestro is a pass-through to your AI provider. Whatever MCP tools, skills, permissions, or authentication you have configured in Claude Code, Codex, or OpenCode works identically in Maestro. The only difference is we're not running interactively—each task gets a prompt and returns a response, whether it's a new session or resuming a prior one.
 
@@ -39,8 +39,12 @@ Run multiple agents in parallel with a Linear/Superhuman-level responsive interf
 - 💬 **[Group Chat](https://docs.runmaestro.ai/group-chat)** - Coordinate multiple AI agents in a single conversation. A moderator AI orchestrates discussions, routing questions to the right agents and synthesizing their responses for cross-project questions and architecture discussions.
 - 🌐 **[Mobile Remote Control](https://docs.runmaestro.ai/remote-access)** - Built-in web server with QR code access. Monitor and control all your agents from your phone. Supports local network access and remote tunneling via Cloudflare for access from anywhere.
 - 💻 **[Command Line Interface](https://docs.runmaestro.ai/cli)** - Full CLI (`maestro-cli`) for headless operation. List agents/groups, run playbooks from cron jobs or CI/CD pipelines, with human-readable or JSONL output for scripting.
+- 🌐 **SSH Remote Execution** - Run agents on remote hosts via SSH. Connection pooling with ControlMaster, remote agent detection, SSH health monitoring, and seamless integration with Group Chat, Session Explorer, and Auto Run.
+- 📂 **Project Folders** - Organize agents and sessions by project with color-coded sidebar sections, drag-and-drop reordering, per-folder pricing configuration, and scoped Group Chat creation.
+- 📝 **Prompt Library** - Save, edit, and reuse prompts across sessions. Quick access via `Cmd+Shift+L` with Project Folder context integration.
 - 🚀 **Multi-Agent Management** - Run unlimited agents and terminal sessions in parallel. Each agent has its own workspace, conversation history, and isolated context.
 - 📬 **Message Queueing** - Queue messages while AI is busy; they're sent automatically when the agent becomes ready. Never lose a thought.
+- 🖥️ **GPU Monitoring** - Monitor GPU utilization with Ollama integration and macOS macmon (Apple Silicon) support. Memory gauge fallback for systems without native GPU APIs.
 
 ### Core Features
 
@@ -83,7 +87,7 @@ Run multiple agents in parallel with a Linear/Superhuman-level responsive interf
 
 Additional interactions: Drag nodes to reposition, scroll to zoom, use mini-map for overview.
 
-> **Note**: Maestro supports Claude Code, OpenAI Codex, OpenCode, and Factory Droid. Support for additional agents (Gemini CLI, Qwen3 Coder) may be added in future releases based on community demand.
+> **Note**: Maestro supports Claude Code, OpenAI Codex, Gemini CLI, Qwen3 Coder, OpenCode, Factory Droid, and Aider.
 
 ## Quick Start
 
@@ -105,7 +109,11 @@ npm run dev
 - At least one supported AI coding agent installed and authenticated:
   - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) - Anthropic's AI coding assistant
   - [OpenAI Codex](https://github.com/openai/codex) - OpenAI's coding agent
+  - [Gemini CLI](https://github.com/google-gemini/gemini-cli) - Google's Gemini coding agent
+  - [Qwen3 Coder](https://github.com/QwenLM/qwen3-coder) - Alibaba's coding agent
   - [OpenCode](https://github.com/sst/opencode) - Open-source AI coding assistant
+  - [Factory Droid](https://www.factory.ai/) - Factory's AI coding agent
+  - [Aider](https://aider.chat/) - AI pair programming in your terminal
 - Git (optional, for git-aware features)
 
 ### Essential Keyboard Shortcuts

@@ -18,6 +18,13 @@ related:
   - '[[CLAUDE-AGENTS.md]]'
 ---
 
+> **Note:** This file is a historical snapshot. For current documentation, see:
+>
+> - [ARCHITECTURE.md](ARCHITECTURE.md) — System architecture
+> - [CLAUDE.md](CLAUDE.md) — Developer guide and documentation index
+> - [CLAUDE-SESSION.md](CLAUDE-SESSION.md) — Session interface reference
+> - [CLAUDE-IPC.md](CLAUDE-IPC.md) — IPC API reference
+
 # Maestro Codebase Context Document
 
 **Generated:** 2026-02-17 18:04:22 UTC

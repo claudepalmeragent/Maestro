@@ -216,6 +216,41 @@ This is especially useful for:
 - Coordinating changes that span multiple servers
 - Getting perspectives from agents with access to different resources
 
+## Performance Optimizations
+
+Maestro includes several optimizations to make remote file operations fast and reliable over SSH.
+
+### Connection Pooling (ControlMaster)
+
+Maestro uses SSH ControlMaster to reuse a single TCP connection for all SSH commands to a given host. Instead of opening a new connection for every file operation, commands multiplex over an existing master connection.
+
+Socket validation uses a TTL cache (30-second window) to avoid per-command overhead — once a socket is confirmed alive, subsequent commands skip the check until the TTL expires.
+
+**User benefit:** After the initial connection, file operations are significantly faster because they skip the SSH handshake entirely.
+
+### Find-Based Tree Loading
+
+When loading the remote file explorer, Maestro uses a single `find` command that runs entirely on the remote host and returns all paths at once. This replaces the older approach of issuing one SSH command per directory level (N round-trips for N directory levels).
+
+**User benefit:** Dramatically faster file explorer loading for remote projects, especially those with deep directory structures.
+
+### Safety Exclusions
+
+The following directories are **always** excluded from the remote file tree, regardless of your ignore settings:
+
+- `.git`
+- `.git-repo`
+- `node_modules`
+- `__pycache__`
+
+These exclusions prevent overwhelming the SSH connection with deep recursive traversal into directories that can contain thousands of nested files. Without them, a single `node_modules` directory could generate thousands of entries and exhaust the SSH concurrency limit.
+
+### Concurrency Limiting
+
+Maestro caps the number of simultaneous SSH commands per host based on the server's `MaxSessions` setting (default: 10). Two channels are reserved for the agent process and overhead, leaving up to 8 channels for file operations. When the limit is reached, additional commands are queued automatically — never dropped or errored.
+
+You can customize the `MaxSessions` value per remote host in the SSH remote settings if your server supports more (or fewer) concurrent sessions.
+
 ## Troubleshooting
 
 ### Authentication Errors
@@ -234,6 +269,25 @@ This is especially useful for:
 | "Connection timed out"       | Check network connectivity and firewall rules   |
 | "Could not resolve hostname" | Verify the hostname/IP is correct               |
 | "No route to host"           | Check network path to the remote host           |
+
+### Session & Socket Errors
+
+| Error                            | Solution                                                                                                                              |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| "Too many sessions"              | The remote server's `MaxSessions` limit is exceeded. Increase `MaxSessions` in the server's `sshd_config` and restart the SSH service |
+| "Banner exchange" error          | Often caused by a stale ControlMaster socket. Maestro auto-cleans these, but you can manually remove sockets from `~/.ssh/sockets/`   |
+| "Socket is not connected"        | The SSH connection dropped. Maestro retries automatically with exponential backoff                                                    |
+| "Connection unexpectedly closed" | Transient network issue. Maestro retries up to 3 times with backoff delays                                                            |
+
+<Tip>
+If you frequently hit `MaxSessions` errors, increase the limit in your SSH server configuration (`/etc/ssh/sshd_config`):
+
+```
+MaxSessions 20
+```
+
+Maestro uses up to 8 of the default 10 session slots for file operations, reserving 2 for the agent process. Increasing `MaxSessions` on the server gives more headroom for concurrent operations.
+</Tip>
 
 ### Agent Errors
 

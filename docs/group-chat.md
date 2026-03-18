@@ -89,6 +89,18 @@ Remote agents are identified by the **REMOTE** pill in the participant list. Eac
 - Coordinate changes that span multiple machines
 - Synthesize information from agents with different tool installations
 
+## Participant State & Recovery
+
+Maestro tracks the state of each participant throughout the conversation:
+
+- **Idle** — No active work; waiting for the next question
+- **Moderator thinking** — The moderator is processing your message or synthesizing agent responses
+- **Agent working** — One or more participant agents are actively responding
+
+Each participant also tracks per-session statistics including token count, message count, and processing time, visible in the participant list.
+
+**Automatic session recovery:** If a participant's session is lost (e.g., due to a crash or the session being deleted externally), Maestro automatically re-spawns the participant with full context recovery. The recovered agent receives a summary of the conversation history — including its own prior statements — so it can continue seamlessly without losing context.
+
 ## Tips for Effective Group Chats
 
 - **Name agents descriptively** — Agent names appear in the chat, so "Frontend-React" is clearer than "Agent1"

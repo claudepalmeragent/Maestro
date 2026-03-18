@@ -37,9 +37,14 @@ The command palette is your gateway to nearly every action in Maestro. Press `Cm
 | System Log Viewer           | `Opt+Cmd+L`           | `Alt+Ctrl+L`           |
 | System Process Monitor      | `Opt+Cmd+P`           | `Alt+Ctrl+P`           |
 | Usage Dashboard             | `Opt+Cmd+U`           | `Alt+Ctrl+U`           |
+| About Maestro               | `Opt+Cmd+A`           | `Alt+Ctrl+A`           |
+| Toggle Auto-Scroll          | `Opt+Cmd+S`           | `Alt+Ctrl+S`           |
+| Save to Knowledge Graph     | `Opt+Cmd+K`           | `Alt+Ctrl+K`           |
+| Open DevTools               | `Opt+Cmd+I`           | `Ctrl+Shift+I`         |
 | Jump to Bottom              | `Cmd+Shift+J`         | `Ctrl+Shift+J`         |
 | Toggle Bookmark             | `Cmd+Shift+B`         | `Ctrl+Shift+B`         |
 | Maestro Symphony            | `Cmd+Shift+Y`         | `Ctrl+Shift+Y`         |
+| Director's Notes            | `Cmd+Shift+O`         | `Ctrl+Shift+O`         |
 | Cycle Focus Areas           | `Tab`                 | `Tab`                  |
 | Cycle Focus Backwards       | `Shift+Tab`           | `Shift+Tab`            |
 
@@ -69,6 +74,7 @@ These shortcuts work in AI Terminal mode and affect the current tab:
 | Toggle Tab Star        | `Cmd+Shift+S` | `Ctrl+Shift+S` |
 | Toggle Tab Unread      | `Cmd+Shift+U` | `Ctrl+Shift+U` |
 | Filter Unread Tabs     | `Cmd+U`       | `Ctrl+U`       |
+| Toggle Tab Lock        | `Cmd+L`       | `Ctrl+L`       |
 | Open Image Carousel    | `Cmd+Y`       | `Ctrl+Y`       |
 | Open Prompt Composer   | `Cmd+Shift+P` | `Ctrl+Shift+P` |
 

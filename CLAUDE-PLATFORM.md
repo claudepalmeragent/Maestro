@@ -12,6 +12,9 @@ Cross-platform and multi-environment considerations for the Maestro codebase. Fo
 | OpenAI Codex             | Full  | Full    | Full  | Full       |
 | OpenCode                 | Full  | Full    | Full  | Full       |
 | Factory Droid            | Full  | Full    | Full  | Full       |
+| Gemini CLI               | Full  | Full    | Full  | Full       |
+| Qwen3-Coder              | Full  | Full    | Full  | Full       |
+| Aider                    | Full  | Full    | Full  | Full       |
 | File watching (chokidar) | Yes   | Yes     | Yes   | **No**     |
 | Git worktrees            | Yes   | Yes     | Yes   | Yes        |
 | PTY terminal             | Yes   | Yes     | Yes   | N/A        |
@@ -119,14 +122,60 @@ if (sshRemoteId) {
 }
 ```
 
-**Prompts must go via stdin for SSH:**
+**ControlMaster connection pooling:**
+
+Maestro uses SSH ControlMaster to multiplex all SSH operations over a single persistent connection per host. Configuration is centralized in `ssh-options.ts` with four option sets:
+
+- **`MASTER_SSH_OPTIONS`**: Establishes the dedicated master (`ControlMaster=yes`, `ControlPersist=600` — 10 min timeout). One per host.
+- **`BASE_SSH_OPTIONS`**: Shared by all operational commands (`ControlMaster=no` — uses existing master, never creates one).
+- **`COMMAND_SSH_OPTIONS`**: For non-interactive commands (file ops, git, terminal stats). `RequestTTY=no`.
+- **`AGENT_SSH_OPTIONS`**: For agent spawning. `RequestTTY=force` (required for Claude Code `--print` mode). `LogLevel=ERROR` to suppress SSH warnings.
+
+Socket path: `/tmp/maestro-ssh-%C` (where `%C` is an SSH hash of the connection parameters).
+
+The health monitor (`ssh-health-monitor.ts`) establishes master connections. Pre-flight validation (`ssh-socket-cleanup.ts`) checks socket health via `ssh -O check` before each operation (~1ms local check, cached 30s). Stale sockets are automatically cleaned up and masters re-established.
+
+**p-limit concurrency for SSH commands:**
 
 ```typescript
-// IMPORTANT: ALL agent prompts are passed via stdin passthrough for SSH.
-// This avoids shell escaping issues and command line length limits.
-if (isSSH) {
-	// Pass prompt via stdin, not as command line argument
-}
+// remote-fs.ts caps concurrent SSH exec calls per host
+// Default MaxSessions=10, reserved=2 (for agent process + overhead)
+// Effective limit: 8 concurrent SSH channels per host
+const DEFAULT_MAX_SSH_SESSIONS = 10;
+const RESERVED_SSH_CHANNELS = 2;
+// Configurable via SshRemoteConfig.maxSessions
+// Excess calls are queued FIFO — never dropped or errored
+```
+
+**Find-based remote tree loading:**
+
+```typescript
+// loadFileTreeRemote() uses a single SSH round-trip instead of N readDir calls
+// Primary: GNU find with -printf (Linux)
+//   find <dir> -maxdepth 10 -mindepth 1 -printf '%y\t%P\n'
+// Fallback: stat-based find (macOS/BSD)
+// Ignore patterns: passed as -name 'pattern' -prune predicates
+```
+
+**SSH error recovery with retry:**
+
+```typescript
+// Recoverable errors (connection closed, reset, refused, broken pipe,
+// network unreachable, timed out, banner exchange, etc.) are retried
+// up to 3 times with exponential backoff (500ms base, 5s max) + 0-20% jitter.
+// Stale sockets detected during retry trigger automatic cleanup and re-establishment.
+// SSH command timeout: 30 seconds per command (prevents hung connections).
+```
+
+**Prompt handling for SSH (two modes):**
+
+```typescript
+// Small prompts (<4000 chars): embedded in SSH command line arguments
+// Large prompts (>=4000 chars): sent via stdin passthrough
+//   - Uses /bin/bash --norc --noprofile -s on remote
+//   - Script (PATH setup, cd, env vars, exec command) sent via stdin
+//   - Prompt appended after script — flows as raw bytes to exec'd command
+//   - No shell escaping needed for the prompt itself
 ```
 
 **Path resolution on remote:**
@@ -137,6 +186,15 @@ if (isSSH) {
 if (isRemote) {
 	// Use path as-is, normalize slashes only
 }
+```
+
+**Remote path escaping with home directory expansion:**
+
+```typescript
+// escapeRemotePath() handles ~/path and $HOME/path by keeping the
+// home dir reference unquoted so the remote shell expands it:
+//   ~/foo/bar  →  "$HOME"'/foo/bar'
+// Regular paths use standard shellEscape()
 ```
 
 ### 4. Agent-Specific Differences
@@ -229,14 +287,18 @@ When making changes that involve any of the above areas, verify:
 
 ## Key Files for Platform Logic
 
-| Concern             | Primary Files                                              |
-| ------------------- | ---------------------------------------------------------- |
-| Path utilities      | `src/shared/pathUtils.ts`                                  |
-| Shell detection     | `src/main/utils/shellDetector.ts`                          |
-| WSL detection       | `src/main/utils/wslDetector.ts`                            |
-| CLI detection       | `src/main/utils/cliDetection.ts`                           |
-| SSH spawn wrapper   | `src/main/utils/ssh-spawn-wrapper.ts`                      |
-| SSH command builder | `src/main/utils/ssh-command-builder.ts`                    |
-| Agent path probing  | `src/main/agents/path-prober.ts`                           |
-| Windows diagnostics | `src/main/debug-package/collectors/windows-diagnostics.ts` |
-| Safe exec           | `src/main/utils/execFile.ts`                               |
+| Concern              | Primary Files                                              |
+| -------------------- | ---------------------------------------------------------- |
+| Path utilities       | `src/shared/pathUtils.ts`                                  |
+| Shell detection      | `src/main/utils/shellDetector.ts`                          |
+| WSL detection        | `src/main/utils/wslDetector.ts`                            |
+| CLI detection        | `src/main/utils/cliDetection.ts`                           |
+| SSH options (shared) | `src/main/utils/ssh-options.ts`                            |
+| SSH spawn wrapper    | `src/main/utils/ssh-spawn-wrapper.ts`                      |
+| SSH command builder  | `src/main/utils/ssh-command-builder.ts`                    |
+| SSH remote manager   | `src/main/ssh-remote-manager.ts`                           |
+| SSH socket cleanup   | `src/main/utils/ssh-socket-cleanup.ts`                     |
+| Remote filesystem    | `src/main/utils/remote-fs.ts`                              |
+| Agent path probing   | `src/main/agents/path-prober.ts`                           |
+| Windows diagnostics  | `src/main/debug-package/collectors/windows-diagnostics.ts` |
+| Safe exec            | `src/main/utils/execFile.ts`                               |
