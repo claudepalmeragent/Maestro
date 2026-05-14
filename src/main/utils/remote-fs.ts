@@ -1019,7 +1019,30 @@ export async function loadFileTreeRemote(
 		remoteCommand = `find ${escapedPath} -maxdepth ${maxDepth} -mindepth 1 -printf '%y\\t%P\\n' 2>/dev/null; true`;
 	}
 
+	logger.info('[DIAG] loadFileTreeRemote find command', 'FileTree', {
+		dirPath,
+		remoteCommand,
+		ignorePatterns,
+	});
+
+	// [DIAG] Run ls to see what the remote actually has at top level
+	const lsResult = await execRemoteCommand(
+		sshRemote,
+		`ls -1a ${escapedPath} 2>/dev/null; true`,
+		deps
+	);
+	logger.info('[DIAG] loadFileTreeRemote ls output', 'FileTree', {
+		dirPath,
+		ls: lsResult.stdout.trim().split('\n'),
+	});
+
 	const result = await execRemoteCommand(sshRemote, remoteCommand, deps);
+	logger.info('[DIAG] loadFileTreeRemote find raw output (first 500 chars)', 'FileTree', {
+		dirPath,
+		exitCode: result.exitCode,
+		stderr: result.stderr?.slice(0, 200),
+		stdoutHead: result.stdout.slice(0, 500),
+	});
 
 	// find with -printf may not be available on all systems (e.g., macOS/BSD)
 	// Check if we got valid output; if not, fall back to stat-based find
@@ -1041,7 +1064,14 @@ export async function loadFileTreeRemote(
 		return parseFileTreeOutput(fallbackResult.stdout);
 	}
 
-	return parseFileTreeOutput(result.stdout);
+	const parsed = parseFileTreeOutput(result.stdout);
+	if (parsed.success && parsed.data) {
+		const topLevel = parsed.data
+			.filter((e) => !e.relativePath.includes('/'))
+			.map((e) => `${e.isDirectory ? 'd' : 'f'}:${e.relativePath}`);
+		logger.info('[DIAG] loadFileTreeRemote top-level entries', 'FileTree', { dirPath, topLevel });
+	}
+	return parsed;
 }
 
 /**

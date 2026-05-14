@@ -3,6 +3,7 @@ import {
 	walkTreePartitioned,
 } from '../../shared/treeUtils';
 import { isImageFile } from '../../shared/gitUtils';
+import { logger } from './logger';
 
 /**
  * Check if a file should be opened in external app based on extension
@@ -226,11 +227,16 @@ export async function loadFileTree(
 					dirPath,
 					sshContext.sshRemoteId
 				);
+				logger.info('[DIAG] SSH honorGitignore adding patterns', 'FileTree', {
+					patterns: gitignorePatterns,
+				});
 				ignorePatterns = [...ignorePatterns, ...gitignorePatterns];
 			} catch {
 				// Silently ignore - .gitignore may not exist or be readable
 			}
 		}
+
+		logger.info('[DIAG] SSH file tree load', 'FileTree', { treeRoot: dirPath, ignorePatterns });
 
 		// Use find-based single-command approach for SSH remotes
 		return loadFileTreeViaFind(
@@ -251,12 +257,18 @@ export async function loadFileTree(
 		try {
 			const content = await window.maestro.fs.readFile(`${dirPath}/.gitignore`);
 			if (content) {
-				ignorePatterns = [...ignorePatterns, ...parseGitignoreContent(content)];
+				const gitignorePatterns = parseGitignoreContent(content);
+				logger.info('[DIAG] Local honorGitignore adding patterns', 'FileTree', {
+					patterns: gitignorePatterns,
+				});
+				ignorePatterns = [...ignorePatterns, ...gitignorePatterns];
 			}
 		} catch {
 			// .gitignore may not exist or be readable — not an error
 		}
 	}
+
+	logger.info('[DIAG] Local file tree load', 'FileTree', { treeRoot: dirPath, ignorePatterns });
 
 	// Initialize loading state at the top level
 	const state: LoadingState = {
@@ -494,6 +506,12 @@ async function loadFileTreeRecursive(
 
 			// Skip entries that match user-configured ignore patterns (additive)
 			if (shouldIgnore(entry.name, state.ignorePatterns)) {
+				if (entry.isDirectory) {
+					logger.info('[DIAG] Filtered directory by ignore pattern', 'FileTree', {
+						name: entry.name,
+						patterns: state.ignorePatterns,
+					});
+				}
 				continue;
 			}
 

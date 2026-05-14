@@ -1069,14 +1069,16 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 							);
 							return { gitSubdirs: [] };
 						}
-						// Filter to only directories (excluding .git (but allowing other dot-prefixed dirs))
-						subdirs = result.data.filter((e) => e.isDirectory && e.name !== '.git');
+						// Filter to only directories (excluding .git and .git-repo bare repo)
+						subdirs = result.data.filter(
+							(e) => e.isDirectory && e.name !== '.git' && e.name !== '.git-repo'
+						);
 					} else {
 						// Local: use standard fs operations
 						const entries = await fs.readdir(parentPath, { withFileTypes: true });
-						// Filter to only directories (excluding .git (but allowing other dot-prefixed dirs))
+						// Filter to only directories (excluding .git and .git-repo bare repo)
 						subdirs = entries
-							.filter((e) => e.isDirectory() && e.name !== '.git')
+							.filter((e) => e.isDirectory() && e.name !== '.git' && e.name !== '.git-repo')
 							.map((e) => ({
 								name: e.name,
 								isDirectory: true,

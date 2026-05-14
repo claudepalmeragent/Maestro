@@ -688,56 +688,13 @@ export function useFileTreeManagement(
 
 		if (!needsStatsMigration) return;
 
-		// Capture stable session ID for async callback (same stale closure fix as initial load)
-		const sessionId = session.id;
-
-		// No ignore patterns needed for stats-only fetch
-		const sshContext = getSshContext(session);
-		const treeRoot = session.projectRoot || session.cwd;
-
-		// Fetch stats only (don't re-fetch tree)
-		window.maestro.fs
-			.directorySize(treeRoot, sshContext?.sshRemoteId)
-			.then((stats) => {
-				setSessions((prev) =>
-					prev.map((s) =>
-						s.id === sessionId
-							? {
-									...s,
-									fileTreeStats: {
-										fileCount: stats.fileCount,
-										folderCount: stats.folderCount,
-										totalSize: stats.totalSize,
-									},
-								}
-							: s
-					)
-				);
-			})
-			.catch((error) => {
-				// Stats fetch failed — set sentinel value so this effect doesn't re-fire.
-				// Without this, every setSessions call re-triggers the effect because
-				// fileTreeStats stays undefined, creating an infinite retry loop that
-				// saturates the SSH concurrency limiter.
-				logger.warn('Stats migration failed', 'FileTreeManagement', {
-					error: error?.message || 'Unknown error',
-					sessionId,
-				});
-				setSessions((prev) =>
-					prev.map((s) =>
-						s.id === sessionId
-							? {
-									...s,
-									fileTreeStats: {
-										fileCount: -1,
-										folderCount: -1,
-										totalSize: -1,
-									},
-								}
-							: s
-					)
-				);
-			});
+		// Derive stats from the already-loaded tree — no IPC call needed.
+		// The old approach called directorySize (du) which was expensive,
+		// especially over SSH, and blocked session switching for seconds.
+		const stats = deriveStatsFromTree(session.fileTree);
+		setSessions((prev) =>
+			prev.map((s) => (s.id === session.id ? { ...s, fileTreeStats: stats } : s))
+		);
 	}, [activeSessionId, sessionsRef, setSessions]);
 
 	/**

@@ -535,6 +535,12 @@ export function registerFilesystemHandlers(): void {
 			maxDepth: number = 10,
 			ignorePatterns: string[] = []
 		) => {
+			logger.info('[DIAG] fs:loadFileTree called', 'FileTree', {
+				dirPath,
+				sshRemoteId,
+				maxDepth,
+				ignorePatterns,
+			});
 			const sshConfig = getSshRemoteById(sshRemoteId);
 			if (!sshConfig) {
 				throw new Error(`SSH remote not found: ${sshRemoteId}`);
@@ -543,6 +549,10 @@ export function registerFilesystemHandlers(): void {
 			if (!result.success) {
 				throw new Error(result.error || 'Failed to load remote file tree');
 			}
+			logger.info('[DIAG] fs:loadFileTree returned entries', 'FileTree', {
+				dirPath,
+				entryCount: result.data?.length ?? 0,
+			});
 			return result.data;
 		}
 	);

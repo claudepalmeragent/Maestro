@@ -494,10 +494,28 @@ export function useWorktreeHandlers(): WorktreeHandlersReturn {
 			const { defaultSaveToHistory: savToHist, defaultShowThinking: showThink } =
 				useSettingsStore.getState();
 
-			// Find sessions that have worktreeConfig with basePath (only parent sessions)
-			const sessionsWithWorktreeConfig = currentSessions.filter(
-				(s) => s.worktreeConfig?.basePath && !s.parentSessionId
+			// Clean up stale worktree sessions pointing to .git-repo bare repos.
+			// These were incorrectly created before .git-repo was excluded from
+			// scanWorktreeDirectory and may persist in session storage.
+			const hasStaleGitRepoSessions = currentSessions.some(
+				(s) => s.parentSessionId && (s.cwd.endsWith('/.git-repo') || s.cwd.endsWith('\\.git-repo'))
 			);
+			if (hasStaleGitRepoSessions) {
+				useSessionStore
+					.getState()
+					.setSessions((prev) =>
+						prev.filter(
+							(s) =>
+								!s.parentSessionId ||
+								(!s.cwd.endsWith('/.git-repo') && !s.cwd.endsWith('\\.git-repo'))
+						)
+					);
+			}
+
+			// Find sessions that have worktreeConfig with basePath (only parent sessions)
+			const sessionsWithWorktreeConfig = useSessionStore
+				.getState()
+				.sessions.filter((s) => s.worktreeConfig?.basePath && !s.parentSessionId);
 
 			if (sessionsWithWorktreeConfig.length === 0) return;
 

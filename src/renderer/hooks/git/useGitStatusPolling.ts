@@ -215,6 +215,113 @@ export function useGitStatusPolling(
 	const isActiveRef = useRef<boolean>(true);
 	const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
+	// Fetch git status for a single session, returning the result tuple or null on error
+	const fetchSessionGitStatus = useCallback(
+		async (
+			session: Session,
+			isActiveSession: boolean
+		): Promise<readonly [string, GitStatusData] | null> => {
+			try {
+				const cwd =
+					session.gitRoot ||
+					(session.inputMode === 'terminal' ? session.shellCwd || session.cwd : session.cwd);
+
+				// Get SSH remote ID from session for remote git operations
+				// Note: sshRemoteId is only set after AI agent spawns. For terminal-only SSH sessions,
+				// we must fall back to sessionSshRemoteConfig.remoteId. See CLAUDE.md "SSH Remote Sessions".
+				const sshRemoteId =
+					session.sshRemoteId || session.sessionSshRemoteConfig?.remoteId || undefined;
+
+				// For non-active sessions, just get basic status (file count)
+				if (!isActiveSession) {
+					const status = await gitService.getStatus(cwd, sshRemoteId);
+					const statusData: GitStatusData = {
+						fileCount: status.files.length,
+						branch: status.branch,
+						behind: 0,
+						ahead: 0,
+						totalAdditions: 0,
+						totalDeletions: 0,
+						modifiedCount: 0,
+						lastUpdated: Date.now(),
+					};
+					return [session.id, statusData] as const;
+				}
+
+				// For active session, get comprehensive data including numstat
+				// Use git:info for branch/remote/ahead/behind (single IPC call, 4 parallel git commands)
+				// Plus get detailed file changes with numstat
+				const [gitInfo, status, numstat] = await Promise.all([
+					window.maestro.git.info(cwd, sshRemoteId),
+					gitService.getStatus(cwd, sshRemoteId),
+					gitService.getNumstat(cwd, sshRemoteId),
+				]);
+
+				// Create a map of path -> numstat data
+				const numstatMap = new Map<string, { additions: number; deletions: number }>();
+				numstat.files.forEach((file) => {
+					numstatMap.set(file.path, { additions: file.additions, deletions: file.deletions });
+				});
+
+				// Parse porcelain format and merge with numstat
+				const fileChanges: GitFileChange[] = [];
+				let totalAdditions = 0;
+				let totalDeletions = 0;
+				let modifiedCount = 0;
+
+				status.files.forEach((file) => {
+					const statusCode = file.status.trim();
+					const indexStatus = statusCode[0];
+					const workingStatus = statusCode[1] || ' ';
+					const stats = numstatMap.get(file.path) || { additions: 0, deletions: 0 };
+
+					const change: GitFileChange = {
+						path: file.path,
+						status: statusCode,
+						additions: stats.additions,
+						deletions: stats.deletions,
+						modified: false,
+					};
+
+					// Accumulate totals
+					totalAdditions += stats.additions;
+					totalDeletions += stats.deletions;
+
+					// Check for modifications
+					if (
+						indexStatus === 'M' ||
+						workingStatus === 'M' ||
+						indexStatus === 'R' ||
+						workingStatus === 'R'
+					) {
+						change.modified = true;
+						modifiedCount++;
+					}
+
+					fileChanges.push(change);
+				});
+
+				const statusData: GitStatusData = {
+					fileCount: status.files.length,
+					branch: gitInfo.branch,
+					remote: gitInfo.remote,
+					behind: gitInfo.behind,
+					ahead: gitInfo.ahead,
+					fileChanges,
+					totalAdditions,
+					totalDeletions,
+					modifiedCount,
+					lastUpdated: Date.now(),
+				};
+
+				return [session.id, statusData] as const;
+			} catch {
+				return null;
+			}
+		},
+		[]
+	);
+
 	// Poll git status for all Git sessions
 	const pollGitStatus = useCallback(async () => {
 		// Skip polling if document is hidden (app in background)
@@ -234,107 +341,9 @@ export function useGitStatusPolling(
 			// Parallelize git status calls for better performance
 			// Sequential calls with 10 sessions = 1-2s, parallel = 200-300ms
 			const results = await Promise.all(
-				gitSessions.map(async (session) => {
-					try {
-						const cwd =
-							session.gitRoot ||
-							(session.inputMode === 'terminal' ? session.shellCwd || session.cwd : session.cwd);
-
-						const isActiveSession = session.id === currentActiveSessionId;
-
-						// Get SSH remote ID from session for remote git operations
-						// Note: sshRemoteId is only set after AI agent spawns. For terminal-only SSH sessions,
-						// we must fall back to sessionSshRemoteConfig.remoteId. See CLAUDE.md "SSH Remote Sessions".
-						const sshRemoteId =
-							session.sshRemoteId || session.sessionSshRemoteConfig?.remoteId || undefined;
-
-						// For non-active sessions, just get basic status (file count)
-						if (!isActiveSession) {
-							const status = await gitService.getStatus(cwd, sshRemoteId);
-							const statusData: GitStatusData = {
-								fileCount: status.files.length,
-								branch: status.branch,
-								behind: 0,
-								ahead: 0,
-								totalAdditions: 0,
-								totalDeletions: 0,
-								modifiedCount: 0,
-								lastUpdated: Date.now(),
-							};
-							return [session.id, statusData] as const;
-						}
-
-						// For active session, get comprehensive data including numstat
-						// Use git:info for branch/remote/ahead/behind (single IPC call, 4 parallel git commands)
-						// Plus get detailed file changes with numstat
-						const [gitInfo, status, numstat] = await Promise.all([
-							window.maestro.git.info(cwd, sshRemoteId),
-							gitService.getStatus(cwd, sshRemoteId),
-							gitService.getNumstat(cwd, sshRemoteId),
-						]);
-
-						// Create a map of path -> numstat data
-						const numstatMap = new Map<string, { additions: number; deletions: number }>();
-						numstat.files.forEach((file) => {
-							numstatMap.set(file.path, { additions: file.additions, deletions: file.deletions });
-						});
-
-						// Parse porcelain format and merge with numstat
-						const fileChanges: GitFileChange[] = [];
-						let totalAdditions = 0;
-						let totalDeletions = 0;
-						let modifiedCount = 0;
-
-						status.files.forEach((file) => {
-							const statusCode = file.status.trim();
-							const indexStatus = statusCode[0];
-							const workingStatus = statusCode[1] || ' ';
-							const stats = numstatMap.get(file.path) || { additions: 0, deletions: 0 };
-
-							const change: GitFileChange = {
-								path: file.path,
-								status: statusCode,
-								additions: stats.additions,
-								deletions: stats.deletions,
-								modified: false,
-							};
-
-							// Accumulate totals
-							totalAdditions += stats.additions;
-							totalDeletions += stats.deletions;
-
-							// Check for modifications
-							if (
-								indexStatus === 'M' ||
-								workingStatus === 'M' ||
-								indexStatus === 'R' ||
-								workingStatus === 'R'
-							) {
-								change.modified = true;
-								modifiedCount++;
-							}
-
-							fileChanges.push(change);
-						});
-
-						const statusData: GitStatusData = {
-							fileCount: status.files.length,
-							branch: gitInfo.branch,
-							remote: gitInfo.remote,
-							behind: gitInfo.behind,
-							ahead: gitInfo.ahead,
-							fileChanges,
-							totalAdditions,
-							totalDeletions,
-							modifiedCount,
-							lastUpdated: Date.now(),
-						};
-
-						return [session.id, statusData] as const;
-					} catch {
-						return null;
-					}
-				})
+				gitSessions.map((session) =>
+					fetchSessionGitStatus(session, session.id === currentActiveSessionId)
+				)
 			);
 
 			const newStatusMap = new Map<string, GitStatusData>();
@@ -349,7 +358,31 @@ export function useGitStatusPolling(
 		} finally {
 			setIsLoading(false);
 		}
-	}, [pauseWhenHidden]);
+	}, [pauseWhenHidden, fetchSessionGitStatus]);
+
+	// PERF: Poll only a single session and merge result into the existing map.
+	// Used on session switch to get immediate data for the new active session
+	// without the cost of re-polling all sessions.
+	const pollGitStatusForSession = useCallback(
+		async (sessionId: string) => {
+			if (pauseWhenHidden && document.hidden) return;
+
+			const session = sessionsRef.current.find((s) => s.id === sessionId && s.isGitRepo);
+			if (!session) return;
+
+			const result = await fetchSessionGitStatus(session, true);
+			if (!result) return;
+
+			setGitStatusMap((prev) => {
+				const existing = prev.get(result[0]);
+				if (existing && gitStatusDataEqual(existing, result[1])) return prev;
+				const next = new Map(prev);
+				next.set(result[0], result[1]);
+				return next;
+			});
+		},
+		[pauseWhenHidden, fetchSessionGitStatus]
+	);
 
 	// PERF: Track git session count to dynamically scale the polling interval
 	const gitSessionCount = useMemo(() => sessions.filter((s) => s.isGitRepo).length, [sessions]);
@@ -483,12 +516,28 @@ export function useGitStatusPolling(
 		}
 	}, [gitSessionCount, pollInterval, stopPolling, startPolling, pauseWhenHidden]);
 
-	// Refresh immediately when active session changes to get detailed data
+	// PERF: On session switch, immediately poll only the new active session for
+	// responsive UI, then defer a full poll for background sessions. This avoids
+	// blocking the switch with N parallel IPC calls for non-visible sessions.
+	const deferredPollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	useEffect(() => {
 		if (activeSessionId) {
-			pollGitStatus();
+			// Immediate: get detailed data for the session the user just switched to
+			pollGitStatusForSession(activeSessionId);
+			// Deferred: refresh background sessions after the UI has settled
+			if (deferredPollRef.current) clearTimeout(deferredPollRef.current);
+			deferredPollRef.current = setTimeout(() => {
+				pollGitStatus();
+				deferredPollRef.current = null;
+			}, 3000);
 		}
-	}, [activeSessionId, pollGitStatus]);
+		return () => {
+			if (deferredPollRef.current) {
+				clearTimeout(deferredPollRef.current);
+				deferredPollRef.current = null;
+			}
+		};
+	}, [activeSessionId, pollGitStatusForSession, pollGitStatus]);
 
 	return {
 		gitStatusMap,
