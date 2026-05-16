@@ -8,14 +8,14 @@ This document captures the canonical Maestro slash-command prompts used for Maes
 
 **Critical for SOC 2 / change-management author/committer SoD.** Each slash command has a designated invoking actor. Agents must not autonomously invoke founder-side commands.
 
-| Slash command | Actor | When |
-|---|---|---|
-| `/preflight-sync` | **Agent-side** (auto-injected at start of agent's session by Maestro harness) | Before any work begins on a dispatched ARD |
-| `/commit-ARD` | **Founder-side** (founder invokes via Maestro harness; harness injects prompt into the agent's session) | After agent reports "tasks complete; ready for founder review and `/commit-ARD`" AND founder has reviewed deliverables |
-| `/commit-adhoc` | **Founder-side** (same harness pattern as `/commit-ARD`) | Founder-driven small commits (typos, planner-side docs, etc.) |
-| `/postflight-rebase` | **Founder-side** (founder invokes if siblings merged during the flight) | After commit, before merge, when `git log main..<branch>` shows divergence |
-| `/merge-after-review` | **Planner-side** (planner runs on the planner worktree, founder explicit "yes" gates the actual merge) | Final step — bring the agent's branch into main |
-| `/new-sprout` | **Planner-side** (planner authors sprouts in the planner worktree; founder or planner can invoke) | When authoring any new long-lived strategic doc — sprout, companion doc, ADR, market-analysis. NOT for Build-ARDs, per-task work, or sprout updates. |
+| Slash command         | Actor                                                                                                   | When                                                                                                                                                 |
+| --------------------- | ------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/preflight-sync`     | **Agent-side** (auto-injected at start of agent's session by Maestro harness)                           | Before any work begins on a dispatched ARD                                                                                                           |
+| `/commit-ARD`         | **Founder-side** (founder invokes via Maestro harness; harness injects prompt into the agent's session) | After agent reports "tasks complete; ready for founder review and `/commit-ARD`" AND founder has reviewed deliverables                               |
+| `/commit-adhoc`       | **Founder-side** (same harness pattern as `/commit-ARD`)                                                | Founder-driven small commits (typos, planner-side docs, etc.)                                                                                        |
+| `/postflight-rebase`  | **Founder-side** (founder invokes if siblings merged during the flight)                                 | After commit, before merge, when `git log main..<branch>` shows divergence                                                                           |
+| `/merge-after-review` | **Planner-side** (planner runs on the planner worktree, founder explicit "yes" gates the actual merge)  | Final step — bring the agent's branch into main                                                                                                      |
+| `/new-sprout`         | **Planner-side** (planner authors sprouts in the planner worktree; founder or planner can invoke)       | When authoring any new long-lived strategic doc — sprout, companion doc, ADR, market-analysis. NOT for Build-ARDs, per-task work, or sprout updates. |
 
 **Anti-pattern:** agent autonomously running `/commit-ARD`, `git commit`, `/postflight-rebase`, or `/merge-after-review`. This collapses author/committer separation and breaks SOC 2 CC8.1 multi-actor SoD evidence. **Precedent incident:** a dev agent autonomously ran `/commit-ARD` after auto-ticking unescaped Human Verification boxes + reading an unguarded "commit message MUST follow..." instruction. Resolution: every ARD's CRITICAL INSTRUCTIONS now begin with a STOP-and-do-not-commit rule (see `docs/ards/build-ard-template.md` §"Format rules" item 7); commit-format instructions carry a "DO NOT COMMIT WITHOUT DIRECTION FROM THE FOUNDER" preamble (item 8); Human Verification checkboxes are backslash-escaped (item 6).
 
@@ -27,15 +27,15 @@ This document captures the canonical Maestro slash-command prompts used for Maes
 
 ## When to use which
 
-| User-said | Underlying intent | Prompt to use |
-|---|---|---|
-| "commit your work for ARD 04" | Driven by an Auto Run document at `/app/__AUTORUN/NN_*.md` | `/commit-ARD` |
-| "commit the typo fix you just made" | Ad-hoc work — bug fix, doc patch, review feedback, manual tweak | `/commit-adhoc` |
-| "commit" (ambiguous) | Default to `/commit-adhoc`; ARD-driven work usually comes with explicit "for ARD NN" framing | `/commit-adhoc` |
-| "merge dev-4's ARD 01 to main" | Post-review ceremony bringing an agent's branch into main | `/merge-after-review` |
-| "sync from main" / "pre-flight" / before any ARD or ad-hoc work | Bring agent's branch up to main's HEAD via rebase | `/preflight-sync` |
-| "rebase onto main" / "your branch is behind" / after a sibling agent merges while you were running | Re-integrate sibling-agent merges that landed in main while your branch had a commit on it (regardless of whether the commit came from human-invoked `/commit-ARD` or from an autonomous-commit gate violation) | `/postflight-rebase` |
-| "spawn a sprout for X" / "let's capture this as a sprout" / "new sprout: <topic>" / "we need to think about this later — sprout it" | Authoring a new long-lived knowledge-aggregation doc (sprout/companion/ADR/market-analysis); requires cross-session transcript scan before authoring to avoid silently losing prior work | `/new-sprout` |
+| User-said                                                                                                                           | Underlying intent                                                                                                                                                                                               | Prompt to use         |
+| ----------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
+| "commit your work for ARD 04"                                                                                                       | Driven by an Auto Run document at `/app/__AUTORUN/NN_*.md`                                                                                                                                                      | `/commit-ARD`         |
+| "commit the typo fix you just made"                                                                                                 | Ad-hoc work — bug fix, doc patch, review feedback, manual tweak                                                                                                                                                 | `/commit-adhoc`       |
+| "commit" (ambiguous)                                                                                                                | Default to `/commit-adhoc`; ARD-driven work usually comes with explicit "for ARD NN" framing                                                                                                                    | `/commit-adhoc`       |
+| "merge dev-4's ARD 01 to main"                                                                                                      | Post-review ceremony bringing an agent's branch into main                                                                                                                                                       | `/merge-after-review` |
+| "sync from main" / "pre-flight" / before any ARD or ad-hoc work                                                                     | Bring agent's branch up to main's HEAD via rebase                                                                                                                                                               | `/preflight-sync`     |
+| "rebase onto main" / "your branch is behind" / after a sibling agent merges while you were running                                  | Re-integrate sibling-agent merges that landed in main while your branch had a commit on it (regardless of whether the commit came from human-invoked `/commit-ARD` or from an autonomous-commit gate violation) | `/postflight-rebase`  |
+| "spawn a sprout for X" / "let's capture this as a sprout" / "new sprout: <topic>" / "we need to think about this later — sprout it" | Authoring a new long-lived knowledge-aggregation doc (sprout/companion/ADR/market-analysis); requires cross-session transcript scan before authoring to avoid silently losing prior work                        | `/new-sprout`         |
 
 If the founder is mid-review of an ARD and says "commit", default to `/commit-ARD` because the ARD context is implicit. (The founder invokes; the agent does not commit autonomously — see "Actor tagging" above.)
 
@@ -52,11 +52,11 @@ When an agent reports completion, the human's choice of slash-command sequence d
 1. **Did the agent auto-commit during ARD execution?** (i.e., did it violate the `/commit-ARD` Step 1.5 gate?)
 2. **Did sibling agents merge into main during this agent's flight?** (i.e., is `git log HEAD..main` non-empty?)
 
-| Auto-commit during flight? | Siblings merged during flight? | Sequence |
-|---|---|---|
-| **No** (clean discipline) | **No** | verify → `/commit-ARD` → `/merge-after-review` |
-| **No** (clean discipline) | **Yes** | verify → `/commit-ARD` → `/postflight-rebase` → `/merge-after-review` |
-| **Yes** (gate violation) | (either) | verify → `/postflight-rebase` → `/merge-after-review` |
+| Auto-commit during flight? | Siblings merged during flight? | Sequence                                                              |
+| -------------------------- | ------------------------------ | --------------------------------------------------------------------- |
+| **No** (clean discipline)  | **No**                         | verify → `/commit-ARD` → `/merge-after-review`                        |
+| **No** (clean discipline)  | **Yes**                        | verify → `/commit-ARD` → `/postflight-rebase` → `/merge-after-review` |
+| **Yes** (gate violation)   | (either)                       | verify → `/postflight-rebase` → `/merge-after-review`                 |
 
 **Why `/commit-ARD` and `/postflight-rebase` are not mutually exclusive — they handle different things and chain cleanly:**
 
@@ -124,11 +124,11 @@ Use this prompt when an agent's branch has a commit on it AND one or more siblin
 
 In either path the agent's branch has a commit and main has moved ahead. `git rebase main` semantics are identical regardless of provenance. (Step 2's "exactly ONE commit" check catches the Path B sub-case where the agent auto-committed multiple times — that surfaces as >1 commit and triggers STOP-and-report, which is the correct behavior.)
 
-**When this prompt is needed.** Parallel dispatch (e.g., dev-4 + dev-5 + dev-6 launched concurrently for ARDs 06/07/08) means all branches start at the same main HEAD. As each branch merges in series, the others fall behind. The first to merge needs no post-flight rebase. The second through Nth do — they need to integrate the new main before their own commit can land cleanly. `/preflight-sync` is *pre*-flight only; it does not address mid-flight or post-flight drift. `/commit-ARD` does not contain a rebase step either — its Step 1.5 only checks for unauthorized prior commits, it does not update the branch base. So even cleanly-gated commits land on the session-start main HEAD; if siblings merged during the flight, this prompt is still required.
+**When this prompt is needed.** Parallel dispatch (e.g., dev-4 + dev-5 + dev-6 launched concurrently for ARDs 06/07/08) means all branches start at the same main HEAD. As each branch merges in series, the others fall behind. The first to merge needs no post-flight rebase. The second through Nth do — they need to integrate the new main before their own commit can land cleanly. `/preflight-sync` is _pre_-flight only; it does not address mid-flight or post-flight drift. `/commit-ARD` does not contain a rebase step either — its Step 1.5 only checks for unauthorized prior commits, it does not update the branch base. So even cleanly-gated commits land on the session-start main HEAD; if siblings merged during the flight, this prompt is still required.
 
 **Diagnostic to confirm this prompt is the right tool.** Run `git log --oneline HEAD..main` from the agent's worktree (local `main` is canonical — see Reference convention note above). If the output is empty, your branch is already current — use `/merge-after-review` directly. If the output shows commits that aren't yours, you need `/postflight-rebase` first.
 
-```text
+````text
 Re-integrate sibling-agent merges that landed in main while you were running. Your single ARD commit will be rebased onto post-sibling-merge main. Follow this exact protocol:
 
 1. CONFIRM YOU ARE NOT ON MAIN
@@ -220,7 +220,7 @@ Re-integrate sibling-agent merges that landed in main while you were running. Yo
     - The last 10 lines of mypy output from step 8.
     - The last 20 lines of pre-commit output from step 8's final worktree sweep.
     - Any STOP-and-report cases that escalated to the human.
-```
+````
 
 ---
 
@@ -228,7 +228,7 @@ Re-integrate sibling-agent merges that landed in main while you were running. Yo
 
 Use this prompt when the agent has just finished executing a Build-ARD from `/app/__AUTORUN/NN_*.md`. It enforces ARD compliance, scope-creep disclosure, and ARD traceability in the commit message.
 
-```text
+````text
 Commit the work you've completed for the current Build-ARD. Follow this exact protocol:
 
 1. SELF-CHECK ARD COMPLIANCE
@@ -309,7 +309,7 @@ Commit the work you've completed for the current Build-ARD. Follow this exact pr
    - **DO NOT** export `AS_COMMIT_GATE_TOKEN` in your shell or write it to any rc file — the inline form is the only authorized usage.
    - DO NOT push. The human reviews each commit before pushing/merging to main.
    - If the human has explicitly told you in this conversation to push, then run `git push` AFTER the commit lands.
-```
+````
 
 ---
 
@@ -317,7 +317,7 @@ Commit the work you've completed for the current Build-ARD. Follow this exact pr
 
 Use this prompt when the agent has done ad-hoc work outside of any Build-ARD — manual fixes, doc patches, review feedback, exploratory tweaks. It substitutes "why-this-change" for ARD compliance and adds defensive stage-exclusions for files that should never be committed.
 
-```text
+````text
 Commit ad-hoc work (NOT driven by a Build-ARD). Follow this exact protocol:
 
 1. WHY-THIS-CHANGE CHECK
@@ -388,20 +388,21 @@ Commit ad-hoc work (NOT driven by a Build-ARD). Follow this exact protocol:
    - **DO NOT** export `AS_COMMIT_GATE_TOKEN` in your shell or write it to any rc file — the inline form is the only authorized usage.
    - DO NOT push. The human reviews each commit before pushing/merging to main.
    - If the human has explicitly told you in this conversation to push, then run `git push` AFTER the commit lands.
-```
+````
 
 ---
 
 ## `/merge-after-review` — for human-approved merge of an agent branch into main
 
-Use this prompt **on the planner agent only** (it lives on `main` directly per the swarm topology in ADR 0001). The human reviews an agent branch (typically a sibling worktree like `maestro-dev-4`), then invokes this prompt to bring that branch into `main` with a templated, auditable merge commit. Other agents pick up the merged work via their next ARD's pre-flight `git rebase main`.
+Use this prompt **on the planner agent only**. The planner runs from its own `maestro-planner` branch worktree (per ADR 0001 swarm topology — each agent worktree on its own self-named branch). Merges happen from a _dedicated merge-only worktree_ at `/app/maestro-main/` that is permanently checked out to `main` and has no agent assigned to it. The human reviews an agent branch (typically a sibling worktree like `maestro-dev-4`), then invokes this prompt; the planner switches to the merge-only worktree, runs the merge, and reports back. Other agents pick up the merged work via their next ARD's pre-flight `git rebase main`.
 
-``````text
-Merge a reviewed agent branch into main. This prompt MUST be run from a worktree on the `main` branch (typically the maestro-planner worktree). Follow this exact protocol:
+````text
+Merge a reviewed agent branch into main. This prompt MUST be run from the dedicated merge-only worktree at `/app/maestro-main/` (NOT from the maestro-planner worktree — the planner is now on its own self-named branch per ADR 0001). Follow this exact protocol:
 
-1. VERIFY YOU ARE ON MAIN
+1. ENTER MERGE-ONLY WORKTREE + VERIFY YOU ARE ON MAIN
+   - Run `cd /app/maestro-main` FIRST — every subsequent command in this protocol runs from inside this directory. The merge-only worktree exists specifically so merges land on main without ever changing the planner worktree's HEAD.
    - Run `git status` and confirm the output begins with "On branch main".
-   - If you are NOT on main, STOP. Tell the human you are on the wrong branch and that this prompt requires a main worktree (the maestro-planner worktree is the canonical home for merges).
+   - If you are NOT on main (or the worktree at `/app/maestro-main/` does not exist), STOP. Tell the human the merge-only worktree is missing or misconfigured; do NOT fall back to running the merge from the planner worktree (that's the failure mode this topology was designed to prevent — see "Why the merge-only worktree exists" below).
    - Confirm `git status` reports a clean working tree. If not, STOP.
 
 2. CONFIRM THE BRANCH TO MERGE
@@ -496,7 +497,7 @@ Merge a reviewed agent branch into main. This prompt MUST be run from a worktree
 7. OPTIONAL: PRUNE THE SOURCE BRANCH
    - DO NOT prune by default. Branches are cheap and the historical trace is valuable.
    - If the human explicitly asks to prune the merged branch: `git branch -d <branch>` (safe — refuses if branch has unmerged commits) followed by removing the worktree if appropriate (`git worktree remove /app/<branch>`). For an agent VM's worktree, also coordinate with the human on shutting down the corresponding Maestro Agent VM if it is no longer needed.
-``````
+````
 
 ---
 
@@ -620,7 +621,11 @@ Embedded `Task N.0: Pre-flight` blocks live in every ARD because most agent sess
 
 ### Why `/merge-after-review` is planner-only
 
-The planner worktree is the only one checked out to `main` directly (per ADR 0001 swarm topology). All other agents (`dev-1..6`, `moderator`) are on their own self-named branches and cannot merge into a branch they aren't on. Centralizing the merge ceremony on the planner also enforces separation-of-duties: the agent that authored the work isn't the one approving its landing on main.
+Centralizing the merge ceremony on the planner enforces separation-of-duties: the agent that authored the work isn't the one approving its landing on main. The planner runs from its own `maestro-planner` branch and switches into the merge-only worktree at `/app/maestro-main/` to perform each merge.
+
+### Why the merge-only worktree exists
+
+Every worktree's name matches its branch (`maestro-dev-N` on branch `maestro-dev-N`, `maestro-planner` on branch `maestro-planner`). To execute a merge into main, _some_ worktree has to be on main — that worktree is `/app/maestro-main/`, dedicated to merges with no agent attached. This topology removes a real failure mode: an earlier setup had the planner worktree checked out to main directly, and a single `git checkout main` from inside the planner shell (run accidentally during a merge protocol) silently switched the planner's HEAD to main and left it there for 9 days, with every subsequent planner commit landing directly on main. The merge-only worktree makes that impossible — the planner worktree is on its own branch, so accidental `git checkout main` from there is a no-op against main itself. Precedent: the planner-on-main drift incident — fix recipe was to give the planner its own branch and provision a separate merge-only worktree.
 
 ### Why `--no-ff` is mandatory in `/merge-after-review`
 

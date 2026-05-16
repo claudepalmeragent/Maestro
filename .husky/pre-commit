@@ -10,7 +10,15 @@ npx lint-staged
 bash scripts/commit-gate-check.sh
 
 # Maestro-specific lints (Build-ARD acceptance gates). See docs/ards/build-ard-acceptance.md.
-bash scripts/lint-no-suppression-markers.sh
-bash scripts/lint-no-silent-error-swallow.sh
+# Pass ONLY the staged TS/JS files to each lint so unrelated pre-existing
+# violations elsewhere in the tree do not block unrelated commits. Both scripts
+# accept a path list as args (see their docstrings).
+STAGED_TSJS=$(git diff --cached --name-only --diff-filter=ACMR -- '*.ts' '*.tsx' '*.js' '*.jsx' '*.mjs' '*.cjs' || true)
+if [ -n "$STAGED_TSJS" ]; then
+	# shellcheck disable=SC2086
+	bash scripts/lint-no-suppression-markers.sh $STAGED_TSJS
+	# shellcheck disable=SC2086
+	bash scripts/lint-no-silent-error-swallow.sh $STAGED_TSJS
+fi
 
 # Everything else (tests, type checking) should run in CI
