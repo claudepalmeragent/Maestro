@@ -190,3 +190,28 @@ You can dispatch an Auto Run directly into a new git worktree from the run confi
 | **Automatically create PR**         | When checked, Maestro opens a pull request from the worktree branch when the run completes |
 
 This is the recommended workflow for longer Auto Runs — your main branch stays untouched, all changes land on a dedicated branch, and you get a PR at the end ready for review.
+
+## Transport Mode in Auto Run / CLI
+
+When running Auto Run or the Maestro CLI, the Claude Code transport mode is controlled by the `MAESTRO_CLAUDE_TRANSPORT_MODE` environment variable. This overrides the app-level default for headless batch execution.
+
+| Value                    | Behavior                                                                           |
+| ------------------------ | ---------------------------------------------------------------------------------- |
+| `legacy-print` (default) | Uses `claude --print` with stream-JSON output. Requires `ANTHROPIC_API_KEY`.       |
+| `interactive-pty`        | Uses `ClaudePtyRunner` interactive PTY. Uses Claude Max subscription (no API key). |
+
+**Example — run a playbook with Interactive PTY:**
+
+```bash
+MAESTRO_CLAUDE_TRANSPORT_MODE=interactive-pty maestro-cli run-playbook my-playbook.md
+```
+
+**Example — force legacy mode explicitly:**
+
+```bash
+MAESTRO_CLAUDE_TRANSPORT_MODE=legacy-print maestro-cli run-playbook my-playbook.md
+```
+
+If `MAESTRO_CLAUDE_TRANSPORT_MODE` is not set, the CLI falls back to the app-level default in `settings.json` (itself defaulting to `legacy-print`).
+
+See [Transport Mode Cascade](./transport-mode) for the full four-level cascade used in the Electron app.
