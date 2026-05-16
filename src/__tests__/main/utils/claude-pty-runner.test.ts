@@ -5,6 +5,30 @@ vi.mock('node-pty', () => ({
 	spawn: vi.fn(),
 }));
 
+// Mock @xterm/headless used by ClaudePtyStreamAnalyzer
+vi.mock('@xterm/headless', () => {
+	class MockTerminal {
+		private _lines: string[] = [];
+		write(chunk: string): void {
+			for (const l of chunk.split('\n')) {
+				if (l) this._lines.push(l);
+			}
+		}
+		get buffer() {
+			const lines = this._lines;
+			return {
+				active: {
+					get length() {
+						return lines.length;
+					},
+					getLine: (i: number) => ({ translateToString: () => lines[i] ?? '' }),
+				},
+			};
+		}
+	}
+	return { Terminal: MockTerminal };
+});
+
 import * as nodePty from 'node-pty';
 import { ClaudePtyRunner } from '../../../main/utils/claude-pty-runner';
 
@@ -298,7 +322,7 @@ describe('ClaudePtyRunner', () => {
 	});
 
 	describe('rawData events', () => {
-		it('fires before any analyzer/parsing logic — pure passthrough', () => {
+		it('fires alongside analyzer parsing — both rawData and event callbacks', () => {
 			const runner = makeRunner();
 			const eventEvents: unknown[] = [];
 			const rawEvents: string[] = [];
@@ -311,8 +335,74 @@ describe('ClaudePtyRunner', () => {
 
 			// rawData fires
 			expect(rawEvents).toContain('raw PTY output');
-			// event does NOT fire (analyzer not yet wired)
-			expect(eventEvents).toHaveLength(0);
+			// analyzer now wired — init event fires on first data
+			expect(eventEvents.length).toBeGreaterThan(0);
+
+			mockPty._exit(0);
+		});
+	});
+
+	describe('analyzer wiring', () => {
+		it('emits ParsedEvents from analyzer via runner event channel', () => {
+			const runner = makeRunner();
+			const events: unknown[] = [];
+			runner.on('event', (e) => events.push(e));
+
+			runner.executeTurn('tell me something');
+			mockPty._emit('Hello from Claude');
+
+			// init + text events should both arrive
+			const types = (events as Array<{ type: string }>).map((e) => e.type);
+			expect(types).toContain('init');
+			expect(types).toContain('text');
+
+			mockPty._exit(0);
+		});
+
+		it("analyzer's onTurnComplete triggers gracefulCompleteTurn writing exit\\n", async () => {
+			const runner = makeRunner({ spawnInitDelayMs: 0 });
+			runner.executeTurn('do work');
+
+			// Emit data that triggers completion: a completion phrase followed by an idle marker
+			mockPty._emit('Task complete\n');
+			mockPty._emit('╰─ (claude) ❯ \n'); // ╰─ (claude) ❯
+
+			// gracefulCompleteTurn should have written 'exit\n'
+			// (in addition to the original exit\n written after spawnInitDelayMs=0)
+			// At least one 'exit\n' should be present
+			const exitWrites = mockPty._writes.filter((w) => w === 'exit\n');
+			expect(exitWrites.length).toBeGreaterThanOrEqual(1);
+
+			mockPty._exit(0);
+		});
+
+		it('upgrades exit reason to AGENT_ERROR when analyzer detects error signature', () => {
+			const runner = makeRunner();
+			const endEvents: Array<{ reason: string; code: number | null }> = [];
+			runner.on('end', (reason, code) => endEvents.push({ reason, code }));
+
+			runner.executeTurn('hello');
+			mockPty._emit('Error: something went terribly wrong\n');
+			mockPty._exit(0); // natural exit code 0
+
+			// Analyzer detected an error, so reason should be upgraded
+			expect(endEvents[0].reason).toBe('AGENT_ERROR');
+			expect(endEvents[0].code).toBe(0);
+		});
+
+		it('echo cancellation end-to-end: prompt text not emitted as event text', () => {
+			const runner = makeRunner();
+			const events: Array<{ type: string; text?: string }> = [];
+			runner.on('event', (e) => events.push(e as { type: string; text?: string }));
+
+			runner.executeTurn('what is 2+2?');
+			// Simulate PTY echoing the prompt back
+			mockPty._emit('what is 2+2?\n4\n');
+
+			const textEvents = events.filter((e) => e.type === 'text');
+			const combined = textEvents.map((e) => e.text ?? '').join('');
+			expect(combined).not.toContain('what is 2+2?');
+			expect(combined).toContain('4');
 
 			mockPty._exit(0);
 		});

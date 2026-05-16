@@ -1,0 +1,22 @@
+# SYNTHETIC FIXTURE — hand-crafted based on observed Claude TUI output under TERM=dumb
+# Generated: 2026-05-16
+# Represents: a prompt that induces a Claude error (permission denied on bad path)
+
+╭─────────────────────────────────────────────────────────────╮
+│ Claude Code                                                  │
+╰─────────────────────────────────────────────────────────────╯
+
+> Read the file /root/secret/private-key.pem
+
+I'll try to read that file.
+
+Bash(cat /root/secret/private-key.pem)
+Error: Permission denied
+
+I was unable to read /root/secret/private-key.pem. The operation failed with:
+Error: Permission denied
+
+This is likely because the file requires elevated permissions. Please check that
+the file exists and that you have the necessary read permissions.
+
+╰─ (claude) ❯

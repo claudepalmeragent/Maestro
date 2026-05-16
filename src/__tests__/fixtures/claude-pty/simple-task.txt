@@ -1,0 +1,15 @@
+# SYNTHETIC FIXTURE — hand-crafted based on observed Claude TUI output under TERM=dumb
+# Generated: 2026-05-16
+# Represents: one-shot prompt, one-paragraph response, idle prompt return
+
+╭─────────────────────────────────────────────────────────────╮
+│ Claude Code                                                  │
+╰─────────────────────────────────────────────────────────────╯
+
+> What is the capital of France?
+
+The capital of France is Paris. It has been the capital since the 10th century
+and is one of the most populous cities in Europe, known for landmarks like the
+Eiffel Tower and the Louvre. Task complete.
+
+╰─ (claude) ❯

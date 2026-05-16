@@ -1,0 +1,25 @@
+# SYNTHETIC FIXTURE — hand-crafted based on observed Claude TUI output under TERM=dumb
+# Generated: 2026-05-16
+# Represents: prompt that triggers Bash + Read tool calls, then final response
+
+╭─────────────────────────────────────────────────────────────╮
+│ Claude Code                                                  │
+╰─────────────────────────────────────────────────────────────╯
+
+> Read the file /tmp/hello.txt and tell me its contents
+
+I'll read that file for you.
+
+Bash(cat /tmp/hello.txt)
+Hello, world!
+
+Read(/tmp/hello.txt)
+Hello, world!
+
+The file /tmp/hello.txt contains:
+
+  Hello, world!
+
+That's the complete contents of the file. Task complete.
+
+╰─ (claude) ❯
