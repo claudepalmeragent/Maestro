@@ -70,6 +70,7 @@ function createMockSession(overrides: Partial<Session> = {}): Session {
 		workLog: [],
 		contextUsage: 0,
 		inputMode: 'ai',
+		viewMode: 'ai',
 		aiPid: 0,
 		terminalPid: 0,
 		port: 0,

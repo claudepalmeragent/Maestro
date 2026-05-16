@@ -150,6 +150,7 @@ export function useSymphonyContribution(
 				workLog: [],
 				contextUsage: 0,
 				inputMode: 'ai',
+				viewMode: 'ai',
 				aiPid: 0,
 				terminalPid: 0,
 				port: 3000 + Math.floor(Math.random() * 100),

@@ -1,8 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Session, AITab, ThinkingMode } from '../../types';
+import type { Session, AITab, ThinkingMode, ViewMode } from '../../types';
 import { getInitialRenameValue } from '../../utils/tabHelpers';
 import { useModalStore } from '../../stores/modalStore';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { useSessionStore } from '../../stores/sessionStore';
+import { computeNextViewMode } from '../../utils/viewModeHelpers';
+
+export { computeNextViewMode };
 
 // Font size keyboard shortcut constants
 const FONT_SIZE_STEP = 2;
@@ -283,7 +287,25 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
 				);
 				if (activeTab?.wizardState?.isActive) return;
 				e.preventDefault();
-				ctx.toggleInputMode();
+				{
+					const { sessions, activeSessionId, setViewMode } = useSessionStore.getState();
+					const session = sessions.find((s) => s.id === activeSessionId);
+					if (session) {
+						const current: ViewMode = session.viewMode ?? 'ai';
+						// interactiveAvailable resolves false until ARDs 4+5 land (runner registry + transport cascade)
+						const interactiveAvailable = false;
+						const next = computeNextViewMode(current, interactiveAvailable);
+						// Sync inputMode when transitioning between ai and shell views so existing
+						// code that reads inputMode continues to work until Task 2.8 migrates it to viewMode.
+						const needsInputModeSync =
+							(next === 'ai' && session.inputMode !== 'ai') ||
+							(next === 'shell' && session.inputMode !== 'terminal');
+						if (needsInputModeSync) {
+							ctx.toggleInputMode();
+						}
+						setViewMode(activeSessionId, next);
+					}
+				}
 				// Auto-focus the input so user can start typing immediately
 				ctx.setActiveFocus('main');
 				setTimeout(() => ctx.inputRef.current?.focus(), FOCUS_AFTER_RENDER_DELAY_MS);
