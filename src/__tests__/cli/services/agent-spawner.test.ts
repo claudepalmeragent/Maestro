@@ -67,6 +67,30 @@ vi.mock('os', () => ({
 	homedir: vi.fn(() => '/Users/testuser'),
 }));
 
+// Shared state for ClaudePtyRunner mock instances (vi.hoisted so factory can reference it)
+const ptyRunnerCtrl = vi.hoisted(() => ({
+	instance: null as (EventEmitter & { executeTurn: ReturnType<typeof vi.fn> }) | null,
+}));
+
+// Mock settings-reader (returns undefined by default → falls through to 'legacy-print')
+vi.mock('../../../cli/services/settings-reader', () => ({
+	readClaudeCodeDefaultTransportModeFromSettings: vi.fn().mockReturnValue(undefined),
+}));
+
+// Mock ClaudePtyRunner — factory stores each constructed instance in ptyRunnerCtrl.
+// Regular function (not arrow) is required so `new ClaudePtyRunner(...)` works;
+// arrow functions cannot be used as constructors.
+vi.mock('../../../main/utils/claude-pty-runner', () => {
+	const EE = require('node:events').EventEmitter;
+	return {
+		ClaudePtyRunner: vi.fn(function ClaudePtyRunnerMock(this: unknown) {
+			const instance = Object.assign(new EE(), { executeTurn: vi.fn() });
+			ptyRunnerCtrl.instance = instance;
+			return instance;
+		}),
+	};
+});
+
 // Mock storage service
 const mockGetAgentCustomPath = vi.fn();
 vi.mock('../../../cli/services/storage', () => ({
@@ -85,6 +109,8 @@ import {
 	spawnAgent,
 	AgentResult,
 } from '../../../cli/services/agent-spawner';
+import { readClaudeCodeDefaultTransportModeFromSettings } from '../../../cli/services/settings-reader';
+import { ClaudePtyRunner } from '../../../main/utils/claude-pty-runner';
 
 describe('agent-spawner', () => {
 	beforeEach(() => {
@@ -769,6 +795,11 @@ Some text with [x] in it that's not a checkbox
 	describe('spawnAgent', () => {
 		beforeEach(() => {
 			mockSpawn.mockReturnValue(mockChild);
+			process.env.MAESTRO_CLAUDE_TRANSPORT_MODE = 'legacy-print';
+		});
+
+		afterEach(() => {
+			delete process.env.MAESTRO_CLAUDE_TRANSPORT_MODE;
 		});
 
 		it('should spawn Claude with correct arguments', async () => {
@@ -1218,11 +1249,13 @@ Some text with [x] in it that's not a checkbox
 			mockSpawn.mockReturnValue(mockChild);
 			// Mock platform to darwin for Unix path testing
 			Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
+			process.env.MAESTRO_CLAUDE_TRANSPORT_MODE = 'legacy-print';
 		});
 
 		afterEach(() => {
 			// Restore original platform
 			Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
+			delete process.env.MAESTRO_CLAUDE_TRANSPORT_MODE;
 		});
 
 		it('should include homebrew paths', async () => {
@@ -1377,6 +1410,227 @@ Some text with [x] in it that's not a checkbox
 			expect(fs.promises.access).not.toHaveBeenCalled();
 
 			Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
+		});
+	});
+
+	describe('interactive-pty mode', () => {
+		beforeEach(() => {
+			process.env.MAESTRO_CLAUDE_TRANSPORT_MODE = 'interactive-pty';
+			ptyRunnerCtrl.instance = null;
+			// Re-apply after vi.restoreAllMocks() may have cleared the implementation.
+			// Use a regular function (not arrow) so `new ClaudePtyRunner(...)` works.
+			vi.mocked(ClaudePtyRunner).mockImplementation(function ClaudePtyRunnerImpl(this: unknown) {
+				const EE = require('node:events').EventEmitter;
+				const inst = Object.assign(new EE(), { executeTurn: vi.fn() });
+				ptyRunnerCtrl.instance = inst;
+				return inst;
+			});
+		});
+
+		afterEach(() => {
+			delete process.env.MAESTRO_CLAUDE_TRANSPORT_MODE;
+		});
+
+		it('ClaudePtyRunner constructed with stripped args (no --print or stream-json)', async () => {
+			const resultPromise = spawnAgent('claude-code', '/project', 'prompt');
+			await new Promise((r) => setTimeout(r, 0));
+
+			expect(ClaudePtyRunner).toHaveBeenCalled();
+			const ctorArgs = vi.mocked(ClaudePtyRunner).mock.calls[0][0];
+			expect(ctorArgs.claudeBaseArgs).not.toContain('--print');
+			expect(ctorArgs.claudeBaseArgs).not.toContain('stream-json');
+			expect(ctorArgs.cwd).toBe('/project');
+
+			const runner = ptyRunnerCtrl.instance!;
+			runner.emit('event', { type: 'result', text: 'done', sessionId: 'sid' });
+			runner.emit('end', 'SUCCESS', 0);
+			const result = await resultPromise;
+			expect(result.success).toBe(true);
+		});
+
+		it('env strips ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN', async () => {
+			process.env.ANTHROPIC_API_KEY = 'sk-test-key';
+			process.env.ANTHROPIC_AUTH_TOKEN = 'auth-token';
+
+			const resultPromise = spawnAgent('claude-code', '/project', 'prompt');
+			await new Promise((r) => setTimeout(r, 0));
+
+			const ctorArgs = vi.mocked(ClaudePtyRunner).mock.calls[0][0];
+			expect(ctorArgs.env.ANTHROPIC_API_KEY).toBeUndefined();
+			expect(ctorArgs.env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
+
+			delete process.env.ANTHROPIC_API_KEY;
+			delete process.env.ANTHROPIC_AUTH_TOKEN;
+
+			const runner = ptyRunnerCtrl.instance!;
+			runner.emit('event', { type: 'result', text: 'done', sessionId: 'sid' });
+			runner.emit('end', 'SUCCESS', 0);
+			await resultPromise;
+		});
+
+		it('executeTurn called with prompt', async () => {
+			const resultPromise = spawnAgent('claude-code', '/project', 'my prompt here');
+			await new Promise((r) => setTimeout(r, 0));
+
+			const runner = ptyRunnerCtrl.instance!;
+			expect(runner.executeTurn).toHaveBeenCalledWith('my prompt here');
+
+			runner.emit('event', { type: 'result', text: 'done', sessionId: 'sid' });
+			runner.emit('end', 'SUCCESS', 0);
+			await resultPromise;
+		});
+
+		it('event callbacks produce AgentResult shape matching legacy output', async () => {
+			const resultPromise = spawnAgent('claude-code', '/project', 'prompt');
+			await new Promise((r) => setTimeout(r, 0));
+
+			const runner = ptyRunnerCtrl.instance!;
+			runner.emit('event', { type: 'init', sessionId: 'session-abc' });
+			runner.emit('event', { type: 'result', text: 'The response', sessionId: 'session-abc' });
+			runner.emit('event', {
+				type: 'usage',
+				usage: {
+					inputTokens: 100,
+					outputTokens: 50,
+					cacheReadTokens: 10,
+					cacheCreationTokens: 5,
+					costUsd: 0.01,
+					contextWindow: 200000,
+				},
+			});
+			runner.emit('end', 'SUCCESS', 0);
+
+			const result = await resultPromise;
+			expect(result.success).toBe(true);
+			expect(result.response).toBe('The response');
+			expect(result.agentSessionId).toBe('session-abc');
+			expect(result.usageStats?.inputTokens).toBe(100);
+			expect(result.usageStats?.outputTokens).toBe(50);
+			expect(result.usageStats?.totalCostUsd).toBe(0.01);
+		});
+
+		it("'end'('SUCCESS', 0) resolves success with captured response", async () => {
+			const resultPromise = spawnAgent('claude-code', '/project', 'prompt');
+			await new Promise((r) => setTimeout(r, 0));
+
+			const runner = ptyRunnerCtrl.instance!;
+			runner.emit('event', { type: 'result', text: 'success text', sessionId: 'sid' });
+			runner.emit('end', 'SUCCESS', 0);
+
+			const result = await resultPromise;
+			expect(result.success).toBe(true);
+			expect(result.response).toBe('success text');
+		});
+
+		it("'end'('AGENT_ERROR', 1) resolves failure with error message", async () => {
+			const resultPromise = spawnAgent('claude-code', '/project', 'prompt');
+			await new Promise((r) => setTimeout(r, 0));
+
+			const runner = ptyRunnerCtrl.instance!;
+			runner.emit('end', 'AGENT_ERROR', 1);
+
+			const result = await resultPromise;
+			expect(result.success).toBe(false);
+			expect(result.error).toContain('AGENT_ERROR');
+			expect(result.error).toContain('1');
+		});
+
+		it('throwing constructor produces error result with rollback hint', async () => {
+			// Override with a throwing regular function for this one test
+			vi.mocked(ClaudePtyRunner).mockImplementation(function throwingImpl(this: unknown) {
+				throw new Error('pty init failed');
+			});
+
+			const result = await spawnAgent('claude-code', '/project', 'prompt');
+			expect(result.success).toBe(false);
+			expect(result.error).toContain('pty init failed');
+			expect(result.error).toContain('legacy-print');
+		});
+	});
+
+	describe('cascade fallback', () => {
+		beforeEach(() => {
+			ptyRunnerCtrl.instance = null;
+			// Re-apply after vi.restoreAllMocks() may have cleared the implementation.
+			vi.mocked(ClaudePtyRunner).mockImplementation(function ClaudePtyRunnerImpl(this: unknown) {
+				const EE = require('node:events').EventEmitter;
+				const inst = Object.assign(new EE(), { executeTurn: vi.fn() });
+				ptyRunnerCtrl.instance = inst;
+				return inst;
+			});
+		});
+
+		afterEach(() => {
+			delete process.env.MAESTRO_CLAUDE_TRANSPORT_MODE;
+		});
+
+		it('env var unset + settings file missing → legacy-print (uses child_process.spawn)', async () => {
+			delete process.env.MAESTRO_CLAUDE_TRANSPORT_MODE;
+			vi.mocked(readClaudeCodeDefaultTransportModeFromSettings).mockReturnValueOnce(undefined);
+			mockSpawn.mockReturnValue(mockChild);
+
+			const resultPromise = spawnAgent('claude-code', '/project', 'prompt');
+			await new Promise((r) => setTimeout(r, 0));
+
+			expect(mockSpawn).toHaveBeenCalled();
+			expect(ClaudePtyRunner).not.toHaveBeenCalled();
+
+			mockStdout.emit('data', Buffer.from('{"type":"result","result":"done"}\n'));
+			mockChild.emit('close', 0);
+			const result = await resultPromise;
+			expect(result.success).toBe(true);
+		});
+
+		it('env var unset + settings has interactive-pty → interactive path (uses ClaudePtyRunner)', async () => {
+			delete process.env.MAESTRO_CLAUDE_TRANSPORT_MODE;
+			vi.mocked(readClaudeCodeDefaultTransportModeFromSettings).mockReturnValueOnce(
+				'interactive-pty'
+			);
+
+			const resultPromise = spawnAgent('claude-code', '/project', 'prompt');
+			await new Promise((r) => setTimeout(r, 0));
+
+			expect(ClaudePtyRunner).toHaveBeenCalled();
+			expect(mockSpawn).not.toHaveBeenCalled();
+
+			const runner = ptyRunnerCtrl.instance!;
+			runner.emit('event', { type: 'result', text: 'done', sessionId: 'sid' });
+			runner.emit('end', 'SUCCESS', 0);
+			await resultPromise;
+		});
+
+		it('env var=interactive-pty overrides settings legacy-print → interactive path', async () => {
+			process.env.MAESTRO_CLAUDE_TRANSPORT_MODE = 'interactive-pty';
+			vi.mocked(readClaudeCodeDefaultTransportModeFromSettings).mockReturnValueOnce('legacy-print');
+
+			const resultPromise = spawnAgent('claude-code', '/project', 'prompt');
+			await new Promise((r) => setTimeout(r, 0));
+
+			expect(ClaudePtyRunner).toHaveBeenCalled();
+			expect(mockSpawn).not.toHaveBeenCalled();
+
+			const runner = ptyRunnerCtrl.instance!;
+			runner.emit('event', { type: 'result', text: 'done', sessionId: 'sid' });
+			runner.emit('end', 'SUCCESS', 0);
+			await resultPromise;
+		});
+
+		it('env var=legacy-print overrides settings interactive-pty → legacy path', async () => {
+			process.env.MAESTRO_CLAUDE_TRANSPORT_MODE = 'legacy-print';
+			vi.mocked(readClaudeCodeDefaultTransportModeFromSettings).mockReturnValueOnce(
+				'interactive-pty'
+			);
+			mockSpawn.mockReturnValue(mockChild);
+
+			const resultPromise = spawnAgent('claude-code', '/project', 'prompt');
+			await new Promise((r) => setTimeout(r, 0));
+
+			expect(mockSpawn).toHaveBeenCalled();
+			expect(ClaudePtyRunner).not.toHaveBeenCalled();
+
+			mockStdout.emit('data', Buffer.from('{"type":"result","result":"done"}\n'));
+			mockChild.emit('close', 0);
+			await resultPromise;
 		});
 	});
 });

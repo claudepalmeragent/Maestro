@@ -15,6 +15,13 @@ import { getAgentCustomPath } from './storage';
 import { generateUUID } from '../../shared/uuid';
 import { buildExpandedPath, buildExpandedEnv } from '../../shared/pathUtils';
 import { isWindows, getWhichCommand } from '../../shared/platformDetection';
+import {
+	resolveCliClaudeTransportMode,
+	stripPrintArgs,
+	deriveStableClaudeSessionId,
+} from '../../main/utils/claude-pty-helpers';
+import { ClaudePtyRunner } from '../../main/utils/claude-pty-runner';
+import { readClaudeCodeDefaultTransportModeFromSettings } from './settings-reader';
 
 // Claude Code arguments for batch mode (stream-json format)
 const CLAUDE_ARGS = [
@@ -163,6 +170,26 @@ export const getDroidCommand = () => getAgentCommand('factory-droid');
 /**
  * Spawn Claude Code with a prompt and return the result.
  *
+ * Dispatches to spawnClaudeAgentLegacyPrint (--print + stream-json, byte-identical to
+ * pre-ARD-7 behavior) or spawnClaudeAgentInteractivePty (ClaudePtyRunner) based on
+ * the resolved transport mode: env-var > app settings > 'legacy-print' default.
+ */
+export async function spawnClaudeAgent(
+	cwd: string,
+	prompt: string,
+	agentSessionId?: string,
+	maestroSessionId?: string
+): Promise<AgentResult> {
+	const globalDefault = readClaudeCodeDefaultTransportModeFromSettings();
+	const mode = resolveCliClaudeTransportMode(globalDefault ?? 'legacy-print');
+	if (mode === 'legacy-print') return spawnClaudeAgentLegacyPrint(cwd, prompt, agentSessionId);
+	return spawnClaudeAgentInteractivePty(cwd, prompt, agentSessionId, maestroSessionId);
+}
+
+/**
+ * Legacy --print / stream-json implementation.
+ *
+ * Preserved byte-for-byte as the rollback path per dual-mode mandate (stays forever).
  * NOTE: CLI spawner does not apply applyAgentConfigOverrides() or SSH wrapping.
  * Designed for headless batch execution without access to the Electron settings
  * store or per-session agent configuration. Custom model, args, env vars, and
@@ -171,7 +198,7 @@ export const getDroidCommand = () => getAgentCommand('factory-droid');
  * Claude uses a unique JSON format (stream-json) that differs from the
  * AgentOutputParser interface used by other agents, so it has its own spawner.
  */
-async function spawnClaudeAgent(
+async function spawnClaudeAgentLegacyPrint(
 	cwd: string,
 	prompt: string,
 	agentSessionId?: string
@@ -284,6 +311,113 @@ async function spawnClaudeAgent(
 				error: `Failed to spawn Claude: ${error.message}`,
 			});
 		});
+	});
+}
+
+/**
+ * Interactive-PTY implementation using ClaudePtyRunner.
+ *
+ * Strips --print and stream-json args, derives a stable --session-id, strips
+ * ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN (subscription billing), and drives the
+ * runner's event stream to produce the same AgentResult shape as the legacy path.
+ */
+async function spawnClaudeAgentInteractivePty(
+	cwd: string,
+	prompt: string,
+	agentSessionId?: string,
+	maestroSessionId?: string
+): Promise<AgentResult> {
+	const resolvedMaestroSessionId = maestroSessionId ?? generateUUID();
+
+	const args = stripPrintArgs([...CLAUDE_ARGS]);
+	if (agentSessionId) {
+		args.push('--resume', agentSessionId);
+	} else {
+		args.push('--session-id', deriveStableClaudeSessionId(resolvedMaestroSessionId));
+	}
+
+	const rawEnv = buildExpandedEnv();
+	delete rawEnv.ANTHROPIC_API_KEY;
+	delete rawEnv.ANTHROPIC_AUTH_TOKEN;
+	const env = Object.fromEntries(
+		Object.entries(rawEnv).filter((entry): entry is [string, string] => entry[1] !== undefined)
+	);
+
+	return new Promise((resolve) => {
+		let runner: ClaudePtyRunner;
+		try {
+			runner = new ClaudePtyRunner({
+				maestroSessionId: resolvedMaestroSessionId,
+				claudeBinary: getAgentCommand('claude-code'),
+				claudeBaseArgs: args,
+				cwd,
+				env,
+				claudeSessionIdOverride: agentSessionId,
+			});
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			resolve({
+				success: false,
+				error: `ClaudePtyRunner construction failed: ${msg}. Set MAESTRO_CLAUDE_TRANSPORT_MODE=legacy-print to revert.`,
+			});
+			return;
+		}
+
+		let response: string | undefined;
+		let capturedSessionId: string | undefined;
+		let usageStats: UsageStats | undefined;
+
+		runner.on('event', (e) => {
+			if ((e.type === 'init' || e.type === 'result') && e.sessionId && !capturedSessionId) {
+				capturedSessionId = e.sessionId;
+			}
+			if (e.type === 'result' && e.text) {
+				response = response ? `${response}\n${e.text}` : e.text;
+			}
+			if (e.type === 'usage' && e.usage) {
+				usageStats = mergeUsageStats(usageStats, {
+					inputTokens: e.usage.inputTokens || 0,
+					outputTokens: e.usage.outputTokens || 0,
+					cacheReadTokens: e.usage.cacheReadTokens || 0,
+					cacheCreationTokens: e.usage.cacheCreationTokens || 0,
+					costUsd: e.usage.costUsd || 0,
+					contextWindow: e.usage.contextWindow || 0,
+					reasoningTokens: e.usage.reasoningTokens || 0,
+				});
+			}
+		});
+
+		runner.on('end', (exitReason, exitCode) => {
+			if (exitReason === 'SUCCESS' && response) {
+				resolve({
+					success: true,
+					response,
+					agentSessionId: capturedSessionId,
+					usageStats,
+				});
+			} else {
+				resolve({
+					success: false,
+					response,
+					agentSessionId: capturedSessionId,
+					usageStats,
+					error:
+						exitReason !== 'SUCCESS'
+							? `Runner ended with ${exitReason} (exit code ${exitCode}). Set MAESTRO_CLAUDE_TRANSPORT_MODE=legacy-print to revert.`
+							: 'Runner exited successfully but produced no response.',
+				});
+			}
+		});
+
+		try {
+			runner.executeTurn(prompt);
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			resolve({
+				success: false,
+				error: `ClaudePtyRunner executeTurn failed: ${msg}. Set MAESTRO_CLAUDE_TRANSPORT_MODE=legacy-print to revert.`,
+			});
+		}
 	});
 }
 
@@ -463,10 +597,11 @@ export async function spawnAgent(
 	toolType: ToolType,
 	cwd: string,
 	prompt: string,
-	agentSessionId?: string
+	agentSessionId?: string,
+	maestroSessionId?: string
 ): Promise<AgentResult> {
 	if (toolType === 'claude-code') {
-		return spawnClaudeAgent(cwd, prompt, agentSessionId);
+		return spawnClaudeAgent(cwd, prompt, agentSessionId, maestroSessionId);
 	}
 
 	if (hasCapability(toolType, 'usesJsonLineOutput')) {

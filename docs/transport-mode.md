@@ -116,12 +116,32 @@ When running Maestro via the CLI or in headless automation, the `MAESTRO_CLAUDE_
 MAESTRO_CLAUDE_TRANSPORT_MODE=interactive-pty maestro run my-playbook.md
 ```
 
-Valid values: `legacy-print`, `interactive-pty`. This is typically handled automatically by CLI tooling (ARD 7/05) and does not affect the UI controls.
+Valid values: `legacy-print`, `interactive-pty`. This is typically handled automatically by CLI tooling and does not affect the UI controls.
+
+### CLI / Auto Run Cascade
+
+The standalone CLI (playbooks, `maestro run`, Auto Run batch jobs) resolves transport mode through a simplified three-level cascade — the per-tab/agent/project levels have no meaning in headless context:
+
+```
+MAESTRO_CLAUDE_TRANSPORT_MODE env var  (highest priority)
+         ↓  (if unset or invalid)
+claudeCodeDefaultTransportMode from Maestro settings file
+         ↓  (if file missing or setting absent)
+'legacy-print'  (default — byte-identical behavior to pre-ARD-7 CLI)
+```
+
+**Rollback:** If Interactive PTY runner construction fails (e.g., `node-pty` unavailable in the runtime), the CLI surfaces the error and the hint `Set MAESTRO_CLAUDE_TRANSPORT_MODE=legacy-print to revert`. The legacy path is always available as a fallback by setting the env var.
+
+**API key stripping:** When the CLI resolves to `interactive-pty`, `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN` are removed from the spawned process environment — the interactive runner uses Claude's built-in credential flow instead. When the CLI resolves to `legacy-print`, these keys are passed through unchanged.
+
+**Implementation:** `src/cli/services/agent-spawner.ts` → `resolveCliClaudeTransportMode()` (reads env var and settings file); `src/cli/services/settings-reader.ts` → `readClaudeCodeDefaultTransportModeFromSettings()` (reads the electron-store config.json written by the Maestro app).
 
 ## Spawn Behavior
 
 <Note>
-Zero spawn-behavior change is in effect until the PTY runner is wired in a future Maestro release. Both modes currently produce identical spawns. The cascade, UI controls, and persistence are available now so settings can be pre-configured before the runner ships.
+**CLI / Auto Run:** As of ARD 7 (CLAUDE-PTY-05), the standalone CLI (`maestro run`, Auto Run batch jobs) has true dual-mode support. Setting `MAESTRO_CLAUDE_TRANSPORT_MODE=interactive-pty` (or `claudeCodeDefaultTransportMode` in Maestro settings) will route CLI spawns through `ClaudePtyRunner` instead of `claude --print`.
+
+**Electron UI:** Zero spawn-behavior change is in effect for the Electron UI until the PTY runner is fully wired into the interactive UI path. The cascade, UI controls, and persistence are available now so settings can be pre-configured.
 </Note>
 
 ## Technical Reference

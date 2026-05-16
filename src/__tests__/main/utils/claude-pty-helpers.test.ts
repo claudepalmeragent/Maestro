@@ -1,9 +1,10 @@
-import { describe, it, expect, test } from 'vitest';
+import { describe, it, expect, test, beforeEach, afterEach } from 'vitest';
 import {
 	stripPrintArgs,
 	deriveStableClaudeSessionId,
 	cleanTerminalChunk,
 	resolveClaudeTransportMode,
+	resolveCliClaudeTransportMode,
 	describeCascadeSource,
 } from '../../../main/utils/claude-pty-helpers';
 
@@ -207,6 +208,49 @@ describe('resolveClaudeTransportMode', () => {
 				APP_DEFAULT
 			)
 		).toBe('interactive-pty');
+	});
+});
+
+describe('resolveCliClaudeTransportMode', () => {
+	const originalEnv = process.env.MAESTRO_CLAUDE_TRANSPORT_MODE;
+
+	afterEach(() => {
+		if (originalEnv === undefined) {
+			delete process.env.MAESTRO_CLAUDE_TRANSPORT_MODE;
+		} else {
+			process.env.MAESTRO_CLAUDE_TRANSPORT_MODE = originalEnv;
+		}
+	});
+
+	it('env var interactive-pty takes precedence over legacy-print default', () => {
+		process.env.MAESTRO_CLAUDE_TRANSPORT_MODE = 'interactive-pty';
+		expect(resolveCliClaudeTransportMode('legacy-print')).toBe('interactive-pty');
+	});
+
+	it('env var legacy-print takes precedence over interactive-pty default', () => {
+		process.env.MAESTRO_CLAUDE_TRANSPORT_MODE = 'legacy-print';
+		expect(resolveCliClaudeTransportMode('interactive-pty')).toBe('legacy-print');
+	});
+
+	it('invalid env var value falls through to global default', () => {
+		process.env.MAESTRO_CLAUDE_TRANSPORT_MODE = 'invalid-value';
+		expect(resolveCliClaudeTransportMode('legacy-print')).toBe('legacy-print');
+		expect(resolveCliClaudeTransportMode('interactive-pty')).toBe('interactive-pty');
+	});
+
+	it('unset env var uses global default legacy-print', () => {
+		delete process.env.MAESTRO_CLAUDE_TRANSPORT_MODE;
+		expect(resolveCliClaudeTransportMode('legacy-print')).toBe('legacy-print');
+	});
+
+	it('unset env var uses global default interactive-pty', () => {
+		delete process.env.MAESTRO_CLAUDE_TRANSPORT_MODE;
+		expect(resolveCliClaudeTransportMode('interactive-pty')).toBe('interactive-pty');
+	});
+
+	it('no arguments defaults to legacy-print when env is unset', () => {
+		delete process.env.MAESTRO_CLAUDE_TRANSPORT_MODE;
+		expect(resolveCliClaudeTransportMode()).toBe('legacy-print');
 	});
 });
 
