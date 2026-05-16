@@ -582,6 +582,12 @@ Numerous community PRs were merged during this period:
 
 ---
 
+## 11. Interactive PTY Transport Mode (ARD 1–8, May 2026)
+
+Added optional `interactive-pty` Claude Code transport for spawns to avoid Anthropic's 2026-06-15 API-tier billing on `--print` and Agent SDK. The new `ClaudePtyRunner` controls and parses an interactive `claude` PTY session and emits the same `ParsedEvent` stream the legacy `--print` parser produces — Maestro UI works identically. New 4-level cascade (`tab > agent > project > app`) with strict-ratchet semantics gates which sessions use the new mode; default everywhere is `legacy-print` (current behavior). New Live Interactive Mode view (Cmd+J 3-way cycle) renders the raw PTY stream in xterm.js with a Take Control button for direct user manipulation. Mixed billing supported (e.g., Max subscription in one project, client API key in another). Phase 2 will add Anthropic-blessed `--ide` MCP integration on top of this runner.
+
+---
+
 ## Summary
 
 This fork has matured from a local-first multi-agent manager to a production-grade distributed orchestration platform. The February 17 – March 16 period delivered three transformational changes: (1) the App.tsx decomposition from 14,000 to 4,000 lines via 15+ hook extractions and Zustand store migration, (2) a successful upstream merge with v0.15.2 including full restoration of all 42 fork features lost during merge, and (3) comprehensive SSH hardening completing all three previously-unfinished error routing phases plus a new file tree optimization layer. Additionally, the security posture was significantly improved with CSP, sandbox, DOMPurify, path traversal guards, and protocol whitelisting. The platform now supports git worktree-based Auto Run dispatching with automatic PR creation, GPU monitoring, Honeycomb MCP integration for usage tracking, and has incorporated 25+ community PRs. The remaining deferred items (zero-value averaging, retroactive data backfill) are low-priority cosmetic improvements.

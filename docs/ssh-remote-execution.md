@@ -319,6 +319,20 @@ Maestro uses up to 8 of the default 10 session slots for file operations, reserv
 - Remote working directories should have appropriate access controls
 - Environment variables may contain sensitive data; they're passed via SSH command line
 
+## Transport Mode for SSH Sessions
+
+SSH Claude Code sessions participate in the same [Transport Mode Cascade](./transport-mode) as local sessions. The transport mode for an SSH session is resolved at spawn time from the four-level cascade (`tab → agent → project → app`).
+
+When the resolved mode is `interactive-pty`, Maestro uses a `ClaudePtyRunner` backed by `ssh -tt` rather than the legacy `--print` stdin-passthrough path. This means:
+
+- The remote `claude` process runs interactively over the SSH PTY (no `--print` flag).
+- `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN` are **not** forwarded to the remote environment — the session uses Claude Max subscription billing on the remote account.
+- The AI Terminal renders identically to a local interactive-pty session.
+
+When the resolved mode is `legacy-print` (the default), the existing SSH stdin-passthrough path is used unchanged.
+
+To configure transport mode for SSH sessions, set the mode at the project, agent, or app level in **Settings → General → Claude Code Transport Mode**. See [Transport Mode Cascade](./transport-mode) for full details.
+
 ## Limitations
 
 - Network latency affects perceived responsiveness
