@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, act } from '@testing-library/react';
+import { render, screen, act, fireEvent, within } from '@testing-library/react';
 import { AgentConfigPanel } from '../../../../renderer/components/shared/AgentConfigPanel';
 import type { Theme, AgentConfig } from '../../../../renderer/types';
 
@@ -490,6 +490,164 @@ describe('AgentConfigPanel', () => {
 			expect(
 				screen.getByText(/Override the detected model for cost calculations/)
 			).toBeInTheDocument();
+		});
+	});
+
+	describe('Transport mode (claude-code agent)', () => {
+		const onAgentTransportModeChange = vi.fn();
+
+		beforeEach(() => {
+			onAgentTransportModeChange.mockReset();
+		});
+
+		it('should NOT render transport mode section when agent is not claude-code', () => {
+			render(
+				<AgentConfigPanel
+					{...createDefaultProps({
+						agent: createMockAgent({ id: 'codex' }),
+						onAgentTransportModeChange,
+						agentTransportMode: undefined,
+						appTransportMode: 'legacy-print',
+					})}
+				/>
+			);
+
+			expect(screen.queryByText(/Claude Code Transport Mode/i)).not.toBeInTheDocument();
+		});
+
+		it('should NOT render transport mode section when onAgentTransportModeChange is not provided', () => {
+			render(
+				<AgentConfigPanel
+					{...createDefaultProps({
+						agent: createMockAgent({ id: 'claude-code' }),
+						appTransportMode: 'legacy-print',
+					})}
+				/>
+			);
+
+			expect(screen.queryByText(/Claude Code Transport Mode/i)).not.toBeInTheDocument();
+		});
+
+		/** Helper: find the transport mode section element containing the label */
+		function getTransportModeSection() {
+			const label = screen.getByText(/Claude Code Transport Mode/i);
+			// Walk up to find the rounded-border section container
+			return label.closest('[class*="rounded"][class*="border"]') as HTMLElement;
+		}
+
+		it('should render editable select when cascade from above is legacy-print', () => {
+			render(
+				<AgentConfigPanel
+					{...createDefaultProps({
+						agent: createMockAgent({ id: 'claude-code' }),
+						onAgentTransportModeChange,
+						agentTransportMode: undefined,
+						projectTransportMode: undefined,
+						appTransportMode: 'legacy-print',
+					})}
+				/>
+			);
+
+			expect(screen.getByText(/Claude Code Transport Mode/i)).toBeInTheDocument();
+			// Should show editable dropdown (not read-only) within the transport mode section
+			const section = getTransportModeSection();
+			expect(within(section).getByRole('combobox')).toBeInTheDocument();
+			expect(
+				screen.queryByText(/Inherited from (project|app): Interactive PTY/i)
+			).not.toBeInTheDocument();
+		});
+
+		it('should render read-only indicator when project forces interactive-pty', () => {
+			render(
+				<AgentConfigPanel
+					{...createDefaultProps({
+						agent: createMockAgent({ id: 'claude-code' }),
+						onAgentTransportModeChange,
+						agentTransportMode: undefined,
+						projectTransportMode: 'interactive-pty',
+						appTransportMode: 'legacy-print',
+					})}
+				/>
+			);
+
+			expect(screen.getByText(/Inherited from project: Interactive PTY/i)).toBeInTheDocument();
+			// Within the transport mode section, there should be no combobox (read-only text instead)
+			const section = getTransportModeSection();
+			expect(within(section).queryByRole('combobox')).not.toBeInTheDocument();
+		});
+
+		it('should render read-only indicator when app forces interactive-pty', () => {
+			render(
+				<AgentConfigPanel
+					{...createDefaultProps({
+						agent: createMockAgent({ id: 'claude-code' }),
+						onAgentTransportModeChange,
+						agentTransportMode: undefined,
+						projectTransportMode: undefined,
+						appTransportMode: 'interactive-pty',
+					})}
+				/>
+			);
+
+			expect(screen.getByText(/Inherited from app: Interactive PTY/i)).toBeInTheDocument();
+			// Within the transport mode section, there should be no combobox (read-only text instead)
+			const section = getTransportModeSection();
+			expect(within(section).queryByRole('combobox')).not.toBeInTheDocument();
+		});
+
+		it('should call onAgentTransportModeChange when select value changes to interactive-pty', async () => {
+			render(
+				<AgentConfigPanel
+					{...createDefaultProps({
+						agent: createMockAgent({ id: 'claude-code' }),
+						onAgentTransportModeChange,
+						agentTransportMode: undefined,
+						projectTransportMode: undefined,
+						appTransportMode: 'legacy-print',
+					})}
+				/>
+			);
+
+			const section = getTransportModeSection();
+			const select = within(section).getByRole('combobox');
+			fireEvent.change(select, { target: { value: 'interactive-pty' } });
+
+			expect(onAgentTransportModeChange).toHaveBeenCalledWith('interactive-pty');
+		});
+
+		it('should call onAgentTransportModeChange with undefined when inherit option is selected', async () => {
+			render(
+				<AgentConfigPanel
+					{...createDefaultProps({
+						agent: createMockAgent({ id: 'claude-code' }),
+						onAgentTransportModeChange,
+						agentTransportMode: 'interactive-pty',
+						projectTransportMode: undefined,
+						appTransportMode: 'legacy-print',
+					})}
+				/>
+			);
+
+			const section = getTransportModeSection();
+			const select = within(section).getByRole('combobox');
+			fireEvent.change(select, { target: { value: '' } });
+
+			expect(onAgentTransportModeChange).toHaveBeenCalledWith(undefined);
+		});
+
+		it('should show strict-ratchet help text', () => {
+			render(
+				<AgentConfigPanel
+					{...createDefaultProps({
+						agent: createMockAgent({ id: 'claude-code' }),
+						onAgentTransportModeChange,
+						agentTransportMode: undefined,
+						appTransportMode: 'legacy-print',
+					})}
+				/>
+			);
+
+			expect(screen.getByText(/strict ratchet/i)).toBeInTheDocument();
 		});
 	});
 });

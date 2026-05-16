@@ -7,7 +7,7 @@ import type {
 	UnifiedTabRef,
 	FilePreviewHistoryEntry,
 } from '../../types';
-import type { ThinkingMode } from '../../../shared/types';
+import type { ThinkingMode, TransportMode } from '../../../shared/types';
 import {
 	setActiveTab,
 	createTab,
@@ -83,6 +83,7 @@ export interface TabHandlersReturn {
 	handleToggleTabReadOnlyMode: () => void;
 	handleToggleTabSaveToHistory: () => void;
 	handleToggleTabShowThinking: () => void;
+	handleSetTabTransportMode: (mode: TransportMode | undefined) => void;
 
 	// File Tab handlers
 	handleOpenFileTab: (file: FileTabOpenParams, options?: { openInNewTab?: boolean }) => void;
@@ -1261,6 +1262,25 @@ export function useTabHandlers(): TabHandlersReturn {
 		);
 	}, []);
 
+	const handleSetTabTransportMode = useCallback((mode: TransportMode | undefined) => {
+		const { sessions, activeSessionId, setSessions } = useSessionStore.getState();
+		const session = sessions.find((s) => s.id === activeSessionId);
+		if (!session) return;
+		const currentActiveTab = getActiveTab(session);
+		if (!currentActiveTab) return;
+		setSessions((prev: Session[]) =>
+			prev.map((s) => {
+				if (s.id !== activeSessionId) return s;
+				return {
+					...s,
+					aiTabs: s.aiTabs.map((tab) =>
+						tab.id === currentActiveTab.id ? { ...tab, transportMode: mode } : tab
+					),
+				};
+			})
+		);
+	}, []);
+
 	// ========================================================================
 	// Scroll State
 	// ========================================================================
@@ -1515,6 +1535,7 @@ export function useTabHandlers(): TabHandlersReturn {
 		handleToggleTabReadOnlyMode,
 		handleToggleTabSaveToHistory,
 		handleToggleTabShowThinking,
+		handleSetTabTransportMode,
 
 		// File Tab handlers
 		handleOpenFileTab,

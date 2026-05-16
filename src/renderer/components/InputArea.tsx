@@ -27,6 +27,8 @@ import type {
 	ThinkingMode,
 	ThinkingItem,
 } from '../types';
+import type { TransportMode } from '../../shared/types';
+import { describeCascadeSource } from '../../shared/transport-mode';
 import {
 	formatShortcutKeys,
 	formatEnterToSend,
@@ -50,6 +52,7 @@ import { HoneycombWarningSash } from './HoneycombWarningSash';
 import { BudgetBarInline } from './BudgetBarInline';
 import { useHoneycombUsage } from '../hooks/useHoneycombUsage';
 import { useSettings } from '../hooks/settings/useSettings';
+import { useSessionStore } from '../stores/sessionStore';
 import { getModalActions } from '../stores/modalStore';
 import { SummarizeProgressOverlay } from './SummarizeProgressOverlay';
 import { WizardInputPanel } from './InlineWizard';
@@ -151,6 +154,9 @@ interface InputAreaProps {
 	tabShowThinking?: ThinkingMode;
 	onToggleTabShowThinking?: () => void;
 	supportsThinking?: boolean; // From agent capabilities
+	// Transport mode (per-tab) - only relevant for claude-code agents
+	tabTransportMode?: TransportMode;
+	onSetTabTransportMode?: (mode: TransportMode | undefined) => void;
 	// Context warning sash props (Phase 6)
 	contextUsage?: number; // 0-100 percentage
 	contextWarningsEnabled?: boolean;
@@ -257,6 +263,8 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 		tabShowThinking = 'off',
 		onToggleTabShowThinking,
 		supportsThinking = false,
+		tabTransportMode,
+		onSetTabTransportMode,
 		// Context warning sash props (Phase 6)
 		contextUsage = 0,
 		contextWarningsEnabled = false,
@@ -320,8 +328,26 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 
 	// Honeycomb usage data for spend warning sash and budget bars
 	const { data: honeycombUsageData, isConfigured: honeycombConfigured } = useHoneycombUsage();
-	const { planCalibration, honeycombWarningSettings } = useSettings();
+	const { planCalibration, honeycombWarningSettings, claudeCodeDefaultTransportMode } =
+		useSettings();
 	const { setUsageDashboardOpen } = getModalActions();
+
+	// Transport mode cascade: compute what above-tab levels resolve to (for "Inherited from" UI)
+	const groups = useSessionStore((s) => s.groups);
+	const projectGroup = useMemo(
+		() => groups.find((g) => g.id === session.groupId),
+		[groups, session.groupId]
+	);
+	const aboveCascade = useMemo(
+		() =>
+			describeCascadeSource(
+				undefined,
+				{ transportMode: session.transportMode },
+				projectGroup ? { transportMode: projectGroup.transportMode } : undefined,
+				{ claudeCodeDefaultTransportMode }
+			),
+		[session.transportMode, projectGroup, claudeCodeDefaultTransportMode]
+	);
 
 	// PERF: Memoize activeTab lookup to avoid O(n) search on every render
 	const activeTab = useMemo(
@@ -1410,6 +1436,56 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 										{tabShowThinking === 'sticky' && <Pin className="w-2.5 h-2.5" />}
 									</button>
 								)}
+								{/* Transport mode indicator / toggle - claude-code only, AI mode only */}
+								{session.inputMode === 'ai' &&
+									session.toolType === 'claude-code' &&
+									(aboveCascade.mode === 'interactive-pty' ? (
+										<span
+											className="flex items-center gap-1.5 text-[10px] px-2 py-1 rounded-full"
+											title={`Inherited from ${aboveCascade.source}: Interactive PTY — cannot opt out at tab level`}
+											style={{
+												backgroundColor: `${theme.colors.accent}20`,
+												color: theme.colors.accent,
+												border: `1px solid ${theme.colors.accent}40`,
+											}}
+										>
+											<Terminal className="w-3 h-3" />
+											<span>Inherited from {aboveCascade.source}: PTY</span>
+										</span>
+									) : (
+										<button
+											onClick={() =>
+												onSetTabTransportMode?.(
+													tabTransportMode === 'interactive-pty' ? undefined : 'interactive-pty'
+												)
+											}
+											className={`flex items-center gap-1.5 text-[10px] px-2 py-1 rounded-full cursor-pointer transition-all ${
+												tabTransportMode === 'interactive-pty' ? '' : 'opacity-40 hover:opacity-70'
+											}`}
+											style={{
+												backgroundColor:
+													tabTransportMode === 'interactive-pty'
+														? `${theme.colors.accent}25`
+														: 'transparent',
+												color:
+													tabTransportMode === 'interactive-pty'
+														? theme.colors.accent
+														: theme.colors.textDim,
+												border:
+													tabTransportMode === 'interactive-pty'
+														? `1px solid ${theme.colors.accent}50`
+														: '1px solid transparent',
+											}}
+											title={
+												tabTransportMode === 'interactive-pty'
+													? 'Interactive PTY mode (Claude Max) — click to revert to legacy'
+													: 'Legacy mode (claude --print) — click to use Interactive PTY'
+											}
+										>
+											<Terminal className="w-3 h-3" />
+											<span>PTY</span>
+										</button>
+									))}
 								<button
 									onClick={() => setEnterToSend(!enterToSend)}
 									className="flex items-center gap-1 text-[10px] opacity-50 hover:opacity-100 px-2 py-1 rounded hover:bg-white/5"

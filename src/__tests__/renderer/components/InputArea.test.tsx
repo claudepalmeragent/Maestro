@@ -2257,4 +2257,105 @@ describe('InputArea', () => {
 			expect(screen.queryByTestId('context-warning-sash')).not.toBeInTheDocument();
 		});
 	});
+
+	describe('Per-tab transport mode UI', () => {
+		it('should render PTY toggle button for claude-code session in AI mode', () => {
+			const props = createDefaultProps({
+				session: createMockSession({ toolType: 'claude-code', inputMode: 'ai' }),
+				onSetTabTransportMode: vi.fn(),
+			});
+			render(<InputArea {...props} />);
+
+			// PTY button should be visible
+			expect(
+				screen.getByTitle(/Legacy mode \(claude --print\) — click to use Interactive PTY/i)
+			).toBeInTheDocument();
+		});
+
+		it('should NOT render PTY toggle for non-claude-code sessions', () => {
+			const props = createDefaultProps({
+				session: createMockSession({ toolType: 'codex', inputMode: 'ai' }),
+				onSetTabTransportMode: vi.fn(),
+			});
+			render(<InputArea {...props} />);
+
+			expect(screen.queryByTitle(/Legacy mode \(claude --print\)/i)).not.toBeInTheDocument();
+			expect(screen.queryByTitle(/Interactive PTY mode/i)).not.toBeInTheDocument();
+		});
+
+		it('should NOT render PTY toggle in terminal mode', () => {
+			const props = createDefaultProps({
+				session: createMockSession({ toolType: 'claude-code', inputMode: 'terminal' }),
+				onSetTabTransportMode: vi.fn(),
+			});
+			render(<InputArea {...props} />);
+
+			expect(screen.queryByTitle(/Legacy mode \(claude --print\)/i)).not.toBeInTheDocument();
+		});
+
+		it('should show interactive-pty active state when tabTransportMode is interactive-pty', () => {
+			const props = createDefaultProps({
+				session: createMockSession({ toolType: 'claude-code', inputMode: 'ai' }),
+				tabTransportMode: 'interactive-pty',
+				onSetTabTransportMode: vi.fn(),
+			});
+			render(<InputArea {...props} />);
+
+			expect(
+				screen.getByTitle(/Interactive PTY mode \(Claude Max\) — click to revert to legacy/i)
+			).toBeInTheDocument();
+		});
+
+		it('should call onSetTabTransportMode with interactive-pty when PTY button is clicked in legacy mode', () => {
+			const onSetTabTransportMode = vi.fn();
+			const props = createDefaultProps({
+				session: createMockSession({ toolType: 'claude-code', inputMode: 'ai' }),
+				tabTransportMode: undefined,
+				onSetTabTransportMode,
+			});
+			render(<InputArea {...props} />);
+
+			const ptyButton = screen.getByTitle(
+				/Legacy mode \(claude --print\) — click to use Interactive PTY/i
+			);
+			fireEvent.click(ptyButton);
+
+			expect(onSetTabTransportMode).toHaveBeenCalledWith('interactive-pty');
+		});
+
+		it('should call onSetTabTransportMode with undefined when PTY button is clicked in interactive-pty mode', () => {
+			const onSetTabTransportMode = vi.fn();
+			const props = createDefaultProps({
+				session: createMockSession({ toolType: 'claude-code', inputMode: 'ai' }),
+				tabTransportMode: 'interactive-pty',
+				onSetTabTransportMode,
+			});
+			render(<InputArea {...props} />);
+
+			const ptyButton = screen.getByTitle(
+				/Interactive PTY mode \(Claude Max\) — click to revert to legacy/i
+			);
+			fireEvent.click(ptyButton);
+
+			expect(onSetTabTransportMode).toHaveBeenCalledWith(undefined);
+		});
+
+		it('should show read-only "Inherited from agent: PTY" when agent level is interactive-pty', () => {
+			const props = createDefaultProps({
+				session: createMockSession({
+					toolType: 'claude-code',
+					inputMode: 'ai',
+					transportMode: 'interactive-pty',
+				}),
+				tabTransportMode: undefined,
+				onSetTabTransportMode: vi.fn(),
+			});
+			render(<InputArea {...props} />);
+
+			expect(
+				screen.getByTitle(/Inherited from agent: Interactive PTY — cannot opt out at tab level/i)
+			).toBeInTheDocument();
+			expect(screen.getByText(/Inherited from agent: PTY/i)).toBeInTheDocument();
+		});
+	});
 });

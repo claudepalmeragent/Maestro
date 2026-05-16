@@ -11,6 +11,7 @@ import type {
 	ProjectFolder,
 	ClaudeModelId,
 	ClaudeBillingMode,
+	TransportMode,
 } from '../../shared/types';
 import type { ThemeId } from '../../shared/theme-types';
 
@@ -164,6 +165,16 @@ export interface MaestroSettings {
 	wakatimeDetailedTracking: boolean;
 	// Standalone hands-on time tracker (migrated from globalStats.totalActiveTimeMs)
 	totalActiveTimeMs: number;
+	/**
+	 * Transport mode for Claude Code spawns at this scope.
+	 *
+	 * Cascade rule: any level set to 'interactive-pty' wins for everything below it
+	 * (strict ratchet — narrower scopes cannot demote broader scopes' opt-in).
+	 * undefined is treated as 'legacy-print'.
+	 *
+	 * See ARD CLAUDE-PTY-02 for full specification.
+	 */
+	claudeCodeDefaultTransportMode: TransportMode;
 	// Allow dynamic settings keys (electron-store is a key-value store
 	// with many settings not explicitly declared above)
 	[key: string]: any;

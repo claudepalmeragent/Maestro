@@ -318,6 +318,9 @@ vi.mock('../../../renderer/hooks/settings/useSettings', () => ({
 		setUseNativeTitleBar: vi.fn(),
 		autoHideMenuBar: false,
 		setAutoHideMenuBar: vi.fn(),
+		// Transport mode
+		claudeCodeDefaultTransportMode: 'legacy-print' as const,
+		setClaudeCodeDefaultTransportMode: vi.fn(),
 		...mockUseSettingsOverrides,
 	}),
 }));
@@ -1079,6 +1082,74 @@ describe('SettingsModal', () => {
 			fireEvent.click(clearButton!);
 
 			expect(mockSetGhPath).toHaveBeenCalledWith('');
+		});
+	});
+
+	describe('General tab - Transport mode', () => {
+		const mockSetClaudeCodeDefaultTransportMode = vi.fn();
+
+		beforeEach(() => {
+			mockSetClaudeCodeDefaultTransportMode.mockReset();
+			mockUseSettingsOverrides = {
+				claudeCodeDefaultTransportMode: 'legacy-print' as const,
+				setClaudeCodeDefaultTransportMode: mockSetClaudeCodeDefaultTransportMode,
+			};
+		});
+
+		afterEach(() => {
+			mockUseSettingsOverrides = {};
+		});
+
+		it('should show transport mode select with legacy-print as default', async () => {
+			render(<SettingsModal {...createDefaultProps()} />);
+
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(100);
+			});
+
+			const select = screen.getByDisplayValue(/Legacy \(claude --print\)/i) as HTMLSelectElement;
+			expect(select).toBeInTheDocument();
+			expect(select.value).toBe('legacy-print');
+		});
+
+		it('should call setClaudeCodeDefaultTransportMode when selection changes to interactive-pty', async () => {
+			render(<SettingsModal {...createDefaultProps()} />);
+
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(100);
+			});
+
+			const select = screen.getByDisplayValue(/Legacy \(claude --print\)/i);
+			fireEvent.change(select, { target: { value: 'interactive-pty' } });
+
+			expect(mockSetClaudeCodeDefaultTransportMode).toHaveBeenCalledWith('interactive-pty');
+		});
+
+		it('should show interactive-pty as selected when setting is interactive-pty', async () => {
+			mockUseSettingsOverrides = {
+				claudeCodeDefaultTransportMode: 'interactive-pty' as const,
+				setClaudeCodeDefaultTransportMode: mockSetClaudeCodeDefaultTransportMode,
+			};
+			render(<SettingsModal {...createDefaultProps()} />);
+
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(100);
+			});
+
+			const select = screen.getByDisplayValue(/Interactive PTY/i) as HTMLSelectElement;
+			expect(select).toBeInTheDocument();
+			expect(select.value).toBe('interactive-pty');
+		});
+
+		it('should show explanation paragraph about the strict-ratchet rule', async () => {
+			render(<SettingsModal {...createDefaultProps()} />);
+
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(100);
+			});
+
+			expect(screen.getByText(/app-wide default/i)).toBeInTheDocument();
+			expect(screen.getByText(/opting INTO Interactive PTY/i)).toBeInTheDocument();
 		});
 	});
 

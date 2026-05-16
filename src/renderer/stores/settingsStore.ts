@@ -31,6 +31,7 @@ import type {
 	DirectorNotesSettings,
 	EncoreFeatureFlags,
 	PlanCalibration,
+	TransportMode,
 } from '../types';
 import type { HoneycombWarningSettings } from '../../main/stores/types';
 import { DEFAULT_CUSTOM_THEME_COLORS } from '../constants/themes';
@@ -216,6 +217,7 @@ export interface SettingsStoreState {
 	enableBetaUpdates: boolean;
 	checkForNewModelsOnStartup: boolean;
 	crashReportingEnabled: boolean;
+	claudeCodeDefaultTransportMode: TransportMode;
 	logViewerSelectedLevels: string[];
 	shortcuts: Record<string, Shortcut>;
 	tabShortcuts: Record<string, Shortcut>;
@@ -310,6 +312,7 @@ export interface SettingsStoreActions {
 	setEnableBetaUpdates: (value: boolean) => void;
 	setCheckForNewModelsOnStartup: (value: boolean) => void;
 	setCrashReportingEnabled: (value: boolean) => void;
+	setClaudeCodeDefaultTransportMode: (value: TransportMode) => void;
 	setLogViewerSelectedLevels: (value: string[]) => void;
 	setShortcuts: (value: Record<string, Shortcut>) => void;
 	setTabShortcuts: (value: Record<string, Shortcut>) => void;
@@ -478,6 +481,7 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
 	enableBetaUpdates: false,
 	checkForNewModelsOnStartup: true,
 	crashReportingEnabled: true,
+	claudeCodeDefaultTransportMode: 'legacy-print',
 	logViewerSelectedLevels: ['debug', 'info', 'warn', 'error', 'toast'],
 	shortcuts: DEFAULT_SHORTCUTS,
 	tabShortcuts: TAB_SHORTCUTS,
@@ -953,6 +957,11 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
 	setAutoHideMenuBar: (value) => {
 		set({ autoHideMenuBar: value });
 		window.maestro.settings.set('autoHideMenuBar', value);
+	},
+
+	setClaudeCodeDefaultTransportMode: (value) => {
+		set({ claudeCodeDefaultTransportMode: value });
+		window.maestro.settings.set('claudeCodeDefaultTransportMode', value);
 	},
 
 	// ============================================================================
@@ -1957,6 +1966,11 @@ export async function loadAllSettings(): Promise<void> {
 		if (allSettings['checkForNewModelsOnStartup'] !== undefined)
 			patch.checkForNewModelsOnStartup = allSettings['checkForNewModelsOnStartup'] as boolean;
 
+		if (allSettings['claudeCodeDefaultTransportMode'] !== undefined)
+			patch.claudeCodeDefaultTransportMode = allSettings[
+				'claudeCodeDefaultTransportMode'
+			] as TransportMode;
+
 		if (allSettings['synopsisEnabled'] !== undefined)
 			patch.synopsisEnabled = allSettings['synopsisEnabled'] as boolean;
 
@@ -2108,5 +2122,6 @@ export function getSettingsActions() {
 		setWakatimeDetailedTracking: state.setWakatimeDetailedTracking,
 		setUseNativeTitleBar: state.setUseNativeTitleBar,
 		setAutoHideMenuBar: state.setAutoHideMenuBar,
+		setClaudeCodeDefaultTransportMode: state.setClaudeCodeDefaultTransportMode,
 	};
 }

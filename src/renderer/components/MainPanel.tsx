@@ -180,6 +180,7 @@ interface MainPanelProps {
 	onToggleTabReadOnlyMode?: () => void;
 	onToggleTabSaveToHistory?: () => void;
 	onToggleTabShowThinking?: () => void;
+	onSetTabTransportMode?: (mode: import('../../shared/types').TransportMode | undefined) => void;
 	onToggleUnreadFilter?: () => void;
 	onOpenTabSearch?: () => void;
 	// Bulk tab close operations
@@ -1519,6 +1520,8 @@ export const MainPanel = React.memo(
 									onFileTabClose={onFileTabClose}
 									// Accessibility
 									colorBlindMode={colorBlindMode}
+									// Transport mode badge (claude-code sessions only)
+									showTransportModeBadge={activeSession.toolType === 'claude-code'}
 								/>
 							)}
 
@@ -1817,6 +1820,8 @@ export const MainPanel = React.memo(
 											tabShowThinking={activeTab?.showThinking ?? 'off'}
 											onToggleTabShowThinking={props.onToggleTabShowThinking}
 											supportsThinking={hasCapability('supportsThinkingDisplay')}
+											tabTransportMode={activeTab?.transportMode}
+											onSetTabTransportMode={props.onSetTabTransportMode}
 											onOpenPromptComposer={props.onOpenPromptComposer}
 											shortcuts={shortcuts}
 											showFlashNotification={showFlashNotification}

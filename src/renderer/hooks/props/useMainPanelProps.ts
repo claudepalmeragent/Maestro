@@ -181,6 +181,9 @@ export interface UseMainPanelPropsDeps {
 	handleToggleTabReadOnlyMode: () => void;
 	handleToggleTabSaveToHistory: () => void;
 	handleToggleTabShowThinking: () => void;
+	handleSetTabTransportMode: (
+		mode: import('../../../shared/types').TransportMode | undefined
+	) => void;
 	toggleUnreadFilter: () => void;
 	handleOpenTabSearch: () => void;
 	handleCloseAllTabs: () => void;
@@ -394,6 +397,7 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 			onReloadFileTab: deps.handleReloadFileTab,
 			onToggleTabSaveToHistory: deps.handleToggleTabSaveToHistory,
 			onToggleTabShowThinking: deps.handleToggleTabShowThinking,
+			onSetTabTransportMode: deps.handleSetTabTransportMode,
 			onScrollPositionChange: deps.handleScrollPositionChange,
 			onAtBottomChange: deps.handleAtBottomChange,
 			onInputBlur: deps.handleMainPanelInputBlur,
@@ -595,6 +599,7 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 			deps.handleToggleTabReadOnlyMode,
 			deps.handleToggleTabSaveToHistory,
 			deps.handleToggleTabShowThinking,
+			deps.handleSetTabTransportMode,
 			deps.toggleUnreadFilter,
 			deps.handleOpenTabSearch,
 			deps.handleCloseAllTabs,
