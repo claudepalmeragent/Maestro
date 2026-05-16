@@ -3,4 +3,14 @@
 # Run lint-staged for formatting and linting on staged files only
 npx lint-staged
 
+# Anti-autocommit gate (lock-file + token discipline). See docs/dev/agent-prompts.md.
+# This is the SOLE authorized commit gate — agents must use one of the slash-command
+# prompts (/commit-ARD, /commit-adhoc, /merge-after-review) which write the token
+# inline before invoking git commit. Direct `git commit` from a shell will fail here.
+bash scripts/commit-gate-check.sh
+
+# Maestro-specific lints (Build-ARD acceptance gates). See docs/ards/build-ard-acceptance.md.
+bash scripts/lint-no-suppression-markers.sh
+bash scripts/lint-no-silent-error-swallow.sh
+
 # Everything else (tests, type checking) should run in CI
