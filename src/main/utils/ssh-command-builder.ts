@@ -670,3 +670,98 @@ export async function buildSshCommand(
 		args,
 	};
 }
+
+/**
+ * Build SSH args for spawning an interactive-pty Claude session over SSH.
+ *
+ * Returns the args array for `pty.spawn('ssh', args, …)`. Always forces a TTY
+ * (-tt and RequestTTY=force) so the remote claude process runs interactively in the
+ * SSH-session TTY. Env vars are encoded as `export` statements in the wrapped bash
+ * command so the remote claude process inherits them.
+ *
+ * Callers MUST strip ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN from `env` before
+ * calling this function to ensure subscription billing on the remote host.
+ *
+ * Differs from buildSshCommand in:
+ * - Always forces TTY (-tt and RequestTTY=force) — no conditional logic.
+ * - Returns just the args array (caller passes 'ssh' as claudeBinary to ClaudePtyRunner).
+ * - Encodes env vars as `export X=…` lines in the wrapped remote command.
+ * - Wraps the remote command with `exec` so claude replaces the bash shell and owns the PTY.
+ *
+ * @param config SSH remote configuration
+ * @param claudeArgs Claude CLI args already stripped of --print (caller uses stripPrintArgs)
+ * @param cwd Remote working directory
+ * @param env Environment variables to export on the remote (must NOT contain ANTHROPIC_API_KEY)
+ */
+export async function buildSshClaudeInteractiveArgs(
+	config: SshRemoteConfig,
+	claudeArgs: string[],
+	cwd: string,
+	env: Record<string, string>
+): Promise<string[]> {
+	const args: string[] = [];
+
+	// Pre-flight: validate ControlMaster socket is alive (~1ms, local only)
+	await validateSshSocket(config.host, config.port, config.username);
+
+	// Always force TTY for interactive PTY sessions (-tt must come first)
+	args.push('-tt');
+
+	// Private key - only add if explicitly provided
+	if (config.privateKeyPath && config.privateKeyPath.trim()) {
+		args.push('-i', expandTilde(config.privateKeyPath));
+	}
+
+	// SSH options — same pool as buildSshCommand; RequestTTY is already 'force' in
+	// DEFAULT_SSH_OPTIONS (via AGENT_SSH_OPTIONS), so no conditional needed here.
+	for (const [key, value] of Object.entries(DEFAULT_SSH_OPTIONS)) {
+		if (key === 'RequestTTY') {
+			// Explicitly force TTY regardless of DEFAULT_SSH_OPTIONS value
+			args.push('-o', `${key}=force`);
+		} else {
+			args.push('-o', `${key}=${value}`);
+		}
+	}
+
+	// Port specification
+	if (!config.useSshConfig || config.port !== 22) {
+		args.push('-p', config.port.toString());
+	}
+
+	// Destination
+	if (config.username && config.username.trim()) {
+		args.push(`${config.username}@${config.host}`);
+	} else {
+		args.push(config.host);
+	}
+
+	// Build env export lines — each becomes `export KEY='value'` in the remote bash command.
+	// Using export (not inline) ensures claude inherits them as true environment variables.
+	const envExports: string[] = [];
+	for (const [key, value] of Object.entries(env)) {
+		if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)) {
+			envExports.push(`export ${key}=${shellEscape(value)}`);
+		}
+	}
+
+	// Build the remote command: PATH setup + version manager + env exports + cd + exec claude.
+	// Using `exec` replaces the bash shell with claude so it owns the PTY directly.
+	const pathSetup = `export PATH="${BASE_SSH_PATH_DIRS.join(':')}:$PATH"`;
+	const versionManagerSetup = buildNodeVersionManagerPathSnippet();
+	const envSetup = envExports.length > 0 ? envExports.join('; ') + '; ' : '';
+	const cdCmd = `cd ${shellEscape(cwd)}; `;
+	const execCmd = `exec ${buildShellCommand('claude', claudeArgs)}`;
+
+	const fullBashCommand = `${pathSetup}; ${versionManagerSetup}; ${envSetup}${cdCmd}${execCmd}`;
+	const wrappedCommand = `/bin/bash --norc --noprofile -c ${shellEscape(fullBashCommand)}`;
+	args.push(wrappedCommand);
+
+	logger.debug('SSH interactive-pty args built', '[ssh-command-builder]', {
+		host: config.host,
+		cwd,
+		claudeArgsCount: claudeArgs.length,
+		envKeysCount: Object.keys(env).length,
+	});
+
+	return args;
+}

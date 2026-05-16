@@ -21,7 +21,10 @@ import {
 	CreateHandlerOptions,
 } from '../../utils/ipcHandler';
 import { getSshRemoteConfig, createSshRemoteStoreAdapter } from '../../utils/ssh-remote-resolver';
-import { buildSshCommandWithStdin } from '../../utils/ssh-command-builder';
+import {
+	buildSshCommandWithStdin,
+	buildSshClaudeInteractiveArgs,
+} from '../../utils/ssh-command-builder';
 import { buildStreamJsonMessage } from '../../process-manager/utils/streamJsonBuilder';
 import { getWindowsShellForAgentExecution } from '../../process-manager/utils/shellEscape';
 import { buildExpandedEnv } from '../../../shared/pathUtils';
@@ -495,6 +498,107 @@ export function registerProcessHandlers(deps: ProcessHandlerDependencies): void 
 						// This completely bypasses shell escaping issues by sending the script via stdin
 						sshRemoteUsed = sshResult.config;
 
+						// Merge global environment variables with session custom env vars.
+						// Session vars take precedence over global vars.
+						// Defined early so both the interactive-pty branch and the legacy branch can use it.
+						const mergedSshEnvVars = { ...globalShellEnvVars, ...(effectiveCustomEnvVars || {}) };
+
+						// ════════════════════════════════════════════════════════════════
+						// SSH Interactive-PTY branch: when transport mode resolves to
+						// 'interactive-pty' for a Claude Code session over SSH, wrap the
+						// local SSH client in a ClaudePtyRunner (claudeBinary='ssh').
+						// The legacy SSH stdin-passthrough path is NOT visited in this case.
+						// ════════════════════════════════════════════════════════════════
+						if (config.toolType === 'claude-code') {
+							const sshAppTransportMode = settingsStore.get(
+								'claudeCodeDefaultTransportMode',
+								'legacy-print'
+							) as 'interactive-pty' | 'legacy-print';
+
+							const sshAgentLevel:
+								| { transportMode?: 'interactive-pty' | 'legacy-print' }
+								| undefined = agentConfigValues?.transportMode
+								? {
+										transportMode: agentConfigValues.transportMode as
+											| 'interactive-pty'
+											| 'legacy-print',
+									}
+								: undefined;
+
+							const sshResolvedMode = resolveClaudeTransportMode(
+								undefined,
+								sshAgentLevel,
+								undefined,
+								{ claudeCodeDefaultTransportMode: sshAppTransportMode }
+							);
+
+							if (sshResolvedMode === 'interactive-pty') {
+								// Strip API keys — interactive-pty always uses subscription billing.
+								// The remote claude process must NOT have ANTHROPIC_API_KEY in its env.
+								const sshEnv = { ...mergedSshEnvVars };
+								delete sshEnv.ANTHROPIC_API_KEY;
+								delete sshEnv.ANTHROPIC_AUTH_TOKEN;
+
+								const sshClaudeBaseArgs = stripPrintArgs(finalArgs);
+								const sshInteractiveArgs = await buildSshClaudeInteractiveArgs(
+									sshResult.config,
+									sshClaudeBaseArgs,
+									config.cwd,
+									sshEnv
+								);
+
+								const sshPtyRunner = new ClaudePtyRunner({
+									maestroSessionId: config.sessionId,
+									claudeBinary: 'ssh', // pty.spawn('ssh', sshInteractiveArgs, …)
+									claudeBaseArgs: sshInteractiveArgs,
+									cwd: process.cwd(), // SSH client runs locally; cwd is local
+									env: sshEnv,
+									claudeSessionIdOverride: config.agentSessionId || undefined,
+								});
+
+								sshPtyRunner.on('event', (parsedEvent) => {
+									processManager.emitParsedEventBuffered(config.sessionId, parsedEvent);
+								});
+								sshPtyRunner.on('rawData', (chunk: string) => {
+									const win = getMainWindow();
+									if (win && !win.isDestroyed()) {
+										win.webContents.send('claude-pty:rawData', config.sessionId, chunk);
+									}
+								});
+								sshPtyRunner.on('end', (_exitReason: string, rawExitCode: number | null) => {
+									const effectiveExitCode = _exitReason === 'SUCCESS' ? 0 : (rawExitCode ?? 1);
+									processManager.unregisterExternalRunner(config.sessionId);
+									processManager.emitExternalExit(config.sessionId, effectiveExitCode);
+								});
+
+								processManager.registerExternalRunner(config.sessionId, sshPtyRunner);
+								sshPtyRunner.executeTurn(config.prompt || '');
+
+								// Emit SSH remote status — the actual SSH config, not null.
+								const sshMainWin = getMainWindow();
+								if (sshMainWin && !sshMainWin.isDestroyed()) {
+									sshMainWin.webContents.send(
+										'process:ssh-remote',
+										config.sessionId,
+										sshResult.config
+									);
+								}
+
+								powerManager.addBlockReason(`session:${config.sessionId}`);
+
+								logger.info(`Spawned ClaudePtyRunner (SSH interactive-pty)`, LOG_CONTEXT, {
+									sessionId: config.sessionId,
+									host: sshResult.config.host,
+									cwd: config.cwd,
+									argsCount: sshClaudeBaseArgs.length,
+								});
+
+								// pid -1 indicates an external runner.
+								return { pid: -1, success: true };
+							}
+							// sshResolvedMode === 'legacy-print' — fall through to the standard SSH stdin-passthrough path.
+						}
+
 						// Determine the command to run on the remote host
 						const remoteCommand = config.sessionCustomPath || agent?.binaryName || config.command;
 
@@ -541,10 +645,6 @@ export function registerProcessHandlers(deps: ProcessHandlerDependencies): void 
 							hasImages &&
 							agent?.capabilities?.imageResumeMode === 'prompt-embed' &&
 							config.agentSessionId;
-
-						// Merge global environment variables with session custom env vars
-						// Session vars take precedence over global vars
-						const mergedSshEnvVars = { ...globalShellEnvVars, ...(effectiveCustomEnvVars || {}) };
 
 						const sshCommand = await buildSshCommandWithStdin(sshResult.config, {
 							command: remoteCommand,
