@@ -1,12 +1,12 @@
 /**
- * Tests for claude-pty IPC handlers (ARD 2 stubs).
+ * Tests for claude-pty IPC handlers (ARD 5 — wired to ProcessManager runner registry).
  *
- * These handlers are stubs until ARD 5 (03) wires the runner registry.
  * Tests verify:
  * - All three handlers are registered via ipcMain.handle.
- * - injectManualCommand returns false (stub).
- * - setUserControlled resolves without error (no-op stub).
- * - getState returns null (no runner registered).
+ * - injectManualCommand returns false when no runner is registered.
+ * - setUserControlled resolves without error when no runner is registered.
+ * - getState returns null when no runner is registered.
+ * - When a runner IS registered, handlers delegate to it.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -26,59 +26,76 @@ vi.mock('electron', () => ({
 	},
 }));
 
-// Mock logger
-vi.mock('../../../../main/utils/logger', () => ({
-	logger: {
-		debug: vi.fn(),
-		info: vi.fn(),
-		warn: vi.fn(),
-		error: vi.fn(),
-	},
-}));
-
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('registerClaudePtyHandlers (stubs)', () => {
+function buildMockProcessManager(runner?: Record<string, unknown>) {
+	return {
+		getExternalRunner: vi.fn().mockReturnValue(runner),
+	};
+}
+
+describe('registerClaudePtyHandlers (ARD 5)', () => {
 	beforeEach(() => {
-		// Clear registered handlers before each test
 		Object.keys(registeredHandlers).forEach((k) => delete registeredHandlers[k]);
 		vi.mocked(ipcMain.handle).mockClear();
 	});
 
 	it('registers all three handler channels', async () => {
 		const { registerClaudePtyHandlers } = await import('../../../../main/ipc/handlers/claude-pty');
-		registerClaudePtyHandlers();
+		registerClaudePtyHandlers(buildMockProcessManager() as never);
 
 		expect(registeredHandlers['claude-pty:injectManualCommand']).toBeDefined();
 		expect(registeredHandlers['claude-pty:setUserControlled']).toBeDefined();
 		expect(registeredHandlers['claude-pty:getState']).toBeDefined();
 	});
 
-	it('injectManualCommand stub returns false', async () => {
+	it('injectManualCommand returns false when no runner registered', async () => {
 		const { registerClaudePtyHandlers } = await import('../../../../main/ipc/handlers/claude-pty');
-		registerClaudePtyHandlers();
+		registerClaudePtyHandlers(buildMockProcessManager() as never);
 
 		const handler = registeredHandlers['claude-pty:injectManualCommand'];
 		const result = await handler({}, 'sess-1', 'hello');
 		expect(result).toBe(false);
 	});
 
-	it('setUserControlled stub resolves without throwing', async () => {
+	it('setUserControlled does not throw when no runner registered', async () => {
 		const { registerClaudePtyHandlers } = await import('../../../../main/ipc/handlers/claude-pty');
-		registerClaudePtyHandlers();
+		registerClaudePtyHandlers(buildMockProcessManager() as never);
 
 		const handler = registeredHandlers['claude-pty:setUserControlled'];
-		await expect(handler({}, 'sess-1', true)).resolves.toBeUndefined();
+		expect(() => handler({}, 'sess-1', true)).not.toThrow();
 	});
 
-	it('getState stub returns null', async () => {
+	it('getState returns null when no runner registered', async () => {
 		const { registerClaudePtyHandlers } = await import('../../../../main/ipc/handlers/claude-pty');
-		registerClaudePtyHandlers();
+		registerClaudePtyHandlers(buildMockProcessManager() as never);
 
 		const handler = registeredHandlers['claude-pty:getState'];
 		const result = await handler({}, 'sess-1');
 		expect(result).toBeNull();
+	});
+
+	it('injectManualCommand delegates to runner when registered', async () => {
+		const mockRunner = { injectManualCommand: vi.fn().mockReturnValue(true) };
+		const { registerClaudePtyHandlers } = await import('../../../../main/ipc/handlers/claude-pty');
+		registerClaudePtyHandlers(buildMockProcessManager(mockRunner as never) as never);
+
+		const handler = registeredHandlers['claude-pty:injectManualCommand'];
+		const result = await handler({}, 'sess-1', 'my cmd');
+		expect(mockRunner.injectManualCommand).toHaveBeenCalledWith('my cmd');
+		expect(result).toBe(true);
+	});
+
+	it('getState delegates to runner when registered', async () => {
+		const mockState = { isBusy: true, userControlled: false, alive: true };
+		const mockRunner = { getState: vi.fn().mockReturnValue(mockState) };
+		const { registerClaudePtyHandlers } = await import('../../../../main/ipc/handlers/claude-pty');
+		registerClaudePtyHandlers(buildMockProcessManager(mockRunner as never) as never);
+
+		const handler = registeredHandlers['claude-pty:getState'];
+		const result = await handler({}, 'sess-1');
+		expect(result).toEqual(mockState);
 	});
 });

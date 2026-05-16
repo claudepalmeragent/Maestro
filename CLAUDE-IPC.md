@@ -919,6 +919,21 @@ Handler: `src/main/ipc/handlers/persistence.ts`
 | --------------- | ----------------- | ---------------------------------------------------------------- |
 | `getActivity()` | `cli:getActivity` | Get CLI activities (for detecting when CLI is running playbooks) |
 
+### window.maestro.claudePty (Interactive PTY Runner)
+
+Preload: `src/main/preload/claudePty.ts` · Handler: `src/main/ipc/handlers/claude-pty.ts`
+
+Active only when the resolved transport mode is `interactive-pty`. All methods are no-ops / return `null` when no runner is registered for the session (i.e., legacy `--print` mode).
+
+| Method                                           | IPC Channel                      | Description                                                                                                                |
+| ------------------------------------------------ | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `onRawData(sessionId, callback)` → `unsubscribe` | `claude-pty:rawData` (push)      | Subscribe to raw PTY chunks pushed from main; returns an unsubscribe function. Use in Interactive Mode view on mount.      |
+| `injectManualCommand(sessionId, data)`           | `claude-pty:injectManualCommand` | Write raw input to the runner's PTY stdin. Only has effect when runner is in user-controlled mode; returns `false` if not. |
+| `setUserControlled(sessionId, enabled)`          | `claude-pty:setUserControlled`   | Toggle user vs orchestration control. When `true`, orchestration loop pauses and keystrokes reach PTY directly.            |
+| `getState(sessionId)`                            | `claude-pty:getState`            | Query `{ isBusy, userControlled, alive }` state. Returns `null` when no runner is registered.                              |
+
+**Note:** `claude-pty:rawData` is a main→renderer push (not `ipcMain.handle`). It is emitted from `src/main/ipc/handlers/process.ts` when a `ClaudePtyRunner` is spawned and its `rawData` event fires.
+
 ---
 
 ## SSH Remote Execution Awareness
