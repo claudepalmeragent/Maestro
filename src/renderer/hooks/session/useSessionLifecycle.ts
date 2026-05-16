@@ -17,7 +17,7 @@
 
 import { useCallback, useEffect } from 'react';
 import type { Session, AITab } from '../../types';
-import type { ToolType } from '../../../shared/types';
+import type { ToolType, TransportMode } from '../../../shared/types';
 import { useSessionStore, selectActiveSession } from '../../stores/sessionStore';
 import { generateId } from '../../utils/ids';
 import { useGroupChatStore } from '../../stores/groupChatStore';
@@ -61,7 +61,8 @@ export interface SessionLifecycleReturn {
 			enabled: boolean;
 			remoteId: string | null;
 			workingDirOverride?: string;
-		}
+		},
+		transportMode?: TransportMode
 	) => void;
 	/** Rename the currently-selected tab (persists to agent session storage + history) */
 	handleRenameTab: (newName: string) => void;
@@ -121,7 +122,8 @@ export function useSessionLifecycle(deps: SessionLifecycleDeps): SessionLifecycl
 				enabled: boolean;
 				remoteId: string | null;
 				workingDirOverride?: string;
-			}
+			},
+			transportMode?: TransportMode
 		) => {
 			useSessionStore.getState().setSessions((prev) =>
 				prev.map((s) => {
@@ -136,6 +138,7 @@ export function useSessionLifecycle(deps: SessionLifecycleDeps): SessionLifecycl
 						customModel,
 						customContextWindow,
 						sessionSshRemoteConfig,
+						transportMode,
 					};
 
 					// If provider changed, reset tabs and provider-specific config

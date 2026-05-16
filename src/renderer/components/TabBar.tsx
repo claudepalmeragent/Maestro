@@ -25,11 +25,16 @@ import {
 	FolderOpen,
 } from 'lucide-react';
 import type { AITab, Theme, FilePreviewTab, UnifiedTab } from '../types';
+import type { TransportMode } from '../../shared/types';
+import { describeCascadeSource } from '../../shared/transport-mode';
+import type { CascadeSource } from '../../shared/transport-mode';
 import { hasDraft } from '../utils/tabHelpers';
 import { formatShortcutKeys } from '../utils/shortcutFormatter';
 import { getExtensionColor } from '../utils/extensionColors';
 import { getRevealLabel } from '../utils/platformUtils';
 import { safeClipboardWrite } from '../utils/clipboard';
+import { useSettingsStore } from '../stores/settingsStore';
+import { useSessionStore } from '../stores/sessionStore';
 
 interface TabBarProps {
 	tabs: AITab[];
@@ -86,6 +91,10 @@ interface TabBarProps {
 	// === Accessibility ===
 	/** Whether colorblind-friendly colors should be used for extension badges */
 	colorBlindMode?: boolean;
+
+	// === Transport Mode Badge ===
+	/** When true, renders a resolved-mode chip in each AI tab header (claude-code only) */
+	showTransportModeBadge?: boolean;
 }
 
 interface TabProps {
@@ -152,6 +161,8 @@ interface TabProps {
 	totalTabs?: number;
 	/** Tab index in the full list (0-based) */
 	tabIndex?: number;
+	/** Pre-computed resolved transport mode for the badge chip */
+	resolvedTransportMode?: { mode: TransportMode; source: CascadeSource };
 }
 
 /**
@@ -240,6 +251,7 @@ const Tab = memo(function Tab({
 	onCloseTabsRight,
 	totalTabs,
 	tabIndex,
+	resolvedTransportMode,
 }: TabProps) {
 	const [isHovered, setIsHovered] = useState(false);
 	const [overlayOpen, setOverlayOpen] = useState(false);
@@ -627,6 +639,30 @@ const Tab = memo(function Tab({
 			>
 				{displayName}
 			</span>
+
+			{/* Transport mode badge - resolved mode chip for claude-code tabs */}
+			{resolvedTransportMode && (
+				<span
+					title={
+						resolvedTransportMode.source === 'default'
+							? 'Legacy -p mode (default)'
+							: `Inherited from ${resolvedTransportMode.source}: ${resolvedTransportMode.mode === 'interactive-pty' ? 'Interactive PTY' : 'Legacy -p'}`
+					}
+					className="text-[9px] px-1 rounded shrink-0 font-medium leading-[16px]"
+					style={{
+						backgroundColor:
+							resolvedTransportMode.mode === 'interactive-pty'
+								? theme.colors.accent + '25'
+								: theme.colors.border,
+						color:
+							resolvedTransportMode.mode === 'interactive-pty'
+								? theme.colors.accent
+								: theme.colors.textDim,
+					}}
+				>
+					{resolvedTransportMode.mode === 'interactive-pty' ? 'Interactive PTY' : 'Legacy -p'}
+				</span>
+			)}
 
 			{/* Close button - visible on hover or when active, takes space of busy indicator when not busy */}
 			{canClose && (isHovered || isActive) && (
@@ -1607,6 +1643,8 @@ function TabBarInner({
 	onUnifiedTabReorder,
 	// Accessibility
 	colorBlindMode,
+	// Transport mode badge
+	showTransportModeBadge,
 }: TabBarProps) {
 	const [draggingTabId, setDraggingTabId] = useState<string | null>(null);
 	const [dragOverTabId, setDragOverTabId] = useState<string | null>(null);
@@ -1615,6 +1653,18 @@ function TabBarInner({
 	const showUnreadOnly = showUnreadOnlyProp ?? showUnreadOnlyLocal;
 	const toggleUnreadFilter =
 		onToggleUnreadFilter ?? (() => setShowUnreadOnlyLocal((prev) => !prev));
+
+	// Transport mode cascade data — only read when badge is enabled (claude-code sessions)
+	const appTransportMode = useSettingsStore((s) => s.claudeCodeDefaultTransportMode);
+	const cascadeSession = useSessionStore((s) =>
+		showTransportModeBadge ? s.sessions.find((sess) => sess.id === s.activeSessionId) : undefined
+	);
+	const cascadeGroup = useSessionStore((s) => {
+		if (!showTransportModeBadge) return undefined;
+		const sess = s.sessions.find((se) => se.id === s.activeSessionId);
+		if (!sess?.groupId) return undefined;
+		return s.groups.find((g) => g.id === sess.groupId);
+	});
 
 	const tabBarRef = useRef<HTMLDivElement>(null);
 	const stickyLeftRef = useRef<HTMLDivElement>(null);
@@ -2024,6 +2074,18 @@ function TabBarInner({
 
 						if (unifiedTab.type === 'ai') {
 							const tab = unifiedTab.data;
+							const resolvedTransportMode = showTransportModeBadge
+								? describeCascadeSource(
+										tab.transportMode !== undefined
+											? { transportMode: tab.transportMode }
+											: undefined,
+										cascadeSession?.transportMode !== undefined
+											? { transportMode: cascadeSession.transportMode }
+											: undefined,
+										cascadeGroup,
+										{ claudeCodeDefaultTransportMode: appTransportMode }
+									)
+								: undefined;
 							return (
 								<React.Fragment key={unifiedTab.id}>
 									{showSeparator && (
@@ -2086,6 +2148,7 @@ function TabBarInner({
 										onCloseTabsRight={onCloseTabsRight ? handleTabCloseRight : undefined}
 										totalTabs={allTabs.length}
 										tabIndex={originalIndex}
+										resolvedTransportMode={resolvedTransportMode}
 									/>
 								</React.Fragment>
 							);
@@ -2146,6 +2209,19 @@ function TabBarInner({
 						// Calculate position info for move actions (within FULL tabs array, not filtered)
 						const isFirstTab = originalIndex === 0;
 						const isLastTab = originalIndex === tabs.length - 1;
+
+						const resolvedTransportMode = showTransportModeBadge
+							? describeCascadeSource(
+									tab.transportMode !== undefined
+										? { transportMode: tab.transportMode }
+										: undefined,
+									cascadeSession?.transportMode !== undefined
+										? { transportMode: cascadeSession.transportMode }
+										: undefined,
+									cascadeGroup,
+									{ claudeCodeDefaultTransportMode: appTransportMode }
+								)
+							: undefined;
 
 						return (
 							<React.Fragment key={tab.id}>
@@ -2213,6 +2289,7 @@ function TabBarInner({
 									onCloseTabsRight={onCloseTabsRight ? handleTabCloseRight : undefined}
 									totalTabs={tabs.length}
 									tabIndex={originalIndex}
+									resolvedTransportMode={resolvedTransportMode}
 								/>
 							</React.Fragment>
 						);

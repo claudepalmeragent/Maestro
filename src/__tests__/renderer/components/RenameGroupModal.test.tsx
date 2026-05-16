@@ -13,6 +13,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { RenameGroupModal } from '../../../renderer/components/RenameGroupModal';
 import { LayerStackProvider } from '../../../renderer/contexts/LayerStackContext';
+import { useSettingsStore } from '../../../renderer/stores/settingsStore';
 import type { Theme, Group } from '../../../renderer/types';
 // Mock emoji-mart
 vi.mock('@emoji-mart/data', () => ({
@@ -814,6 +815,121 @@ describe('RenameGroupModal', () => {
 			// The modal content div should have the custom background color
 			const title = screen.getByText('Rename Group');
 			expect(title).toHaveStyle({ color: '#00ff00' });
+		});
+	});
+
+	describe('Transport mode', () => {
+		beforeEach(() => {
+			// Default: app transport mode is legacy-print
+			useSettingsStore.setState({ claudeCodeDefaultTransportMode: 'legacy-print' });
+		});
+
+		it('should show "Inherited from app: Legacy" indicator when app is legacy-print', () => {
+			renderWithLayerStack(<RenameGroupModal {...defaultProps()} />);
+
+			// The indicator paragraph contains both "Inherited from app:" and the mode span
+			expect(screen.getByText(/Inherited from app:/i)).toBeInTheDocument();
+			// The mode text is in a <span> inside the indicator paragraph
+			const modeSpans = screen.getAllByText(/Legacy \(claude --print\)/i);
+			// At least one span (the indicator) should be present
+			expect(modeSpans.length).toBeGreaterThanOrEqual(1);
+		});
+
+		it('should show "Inherited from app: Interactive PTY" indicator when app is interactive-pty', () => {
+			useSettingsStore.setState({ claudeCodeDefaultTransportMode: 'interactive-pty' });
+
+			renderWithLayerStack(<RenameGroupModal {...defaultProps()} />);
+
+			expect(screen.getByText(/Inherited from app:/i)).toBeInTheDocument();
+			// The mode text is in a <span> inside the indicator paragraph
+			const modeSpans = screen.getAllByText(/Interactive PTY \(Claude Max\)/i);
+			expect(modeSpans.length).toBeGreaterThanOrEqual(1);
+		});
+
+		it('should initialize transport mode select to empty (inherit) when group has no transportMode', () => {
+			const groupsNoMode: Group[] = [
+				{ id: 'group-1', name: 'MY GROUP', emoji: '📁', collapsed: false },
+			];
+
+			renderWithLayerStack(<RenameGroupModal {...defaultProps()} groups={groupsNoMode} />);
+
+			const select = screen.getByRole('combobox') as HTMLSelectElement;
+			expect(select.value).toBe('');
+		});
+
+		it('should initialize transport mode select to interactive-pty when group has that mode', () => {
+			const groupsWithMode: Group[] = [
+				{
+					id: 'group-1',
+					name: 'MY GROUP',
+					emoji: '📁',
+					collapsed: false,
+					transportMode: 'interactive-pty',
+				},
+			];
+
+			renderWithLayerStack(<RenameGroupModal {...defaultProps()} groups={groupsWithMode} />);
+
+			const selects = screen.getAllByRole('combobox');
+			const transportSelect = selects.find(
+				(s) => (s as HTMLSelectElement).value === 'interactive-pty'
+			) as HTMLSelectElement | undefined;
+			expect(transportSelect).toBeTruthy();
+			expect(transportSelect!.value).toBe('interactive-pty');
+		});
+
+		it('should persist transport mode when Rename is clicked', async () => {
+			renderWithLayerStack(<RenameGroupModal {...defaultProps()} groupName="new name" />);
+
+			// Change transport mode to interactive-pty
+			const selects = screen.getAllByRole('combobox');
+			const transportSelect = selects[selects.length - 1];
+			fireEvent.change(transportSelect, { target: { value: 'interactive-pty' } });
+
+			const renameButton = screen.getByRole('button', { name: 'Rename' });
+			await act(async () => {
+				fireEvent.click(renameButton);
+			});
+
+			expect(setGroups).toHaveBeenCalled();
+			const updater = setGroups.mock.calls[0][0];
+			const result = updater(groups);
+			const updated = result.find((g: Group) => g.id === 'group-1');
+			expect(updated.transportMode).toBe('interactive-pty');
+		});
+
+		it('should persist undefined transport mode when inherit option is selected', async () => {
+			const groupsWithMode: Group[] = [
+				{
+					id: 'group-1',
+					name: 'MY GROUP',
+					emoji: '📁',
+					collapsed: false,
+					transportMode: 'interactive-pty',
+				},
+			];
+
+			renderWithLayerStack(
+				<RenameGroupModal {...defaultProps()} groups={groupsWithMode} groupName="my group" />
+			);
+
+			// Change transport mode back to inherit (empty)
+			const selects = screen.getAllByRole('combobox');
+			const transportSelect = selects.find(
+				(s) => (s as HTMLSelectElement).value === 'interactive-pty'
+			)!;
+			fireEvent.change(transportSelect, { target: { value: '' } });
+
+			const renameButton = screen.getByRole('button', { name: 'Rename' });
+			await act(async () => {
+				fireEvent.click(renameButton);
+			});
+
+			expect(setGroups).toHaveBeenCalled();
+			const updater = setGroups.mock.calls[0][0];
+			const result = updater(groupsWithMode);
+			const updated = result.find((g: Group) => g.id === 'group-1');
+			expect(updated.transportMode).toBeUndefined();
 		});
 	});
 });

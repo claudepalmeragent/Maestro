@@ -1,8 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, test } from 'vitest';
 import {
 	stripPrintArgs,
 	deriveStableClaudeSessionId,
 	cleanTerminalChunk,
+	resolveClaudeTransportMode,
+	describeCascadeSource,
 } from '../../../main/utils/claude-pty-helpers';
 
 describe('stripPrintArgs', () => {
@@ -133,5 +135,125 @@ describe('cleanTerminalChunk', () => {
 
 	it('passes through plain text unchanged (modulo escape removal)', () => {
 		expect(cleanTerminalChunk('plain text')).toBe('plain text');
+	});
+});
+
+const APP_DEFAULT = { claudeCodeDefaultTransportMode: 'legacy-print' as const };
+const APP_PTY = { claudeCodeDefaultTransportMode: 'interactive-pty' as const };
+
+describe('resolveClaudeTransportMode', () => {
+	test('all undefined → legacy-print', () => {
+		expect(resolveClaudeTransportMode(undefined, undefined, undefined, APP_DEFAULT)).toBe(
+			'legacy-print'
+		);
+	});
+
+	test('only app set to interactive-pty → interactive-pty', () => {
+		expect(resolveClaudeTransportMode(undefined, undefined, undefined, APP_PTY)).toBe(
+			'interactive-pty'
+		);
+	});
+
+	test('only project set to interactive-pty → interactive-pty', () => {
+		expect(
+			resolveClaudeTransportMode(
+				undefined,
+				undefined,
+				{ transportMode: 'interactive-pty' },
+				APP_DEFAULT
+			)
+		).toBe('interactive-pty');
+	});
+
+	test('only agent set to interactive-pty → interactive-pty', () => {
+		expect(
+			resolveClaudeTransportMode(
+				undefined,
+				{ transportMode: 'interactive-pty' },
+				undefined,
+				APP_DEFAULT
+			)
+		).toBe('interactive-pty');
+	});
+
+	test('only tab set to interactive-pty → interactive-pty', () => {
+		expect(
+			resolveClaudeTransportMode(
+				{ transportMode: 'interactive-pty' },
+				undefined,
+				undefined,
+				APP_DEFAULT
+			)
+		).toBe('interactive-pty');
+	});
+
+	test('strict ratchet: tab legacy-print cannot demote project interactive-pty', () => {
+		expect(
+			resolveClaudeTransportMode(
+				{ transportMode: 'legacy-print' },
+				undefined,
+				{ transportMode: 'interactive-pty' },
+				APP_DEFAULT
+			)
+		).toBe('interactive-pty');
+	});
+
+	test('tab interactive-pty while everything else is default → interactive-pty', () => {
+		expect(
+			resolveClaudeTransportMode(
+				{ transportMode: 'interactive-pty' },
+				{ transportMode: 'legacy-print' },
+				{ transportMode: 'legacy-print' },
+				APP_DEFAULT
+			)
+		).toBe('interactive-pty');
+	});
+});
+
+describe('describeCascadeSource', () => {
+	test('all undefined → legacy-print, source default', () => {
+		expect(describeCascadeSource(undefined, undefined, undefined, APP_DEFAULT)).toEqual({
+			mode: 'legacy-print',
+			source: 'default',
+		});
+	});
+
+	test('only app set to interactive-pty → source app', () => {
+		expect(describeCascadeSource(undefined, undefined, undefined, APP_PTY)).toEqual({
+			mode: 'interactive-pty',
+			source: 'app',
+		});
+	});
+
+	test('project + app both interactive-pty → source project (more specific)', () => {
+		expect(
+			describeCascadeSource(undefined, undefined, { transportMode: 'interactive-pty' }, APP_PTY)
+		).toEqual({
+			mode: 'interactive-pty',
+			source: 'project',
+		});
+	});
+
+	test('tab interactive-pty over legacy-print defaults → source tab', () => {
+		expect(
+			describeCascadeSource({ transportMode: 'interactive-pty' }, undefined, undefined, APP_DEFAULT)
+		).toEqual({ mode: 'interactive-pty', source: 'tab' });
+	});
+
+	test('strict ratchet: tab legacy-print + project interactive-pty → source project', () => {
+		expect(
+			describeCascadeSource(
+				{ transportMode: 'legacy-print' },
+				undefined,
+				{ transportMode: 'interactive-pty' },
+				APP_DEFAULT
+			)
+		).toEqual({ mode: 'interactive-pty', source: 'project' });
+	});
+
+	test('tab interactive-pty while everything else is default → source tab', () => {
+		expect(
+			describeCascadeSource({ transportMode: 'interactive-pty' }, undefined, undefined, APP_DEFAULT)
+		).toEqual({ mode: 'interactive-pty', source: 'tab' });
 	});
 });

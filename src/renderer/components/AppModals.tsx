@@ -50,6 +50,7 @@ import type {
 import type { FileNode } from '../types/fileTree';
 import type { WizardStep } from './Wizard/WizardContext';
 import type { GroomingProgress, MergeResult } from '../types/contextMerge';
+import type { TransportMode } from '../../shared/types';
 
 // Info/Display Modal Components
 import { AboutModal } from './AboutModal';
@@ -433,7 +434,8 @@ export interface AppSessionModalsProps {
 			enabled: boolean;
 			remoteId: string | null;
 			workingDirOverride?: string;
-		}
+		},
+		transportMode?: TransportMode
 	) => void;
 	editAgentSession: Session | null;
 	onRescanGit: (sessionId: string) => Promise<boolean>;
@@ -1902,7 +1904,8 @@ export interface AppModalsProps {
 			enabled: boolean;
 			remoteId: string | null;
 			workingDirOverride?: string;
-		}
+		},
+		transportMode?: TransportMode
 	) => void;
 	editAgentSession: Session | null;
 	onRescanGit: (sessionId: string) => Promise<boolean>;

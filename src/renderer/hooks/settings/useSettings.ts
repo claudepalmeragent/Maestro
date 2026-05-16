@@ -27,6 +27,7 @@ import type {
 	ThinkingMode,
 	DirectorNotesSettings,
 	EncoreFeatureFlags,
+	TransportMode,
 } from '../../types';
 import type { HoneycombWarningSettings } from '../../../main/stores/types';
 import {
@@ -147,6 +148,10 @@ export interface UseSettingsReturn {
 	// Crash reporting settings
 	crashReportingEnabled: boolean;
 	setCrashReportingEnabled: (value: boolean) => void;
+
+	// Claude Code transport mode (cascade default)
+	claudeCodeDefaultTransportMode: TransportMode;
+	setClaudeCodeDefaultTransportMode: (value: TransportMode) => void;
 
 	// Log Viewer settings
 	logViewerSelectedLevels: string[];

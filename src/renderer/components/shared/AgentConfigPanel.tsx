@@ -17,7 +17,12 @@
 import { useState, useRef, useMemo, useEffect } from 'react';
 import { RefreshCw, Plus, Trash2, HelpCircle, ChevronDown, AlertTriangle } from 'lucide-react';
 import type { Theme, AgentConfig, AgentConfigOption } from '../../types';
-import type { DetectedAuth, ProjectFolderPricingConfig } from '../../../shared/types';
+import type {
+	DetectedAuth,
+	ProjectFolderPricingConfig,
+	TransportMode,
+} from '../../../shared/types';
+import { describeCascadeSource } from '../../../shared/transport-mode';
 import type { AgentPricingConfig } from '../../../main/stores/types';
 import { BillingModeToggle, type BillingModeValue } from '../ui/BillingModeToggle';
 import { PricingModelDropdown, type PricingModelValue } from '../ui/PricingModelDropdown';
@@ -311,6 +316,17 @@ export interface AgentConfigPanelProps {
 	hostEffortLevel?: string;
 	// SSH remote execution enabled for this session
 	isSshEnabled?: boolean;
+	// Transport mode (Claude Code agents only)
+	/**
+	 * Transport mode for this agent scope.
+	 * undefined = inherit from above (treated as legacy-print unless a higher level forces interactive-pty).
+	 */
+	agentTransportMode?: TransportMode;
+	onAgentTransportModeChange?: (mode: TransportMode | undefined) => void;
+	/** Transport mode of the project/group this agent belongs to (for inheritance indicator). */
+	projectTransportMode?: TransportMode;
+	/** App-level default transport mode (for inheritance indicator). */
+	appTransportMode?: TransportMode;
 }
 
 export function AgentConfigPanel({
@@ -353,6 +369,10 @@ export function AgentConfigPanel({
 	detectedModel,
 	hostEffortLevel,
 	isSshEnabled = false,
+	agentTransportMode,
+	onAgentTransportModeChange,
+	projectTransportMode,
+	appTransportMode,
 }: AgentConfigPanelProps): JSX.Element {
 	const callOnConfigBlurSafely = (key: string, committedValue: any) => {
 		const maybePromise = onConfigBlur(key, committedValue);
@@ -866,6 +886,81 @@ export function AgentConfigPanel({
 						<p className="text-xs opacity-50 mt-2">{option.description}</p>
 					</div>
 				))}
+
+			{/* Transport Mode (Claude Code only) */}
+			{agent.id === 'claude-code' &&
+				onAgentTransportModeChange !== undefined &&
+				(() => {
+					const { source: cascadeSource } = describeCascadeSource(
+						undefined,
+						undefined,
+						projectTransportMode !== undefined
+							? { transportMode: projectTransportMode }
+							: undefined,
+						{ claudeCodeDefaultTransportMode: appTransportMode ?? 'legacy-print' }
+					);
+					const forcedSource =
+						cascadeSource === 'project' || cascadeSource === 'app' ? cascadeSource : null;
+					const inheritedLabel =
+						appTransportMode === 'interactive-pty'
+							? 'Interactive PTY (Claude Max)'
+							: 'Legacy (claude --print)';
+					return (
+						<div
+							className={`${padding} rounded border`}
+							style={{ borderColor: theme.colors.border, backgroundColor: theme.colors.bgMain }}
+						>
+							<label
+								className="block text-xs font-medium mb-1"
+								style={{ color: theme.colors.textDim }}
+							>
+								Claude Code Transport Mode
+							</label>
+							{forcedSource ? (
+								<p
+									className="text-xs px-2 py-1.5 rounded"
+									style={{
+										color: theme.colors.textDim,
+										backgroundColor: theme.colors.bgActivity,
+									}}
+								>
+									Inherited from {forcedSource}: Interactive PTY (Claude Max)
+								</p>
+							) : (
+								<>
+									<p className="text-xs mb-2" style={{ color: theme.colors.textDim }}>
+										Inherited from app:{' '}
+										<span style={{ color: theme.colors.textMain }}>{inheritedLabel}</span>
+									</p>
+									<select
+										value={agentTransportMode ?? ''}
+										onChange={(e) =>
+											onAgentTransportModeChange(
+												e.target.value === '' ? undefined : (e.target.value as TransportMode)
+											)
+										}
+										className="text-xs px-2 py-1.5 rounded border w-full"
+										style={{
+											backgroundColor: theme.colors.bgMain,
+											color: theme.colors.textMain,
+											borderColor: theme.colors.border,
+										}}
+									>
+										<option value="">
+											Inherit from app (
+											{appTransportMode === 'interactive-pty' ? 'Interactive PTY' : 'Legacy'})
+										</option>
+										<option value="legacy-print">Legacy (claude --print)</option>
+										<option value="interactive-pty">Interactive PTY (Claude Max)</option>
+									</select>
+								</>
+							)}
+							<p className="text-xs mt-2" style={{ color: theme.colors.textDim }}>
+								Any level set to Interactive PTY wins for all tabs below it (strict ratchet).
+							</p>
+						</div>
+					);
+				})()}
 
 			{/* Effort Level (Claude Code only — shown after model selection) */}
 			{agent.id === 'claude-code' && (

@@ -1,4 +1,7 @@
 import * as crypto from 'crypto';
+import type { TransportMode } from '../../shared/types';
+export { describeCascadeSource } from '../../shared/transport-mode';
+export type { CascadeSource } from '../../shared/transport-mode';
 
 /** Args removed from the Claude command line for interactive-pty mode. */
 export const PRINT_ARGS_TO_STRIP = ['--print', '-p', '--verbose', '--output-format', 'stream-json'];
@@ -69,3 +72,21 @@ export type RunnerExitReason =
 	| 'AGENT_TIMEOUT'
 	| 'PROCESS_CRASH'
 	| 'KILLED';
+
+/**
+ * Resolves the effective transport mode using the strict-ratchet cascade:
+ * tab → agent → project → app. Any level set to 'interactive-pty' wins for
+ * everything below it. undefined at any level is treated as 'legacy-print'.
+ */
+export function resolveClaudeTransportMode(
+	tab: { transportMode?: TransportMode } | undefined,
+	agent: { transportMode?: TransportMode } | undefined,
+	project: { transportMode?: TransportMode } | undefined,
+	app: { claudeCodeDefaultTransportMode: TransportMode }
+): TransportMode {
+	if (tab?.transportMode === 'interactive-pty') return 'interactive-pty';
+	if (agent?.transportMode === 'interactive-pty') return 'interactive-pty';
+	if (project?.transportMode === 'interactive-pty') return 'interactive-pty';
+	if (app.claudeCodeDefaultTransportMode === 'interactive-pty') return 'interactive-pty';
+	return 'legacy-print';
+}

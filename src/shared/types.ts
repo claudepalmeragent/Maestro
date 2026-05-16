@@ -19,6 +19,13 @@ export type ToolType = import('./agentIds').AgentId | 'claude';
  */
 export type ThinkingMode = 'off' | 'on' | 'sticky';
 
+/**
+ * TransportMode controls how Claude Code is spawned.
+ * - 'legacy-print': Headless mode using --print flag (API-billed)
+ * - 'interactive-pty': Interactive PTY mode (Claude Max subscription)
+ */
+export type TransportMode = 'legacy-print' | 'interactive-pty';
+
 // Session group
 export interface Group {
 	id: string;
@@ -27,6 +34,16 @@ export interface Group {
 	collapsed: boolean;
 	/** Project Folder this group belongs to (1:1 relationship) */
 	projectFolderId?: string;
+	/**
+	 * Transport mode for Claude Code spawns at this scope.
+	 *
+	 * Cascade rule: any level set to 'interactive-pty' wins for everything below it
+	 * (strict ratchet — narrower scopes cannot demote broader scopes' opt-in).
+	 * undefined is treated as 'legacy-print'.
+	 *
+	 * See ARD CLAUDE-PTY-02 for full specification.
+	 */
+	transportMode?: TransportMode;
 }
 
 // ============================================================================

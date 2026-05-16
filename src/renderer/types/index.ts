@@ -19,6 +19,7 @@ export type {
 	PlaybookDocumentEntry,
 	Playbook,
 	ThinkingMode,
+	TransportMode,
 	WorktreeRunTarget,
 } from '../../shared/types';
 
@@ -35,6 +36,7 @@ import type {
 	UsageStats,
 	ToolType,
 	ThinkingMode,
+	TransportMode,
 } from '../../shared/types';
 
 // Re-export group chat types from shared location
@@ -542,6 +544,16 @@ export interface AITab {
 	autoSendOnActivate?: boolean; // When true, automatically send inputValue when tab becomes active
 	wizardState?: SessionWizardState; // Per-tab inline wizard state for /wizard command
 	isGeneratingName?: boolean; // True while automatic tab naming is in progress
+	/**
+	 * Transport mode for Claude Code spawns at this scope.
+	 *
+	 * Cascade rule: any level set to 'interactive-pty' wins for everything below it
+	 * (strict ratchet — narrower scopes cannot demote broader scopes' opt-in).
+	 * undefined is treated as 'legacy-print'.
+	 *
+	 * See ARD CLAUDE-PTY-02 for full specification.
+	 */
+	transportMode?: TransportMode;
 }
 
 // A single "thinking item" — one busy tab within a session.
@@ -837,6 +849,17 @@ export interface Session {
 
 	// Symphony contribution metadata (only set for Symphony sessions)
 	symphonyMetadata?: SymphonySessionMetadata;
+
+	/**
+	 * Transport mode for Claude Code spawns at this scope.
+	 *
+	 * Cascade rule: any level set to 'interactive-pty' wins for everything below it
+	 * (strict ratchet — narrower scopes cannot demote broader scopes' opt-in).
+	 * undefined is treated as 'legacy-print'.
+	 *
+	 * See ARD CLAUDE-PTY-02 for full specification.
+	 */
+	transportMode?: TransportMode;
 }
 
 export interface AgentConfigOption {

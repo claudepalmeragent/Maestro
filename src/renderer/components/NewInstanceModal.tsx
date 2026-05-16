@@ -10,7 +10,14 @@ import {
 	GitBranch,
 } from 'lucide-react';
 import type { AgentConfig, Session, ToolType } from '../types';
-import type { SshRemoteConfig, AgentSshRemoteConfig, DetectedAuth } from '../../shared/types';
+import type {
+	SshRemoteConfig,
+	AgentSshRemoteConfig,
+	DetectedAuth,
+	TransportMode,
+} from '../../shared/types';
+import { useSessionStore } from '../stores/sessionStore';
+import { useSettingsStore } from '../stores/settingsStore';
 import type { AgentPricingConfig } from '../../main/stores/types';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 import { validateNewSession, validateEditSession } from '../utils/sessionValidation';
@@ -81,7 +88,8 @@ interface EditAgentModalProps {
 			enabled: boolean;
 			remoteId: string | null;
 			workingDirOverride?: string;
-		}
+		},
+		transportMode?: TransportMode
 	) => void;
 	onRescanGit: (sessionId: string) => Promise<boolean>;
 	theme: any;
@@ -1288,6 +1296,19 @@ export function EditAgentModal({
 	// Host-detected model and effort level (from ~/.claude/settings.json on local or SSH host)
 	const [hostModel, setHostModel] = useState<string | undefined>(undefined);
 	const [hostEffortLevel, setHostEffortLevel] = useState<string | undefined>(undefined);
+	// Per-agent transport mode
+	const [agentTransportMode, setAgentTransportMode] = useState<TransportMode | undefined>(
+		undefined
+	);
+
+	// Read project transport mode from the session's group
+	const groups = useSessionStore((s) => s.groups);
+	const appTransportMode = useSettingsStore((s) => s.claudeCodeDefaultTransportMode);
+	const projectTransportMode = useMemo(() => {
+		if (!session?.groupId) return undefined;
+		const group = groups.find((g) => g.id === session.groupId);
+		return group?.transportMode;
+	}, [session?.groupId, groups]);
 
 	const nameInputRef = useRef<HTMLInputElement>(null);
 
@@ -1496,6 +1517,7 @@ export function EditAgentModal({
 			setInstanceName(session.name);
 			setNudgeMessage(session.nudgeMessage || '');
 			setSelectedToolType(session.toolType);
+			setAgentTransportMode(session.transportMode);
 			// Derive git scan status from session state
 			if (session.isGitRepo) {
 				setGitScanStatus('found');
@@ -1683,7 +1705,8 @@ export function EditAgentModal({
 			Object.keys(customEnvVars).length > 0 ? customEnvVars : undefined,
 			modelValue,
 			contextWindowValue,
-			sessionSshRemoteConfig
+			sessionSshRemoteConfig,
+			agentTransportMode
 		);
 		onClose();
 	}, [
@@ -1703,6 +1726,7 @@ export function EditAgentModal({
 		hostModel,
 		hostEffortLevel,
 		pricingConfig,
+		agentTransportMode,
 	]);
 
 	// Refresh available models
@@ -2148,6 +2172,10 @@ export function EditAgentModal({
 								detectedModel={hostModel}
 								hostEffortLevel={hostEffortLevel}
 								isSshEnabled={isSshEnabled}
+								agentTransportMode={agentTransportMode}
+								onAgentTransportModeChange={setAgentTransportMode}
+								projectTransportMode={projectTransportMode}
+								appTransportMode={appTransportMode}
 							/>
 							{/* Version & Update (Claude Code only) — grouped with Model and Effort */}
 							{session.toolType === 'claude-code' && (

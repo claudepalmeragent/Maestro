@@ -105,6 +105,8 @@ export function GeneralTab({ theme, isOpen }: GeneralTabProps) {
 		setCheckForNewModelsOnStartup,
 		crashReportingEnabled,
 		setCrashReportingEnabled,
+		claudeCodeDefaultTransportMode,
+		setClaudeCodeDefaultTransportMode,
 		// Context Management
 		contextManagementSettings,
 		updateContextManagementSettings,
@@ -1001,6 +1003,45 @@ export function GeneralTab({ theme, isOpen }: GeneralTabProps) {
 				onChange={setCheckForNewModelsOnStartup}
 				theme={theme}
 			/>
+
+			{/* Claude Code Transport Mode */}
+			<div>
+				<div className="block text-xs font-bold opacity-70 uppercase mb-2 flex items-center gap-2">
+					<Cpu className="w-3 h-3" />
+					Default Claude Code Transport Mode
+				</div>
+				<div
+					className="p-3 rounded border space-y-3"
+					style={{ borderColor: theme.colors.border, backgroundColor: theme.colors.bgMain }}
+				>
+					<div>
+						<select
+							value={claudeCodeDefaultTransportMode}
+							onChange={(e) =>
+								setClaudeCodeDefaultTransportMode(
+									e.target.value as 'legacy-print' | 'interactive-pty'
+								)
+							}
+							className="w-full p-2 rounded border bg-transparent outline-none text-sm"
+							style={{ borderColor: theme.colors.border, color: theme.colors.textMain }}
+						>
+							<option value="legacy-print">
+								Legacy (claude --print) — Headless mode. As of 2026-06-15, Anthropic meters this
+								against API rates rather than the Max subscription.
+							</option>
+							<option value="interactive-pty">
+								Interactive PTY (Claude Max) — Spawns claude interactively. Stays within the Claude
+								Max subscription tier.
+							</option>
+						</select>
+					</div>
+					<p className="text-xs opacity-50">
+						This is the app-wide default. Project folders, agents, and individual tabs may override
+						this <strong>only by opting INTO Interactive PTY</strong> — they cannot opt out once
+						this is set to Interactive PTY.
+					</p>
+				</div>
+			</div>
 
 			{/* Crash Reporting */}
 			<SettingCheckbox

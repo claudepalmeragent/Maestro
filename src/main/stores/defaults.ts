@@ -105,6 +105,8 @@ export const SETTINGS_DEFAULTS: MaestroSettings = {
 	wakatimeApiKey: '',
 	wakatimeDetailedTracking: false,
 	totalActiveTimeMs: 0,
+	// Claude Code transport mode (strict-ratchet cascade default — see ARD CLAUDE-PTY-02)
+	claudeCodeDefaultTransportMode: 'legacy-print',
 };
 
 export const SESSIONS_DEFAULTS: SessionsData = {
