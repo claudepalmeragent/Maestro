@@ -232,6 +232,14 @@ export class ProcessManager extends EventEmitter {
 	}
 
 	/**
+	 * Returns true if an external ClaudePtyRunner is registered for the session.
+	 * Stub: always returns false until ARD 5 (03) wires the runner registry.
+	 */
+	hasExternalRunner(_sessionId: string): boolean {
+		return false;
+	}
+
+	/**
 	 * Run a single command and capture stdout/stderr cleanly
 	 */
 	runCommand(

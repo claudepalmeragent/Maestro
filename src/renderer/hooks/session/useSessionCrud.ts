@@ -227,6 +227,7 @@ export function useSessionCrud(deps: UseSessionCrudDeps): UseSessionCrudReturn {
 					workLog: [],
 					contextUsage: 0,
 					inputMode: agentId === 'terminal' ? 'terminal' : 'ai',
+					viewMode: agentId === 'terminal' ? 'shell' : 'ai',
 					aiPid,
 					terminalPid: 0,
 					port: 3000 + Math.floor(Math.random() * 100),

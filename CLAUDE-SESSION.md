@@ -8,17 +8,18 @@ The `Session` interface is the core data model for Maestro. Each session represe
 
 ## Identity & Metadata
 
-| Field         | Type                 | Optional | Description                                                                                           |
-| ------------- | -------------------- | -------- | ----------------------------------------------------------------------------------------------------- |
-| id            | `string`             |          | Unique session ID                                                                                     |
-| name          | `string`             |          | Display name shown in sidebar                                                                         |
-| groupId       | `string`             | ✓        | Agent grouping ID                                                                                     |
-| toolType      | `ToolType`           |          | Agent type: `'claude-code'` \| `'codex'` \| `'opencode'` \| `'factory-droid'` \| `'terminal'` \| etc. |
-| state         | `SessionState`       |          | Lifecycle state: `'idle'` \| `'busy'` \| `'waiting_input'` \| `'connecting'` \| `'error'`             |
-| inputMode     | `'terminal' \| 'ai'` |          | Which process receives user input                                                                     |
-| bookmarked    | `boolean`            | ✓        | Pinned to top of sidebar in dedicated section                                                         |
-| statusMessage | `string`             | ✓        | Custom status for thinking indicator (e.g., "Agent is synopsizing...")                                |
-| busySource    | `'ai' \| 'terminal'` | ✓        | Which mode triggered the busy state (for correct indicator when switching modes)                      |
+| Field         | Type                 | Optional | Description                                                                                                                                                         |
+| ------------- | -------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| id            | `string`             |          | Unique session ID                                                                                                                                                   |
+| name          | `string`             |          | Display name shown in sidebar                                                                                                                                       |
+| groupId       | `string`             | ✓        | Agent grouping ID                                                                                                                                                   |
+| toolType      | `ToolType`           |          | Agent type: `'claude-code'` \| `'codex'` \| `'opencode'` \| `'factory-droid'` \| `'terminal'` \| etc.                                                               |
+| state         | `SessionState`       |          | Lifecycle state: `'idle'` \| `'busy'` \| `'waiting_input'` \| `'connecting'` \| `'error'`                                                                           |
+| inputMode     | `'terminal' \| 'ai'` |          | Which process receives user input                                                                                                                                   |
+| viewMode      | `ViewMode`           |          | 3-state center-pane view: `'ai'` (AI terminal) \| `'shell'` (command shell) \| `'interactive'` (raw PTY stream — only available when a `ClaudePtyRunner` is active) |
+| bookmarked    | `boolean`            | ✓        | Pinned to top of sidebar in dedicated section                                                                                                                       |
+| statusMessage | `string`             | ✓        | Custom status for thinking indicator (e.g., "Agent is synopsizing...")                                                                                              |
+| busySource    | `'ai' \| 'terminal'` | ✓        | Which mode triggered the busy state (for correct indicator when switching modes)                                                                                    |
 
 ## Paths
 

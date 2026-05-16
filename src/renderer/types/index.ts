@@ -60,6 +60,14 @@ export type SettingsTab = 'general' | 'shortcuts' | 'theme' | 'notifications' | 
 export type FocusArea = 'sidebar' | 'main' | 'right';
 export type LLMProvider = 'openrouter' | 'anthropic' | 'ollama';
 
+/**
+ * 3-state center-pane view mode.
+ * - 'ai': AI terminal (default)
+ * - 'shell': command shell / terminal
+ * - 'interactive': raw PTY stream view (only available when a ClaudePtyRunner is active)
+ */
+export type ViewMode = 'ai' | 'shell' | 'interactive';
+
 // Inline wizard types for per-session/per-tab wizard state
 export type WizardMode = 'new' | 'iterate' | null;
 
@@ -647,6 +655,8 @@ export interface Session {
 	// Usage statistics from AI responses
 	usageStats?: UsageStats;
 	inputMode: 'terminal' | 'ai';
+	/** 3-state center-pane view mode (extends inputMode's 2-state AI/Shell toggle). */
+	viewMode: ViewMode;
 	// AI process PID (for agents with persistent processes)
 	// For batch mode agents, this is 0 since processes spawn per-message
 	aiPid: number;

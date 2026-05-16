@@ -210,9 +210,9 @@ export const tourSteps: TourStepConfig[] = [
 		id: 'terminal-mode',
 		title: 'Terminal Mode',
 		description:
-			'Press {{toggleMode}} to switch between AI mode and Terminal mode. Terminal mode gives you a direct shell for running commands yourself.',
+			'Press {{toggleMode}} to cycle between AI mode, Terminal mode, and Interactive mode. Terminal mode gives you a direct shell; Interactive mode appears when running Claude in PTY transport.',
 		descriptionGeneric:
-			'Press {{toggleMode}} to switch between AI mode and Terminal mode. Terminal mode gives you a direct shell for running commands yourself.',
+			'Press {{toggleMode}} to cycle between AI mode, Terminal mode, and Interactive mode. Terminal mode gives you a direct shell; Interactive mode appears when running Claude in PTY transport.',
 		selector: '[data-tour="input-area"]',
 		position: 'top',
 		uiActions: [],

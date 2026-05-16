@@ -33,6 +33,7 @@ import { GitStatusWidget } from './GitStatusWidget';
 import { AgentSessionsBrowser } from './AgentSessionsBrowser';
 import { TabBar } from './TabBar';
 import { WizardConversationView, DocumentGenerationView } from './InlineWizard';
+import { InteractiveModeView } from './InteractiveMode/InteractiveModeView';
 import { gitService } from '../services/git';
 import { remoteUrlToBrowserUrl } from '../../shared/gitUtils';
 import { useGitBranch, useGitDetail, useGitFileStatus } from '../contexts/GitStatusContext';
@@ -1566,11 +1567,14 @@ export const MainPanel = React.memo(
 							</div>
 						)}
 
-						{/* Content area: Show FilePreview when file tab is active, otherwise show terminal output */}
-						{/* File preview only renders in AI mode — terminal mode uses the full panel for terminal output */}
-						{/* Skip rendering when loading remote file - loading state takes over entire main area */}
-						{activeSession.inputMode === 'ai' &&
-						((filePreviewLoading && !activeFileTabId) || activeFileTab?.isLoading) ? (
+						{/* Interactive Mode view: full-pane PTY stream when viewMode === 'interactive' */}
+						{activeSession.viewMode === 'interactive' ? (
+							<InteractiveModeView sessionId={activeSession.id} theme={theme} />
+						) : /* Content area: Show FilePreview when file tab is active, otherwise show terminal output */
+						/* File preview only renders in AI mode — terminal mode uses the full panel for terminal output */
+						/* Skip rendering when loading remote file - loading state takes over entire main area */
+						activeSession.inputMode === 'ai' &&
+						  ((filePreviewLoading && !activeFileTabId) || activeFileTab?.isLoading) ? (
 							<div
 								className="flex-1 flex items-center justify-center"
 								style={{ backgroundColor: theme.colors.bgMain }}

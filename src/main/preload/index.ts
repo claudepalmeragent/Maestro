@@ -58,6 +58,7 @@ import { createSymphonyApi } from './symphony';
 import { createTabNamingApi } from './tabNaming';
 import { createDirectorNotesApi } from './directorNotes';
 import { createWakatimeApi } from './wakatime';
+import { createClaudePtyApi } from './claudePty';
 
 // Expose protected methods that allow the renderer process to use
 // the ipcRenderer without exposing the entire object
@@ -223,6 +224,9 @@ contextBridge.exposeInMainWorld('maestro', {
 
 	// WakaTime API (CLI check, API key validation)
 	wakatime: createWakatimeApi(),
+
+	// Claude PTY Runner API (interactive mode IPC bridge)
+	claudePty: createClaudePtyApi(),
 });
 
 // Re-export factory functions for external consumers (e.g., tests)

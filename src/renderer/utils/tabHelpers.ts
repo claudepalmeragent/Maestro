@@ -1579,6 +1579,7 @@ export function createMergedSession(
 		workLog: [],
 		contextUsage: 0,
 		inputMode: toolType === 'terminal' ? 'terminal' : 'ai',
+		viewMode: toolType === 'terminal' ? 'shell' : 'ai',
 		aiPid: 0,
 		terminalPid: 0,
 		port: 3000 + Math.floor(Math.random() * 100),

@@ -62,6 +62,7 @@ import {
 	registerAgentErrorHandlers,
 	registerDirectorNotesHandlers,
 	registerWakatimeHandlers,
+	registerClaudePtyHandlers,
 	setupLoggerEventForwarding,
 	cleanupAllGroomingSessions,
 	getActiveGroomingSessionCount,
@@ -874,6 +875,9 @@ function setupIpcHandlers() {
 
 	// Register WakaTime handlers (CLI check, API key validation)
 	registerWakatimeHandlers(wakatimeManager);
+
+	// Register ClaudePtyRunner IPC handlers (stubs until ARD 5 wires runner registry)
+	registerClaudePtyHandlers();
 }
 
 // Handle process output streaming (set up after initialization)

@@ -90,6 +90,11 @@ export function buildWorktreeSession(params: BuildWorktreeSessionParams): Sessio
 			: params.parentSession.toolType === 'terminal'
 				? 'terminal'
 				: 'ai',
+		viewMode: isLegacy
+			? params.parentSession.viewMode
+			: params.parentSession.toolType === 'terminal'
+				? 'shell'
+				: 'ai',
 		aiPid: 0,
 		terminalPid: 0,
 		port: 3000 + Math.floor(Math.random() * 100),

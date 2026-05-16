@@ -3506,6 +3506,20 @@ interface MaestroAPI {
 		checkCli: () => Promise<{ available: boolean; version?: string }>;
 		validateApiKey: (key: string) => Promise<{ valid: boolean }>;
 	};
+
+	// Claude PTY Runner API (interactive mode IPC bridge)
+	claudePty: {
+		/** Subscribe to raw PTY chunks from main process. Returns unsubscribe fn. */
+		onRawData: (sessionId: string, callback: (chunk: string) => void) => () => void;
+		/** Send raw input to runner PTY stdin (only when user-controlled). */
+		injectManualCommand: (sessionId: string, data: string) => Promise<boolean>;
+		/** Toggle user-controlled mode (true = pauses orchestration). */
+		setUserControlled: (sessionId: string, enabled: boolean) => Promise<void>;
+		/** Query runner state; null when no runner registered for session. */
+		getState: (
+			sessionId: string
+		) => Promise<{ isBusy: boolean; userControlled: boolean; alive: boolean } | null>;
+	};
 }
 
 declare global {

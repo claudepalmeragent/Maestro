@@ -24,6 +24,7 @@ const createMockParentSession = (overrides: Partial<Session> = {}): Session =>
 		fullPath: '/projects/main',
 		projectRoot: '/projects/main',
 		inputMode: 'ai',
+		viewMode: 'ai',
 		customPath: '/usr/local/bin/claude',
 		customArgs: ['--verbose'],
 		customEnvVars: { KEY: 'val' },

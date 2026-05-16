@@ -14,7 +14,7 @@
  */
 
 import { create } from 'zustand';
-import type { Session, Group, LogEntry } from '../types';
+import type { Session, Group, LogEntry, ViewMode } from '../types';
 import { generateId } from '../utils/ids';
 import { getActiveTab } from '../utils/tabHelpers';
 
@@ -112,6 +112,11 @@ export interface SessionStoreActions {
 
 	/** Replace the entire removed worktree paths set. */
 	setRemovedWorktreePaths: (paths: Set<string> | ((prev: Set<string>) => Set<string>)) => void;
+
+	// === View mode ===
+
+	/** Set the 3-state center-pane view mode for a session. */
+	setViewMode: (sessionId: string, mode: ViewMode) => void;
 
 	// === Navigation ===
 
@@ -260,6 +265,14 @@ export const useSessionStore = create<SessionStore>()((set) => ({
 	setRemovedWorktreePaths: (v) =>
 		set((s) => ({
 			removedWorktreePaths: resolve(v, s.removedWorktreePaths),
+		})),
+
+	// View mode
+	setViewMode: (sessionId, mode) =>
+		set((s) => ({
+			sessions: s.sessions.map((session) =>
+				session.id === sessionId ? { ...session, viewMode: mode } : session
+			),
 		})),
 
 	// Navigation
