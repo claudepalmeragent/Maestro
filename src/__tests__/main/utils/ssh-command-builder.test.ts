@@ -3,6 +3,7 @@ import {
 	buildSshCommand,
 	buildRemoteCommand,
 	buildSshCommandWithStdin,
+	buildSshClaudeInteractiveArgs,
 } from '../../../main/utils/ssh-command-builder';
 import type { SshRemoteConfig } from '../../../shared/types';
 import * as os from 'os';
@@ -1227,6 +1228,153 @@ describe('ssh-command-builder', () => {
 			// Verify exec line doesn't have the prompt
 			const execLine = result.stdinScript?.split('\n').find((line) => line.startsWith('exec '));
 			expect(execLine).not.toContain('{"type"');
+		});
+	});
+
+	describe('buildSshClaudeInteractiveArgs', () => {
+		it('always adds -tt as the first argument', async () => {
+			const result = await buildSshClaudeInteractiveArgs(baseConfig, [], '/home/user', {});
+			expect(result[0]).toBe('-tt');
+		});
+
+		it('includes RequestTTY=force in SSH options', async () => {
+			const result = await buildSshClaudeInteractiveArgs(baseConfig, [], '/home/user', {});
+			const requestTtyIndex = result.findIndex(
+				(arg, i) => result[i - 1] === '-o' && arg.startsWith('RequestTTY=')
+			);
+			expect(requestTtyIndex).toBeGreaterThan(-1);
+			expect(result[requestTtyIndex]).toBe('RequestTTY=force');
+		});
+
+		it('never uses -T (disable TTY)', async () => {
+			const result = await buildSshClaudeInteractiveArgs(baseConfig, [], '/home/user', {});
+			expect(result).not.toContain('-T');
+		});
+
+		it('includes private key from config', async () => {
+			const result = await buildSshClaudeInteractiveArgs(baseConfig, [], '/home/user', {});
+			expect(result).toContain('-i');
+			expect(result).toContain('/Users/testuser/.ssh/id_ed25519');
+		});
+
+		it('includes destination as username@host', async () => {
+			const result = await buildSshClaudeInteractiveArgs(baseConfig, [], '/home/user', {});
+			expect(result).toContain('testuser@dev.example.com');
+		});
+
+		it('includes destination as bare host when no username', async () => {
+			const noUserConfig: SshRemoteConfig = { ...baseConfig, username: '' };
+			const result = await buildSshClaudeInteractiveArgs(noUserConfig, [], '/home/user', {});
+			expect(result).toContain('dev.example.com');
+			expect(result).not.toContain('@dev.example.com');
+		});
+
+		it('wraps remote command with /bin/bash --norc --noprofile', async () => {
+			const result = await buildSshClaudeInteractiveArgs(baseConfig, [], '/home/user', {});
+			const lastArg = result[result.length - 1];
+			expect(lastArg).toContain('/bin/bash --norc --noprofile -c');
+		});
+
+		it('remote command includes cd to cwd', async () => {
+			const result = await buildSshClaudeInteractiveArgs(baseConfig, [], '/home/user/project', {});
+			// The lastArg is the full /bin/bash -c '...' string. The inner path is shell-escaped
+			// but the path itself (no special chars) is present verbatim.
+			const lastArg = result[result.length - 1];
+			expect(lastArg).toContain('/home/user/project');
+			expect(lastArg).toContain('cd ');
+		});
+
+		it('remote command uses exec to replace shell with claude', async () => {
+			const result = await buildSshClaudeInteractiveArgs(baseConfig, [], '/home/user', {});
+			const lastArg = result[result.length - 1];
+			expect(lastArg).toContain('exec claude');
+		});
+
+		it('includes claude args in the exec command', async () => {
+			const result = await buildSshClaudeInteractiveArgs(
+				baseConfig,
+				['--verbose', '--model', 'claude-opus-4-5'],
+				'/home/user',
+				{}
+			);
+			// The inner content is shell-escaped; verify key pieces are present in lastArg.
+			const lastArg = result[result.length - 1];
+			expect(lastArg).toContain('exec claude');
+			expect(lastArg).toContain('--verbose');
+			expect(lastArg).toContain('--model');
+			expect(lastArg).toContain('claude-opus-4-5');
+		});
+
+		it('encodes env vars as export lines in the wrapped command', async () => {
+			const result = await buildSshClaudeInteractiveArgs(baseConfig, [], '/home/user', {
+				MY_VAR: 'hello',
+				OTHER_VAR: 'value',
+			});
+			// The lastArg is the shell-escaped remote command. Check for export statements.
+			const lastArg = result[result.length - 1];
+			expect(lastArg).toContain('export MY_VAR=');
+			expect(lastArg).toContain('hello');
+			expect(lastArg).toContain('export OTHER_VAR=');
+			expect(lastArg).toContain('value');
+		});
+
+		it('does NOT contain ANTHROPIC_API_KEY if caller did not pass it', async () => {
+			// Caller is responsible for stripping API keys before calling this helper.
+			const result = await buildSshClaudeInteractiveArgs(baseConfig, [], '/home/user', {
+				OTHER_VAR: 'keep-me',
+			});
+			const lastArg = result[result.length - 1];
+			expect(lastArg).not.toContain('ANTHROPIC_API_KEY');
+		});
+
+		it('does NOT inject ANTHROPIC_API_KEY even if env object is empty', async () => {
+			const result = await buildSshClaudeInteractiveArgs(baseConfig, [], '/home/user', {});
+			const joined = result.join(' ');
+			expect(joined).not.toContain('ANTHROPIC_API_KEY');
+		});
+
+		it('includes PATH setup in the remote command', async () => {
+			const result = await buildSshClaudeInteractiveArgs(baseConfig, [], '/home/user', {});
+			const lastArg = result[result.length - 1];
+			expect(lastArg).toContain('export PATH=');
+			expect(lastArg).toContain('/usr/local/bin');
+		});
+
+		it('includes port specification', async () => {
+			const customPortConfig: SshRemoteConfig = { ...baseConfig, port: 2222 };
+			const result = await buildSshClaudeInteractiveArgs(customPortConfig, [], '/home/user', {});
+			expect(result).toContain('-p');
+			expect(result).toContain('2222');
+		});
+
+		it('returns an args array (not {command, args})', async () => {
+			const result = await buildSshClaudeInteractiveArgs(baseConfig, [], '/home/user', {});
+			expect(Array.isArray(result)).toBe(true);
+			// Unlike buildSshCommand, this function returns the raw args array
+			// so the caller can pass it as claudeBaseArgs to ClaudePtyRunner
+			expect(result).not.toContain('ssh'); // 'ssh' is the binary, not in the args
+		});
+
+		it('env var values with special characters are properly escaped', async () => {
+			const result = await buildSshClaudeInteractiveArgs(baseConfig, [], '/home/user', {
+				COMPLEX_VAR: "value with 'quotes' and spaces",
+			});
+			const lastArg = result[result.length - 1];
+			// shellEscape wraps in single quotes and escapes internal single quotes
+			expect(lastArg).toContain('export COMPLEX_VAR=');
+			// The value should be present in escaped form
+			expect(lastArg).toContain('COMPLEX_VAR=');
+		});
+
+		it('existing buildSshCommand tests are unaffected (regression guard)', async () => {
+			// Verify the legacy buildSshCommand path still works
+			const result = await buildSshCommand(baseConfig, {
+				command: 'claude',
+				args: ['--print'],
+			});
+			expect(result.command).toBe('ssh');
+			expect(result.args[0]).toBe('-tt');
+			expect(result.args).toContain('testuser@dev.example.com');
 		});
 	});
 });

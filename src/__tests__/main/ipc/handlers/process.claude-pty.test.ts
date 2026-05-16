@@ -64,6 +64,15 @@ vi.mock('../../../../main/utils/ssh-remote-resolver', () => ({
 vi.mock('../../../../main/utils/ssh-command-builder', () => ({
 	buildSshCommandWithStdin: vi.fn(),
 	buildSshCommand: vi.fn(),
+	buildSshClaudeInteractiveArgs: vi
+		.fn()
+		.mockResolvedValue([
+			'-tt',
+			'-o',
+			'RequestTTY=force',
+			'user@server.example.com',
+			"/bin/bash --norc --noprofile -c 'exec claude'",
+		]),
 }));
 
 // ── Misc mocks ────────────────────────────────────────────────────────────
@@ -638,8 +647,8 @@ describe('process:spawn — interactive-pty branch', () => {
 		expect(processManager.emitParsedEventBuffered).toHaveBeenCalledWith('sess-event', parsedEvent);
 	});
 
-	// ── Test: SSH session not affected ──────────────────────────────────────
-	it('claude-code with SSH enabled takes the legacy SSH path, not PTY runner', async () => {
+	// ── Test: SSH + legacy-print → legacy SSH stdin-passthrough path ─────────
+	it('SSH claude-code with all levels at legacy-print → legacy SSH stdin-passthrough path', async () => {
 		const { getSshRemoteConfig } = await import('../../../../main/utils/ssh-remote-resolver');
 		vi.mocked(getSshRemoteConfig).mockReturnValueOnce({
 			config: {
@@ -662,6 +671,60 @@ describe('process:spawn — interactive-pty branch', () => {
 		} as never);
 
 		const { deps, processManager } = buildDeps({
+			// App-level set to legacy-print → falls through to legacy SSH path
+			settingsGet: (key, def) => (key === 'claudeCodeDefaultTransportMode' ? 'legacy-print' : def),
+		});
+
+		registerProcessHandlers(deps);
+		const spawnHandler = handlers.get('process:spawn')!;
+
+		await spawnHandler({} as never, {
+			sessionId: 'sess-ssh-legacy',
+			toolType: 'claude-code',
+			cwd: '/proj',
+			command: 'claude',
+			args: ['--print'],
+			prompt: 'ssh legacy task',
+			sessionSshRemoteConfig: { enabled: true, remoteId: 'remote-1' },
+		});
+
+		// Legacy SSH path: processManager.spawn is called, no PTY runner
+		expect(processManager.spawn).toHaveBeenCalled();
+		expect(lastRunnerInstance).toBeNull();
+	});
+
+	// ── Test: SSH + interactive-pty → ClaudePtyRunner(claudeBinary='ssh') ───
+	it('SSH claude-code with global interactive-pty → ClaudePtyRunner with claudeBinary="ssh", API keys stripped', async () => {
+		const { getSshRemoteConfig } = await import('../../../../main/utils/ssh-remote-resolver');
+		const mockSshConfig = {
+			id: 'remote-1',
+			name: 'my-server',
+			host: 'server.example.com',
+			port: 22,
+			username: 'user',
+			privateKeyPath: '~/.ssh/id_rsa',
+			remoteEnv: {},
+		};
+		vi.mocked(getSshRemoteConfig).mockReturnValueOnce({
+			config: mockSshConfig,
+			source: 'session',
+		} as never);
+
+		// Inject API keys via applyAgentConfigOverrides to test stripping
+		const { applyAgentConfigOverrides } = await import('../../../../main/utils/agent-args');
+		vi.mocked(applyAgentConfigOverrides).mockReturnValueOnce({
+			args: ['--print'],
+			modelSource: 'none',
+			customArgsSource: 'none',
+			customEnvSource: 'session',
+			effectiveCustomEnvVars: {
+				ANTHROPIC_API_KEY: 'sk-secret',
+				ANTHROPIC_AUTH_TOKEN: 'tok-secret',
+				OTHER_VAR: 'keep-me',
+			},
+		} as never);
+
+		const { deps, processManager } = buildDeps({
 			settingsGet: (key, def) =>
 				key === 'claudeCodeDefaultTransportMode' ? 'interactive-pty' : def,
 		});
@@ -669,17 +732,144 @@ describe('process:spawn — interactive-pty branch', () => {
 		registerProcessHandlers(deps);
 		const spawnHandler = handlers.get('process:spawn')!;
 
+		const result = await spawnHandler({} as never, {
+			sessionId: 'sess-ssh-pty',
+			toolType: 'claude-code',
+			cwd: '/proj',
+			command: 'claude',
+			args: ['--print'],
+			prompt: 'ssh interactive task',
+			sessionSshRemoteConfig: { enabled: true, remoteId: 'remote-1' },
+		});
+
+		// Legacy SSH spawn is NOT called — PTY runner handles it
+		expect(processManager.spawn).not.toHaveBeenCalled();
+
+		// ClaudePtyRunner was created with claudeBinary='ssh'
+		expect(lastRunnerInstance).not.toBeNull();
+		expect(runnerConstructorArgs[0]).toMatchObject({
+			claudeBinary: 'ssh',
+			maestroSessionId: 'sess-ssh-pty',
+		});
+
+		// ANTHROPIC_API_KEY must not be present in the env passed to the runner
+		const constructorOpts = runnerConstructorArgs[0] as { env: Record<string, string> };
+		expect(constructorOpts.env).not.toHaveProperty('ANTHROPIC_API_KEY');
+		expect(constructorOpts.env).not.toHaveProperty('ANTHROPIC_AUTH_TOKEN');
+		expect(constructorOpts.env).toHaveProperty('OTHER_VAR', 'keep-me');
+
+		// pid -1 returned for external runner
+		expect(result).toMatchObject({ pid: -1, success: true });
+
+		// Runner was registered and executeTurn called
+		expect(processManager.registerExternalRunner).toHaveBeenCalledWith(
+			'sess-ssh-pty',
+			lastRunnerInstance
+		);
+		expect(lastRunnerInstance!.executeTurn).toHaveBeenCalledWith('ssh interactive task');
+	});
+
+	// ── Test: SSH + cascade (agent-level interactive-pty, app legacy-print) ─
+	it('SSH cascade: agent-level interactive-pty + app legacy-print → resolves to interactive-pty', async () => {
+		const { getSshRemoteConfig } = await import('../../../../main/utils/ssh-remote-resolver');
+		vi.mocked(getSshRemoteConfig).mockReturnValueOnce({
+			config: {
+				id: 'remote-2',
+				name: 'cascade-server',
+				host: 'cascade.example.com',
+				port: 22,
+				username: 'user',
+				privateKeyPath: '',
+				remoteEnv: {},
+			},
+			source: 'session',
+		} as never);
+
+		const { deps, processManager } = buildDeps({
+			// App-level is legacy-print
+			settingsGet: (key, def) => (key === 'claudeCodeDefaultTransportMode' ? 'legacy-print' : def),
+			// Agent-level config has interactive-pty
+			agentConfigsGet: (key, def) => {
+				if (key === 'configs') {
+					return { 'claude-code': { transportMode: 'interactive-pty' } };
+				}
+				return def;
+			},
+		});
+
+		registerProcessHandlers(deps);
+		const spawnHandler = handlers.get('process:spawn')!;
+
 		await spawnHandler({} as never, {
-			sessionId: 'sess-ssh',
+			sessionId: 'sess-ssh-cascade',
 			toolType: 'claude-code',
 			cwd: '/proj',
 			command: 'claude',
 			args: [],
-			prompt: 'ssh task',
-			sessionSshRemoteConfig: { enabled: true, remoteId: 'remote-1' },
+			prompt: 'cascade test',
+			sessionSshRemoteConfig: { enabled: true, remoteId: 'remote-2' },
 		});
 
-		// SSH path uses processManager.spawn (legacy), not ClaudePtyRunner
+		// Agent-level wins — runner is instantiated, not legacy spawn
+		expect(processManager.spawn).not.toHaveBeenCalled();
+		expect(lastRunnerInstance).not.toBeNull();
+		expect(runnerConstructorArgs[0]).toMatchObject({ claudeBinary: 'ssh' });
+	});
+
+	// ── Test: SSH non-Claude → legacy path regardless of transportMode ──────
+	it('SSH non-claude-code agent (Codex) → legacy path regardless of app transport mode', async () => {
+		const { getSshRemoteConfig } = await import('../../../../main/utils/ssh-remote-resolver');
+		vi.mocked(getSshRemoteConfig).mockReturnValueOnce({
+			config: {
+				id: 'remote-3',
+				name: 'codex-server',
+				host: 'codex.example.com',
+				port: 22,
+				username: 'user',
+				privateKeyPath: '',
+				remoteEnv: {},
+			},
+			source: 'session',
+		} as never);
+
+		const { buildSshCommandWithStdin } = await import('../../../../main/utils/ssh-command-builder');
+		vi.mocked(buildSshCommandWithStdin).mockResolvedValueOnce({
+			command: 'ssh',
+			args: ['codex.example.com', '/bin/bash'],
+			stdinScript: 'exec codex\n',
+		} as never);
+
+		const codexAgent = {
+			id: 'codex',
+			name: 'Codex',
+			requiresPty: false,
+			command: 'codex',
+			binaryName: 'codex',
+			capabilities: { supportsStreamJsonInput: false },
+		};
+
+		const { deps, processManager } = buildDeps({
+			settingsGet: (key, def) =>
+				key === 'claudeCodeDefaultTransportMode' ? 'interactive-pty' : def,
+			agentDetector: {
+				getAgent: vi.fn().mockResolvedValue(codexAgent),
+			},
+		});
+
+		registerProcessHandlers(deps);
+		const spawnHandler = handlers.get('process:spawn')!;
+
+		await spawnHandler({} as never, {
+			sessionId: 'sess-ssh-codex',
+			toolType: 'codex',
+			cwd: '/proj',
+			command: 'codex',
+			args: [],
+			prompt: 'codex ssh task',
+			sessionSshRemoteConfig: { enabled: true, remoteId: 'remote-3' },
+		});
+
+		// Non-claude agent → legacy SSH path regardless of transport mode
 		expect(processManager.spawn).toHaveBeenCalled();
 		expect(lastRunnerInstance).toBeNull();
 	});

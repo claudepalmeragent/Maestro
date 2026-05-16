@@ -304,6 +304,20 @@ const isRemote = !!session.sshRemoteId;
 const isRemote = !!session.sshRemoteId || !!session.sessionSshRemoteConfig?.enabled;
 ```
 
+### SSH + Interactive-PTY Mode
+
+When the resolved transport mode is `interactive-pty` for a Claude Code session over SSH, Maestro spawns the local `ssh` client under `node-pty` instead of using the stdin-passthrough (`buildSshCommandWithStdin`) path. The PTY wraps the SSH client; the SSH session carries the interactive Claude session over a forced TTY.
+
+**Key behaviors:**
+
+- `buildSshClaudeInteractiveArgs()` in `ssh-command-builder.ts` produces the SSH args, including `-tt` and `-o RequestTTY=force` so the remote `claude` process runs in a full TTY.
+- `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN` are stripped from the env before being forwarded to the remote host, ensuring subscription billing.
+- Env vars are encoded as `export KEY='value'` statements inside the wrapped bash command so the remote `claude` inherits them.
+- `ClaudePtyRunner` is instantiated with `claudeBinary: 'ssh'` and `claudeBaseArgs: sshInteractiveArgs`; the runner's stream analyzer parses the cleaned PTY stream identically to local spawns.
+- The legacy SSH `--print` + stdin-passthrough path is byte-identical when the resolved mode is `legacy-print`.
+
+**Code path:** `process:spawn` handler in `process.ts` → `if (config.toolType === 'claude-code' && sshResult.config && sshResolvedMode === 'interactive-pty')` → `buildSshClaudeInteractiveArgs()` → `new ClaudePtyRunner({ claudeBinary: 'ssh', ... })`.
+
 ## 11. UI Bug Debugging Checklist
 
 When debugging visual issues (tooltips clipped, elements not visible, scroll behavior):
