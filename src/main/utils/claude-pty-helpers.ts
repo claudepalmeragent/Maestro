@@ -74,6 +74,22 @@ export type RunnerExitReason =
 	| 'KILLED';
 
 /**
+ * Resolve transport mode for the standalone CLI / Auto Run spawner.
+ * Order:
+ *   1. MAESTRO_CLAUDE_TRANSPORT_MODE env var if set to a valid value (highest priority in CLI context).
+ *   2. globalDefault (from app settings electron-store, passed by caller).
+ *   3. 'legacy-print' fallback.
+ * Per-Project / per-Agent / per-Tab levels do not apply in CLI context.
+ */
+export function resolveCliClaudeTransportMode(
+	globalDefault: TransportMode = 'legacy-print'
+): TransportMode {
+	const envValue = process.env.MAESTRO_CLAUDE_TRANSPORT_MODE;
+	if (envValue === 'interactive-pty' || envValue === 'legacy-print') return envValue;
+	return globalDefault;
+}
+
+/**
  * Resolves the effective transport mode using the strict-ratchet cascade:
  * tab → agent → project → app. Any level set to 'interactive-pty' wins for
  * everything below it. undefined at any level is treated as 'legacy-print'.
