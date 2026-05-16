@@ -4,8 +4,10 @@ import type { ParsedEvent } from '../parsers/agent-output-parser';
 import {
 	stripPrintArgs,
 	deriveStableClaudeSessionId,
+	cleanTerminalChunk,
 	type RunnerExitReason,
 } from './claude-pty-helpers';
+import { ClaudePtyStreamAnalyzer } from './claude-pty-stream-analyzer';
 
 export interface ClaudePtyRunnerOptions {
 	/** Maestro tab/session ID — used to derive --session-id. */
@@ -51,6 +53,8 @@ export class ClaudePtyRunner extends EventEmitter {
 	private startTime = 0;
 	private watchdogTimer: NodeJS.Timeout | null = null;
 	private currentExitReason: RunnerExitReason = 'SUCCESS';
+	private analyzer: ClaudePtyStreamAnalyzer | null = null;
+	private gracefulCompleteTimer: NodeJS.Timeout | null = null;
 	private readonly opts: Required<ClaudePtyRunnerOptions>;
 
 	private static activeInstances = new Set<ClaudePtyRunner>();
@@ -94,6 +98,16 @@ export class ClaudePtyRunner extends EventEmitter {
 			args.push('--session-id', this.opts.claudeSessionIdOverride);
 		}
 
+		this.analyzer = new ClaudePtyStreamAnalyzer(
+			this.opts.maestroSessionId,
+			this.opts.claudeSessionIdOverride,
+			{
+				onEvent: (e) => this.emit('event', e),
+				onTurnComplete: () => this.gracefulCompleteTurn(),
+			}
+		);
+		this.analyzer.expectEcho(prompt + '\n');
+
 		this.process = pty.spawn(this.opts.claudeBinary, args, {
 			name: 'xterm-256color',
 			cols: 120,
@@ -107,7 +121,7 @@ export class ClaudePtyRunner extends EventEmitter {
 		this.process.onData((data) => {
 			this.lastActivityTime = Date.now();
 			this.emit('rawData', data);
-			// ARD 3 (01c) will add: this.analyzer.ingest(cleanTerminalChunk(data))
+			this.analyzer?.ingest(cleanTerminalChunk(data));
 		});
 
 		this.process.onExit(({ exitCode, signal }) => this.handleProcessEnd(exitCode, signal));
@@ -218,17 +232,49 @@ export class ClaudePtyRunner extends EventEmitter {
 		// onExit will trigger handleProcessEnd
 	}
 
+	private gracefulCompleteTurn(): void {
+		if (this.gracefulCompleteTimer) return; // already running
+
+		// Write exit\n to let Claude finish cleanly (may already be queued)
+		if (this.process) {
+			try {
+				this.process.write('exit\n');
+			} catch {
+				/* process may already be closing */
+			}
+		}
+
+		// Give the process 5s to exit naturally; if not, force kill
+		this.gracefulCompleteTimer = setTimeout(() => {
+			this.gracefulCompleteTimer = null;
+			if (this.process) {
+				this.forceKill('PROCESS_CRASH');
+			}
+		}, 5_000);
+	}
+
 	private handleProcessEnd(exitCode: number | undefined, _signal: number | undefined): void {
 		if (this.watchdogTimer) {
 			clearInterval(this.watchdogTimer);
 			this.watchdogTimer = null;
 		}
 
+		if (this.gracefulCompleteTimer) {
+			clearTimeout(this.gracefulCompleteTimer);
+			this.gracefulCompleteTimer = null;
+		}
+
 		if (this.currentExitReason === 'SUCCESS' && exitCode !== 0) {
 			this.currentExitReason = 'PROCESS_CRASH';
 		}
 
-		// ARD 3 (01c) will override currentExitReason based on analyzer-detected error signatures
+		// Upgrade exit reason if the analyzer detected a stronger signal
+		if (this.analyzer) {
+			const analyzerReason = this.analyzer.getExitReason();
+			if (analyzerReason !== 'SUCCESS' && this.currentExitReason === 'SUCCESS') {
+				this.currentExitReason = analyzerReason;
+			}
+		}
 
 		this.emit('end', this.currentExitReason, exitCode ?? null);
 
@@ -237,5 +283,6 @@ export class ClaudePtyRunner extends EventEmitter {
 		this.isBusy = false;
 		this.userControlled = false;
 		this.process = null;
+		this.analyzer = null;
 	}
 }
