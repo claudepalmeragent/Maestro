@@ -16,6 +16,7 @@ import { LocalCommandRunner } from './runners/LocalCommandRunner';
 import { SshCommandRunner } from './runners/SshCommandRunner';
 import { logger } from '../utils/logger';
 import type { SshRemoteConfig } from '../../shared/types';
+import type { ClaudePtyRunner } from '../utils/claude-pty-runner';
 
 /**
  * ProcessManager orchestrates spawning and managing processes for sessions.
@@ -28,6 +29,7 @@ import type { SshRemoteConfig } from '../../shared/types';
  */
 export class ProcessManager extends EventEmitter {
 	private processes: Map<string, ManagedProcess> = new Map();
+	private externalRunners: Map<string, ClaudePtyRunner> = new Map();
 	private bufferManager: DataBufferManager;
 	private ptySpawner: PtySpawner;
 	private childProcessSpawner: ChildProcessSpawner;
@@ -61,10 +63,43 @@ export class ProcessManager extends EventEmitter {
 		return (toolType === 'terminal' || requiresPty === true) && !prompt;
 	}
 
+	// =========================================================================
+	// External Runner Registry (ClaudePtyRunner — ARD 5)
+	// =========================================================================
+
+	/** Register a ClaudePtyRunner for a session. */
+	registerExternalRunner(sessionId: string, runner: ClaudePtyRunner): void {
+		this.externalRunners.set(sessionId, runner);
+	}
+
+	/** Retrieve a registered ClaudePtyRunner by session ID. */
+	getExternalRunner(sessionId: string): ClaudePtyRunner | undefined {
+		return this.externalRunners.get(sessionId);
+	}
+
+	/** Remove a registered ClaudePtyRunner (called on runner 'end'). */
+	unregisterExternalRunner(sessionId: string): void {
+		this.externalRunners.delete(sessionId);
+	}
+
+	/**
+	 * Emit the same 'exit' event that the existing PTY/child spawners emit, so existing
+	 * exit handlers fire identically when an external runner ends.
+	 */
+	emitExternalExit(sessionId: string, exitCode: number): void {
+		this.emit('exit', sessionId, exitCode);
+	}
+
 	/**
 	 * Write data to a process's stdin
 	 */
 	write(sessionId: string, data: string): boolean {
+		// If an external runner is registered, route through it (respects mutex / userControlled).
+		const runner = this.externalRunners.get(sessionId);
+		if (runner) {
+			return runner.injectManualCommand(data);
+		}
+
 		const process = this.processes.get(sessionId);
 		if (!process) {
 			logger.error('[ProcessManager] write() - No process found for session', 'ProcessManager', {
@@ -120,6 +155,12 @@ export class ProcessManager extends EventEmitter {
 	 * within a short timeout (Claude Code may not immediately exit on SIGINT).
 	 */
 	interrupt(sessionId: string): boolean {
+		const runner = this.externalRunners.get(sessionId);
+		if (runner) {
+			runner.kill();
+			return true;
+		}
+
 		const process = this.processes.get(sessionId);
 		if (!process) return false;
 
@@ -166,6 +207,12 @@ export class ProcessManager extends EventEmitter {
 	 * Kill a specific process
 	 */
 	kill(sessionId: string): boolean {
+		const runner = this.externalRunners.get(sessionId);
+		if (runner) {
+			runner.kill();
+			return true;
+		}
+
 		const process = this.processes.get(sessionId);
 		if (!process) return false;
 
@@ -233,10 +280,17 @@ export class ProcessManager extends EventEmitter {
 
 	/**
 	 * Returns true if an external ClaudePtyRunner is registered for the session.
-	 * Stub: always returns false until ARD 5 (03) wires the runner registry.
 	 */
-	hasExternalRunner(_sessionId: string): boolean {
-		return false;
+	hasExternalRunner(sessionId: string): boolean {
+		return this.externalRunners.has(sessionId);
+	}
+
+	/**
+	 * Route a fully-parsed ParsedEvent from an external runner through the same downstream
+	 * channels as the legacy StdoutHandler parse-emit chain. Delegates to DataBufferManager.
+	 */
+	emitParsedEventBuffered(sessionId: string, event: ParsedEvent): void {
+		this.bufferManager.emitParsedEventBuffered(sessionId, event);
 	}
 
 	/**

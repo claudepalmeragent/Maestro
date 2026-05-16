@@ -1,19 +1,17 @@
 /**
  * IPC Handlers for ClaudePtyRunner channels
  *
- * Stubs for ARD 2 (01b). The actual runner registry and live wiring come in ARD 5 (03).
- * These handlers establish the IPC contract so the renderer InteractiveModeView can be
- * built and tested without requiring a live runner.
+ * Wires the renderer ↔ main IPC contract to the external runner registry on ProcessManager.
  *
  * Channels:
- * - claude-pty:rawData        (main → renderer push, sessionId, chunk)
+ * - claude-pty:rawData        (main → renderer push, sessionId, chunk) — pushed by process:spawn
  * - claude-pty:injectManualCommand (renderer → main, sessionId, data → boolean)
  * - claude-pty:setUserControlled   (renderer → main, sessionId, enabled → void)
  * - claude-pty:getState            (renderer → main, sessionId → RunnerState | null)
  */
 
 import { ipcMain } from 'electron';
-import { logger } from '../../utils/logger';
+import type { ProcessManager } from '../../process-manager/ProcessManager';
 
 export interface ClaudePtyRunnerState {
 	isBusy: boolean;
@@ -22,39 +20,35 @@ export interface ClaudePtyRunnerState {
 }
 
 /**
- * Register all claude-pty IPC handlers.
- * Handlers are stubs until ARD 5 (03) wires the runner registry.
+ * Register all claude-pty IPC handlers, wired to the ProcessManager's external runner registry.
  */
-export function registerClaudePtyHandlers(): void {
+export function registerClaudePtyHandlers(processManager: ProcessManager): void {
 	// Inject a manual command into the runner's PTY stdin.
-	// Stub: always returns false (no runner registered yet).
+	// Returns false if no runner is registered or the runner's mutex rejects the write.
 	ipcMain.handle(
 		'claude-pty:injectManualCommand',
-		async (_event, sessionId: string, data: string): Promise<boolean> => {
-			logger.debug('claude-pty:injectManualCommand (stub)', 'ClaudePty', {
-				sessionId,
-				dataLen: data.length,
-			});
-			return false;
+		(_event, sessionId: string, data: string): boolean => {
+			const runner = processManager.getExternalRunner(sessionId);
+			return runner?.injectManualCommand(data) ?? false;
 		}
 	);
 
 	// Toggle user-controlled mode on the runner.
-	// Stub: no-op until runner registry is wired.
 	ipcMain.handle(
 		'claude-pty:setUserControlled',
-		async (_event, sessionId: string, enabled: boolean): Promise<void> => {
-			logger.debug('claude-pty:setUserControlled (stub)', 'ClaudePty', { sessionId, enabled });
+		(_event, sessionId: string, enabled: boolean): void => {
+			const runner = processManager.getExternalRunner(sessionId);
+			runner?.setUserControlled(enabled);
 		}
 	);
 
 	// Query runner state: isBusy, userControlled, alive.
-	// Stub: returns null (no runner registered).
+	// Returns null if no runner is registered for the session.
 	ipcMain.handle(
 		'claude-pty:getState',
-		async (_event, sessionId: string): Promise<ClaudePtyRunnerState | null> => {
-			logger.debug('claude-pty:getState (stub)', 'ClaudePty', { sessionId });
-			return null;
+		(_event, sessionId: string): ClaudePtyRunnerState | null => {
+			const runner = processManager.getExternalRunner(sessionId);
+			return runner?.getState() ?? null;
 		}
 	);
 }

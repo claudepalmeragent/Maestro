@@ -54,6 +54,23 @@ vi.mock('node-pty', () => ({
 	spawn: vi.fn(),
 }));
 
+// Mock ClaudePtyRunner and helpers (pulled in by process.ts for the interactive-pty branch)
+vi.mock('../../../../main/utils/claude-pty-runner', () => ({
+	ClaudePtyRunner: vi.fn().mockImplementation(function (this: Record<string, unknown>) {
+		this.executeTurn = vi.fn();
+		this.kill = vi.fn();
+		this.injectManualCommand = vi.fn().mockReturnValue(false);
+		this.setUserControlled = vi.fn();
+		this.getState = vi.fn().mockReturnValue({ isBusy: false, userControlled: false, alive: false });
+		this.on = vi.fn().mockReturnValue(this);
+	}),
+}));
+vi.mock('../../../../main/utils/claude-pty-helpers', () => ({
+	resolveClaudeTransportMode: vi.fn(() => 'legacy-print'),
+	stripPrintArgs: vi.fn((args: string[]) => args.filter((a: string) => a !== '--print')),
+	deriveStableClaudeSessionId: vi.fn((id: string) => `stable-${id}`),
+}));
+
 // Mock ssh-remote-resolver - stores real implementations so we can restore them after clearAllMocks
 const _realSshRemoteResolver = await vi.importActual<
 	typeof import('../../../../main/utils/ssh-remote-resolver')

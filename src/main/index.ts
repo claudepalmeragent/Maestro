@@ -98,6 +98,7 @@ import {
 	respawnParticipantWithRecovery,
 } from './group-chat/group-chat-router';
 import { createSshRemoteStoreAdapter } from './utils/ssh-remote-resolver';
+import { ClaudePtyRunner } from './utils/claude-pty-runner';
 import { updateParticipant, loadGroupChat, updateGroupChat } from './group-chat/group-chat-storage';
 import { needsSessionRecovery, initiateSessionRecovery } from './group-chat/session-recovery';
 import { initializeSessionStorages } from './storage';
@@ -558,6 +559,16 @@ app.on('window-all-closed', () => {
 	}
 });
 
+// Give active ClaudePtyRunner instances up to 2 s to flush their PTY buffers before
+// Electron's process-death cascade would SIGKILL them.  This lets `claude` write its
+// final on-disk session-log entry, making `--resume` resilient across restarts.
+app.on('before-quit', async (event) => {
+	if (ClaudePtyRunner.activeInstanceCount() === 0) return; // fast path — nothing to do
+	event.preventDefault();
+	await ClaudePtyRunner.killAllActive(2000);
+	app.quit(); // re-trigger; activeInstanceCount() is now 0, fast path applies
+});
+
 // Create and setup quit handler with dependency injection (Phase 4 refactoring)
 const quitHandler = createQuitHandler({
 	getMainWindow: () => mainWindow,
@@ -876,8 +887,10 @@ function setupIpcHandlers() {
 	// Register WakaTime handlers (CLI check, API key validation)
 	registerWakatimeHandlers(wakatimeManager);
 
-	// Register ClaudePtyRunner IPC handlers (stubs until ARD 5 wires runner registry)
-	registerClaudePtyHandlers();
+	// Register ClaudePtyRunner IPC handlers (wired to the runner registry via ProcessManager)
+	if (processManager) {
+		registerClaudePtyHandlers(processManager);
+	}
 }
 
 // Handle process output streaming (set up after initialization)

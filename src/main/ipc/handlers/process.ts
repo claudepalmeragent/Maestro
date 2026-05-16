@@ -6,6 +6,8 @@ import { AgentDetector } from '../../agents';
 import { logger } from '../../utils/logger';
 import { isWindows } from '../../../shared/platformDetection';
 import { addBreadcrumb } from '../../utils/sentry';
+import { ClaudePtyRunner } from '../../utils/claude-pty-runner';
+import { resolveClaudeTransportMode, stripPrintArgs } from '../../utils/claude-pty-helpers';
 import { isWebContentsAvailable } from '../../utils/safe-send';
 import {
 	buildAgentArgs,
@@ -341,6 +343,91 @@ export function registerProcessHandlers(deps: ProcessHandlerDependencies): void 
 						customPath: config.sessionCustomPath,
 						originalCommand: config.command,
 					});
+				}
+
+				// ========================================================================
+				// Interactive-PTY branch: when transport mode resolves to 'interactive-pty'
+				// for a local (non-SSH) Claude Code session, spawn via ClaudePtyRunner and
+				// return early — the legacy processManager.spawn() path is NOT visited.
+				// ========================================================================
+				if (config.toolType === 'claude-code' && !config.sessionSshRemoteConfig?.enabled) {
+					const appTransportMode = settingsStore.get(
+						'claudeCodeDefaultTransportMode',
+						'legacy-print'
+					) as 'interactive-pty' | 'legacy-print';
+
+					// Build cascade objects for the resolver. Only levels that are accessible
+					// from the spawn handler's available data are populated; others are left
+					// undefined so the strict-ratchet treats them as 'legacy-print'.
+					const tabLevel = undefined; // tab transportMode not yet in spawn IPC payload
+					const agentLevel: { transportMode?: string } | undefined =
+						agentConfigValues?.transportMode
+							? { transportMode: agentConfigValues.transportMode as string }
+							: undefined;
+					const projectLevel = undefined; // groupsStore not in ProcessHandlerDependencies
+
+					const resolvedMode = resolveClaudeTransportMode(
+						tabLevel,
+						agentLevel as { transportMode?: 'interactive-pty' | 'legacy-print' } | undefined,
+						projectLevel,
+						{ claudeCodeDefaultTransportMode: appTransportMode }
+					);
+
+					if (resolvedMode === 'interactive-pty') {
+						// Strip API keys — interactive-pty always uses subscription billing.
+						const ptyEnv: Record<string, string> = { ...(effectiveCustomEnvVars || {}) };
+						delete ptyEnv.ANTHROPIC_API_KEY;
+						delete ptyEnv.ANTHROPIC_AUTH_TOKEN;
+
+						const claudeBaseArgs = stripPrintArgs(finalArgs);
+						const runner = new ClaudePtyRunner({
+							maestroSessionId: config.sessionId,
+							claudeBinary: config.sessionCustomPath || config.command,
+							claudeBaseArgs,
+							cwd: config.cwd,
+							env: ptyEnv,
+							claudeSessionIdOverride: config.agentSessionId || undefined,
+						});
+
+						// Wire runner events into Maestro's existing IPC pipeline.
+						runner.on('event', (parsedEvent) => {
+							processManager.emitParsedEventBuffered(config.sessionId, parsedEvent);
+						});
+						runner.on('rawData', (chunk: string) => {
+							const win = getMainWindow();
+							if (win && !win.isDestroyed()) {
+								win.webContents.send('claude-pty:rawData', config.sessionId, chunk);
+							}
+						});
+						runner.on('end', (_exitReason: string, rawExitCode: number | null) => {
+							const effectiveExitCode = _exitReason === 'SUCCESS' ? 0 : (rawExitCode ?? 1);
+							processManager.unregisterExternalRunner(config.sessionId);
+							processManager.emitExternalExit(config.sessionId, effectiveExitCode);
+						});
+
+						processManager.registerExternalRunner(config.sessionId, runner);
+						runner.executeTurn(config.prompt || '');
+
+						// Emit SSH remote status (null — local execution).
+						const mainWin = getMainWindow();
+						if (mainWin && !mainWin.isDestroyed()) {
+							mainWin.webContents.send('process:ssh-remote', config.sessionId, null);
+						}
+
+						// Add power block so system doesn't sleep during AI processing.
+						powerManager.addBlockReason(`session:${config.sessionId}`);
+
+						logger.info(`Spawned ClaudePtyRunner (interactive-pty)`, LOG_CONTEXT, {
+							sessionId: config.sessionId,
+							cwd: config.cwd,
+							binary: config.sessionCustomPath || config.command,
+							argsCount: claudeBaseArgs.length,
+						});
+
+						// pid -1 indicates an external runner (no OS-level child process tracked here).
+						return { pid: -1, success: true };
+					}
+					// resolvedMode === 'legacy-print' — fall through to the standard path below.
 				}
 
 				// On Windows (except SSH), always use shell execution for agents
