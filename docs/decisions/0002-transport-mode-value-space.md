@@ -33,7 +33,7 @@ export type TransportMode =
 	| 'interactive-pty' // Phase 1 — Model 1, no IDE host
 	| 'interactive-pty-ide' // Phase 2 — Model 1 + Model 3
 	| 'background-supervisor' // Phase 3 — Model 2, no IDE host
-	| 'background-supervisor-ide'; // Phase 3.C.6 (composition) — Model 2 + Model 3
+	| 'background-supervisor-ide'; // Phase 3 ARD 06 (composition) — Model 2 + Model 3
 ```
 
 **Strict-ratchet escalation rules** (governs which value wins when multiple cascade levels disagree):
@@ -118,11 +118,11 @@ The cost of treating `-ide` variants as first-class enum members is mostly UI: e
 
 ## Implementation notes
 
-- The Phase 1 `TransportMode` type in `src/main/utils/claude-pty-helpers.ts` gets extended additively. Phase 2 ARD 2.I.3 adds `'interactive-pty-ide'`; Phase 3 ARD 3.C.2 adds `'background-supervisor'` and (later, in ARD 3.C.6) `'background-supervisor-ide'`.
+- The Phase 1 `TransportMode` type in `src/main/utils/claude-pty-helpers.ts` gets extended additively. Phase 2 ARD 08 adds `'interactive-pty-ide'`; Phase 3 ARD 02 adds `'background-supervisor'` and (later, in Phase 3 ARD 06) `'background-supervisor-ide'`.
 - `resolveClaudeTransportMode` gets a new internal `rank()` helper that returns 0 for `legacy-print` and 1 for all subscription-billed values. The cascade evaluator becomes: among values appearing at any level, pick the highest rank; ties broken by scope order (broader wins).
 - Cascade UI at each level (tab/agent/project/app) gets the expanded radio group. Settings persistence values are the new enum strings.
 - The dispatcher in `process.ts` (local + SSH) and `agent-spawner.ts` (CLI) branches on the full resolved value, routing to `ClaudePtyRunner` (`interactive-pty[-ide]`), `ClaudeBgAdapter` (`background-supervisor[-ide]`), or the legacy `ChildProcessSpawner` (`legacy-print`).
-- Phase 2 ARD 2.I.3 owns the actual type-extension edit + cascade-resolver update; ADR 0002 just locks in the design contract.
+- Phase 2 ARD 08 owns the actual type-extension edit + cascade-resolver update; ADR 0002 just locks in the design contract.
 
 ## Test plan
 
@@ -133,4 +133,4 @@ Each ARD that touches the cascade resolver MUST add:
 3. **Same-rank tiebreaker tests:** app = X, tab = Y (X ≠ Y, both rank 1) → resolves X (broader wins). Repeat for each pair of non-legacy values.
 4. **Strict-ratchet regression:** app = `interactive-pty`, tab = `legacy-print` → resolves `interactive-pty` (cannot demote). Repeat for each subscription mode.
 
-The Phase 1 ARD 02 test suite covers cases 1-4 for the 2-value space; Phase 2 ARD 2.I.3 and Phase 3 ARD 3.C.2 extend it as their new values land.
+The Phase 1 ARD 02 test suite covers cases 1-4 for the 2-value space; Phase 2 ARD 08 and Phase 3 ARD 02 extend it as their new values land.
