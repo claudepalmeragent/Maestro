@@ -365,3 +365,41 @@ Maestro provides a hosted MCP (Model Context Protocol) server for AI application
 ```
 
 See [MCP Server documentation](https://docs.runmaestro.ai/mcp-server) for full details.
+
+
+---
+
+## Commit conventions
+
+```text
+<type>(<scope>): <subject>
+
+<body>
+
+Session: <Maestro/Claude conversation UUID>
+
+Co-Authored-By: <model> <email>
+```
+
+Types: `feat`, `fix`, `docs`, `chore`, `build`, `refactor`, `test`, `ci`.
+
+**`Session:` line format.** The Session value MUST be a Maestro/Claude conversation UUID in canonical 8-4-4-4-12 hex form (e.g., `bdc851a1-f89b-44e1-84ae-8e4d39c4e588`). Do NOT use loop-iteration identifiers, ARD slugs, or worktree names (e.g., `maestro-dev-4-ard04`, `loop-00012`) — those are not session IDs and break audit-trail uniqueness.
+
+**How to source the UUID:**
+
+- **Dev-agent commits** (made from `maestro-dev-N` worktrees on Maestro Agent VMs): Maestro substitutes the active conversation UUID into the prompt template at commit time. The agent does not need to do anything explicit.
+- **Planner-composed commits** (merges, docs, process work made from the planner worktree): auto-derive the planner's own session UUID from the most-recently-modified `*.jsonl` transcript file under `/home/maestro/.claude/projects/-app/`. Command: `ls -t /home/maestro/.claude/projects/-app/*.jsonl | head -1 | xargs basename | sed 's/\.jsonl$//'`. This is the canonical planner session ID for the active conversation; reuse it across every planner-composed commit in the same conversation cycle.
+- If neither source is available (rare — e.g., direct interactive shell with no Claude session), ask the user; do not invent a placeholder.
+
+**Slash commands.** Six slash commands govern the commit/merge/sync lifecycle. Source-of-truth prompts are in `docs/dev/agent-prompts.md`:
+
+- `/preflight-sync` (Agent-side) — auto-injected at agent session start; rebases the agent's branch onto local `main`.
+- `/postflight-rebase` (Founder-side) — re-integrates sibling-agent merges that landed mid-flight.
+- `/commit-ARD` (Founder-side) — sole authorized commit gate for ARD-driven work.
+- `/commit-adhoc` (Founder-side) — same shape, for ad-hoc / non-ARD commits.
+- `/merge-after-review` (Planner-side) — merges reviewed agent branches into `main`.
+- `/new-sprout` (Planner-side) — authors new strategic docs with cross-session transcript scan.
+
+**Anti-autocommit gate.** `scripts/commit-gate-check.sh` runs as a pre-commit hook (wired in `.husky/pre-commit`). Direct `git commit` from a shell fails the gate; commits MUST go through one of the slash-command prompts which write a per-invocation UUID token inline before invoking `git commit`. See `docs/dev/agent-prompts.md` for the canonical incantation.
+
+**Build-ARDs.** Build-ARDs (the development task scripts agents work through) are authored, executed, and archived under `/app/__AUTORUN/` — a sibling of all worktrees and intentionally NOT inside any git repo. Format spec: `docs/ards/build-ard-template.md`. Universal acceptance gates: `docs/ards/build-ard-acceptance.md`. Build-ARDs are NEVER stored inside a worktree or repo.
