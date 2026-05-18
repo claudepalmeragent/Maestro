@@ -96,6 +96,32 @@ For founder + future planner sessions making per-project / per-agent / per-tab t
 
 ---
 
+## Resolved questions
+
+### Q0 (resolved 2026-05-17): What is the actual mechanism by which Anthropic classifies a request as `--print` (API-tier) vs interactive (subscription)?
+
+**Investigated by:** maestro-planner (Claude Opus 4.7), via `strings` extraction of the live `claude` v2.1.141 native binary at `/usr/local/lib/node_modules/@anthropic-ai/claude-code/node_modules/@anthropic-ai/claude-code-linux-arm64/claude` (Bun-compiled, GIT_SHA `4f4623ddd...`).
+
+**Answer (as of v2.1.141, 2026-05-13 build):** the billing classifier is the `apiKeySource` property attached to each credential — NOT a `--print`-mode request header. Both `--print` and interactive sessions hit the **same** endpoint (`/v1/messages?beta=true`) with the **same** headers (modulo SDK and `anthropic-beta` versioning). What differs is _which credential_ the CLI selects:
+
+- **OAuth-minted keys** via `claude login` → calls `/api/oauth/claude_cli/create_api_key` with scope `org:create_api_key`, stored in `~/.claude/credentials` → backend metadata marks them as subscription-billed.
+- **`ANTHROPIC_API_KEY` env var** → manually-minted console key → API-tier billed.
+- **`CLAUDE_CODE_API_KEY_HELPER_TTL_MS` / `_FILE_DESCRIPTOR`** → helper-script-provided keys (enterprise pattern).
+- **Bedrock / Vertex** → cloud-provider-managed credentials (separate billing entirely).
+
+**Implications for the Maestro arc:**
+
+1. Phase 1's env-strip strategy in `interactive-pty` mode works because it forces the CLI to fall back to OAuth credentials when API key is absent. Confirmed sufficient for v2.1.141.
+2. `--print` and interactive mode hit the **same endpoint** — Anthropic could add a `x-claude-code-mode: print` request header at any time that overrides credential classification (currently not present in the bundle). Phase 1's `interactive-pty` would still be safe (it doesn't pass `--print`), but the legacy escape hatch would always-bill-API regardless of credential — which matches its intent.
+3. Doug's predicted change ("Anthropic requires `ANTHROPIC_API_KEY` env when `--print` is set, fail otherwise") only affects the `legacy-print` escape hatch. Phase 1's main `interactive-pty` path is immune.
+4. **Hardest future threat:** backend-side pattern detection (request frequency, prompt patterns, TTY-presence detection on the CLI side). Maestro forces `TERM=dumb` which is potentially a tell. No defense exists today; Phase 4 watch item.
+
+**Defensive change landed:** Phase 1.5 ARD 01 Task 1.9 added `assertNoPrintArgs(args, context)` that throws at spawn time if `--print` or `-p` survives into a `ClaudePtyRunner` invocation. Belt-and-suspenders against future enforcement changes.
+
+**See also:** `[[docs/decisions/0002-transport-mode-value-space]]` for the cascade design that constrains where `legacy-print` can be selected.
+
+---
+
 ## Open architectural questions (drive Phase 3 ARDs)
 
 1. **Composition of `--ide` and `--bg`**: when a supervisor-hosted session tries to call into a disconnected Maestro IDE host (because Maestro was closed), should Claude (a) block waiting for reconnect, (b) degrade gracefully and proceed without the editor call, (c) abort the turn? Anthropic's `--ide` docs don't address this — needs empirical work in Phase 3 ARD 06.
