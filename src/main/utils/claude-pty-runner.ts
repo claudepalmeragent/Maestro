@@ -224,6 +224,7 @@ export class ClaudePtyRunner extends EventEmitter {
 			setTimeout(() => {
 				try {
 					proc.kill('SIGKILL');
+					// swallow-ok: best-effort SIGKILL; throws if process already dead, which is the desired terminal state
 				} catch {
 					/* already dead */
 				}
@@ -239,6 +240,7 @@ export class ClaudePtyRunner extends EventEmitter {
 		if (this.process) {
 			try {
 				this.process.write('exit\n');
+				// swallow-ok: best-effort write to PTY that may already be closing; onExit handles teardown either way
 			} catch {
 				/* process may already be closing */
 			}
@@ -283,6 +285,9 @@ export class ClaudePtyRunner extends EventEmitter {
 		this.isBusy = false;
 		this.userControlled = false;
 		this.process = null;
+		// dispose() before nulling: cancels any pending idle-debounce timer so it
+		// can't fire post-end and trigger a phantom onTurnComplete.
+		this.analyzer?.dispose();
 		this.analyzer = null;
 	}
 }

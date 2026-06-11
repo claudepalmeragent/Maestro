@@ -15,6 +15,14 @@ export interface ClaudePtyAnalyzerCallbacks {
 }
 
 export class ClaudePtyStreamAnalyzer {
+	/**
+	 * Debounce window for the idle-prompt-only completion path: if Claude's REPL prompt
+	 * (╰─ / ❯ / $ / (claude)) appears in the rendered tail AND no new assistant output
+	 * arrives for this many ms, treat the turn as complete. The completion-phrase fast
+	 * path (Done!, Task complete, …) fires synchronously without waiting for this window.
+	 */
+	private static readonly IDLE_DEBOUNCE_MS = 1500;
+
 	private term: Terminal;
 	private currentExitReason: RunnerExitReason = 'SUCCESS';
 	private hasInitFired = false;
@@ -24,6 +32,8 @@ export class ClaudePtyStreamAnalyzer {
 	private expectedEcho = '';
 	private turnCompleteEmitted = false;
 	private seenCompletionPhrase = false;
+	private idleDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+	private disposed = false;
 
 	constructor(
 		_maestroSessionId: string,
@@ -103,20 +113,75 @@ export class ClaudePtyStreamAnalyzer {
 			}
 		}
 
-		// 7. Idle-prompt + completion detection
-		if (!this.turnCompleteEmitted && !this.inThinkingBlock && this.seenCompletionPhrase) {
+		// 7. Idle-prompt + completion detection.
+		//
+		// Once we see the REPL prompt marker (❯ / ╰─ / (claude) / $) in the cleaned
+		// stream, Claude has handed control back to the REPL. Subsequent chunks from
+		// claude v2.1.141 are spinner cleanup + status frames ("Sautéed for 2s",
+		// "? for shortcuts") that emit outsideText but do NOT mean Claude is still
+		// responding. So we deliberately do NOT cancel the debounce timer on new
+		// outsideText — the window simply elapses and we fire complete.
+		//
+		// The theoretical risk is Claude emitting ❯ as a literal character mid-response
+		// and then continuing. In practice this doesn't happen with v2.1.141 prompts;
+		// if it ever does, the 1.5s window is short enough that it'd at worst fire
+		// complete one debounce-window earlier than ideal, not catastrophically wrong.
+		if (!this.turnCompleteEmitted && !this.inThinkingBlock) {
+			// Check both the xterm-rendered tail AND the raw cleaned chunk. Under heavy
+			// cursor-manipulation output (real claude v2.1.141 under TERM=dumb still emits
+			// CSI sequences for animations/spinners), the headless xterm buffer can mangle
+			// the prompt marker's position. The cleaned chunk is the most reliable signal
+			// for the REPL prompt's appearance; debounce protects against false-positives
+			// when ❯ shows up as literal content mid-turn.
 			const renderedTail = this._getRenderedTail();
-			const idleDetected = IDLE_PROMPT_MARKERS.some((marker) => marker.test(renderedTail));
+			const idleDetected =
+				IDLE_PROMPT_MARKERS.some((marker) => marker.test(renderedTail)) ||
+				IDLE_PROMPT_MARKERS.some((marker) => marker.test(chunk));
 			if (idleDetected) {
-				this.turnCompleteEmitted = true;
-				this.callbacks.onEvent({
-					type: 'result',
-					text: this.accumulatedAssistantText,
-					sessionId: this.claudeSessionId,
-					raw: { source: 'claude-pty-runner' },
-				});
-				this.callbacks.onTurnComplete();
+				if (this.seenCompletionPhrase) {
+					// Fast path: explicit completion phrase + REPL prompt return → fire now.
+					this._fireTurnComplete();
+				} else if (this.idleDebounceTimer === null) {
+					// Slow path: prompt return alone. Most prompts (code edits, short Q&A)
+					// don't elicit a narrative completion phrase, so the REPL return is the
+					// only reliable end-of-turn signal. Debounce to avoid false-positives
+					// from transient buffer states.
+					this.idleDebounceTimer = setTimeout(() => {
+						this.idleDebounceTimer = null;
+						if (this.disposed || this.turnCompleteEmitted) return;
+						this._fireTurnComplete();
+					}, ClaudePtyStreamAnalyzer.IDLE_DEBOUNCE_MS);
+				}
 			}
+		}
+	}
+
+	private _fireTurnComplete(): void {
+		this.turnCompleteEmitted = true;
+		if (this.idleDebounceTimer !== null) {
+			clearTimeout(this.idleDebounceTimer);
+			this.idleDebounceTimer = null;
+		}
+		this.callbacks.onEvent({
+			type: 'result',
+			text: this.accumulatedAssistantText,
+			sessionId: this.claudeSessionId,
+			raw: { source: 'claude-pty-runner' },
+		});
+		this.callbacks.onTurnComplete();
+	}
+
+	/**
+	 * Tear-down hook for the runner: cancel any pending idle-debounce timer and
+	 * suppress further completion callbacks. Idempotent. Call when the PTY exits
+	 * (success, kill, timeout) to prevent a pending debounce from firing post-end
+	 * and triggering a phantom onTurnComplete after the runner has already wound down.
+	 */
+	dispose(): void {
+		this.disposed = true;
+		if (this.idleDebounceTimer !== null) {
+			clearTimeout(this.idleDebounceTimer);
+			this.idleDebounceTimer = null;
 		}
 	}
 
@@ -136,6 +201,11 @@ export class ClaudePtyStreamAnalyzer {
 		this.expectedEcho = '';
 		this.turnCompleteEmitted = false;
 		this.seenCompletionPhrase = false;
+		if (this.idleDebounceTimer !== null) {
+			clearTimeout(this.idleDebounceTimer);
+			this.idleDebounceTimer = null;
+		}
+		this.disposed = false;
 	}
 
 	private _cancelEcho(chunk: string): string {
