@@ -200,7 +200,7 @@ describe('ClaudePtyStreamAnalyzer', () => {
 	});
 
 	describe('idle prompt without completion phrase', () => {
-		it('does NOT fire onTurnComplete when idle prompt seen but no completion phrase', () => {
+		it('does NOT fire onTurnComplete synchronously when idle prompt seen but no completion phrase', () => {
 			const { analyzer, turnCompletes } = makeAnalyzer();
 
 			// Idle prompt marker without any completion phrase
@@ -208,6 +208,69 @@ describe('ClaudePtyStreamAnalyzer', () => {
 			analyzer.ingest('╰─ (claude) ❯ \n');
 
 			expect(turnCompletes).toHaveLength(0);
+		});
+
+		it('DOES fire onTurnComplete after debounce window when idle prompt persists', () => {
+			vi.useFakeTimers();
+			try {
+				const { analyzer, turnCompletes } = makeAnalyzer();
+
+				analyzer.ingest('Working on it...\n');
+				analyzer.ingest('╰─ (claude) ❯ \n');
+				expect(turnCompletes).toHaveLength(0);
+
+				vi.advanceTimersByTime(1500);
+				expect(turnCompletes).toHaveLength(1);
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+
+		it('debounce timer is NOT cancelled by subsequent non-prompt chunks (spinner cleanup tolerated)', () => {
+			// Real claude v2.1.141 emits spinner/status frames AFTER the REPL prompt
+			// returns. Those frames produce outsideText but do not mean Claude is still
+			// responding. The analyzer must not let them defer turn-completion.
+			vi.useFakeTimers();
+			try {
+				const { analyzer, turnCompletes } = makeAnalyzer();
+
+				analyzer.ingest('partial reply\n');
+				analyzer.ingest('╰─ (claude) ❯ \n'); // timer armed, fires at +1500ms
+
+				vi.advanceTimersByTime(500);
+				analyzer.ingest('· spinner frame\n'); // simulates post-prompt spinner update
+
+				vi.advanceTimersByTime(1000); // total 1500ms from initial arm
+				expect(turnCompletes).toHaveLength(1);
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+
+		it('fires synchronously on the fast path when completion phrase + idle marker both present', () => {
+			const { analyzer, turnCompletes } = makeAnalyzer();
+
+			analyzer.ingest('Done!\n');
+			analyzer.ingest('╰─ (claude) ❯ \n');
+
+			expect(turnCompletes).toHaveLength(1);
+		});
+
+		it('dispose() prevents a pending debounce timer from firing', () => {
+			vi.useFakeTimers();
+			try {
+				const { analyzer, turnCompletes } = makeAnalyzer();
+
+				analyzer.ingest('partial\n');
+				analyzer.ingest('╰─ (claude) ❯ \n');
+
+				analyzer.dispose();
+				vi.advanceTimersByTime(3000);
+
+				expect(turnCompletes).toHaveLength(0);
+			} finally {
+				vi.useRealTimers();
+			}
 		});
 	});
 
