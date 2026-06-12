@@ -1,7 +1,121 @@
 import * as crypto from 'crypto';
+import * as path from 'path';
+import { promisify } from 'util';
 import type { TransportMode } from '../../shared/types';
 export { describeCascadeSource } from '../../shared/transport-mode';
 export type { CascadeSource } from '../../shared/transport-mode';
+
+// Lazy-initialized so that test environments which mock child_process with an
+// async factory (vitest async vi.mock) don't receive undefined at module-load time.
+let _execFileAsync: ReturnType<typeof promisify> | null = null;
+function getExecFileAsync(): ReturnType<typeof promisify> {
+	if (!_execFileAsync) {
+		const { execFile } = require('child_process') as typeof import('child_process');
+		_execFileAsync = promisify(execFile);
+	}
+	return _execFileAsync;
+}
+
+/** Module-level cache: binary path (or 'ssh:<host>') → detected version string. */
+const _versionCache = new Map<string, string>();
+
+/** PATH dirs used when running 'claude --version' on a remote SSH host. */
+const SSH_VERSION_PATH =
+	'$HOME/.local/bin:$HOME/.opencode/bin:$HOME/bin:/usr/local/bin:/opt/homebrew/bin:$HOME/.cargo/bin';
+
+function _parseVersionToken(output: string): string {
+	const token = (output.trim().split(/\s+/)[0] ?? '').trim();
+	return /^\d[\d.]+/.test(token) ? token : 'unknown';
+}
+
+/**
+ * Detect the `claude` version for the given binary/SSH config.
+ *
+ * Local: runs `<claudeBinary> --version` (execFile, 2s timeout).
+ * SSH:   runs the equivalent via `ssh` using the connection args already baked into
+ *        `baseArgs` (which is `sshInteractiveArgs` without the wrapped bash command).
+ *
+ * Results are cached per binary path (`<absolutePath>`) or SSH host (`ssh:<host>`).
+ * Returns `'unknown'` on any parse failure or timeout; callers then fall back to the
+ * `*` default registry entry (see `resolveMarkers`).
+ */
+export async function detectClaudeVersion(
+	claudeBinary: string,
+	baseArgs?: string[]
+): Promise<string> {
+	const binaryBasename = path.basename(claudeBinary).replace(/\.exe$/i, '');
+
+	// ── SSH case ──────────────────────────────────────────────────────────────────
+	// Detected when the spawned binary is 'ssh' (or a path ending in '/ssh').
+	// baseArgs = ['-tt', '-o', <opt>, ..., 'user@host', '/bin/bash -c <wrapped-cmd>']
+	// We strip the last arg (the wrapped bash command) and the '-tt' TTY flag, then
+	// append a simple /bin/bash -c "...claude --version..." as the remote command.
+	if (binaryBasename === 'ssh' && baseArgs && baseArgs.length >= 2) {
+		// Connection args: everything before the wrapped bash command (last arg).
+		let connArgs = baseArgs.slice(0, -1);
+		// Drop -tt: forces TTY allocation which breaks non-interactive commands.
+		connArgs = connArgs.filter((a) => a !== '-tt');
+		const host = connArgs[connArgs.length - 1] ?? 'unknown-host';
+		const cacheKey = `ssh:${host}`;
+
+		if (_versionCache.has(cacheKey)) return _versionCache.get(cacheKey)!;
+
+		try {
+			const remoteCmd = `/bin/bash --norc --noprofile -c "export PATH=${SSH_VERSION_PATH}:$PATH; claude --version 2>&1 | head -1"`;
+			const { stdout } = await getExecFileAsync()(claudeBinary, [...connArgs, remoteCmd], {
+				timeout: 5000,
+				encoding: 'utf-8',
+			});
+			const version = _parseVersionToken(stdout);
+			_versionCache.set(cacheKey, version);
+			// swallow-ok: SSH version probe is best-effort; 'unknown' triggers trough-only path
+			return version;
+		} catch {
+			_versionCache.set(cacheKey, 'unknown');
+			return 'unknown';
+		}
+	}
+
+	// ── Local binary ─────────────────────────────────────────────────────────────
+	if (_versionCache.has(claudeBinary)) return _versionCache.get(claudeBinary)!;
+
+	try {
+		const { stdout } = await getExecFileAsync()(claudeBinary, ['--version'], {
+			timeout: 2000,
+			encoding: 'utf-8',
+		});
+		const version = _parseVersionToken(stdout);
+		_versionCache.set(claudeBinary, version);
+		// swallow-ok: local version probe is best-effort; 'unknown' triggers trough-only path
+		return version;
+	} catch {
+		_versionCache.set(claudeBinary, 'unknown');
+		return 'unknown';
+	}
+}
+
+/**
+ * Synchronous cache read. Returns the cached version string, or null on a miss.
+ * Used by callers that want to avoid an async await when the version is already known.
+ */
+export function getCachedClaudeVersion(claudeBinary: string, baseArgs?: string[]): string | null {
+	const binaryBasename = path.basename(claudeBinary).replace(/\.exe$/i, '');
+	if (binaryBasename === 'ssh' && baseArgs && baseArgs.length >= 2) {
+		const connArgs = baseArgs.slice(0, -1).filter((a) => a !== '-tt');
+		const host = connArgs[connArgs.length - 1] ?? 'unknown-host';
+		return _versionCache.get(`ssh:${host}`) ?? null;
+	}
+	return _versionCache.get(claudeBinary) ?? null;
+}
+
+/**
+ * Pre-populate the version cache for a given binary path.
+ * Intended for use in unit tests only — allows executeTurn() to bypass the
+ * async detectClaudeVersion call and keep tests fully synchronous.
+ */
+export function _seedVersionCacheForTest(binary: string, version: string): void {
+	_versionCache.set(binary, version);
+}
 
 /** Args removed from the Claude command line for interactive-pty mode. */
 export const PRINT_ARGS_TO_STRIP = ['--print', '-p', '--verbose', '--output-format', 'stream-json'];

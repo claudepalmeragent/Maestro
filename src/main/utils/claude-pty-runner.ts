@@ -1,13 +1,30 @@
 import { EventEmitter } from 'events';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import * as pty from 'node-pty';
 import type { ParsedEvent } from '../parsers/agent-output-parser';
 import {
 	stripPrintArgs,
 	deriveStableClaudeSessionId,
 	cleanTerminalChunk,
+	detectClaudeVersion,
+	getCachedClaudeVersion,
 	type RunnerExitReason,
 } from './claude-pty-helpers';
+import { resolveMarkers, type VersionMarkers } from './claude-pty-markers';
 import { ClaudePtyStreamAnalyzer } from './claude-pty-stream-analyzer';
+
+/** True when all marker arrays are empty — the fast-path has nothing to check. */
+function isMarkersEmpty(m: VersionMarkers): boolean {
+	return (
+		m.helpLineMarkers.length === 0 &&
+		m.completionStatsMarkers.length === 0 &&
+		m.idlePromptMarkers.length === 0 &&
+		m.spinnerGlyphs.size === 0 &&
+		m.completionPhrases.length === 0
+	);
+}
 
 export interface ClaudePtyRunnerOptions {
 	/** Maestro tab/session ID — used to derive --session-id. */
@@ -24,7 +41,12 @@ export interface ClaudePtyRunnerOptions {
 	idleTimeoutMs?: number;
 	/** Default 5 * 60_000 ms. Total execution time. */
 	executionTimeoutMs?: number;
-	/** Default 250 ms. Time after spawn before writing the prompt. */
+	/**
+	 * Default 3_000 ms. Time after spawn before writing the prompt.
+	 * Must be long enough for Claude's startup phase (banner + auto-update check)
+	 * to complete and the REPL readline handler to be fully wired to the API.
+	 * In this environment the auto-update check takes ~2s; 3s gives safe margin.
+	 */
 	spawnInitDelayMs?: number;
 }
 
@@ -55,7 +77,17 @@ export class ClaudePtyRunner extends EventEmitter {
 	private currentExitReason: RunnerExitReason = 'SUCCESS';
 	private analyzer: ClaudePtyStreamAnalyzer | null = null;
 	private gracefulCompleteTimer: NodeJS.Timeout | null = null;
+	/** True when we sent SIGTERM intentionally after turn completion — non-zero exit is expected, not a crash. */
+	private intentionalKillAfterSuccess = false;
 	private readonly opts: Required<ClaudePtyRunnerOptions>;
+
+	// Debug-capture state (Task 1.5): buffered raw PTY bytes for AGENT_TIMEOUT dumps.
+	private static readonly RAW_BUFFER_CAP = 1024 * 1024; // 1 MB
+	private rawBuffer: Buffer[] = [];
+	private rawBufferSize = 0;
+	private currentPrompt = '';
+	private currentClaudeVersion = 'unknown';
+	private currentRegistryVersion = '*';
 
 	private static activeInstances = new Set<ClaudePtyRunner>();
 
@@ -64,7 +96,7 @@ export class ClaudePtyRunner extends EventEmitter {
 		this.opts = {
 			idleTimeoutMs: 45_000,
 			executionTimeoutMs: 5 * 60_000,
-			spawnInitDelayMs: 250,
+			spawnInitDelayMs: 3_000,
 			claudeSessionIdOverride:
 				options.claudeSessionIdOverride ?? deriveStableClaudeSessionId(options.maestroSessionId),
 			env: {},
@@ -73,7 +105,7 @@ export class ClaudePtyRunner extends EventEmitter {
 	}
 
 	/** Run a single turn: spawn, write prompt, watch for exit, emit. */
-	executeTurn(prompt: string): void {
+	async executeTurn(prompt: string): Promise<void> {
 		if (this.userControlled) {
 			this.emit('end', 'AGENT_ERROR' as RunnerExitReason, null);
 			return;
@@ -86,8 +118,12 @@ export class ClaudePtyRunner extends EventEmitter {
 
 		this.isBusy = true;
 		this.currentExitReason = 'SUCCESS';
+		this.intentionalKillAfterSuccess = false;
 		this.startTime = Date.now();
 		this.lastActivityTime = Date.now();
+		this.currentPrompt = prompt;
+		this.rawBuffer = [];
+		this.rawBufferSize = 0;
 
 		const args = stripPrintArgs(this.opts.claudeBaseArgs);
 
@@ -98,15 +134,42 @@ export class ClaudePtyRunner extends EventEmitter {
 			args.push('--session-id', this.opts.claudeSessionIdOverride);
 		}
 
+		// Detect claude version (cached per binary/host) and resolve the marker set.
+		// Synchronous cache-hit path avoids an async suspension so PTY spawn and
+		// downstream watchdog setup remain synchronous on repeat calls (important for
+		// test determinism with fake timers). On first call, falls through to async.
+		const cachedVersion = getCachedClaudeVersion(this.opts.claudeBinary, this.opts.claudeBaseArgs);
+		const claudeVersion =
+			cachedVersion !== null
+				? cachedVersion
+				: await detectClaudeVersion(this.opts.claudeBinary, this.opts.claudeBaseArgs);
+		const markers = resolveMarkers(claudeVersion);
+		this.currentClaudeVersion = claudeVersion;
+		this.currentRegistryVersion = markers.version;
+
+		// Pass markers only when the fast-path has real patterns to check.
+		// If version detection failed ('unknown') or the catch-all '*' entry has no
+		// markers of any kind, pass undefined so the analyzer skips fast-path checks
+		// entirely and relies solely on the trough detector for turn-completion.
+		const markersForAnalyzer: VersionMarkers | undefined =
+			claudeVersion === 'unknown'
+				? undefined
+				: markers.version === '*' && isMarkersEmpty(markers)
+					? undefined
+					: markers;
+
 		this.analyzer = new ClaudePtyStreamAnalyzer(
 			this.opts.maestroSessionId,
 			this.opts.claudeSessionIdOverride,
 			{
 				onEvent: (e) => this.emit('event', e),
 				onTurnComplete: () => this.gracefulCompleteTurn(),
-			}
+			},
+			markersForAnalyzer
 		);
-		this.analyzer.expectEcho(prompt + '\n');
+		// Claude's TUI input handler runs in raw mode: Enter sends \r, not \n.
+		// expectEcho must match what the PTY echoes back when we write prompt + '\r'.
+		this.analyzer.expectEcho(prompt + '\r');
 
 		this.process = pty.spawn(this.opts.claudeBinary, args, {
 			name: 'xterm-256color',
@@ -121,6 +184,13 @@ export class ClaudePtyRunner extends EventEmitter {
 		this.process.onData((data) => {
 			this.lastActivityTime = Date.now();
 			this.emit('rawData', data);
+			// Buffer raw bytes for AGENT_TIMEOUT debug capture (capped at 1 MB)
+			if (this.rawBufferSize < ClaudePtyRunner.RAW_BUFFER_CAP) {
+				const chunk = Buffer.from(data, 'binary');
+				const canAdd = Math.min(chunk.length, ClaudePtyRunner.RAW_BUFFER_CAP - this.rawBufferSize);
+				this.rawBuffer.push(canAdd < chunk.length ? chunk.subarray(0, canAdd) : chunk);
+				this.rawBufferSize += canAdd;
+			}
 			this.analyzer?.ingest(cleanTerminalChunk(data));
 		});
 
@@ -137,11 +207,20 @@ export class ClaudePtyRunner extends EventEmitter {
 			}
 		}, 5_000);
 
-		// Write prompt after init delay
+		// Write prompt after init delay (covers Claude's banner + auto-update check),
+		// then unlock the analyzer's completion-signal detector. beginTurn() must be
+		// called AFTER the write so that startup PTY output does not trigger a premature
+		// turn-complete before the response even starts.
+		//
+		// NOTE: exit\n is NOT written here. gracefulCompleteTurn() sends it after
+		// turn-completion detection fires. Sending exit\n immediately after the prompt
+		// would interrupt Claude's response generation before it completes.
 		setTimeout(() => {
 			if (this.process && !this.userControlled) {
-				this.process.write(prompt + '\n');
-				this.process.write('exit\n');
+				// Claude's TUI uses raw terminal input: carriage return (\r) submits a line.
+				// Sending \n alone is ignored by the TUI's readline handler.
+				this.process.write(prompt + '\r');
+				this.analyzer?.beginTurn();
 			}
 		}, this.opts.spawnInitDelayMs);
 	}
@@ -218,6 +297,9 @@ export class ClaudePtyRunner extends EventEmitter {
 
 	private forceKill(reason: RunnerExitReason): void {
 		this.currentExitReason = reason;
+		if (reason === 'AGENT_TIMEOUT' && process.env.MAESTRO_CLAUDE_PTY_DEBUG === '1') {
+			this.writeDebugCapture();
+		}
 		if (this.process) {
 			const proc = this.process;
 			proc.kill('SIGTERM');
@@ -233,24 +315,50 @@ export class ClaudePtyRunner extends EventEmitter {
 		// onExit will trigger handleProcessEnd
 	}
 
+	private writeDebugCapture(): void {
+		try {
+			const debugDir = path.join(os.homedir(), '.claude', 'maestro-debug');
+			fs.mkdirSync(debugDir, { recursive: true });
+			const timestamp = Date.now();
+			const rawPath = path.join(debugDir, `agent-timeout-${timestamp}.raw`);
+			const metaPath = path.join(debugDir, `agent-timeout-${timestamp}.meta.json`);
+			fs.writeFileSync(rawPath, Buffer.concat(this.rawBuffer));
+			const meta = {
+				claudeVersion: this.currentClaudeVersion,
+				registryVersion: this.currentRegistryVersion,
+				prompt: this.currentPrompt,
+				idleTimeoutMs: this.opts.idleTimeoutMs,
+				totalDurationMs: Date.now() - this.startTime,
+				lastNChunks: this.rawBuffer.length,
+			};
+			fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2));
+			// swallow-ok: debug capture is best-effort; failure is logged and non-fatal
+		} catch (err) {
+			console.error('[ClaudePtyRunner] failed to write debug capture:', err);
+		}
+	}
+
 	private gracefulCompleteTurn(): void {
 		if (this.gracefulCompleteTimer) return; // already running
 
-		// Write exit\n to let Claude finish cleanly (may already be queued)
+		// Write exit\r to let Claude finish cleanly (raw-mode TUI needs \r not \n)
 		if (this.process) {
 			try {
-				this.process.write('exit\n');
+				this.process.write('exit\r');
 				// swallow-ok: best-effort write to PTY that may already be closing; onExit handles teardown either way
 			} catch {
 				/* process may already be closing */
 			}
 		}
 
-		// Give the process 5s to exit naturally; if not, force kill
+		// Give the process 5s to exit naturally; if not, SIGTERM it.
+		// Mark intentionalKillAfterSuccess so handleProcessEnd won't treat the
+		// resulting non-zero exit code (143/SIGTERM) as a PROCESS_CRASH.
 		this.gracefulCompleteTimer = setTimeout(() => {
 			this.gracefulCompleteTimer = null;
 			if (this.process) {
-				this.forceKill('PROCESS_CRASH');
+				this.intentionalKillAfterSuccess = true;
+				this.forceKill('SUCCESS');
 			}
 		}, 5_000);
 	}
@@ -266,7 +374,14 @@ export class ClaudePtyRunner extends EventEmitter {
 			this.gracefulCompleteTimer = null;
 		}
 
-		if (this.currentExitReason === 'SUCCESS' && exitCode !== 0) {
+		// Only treat non-zero exit as a crash when we did NOT intentionally SIGTERM the
+		// process after a successful turn completion. Interactive PTY sessions don't
+		// self-exit; we SIGTERM them in the graceful timer, producing exit code 143.
+		if (
+			this.currentExitReason === 'SUCCESS' &&
+			exitCode !== 0 &&
+			!this.intentionalKillAfterSuccess
+		) {
 			this.currentExitReason = 'PROCESS_CRASH';
 		}
 

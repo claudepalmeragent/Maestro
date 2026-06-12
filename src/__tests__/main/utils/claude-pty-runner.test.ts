@@ -31,6 +31,7 @@ vi.mock('@xterm/headless', () => {
 
 import * as nodePty from 'node-pty';
 import { ClaudePtyRunner } from '../../../main/utils/claude-pty-runner';
+import { _seedVersionCacheForTest } from '../../../main/utils/claude-pty-helpers';
 
 // Controllable mock IPty
 function makeMockPty() {
@@ -91,8 +92,9 @@ describe('ClaudePtyRunner', () => {
 		vi.useFakeTimers();
 		mockPty = makeMockPty();
 		vi.mocked(nodePty.spawn).mockReturnValue(mockPty as unknown as nodePty.IPty);
-		// Clear active instances between tests by killing all
-		// (tests manage their own instances)
+		// Pre-populate version cache so executeTurn() hits the synchronous path and
+		// pty.spawn is called without an async suspension (important with fake timers).
+		_seedVersionCacheForTest('claude', '2.1.141');
 	});
 
 	afterEach(() => {
@@ -145,10 +147,11 @@ describe('ClaudePtyRunner', () => {
 			// Before delay fires, nothing written
 			expect(mockPty._writes).toHaveLength(0);
 
-			// After delay
+			// After delay: prompt is written but NOT exit\r — exit\r is written by
+			// gracefulCompleteTurn() only after the analyzer fires onTurnComplete.
 			await vi.advanceTimersByTimeAsync(250);
-			expect(mockPty._writes[0]).toBe('my prompt\n');
-			expect(mockPty._writes[1]).toBe('exit\n');
+			expect(mockPty._writes[0]).toBe('my prompt\r');
+			expect(mockPty._writes).toHaveLength(1);
 
 			mockPty._exit(0);
 		});
@@ -363,14 +366,24 @@ describe('ClaudePtyRunner', () => {
 			const runner = makeRunner({ spawnInitDelayMs: 0 });
 			runner.executeTurn('do work');
 
-			// Emit data that triggers completion: a completion phrase followed by an idle marker
-			mockPty._emit('Task complete\n');
-			mockPty._emit('╰─ (claude) ❯ \n'); // ╰─ (claude) ❯
+			// Advance past SETUP_GRACE_MS (3000ms). This also fires the setTimeout(0)
+			// that calls beginTurn() inside executeTurn.
+			await vi.advanceTimersByTimeAsync(3500);
 
-			// gracefulCompleteTurn should have written 'exit\n'
-			// (in addition to the original exit\n written after spawnInitDelayMs=0)
-			// At least one 'exit\n' should be present
-			const exitWrites = mockPty._writes.filter((w) => w === 'exit\n');
+			// Seed the trough window with a small chunk. bps while streaming is low
+			// (1 byte at T=3500ms), so the trough detector will fire when the window
+			// spans ≥ TROUGH_WINDOW_MS and the byte-rate stays below 50 bps.
+			mockPty._emit('x');
+
+			// Advance past TROUGH_WINDOW_MS (2500ms) without high-rate data.
+			await vi.advanceTimersByTimeAsync(2500);
+
+			// This ingest causes the trough check: windowSpan=2500ms, bytesInWindow=2,
+			// bps=0.8 < 50 → _fireTurnComplete() → onTurnComplete() → gracefulCompleteTurn().
+			mockPty._emit('y');
+
+			// gracefulCompleteTurn() writes 'exit\r' immediately (raw-mode TUI needs \r).
+			const exitWrites = mockPty._writes.filter((w) => w === 'exit\r');
 			expect(exitWrites.length).toBeGreaterThanOrEqual(1);
 
 			mockPty._exit(0);

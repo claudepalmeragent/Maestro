@@ -1,0 +1,10 @@
+{
+	"version": "2.1.141",
+	"capturedAt": "2026-06-11T18:42:15.882Z",
+	"durationMs": 26519,
+	"byteCount": 2988,
+	"chunkCount": 11,
+	"canaryPrompt": "say hi in 3 words",
+	"exitCode": null,
+	"exitSignal": null
+}

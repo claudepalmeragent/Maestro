@@ -1,0 +1,12 @@
+{
+	"version": "2.1.141",
+	"capturedAt": "2026-06-11T21:41:21.408Z",
+	"durationMs": 5840,
+	"byteCount": 2720,
+	"chunkCount": 10,
+	"effortLevel": "medium",
+	"thinkingEnabled": false,
+	"canaryPrompt": "Reply with the single word: ready",
+	"exitCode": null,
+	"exitSignal": null
+}
