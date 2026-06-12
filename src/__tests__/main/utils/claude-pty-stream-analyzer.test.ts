@@ -43,11 +43,39 @@ vi.mock('@xterm/headless', () => {
 
 import { ClaudePtyStreamAnalyzer } from '../../../main/utils/claude-pty-stream-analyzer';
 import type { ParsedEvent } from '../../../main/parsers/agent-output-parser';
+import { resolveMarkers } from '../../../main/utils/claude-pty-markers';
+import type { VersionMarkers } from '../../../main/utils/claude-pty-markers';
 
 const FIXTURES_DIR = path.join(__dirname, '../../fixtures/claude-pty');
 
 function loadFixture(name: string): string {
 	return fs.readFileSync(path.join(FIXTURES_DIR, name), 'utf-8');
+}
+
+function makeAnalyzerWith(
+	markers: VersionMarkers,
+	overrides?: {
+		onEvent?: (e: ParsedEvent) => void;
+		onTurnComplete?: () => void;
+	}
+) {
+	const events: ParsedEvent[] = [];
+	const turnCompletes: number[] = [];
+
+	const analyzer = new ClaudePtyStreamAnalyzer(
+		'maestro-session-1',
+		'claude-session-1',
+		{
+			onEvent: overrides?.onEvent ?? ((e) => events.push(e)),
+			onTurnComplete: overrides?.onTurnComplete ?? (() => turnCompletes.push(Date.now())),
+		},
+		markers
+	);
+	// Simulate post-prompt-write state: completion signals are gated until beginTurn()
+	// is called by the runner.  Tests in this helper expect completion to be active.
+	analyzer.beginTurn();
+
+	return { analyzer, events, turnCompletes };
 }
 
 function makeAnalyzer(overrides?: {
@@ -67,6 +95,8 @@ function makeAnalyzer(overrides?: {
 			onTurnComplete: overrides?.onTurnComplete ?? (() => turnCompletes.push(Date.now())),
 		}
 	);
+	// Simulate post-prompt-write state (see makeAnalyzerWith above).
+	analyzer.beginTurn();
 
 	return { analyzer, events, turnCompletes };
 }
@@ -98,9 +128,11 @@ describe('ClaudePtyStreamAnalyzer', () => {
 	});
 
 	describe('simple task fixture', () => {
+		// The simple-task fixture ends with '╰─ (claude) ❯' which matches the '*' default
+		// idlePromptMarkers. These tests use explicit '*' markers to exercise the fast-path.
 		it('emits init → text events → result event → onTurnComplete', () => {
 			const fixture = loadFixture('simple-task.txt');
-			const { analyzer, events, turnCompletes } = makeAnalyzer();
+			const { analyzer, events, turnCompletes } = makeAnalyzerWith(resolveMarkers('*'));
 
 			// Feed the fixture in chunks
 			const lines = fixture.split('\n');
@@ -120,7 +152,7 @@ describe('ClaudePtyStreamAnalyzer', () => {
 
 		it('result event contains accumulated assistant text', () => {
 			const fixture = loadFixture('simple-task.txt');
-			const { analyzer, events } = makeAnalyzer();
+			const { analyzer, events } = makeAnalyzerWith(resolveMarkers('*'));
 
 			for (const line of fixture.split('\n')) {
 				analyzer.ingest(line + '\n');
@@ -200,8 +232,10 @@ describe('ClaudePtyStreamAnalyzer', () => {
 	});
 
 	describe('idle prompt without completion phrase', () => {
+		// These tests use explicit '*' default markers since they exercise the S3 idle-prompt
+		// fast-path. The '╰─' / '❯' patterns only appear in the '*' default idlePromptMarkers.
 		it('does NOT fire onTurnComplete synchronously when idle prompt seen but no completion phrase', () => {
-			const { analyzer, turnCompletes } = makeAnalyzer();
+			const { analyzer, turnCompletes } = makeAnalyzerWith(resolveMarkers('*'));
 
 			// Idle prompt marker without any completion phrase
 			analyzer.ingest('Working on it...\n');
@@ -213,7 +247,7 @@ describe('ClaudePtyStreamAnalyzer', () => {
 		it('DOES fire onTurnComplete after debounce window when idle prompt persists', () => {
 			vi.useFakeTimers();
 			try {
-				const { analyzer, turnCompletes } = makeAnalyzer();
+				const { analyzer, turnCompletes } = makeAnalyzerWith(resolveMarkers('*'));
 
 				analyzer.ingest('Working on it...\n');
 				analyzer.ingest('╰─ (claude) ❯ \n');
@@ -232,7 +266,7 @@ describe('ClaudePtyStreamAnalyzer', () => {
 			// responding. The analyzer must not let them defer turn-completion.
 			vi.useFakeTimers();
 			try {
-				const { analyzer, turnCompletes } = makeAnalyzer();
+				const { analyzer, turnCompletes } = makeAnalyzerWith(resolveMarkers('*'));
 
 				analyzer.ingest('partial reply\n');
 				analyzer.ingest('╰─ (claude) ❯ \n'); // timer armed, fires at +1500ms
@@ -248,7 +282,7 @@ describe('ClaudePtyStreamAnalyzer', () => {
 		});
 
 		it('fires synchronously on the fast path when completion phrase + idle marker both present', () => {
-			const { analyzer, turnCompletes } = makeAnalyzer();
+			const { analyzer, turnCompletes } = makeAnalyzerWith(resolveMarkers('*'));
 
 			analyzer.ingest('Done!\n');
 			analyzer.ingest('╰─ (claude) ❯ \n');
@@ -335,6 +369,285 @@ describe('ClaudePtyStreamAnalyzer', () => {
 			const combined = plainTextEvents.map((e) => e.text ?? '').join('');
 			expect(combined).toContain('public response');
 			expect(combined).not.toContain('internal');
+		});
+	});
+
+	describe('multi-signal detector (version-aware markers)', () => {
+		describe('S1: help-line marker fires immediately', () => {
+			it('fires onTurnComplete synchronously for a version with helpLineMarkers', () => {
+				// Use the '*' default which has "? for shortcuts" as a help-line marker.
+				// v2.1.141 has helpLineMarkers: [] because that text renders continuously
+				// in the REPL status bar (not a reliable idle indicator in that version).
+				const { analyzer, turnCompletes } = makeAnalyzerWith(resolveMarkers('*'));
+				analyzer.ingest('Some response text\n');
+				expect(turnCompletes).toHaveLength(0);
+				analyzer.ingest('? for shortcuts');
+				expect(turnCompletes).toHaveLength(1);
+			});
+
+			it('does not require debounce — fires before any timer advancement', () => {
+				vi.useFakeTimers();
+				try {
+					const { analyzer, turnCompletes } = makeAnalyzerWith(resolveMarkers('*'));
+					analyzer.ingest('? for shortcuts');
+					// synchronous — no vi.advanceTimersByTime needed
+					expect(turnCompletes).toHaveLength(1);
+				} finally {
+					vi.useRealTimers();
+				}
+			});
+
+			it('fires only once even if the marker appears in multiple chunks', () => {
+				const { analyzer, turnCompletes } = makeAnalyzerWith(resolveMarkers('*'));
+				analyzer.ingest('? for shortcuts');
+				analyzer.ingest('? for shortcuts');
+				expect(turnCompletes).toHaveLength(1);
+			});
+
+			it('v2.1.141 does NOT fire S1 on "? for shortcuts" (status bar renders it continuously)', () => {
+				// v2.1.141 helpLineMarkers is intentionally empty — the status bar shows
+				// "? for shortcuts" during response generation, not just at idle.
+				const { analyzer, turnCompletes } = makeAnalyzerWith(resolveMarkers('2.1.141'));
+				analyzer.ingest('? for shortcuts');
+				expect(turnCompletes).toHaveLength(0);
+			});
+		});
+
+		describe('S2: completion-stats marker fires immediately', () => {
+			// v2.1.141 completionStatsMarkers is intentionally empty (ARD 1.4 option b):
+			// mode-variant fixture analysis found no pattern that fires exclusively at
+			// end-of-turn across all three config modes. Trough detector is primary for
+			// this version. These tests verify that v2.1.141 does NOT fire on stats lines
+			// and that the '*' default (older claude) still does.
+			it('v2.1.141 does NOT fire on "✻ Cooked for 3s" (trough detector handles this version)', () => {
+				vi.useFakeTimers();
+				try {
+					const { analyzer, turnCompletes } = makeAnalyzerWith(resolveMarkers('2.1.141'));
+					analyzer.ingest('Some work done\n');
+					analyzer.ingest('✻ Cooked for 3s');
+					expect(turnCompletes).toHaveLength(0);
+				} finally {
+					vi.useRealTimers();
+				}
+			});
+
+			it('v2.1.141 does NOT fire on "✓ Done in 4s" (trough detector handles this version)', () => {
+				vi.useFakeTimers();
+				try {
+					const { analyzer, turnCompletes } = makeAnalyzerWith(resolveMarkers('2.1.141'));
+					analyzer.ingest('Work text\n');
+					analyzer.ingest('✓ Done in 4s');
+					expect(turnCompletes).toHaveLength(0);
+				} finally {
+					vi.useRealTimers();
+				}
+			});
+
+			it('"*" default fires synchronously on "✓ Done in 4s" (older claude versions)', () => {
+				const { analyzer, turnCompletes } = makeAnalyzerWith(resolveMarkers('*'));
+				analyzer.ingest('Work text\n');
+				analyzer.ingest('✓ Done in 4s');
+				expect(turnCompletes).toHaveLength(1);
+			});
+
+			it('does NOT fire on a bare spinner glyph without duration stats', () => {
+				vi.useFakeTimers();
+				try {
+					const { analyzer, turnCompletes } = makeAnalyzerWith(resolveMarkers('2.1.141'));
+					analyzer.ingest('✻ working...');
+					expect(turnCompletes).toHaveLength(0);
+				} finally {
+					vi.useRealTimers();
+				}
+			});
+		});
+
+		describe('S3: idle-prompt + 1.5s debounce ("*" default markers)', () => {
+			// v2.1.141 has idlePromptMarkers:[] because ❯ renders continuously during
+			// response generation. These S3 tests use the "*" default which has ❯ / ╰─
+			// as idle markers (valid for older claude versions where ❯ is idle-specific).
+			it('fires after 1.5s when the idle prompt is detected', () => {
+				vi.useFakeTimers();
+				try {
+					const { analyzer, turnCompletes } = makeAnalyzerWith(resolveMarkers('*'));
+					analyzer.ingest('Some response\n');
+					analyzer.ingest('❯ ');
+					expect(turnCompletes).toHaveLength(0);
+					vi.advanceTimersByTime(1500);
+					expect(turnCompletes).toHaveLength(1);
+				} finally {
+					vi.useRealTimers();
+				}
+			});
+
+			it('does NOT fire before the 1.5s window elapses', () => {
+				vi.useFakeTimers();
+				try {
+					const { analyzer, turnCompletes } = makeAnalyzerWith(resolveMarkers('*'));
+					analyzer.ingest('❯ ');
+					vi.advanceTimersByTime(1499);
+					expect(turnCompletes).toHaveLength(0);
+				} finally {
+					vi.useRealTimers();
+				}
+			});
+
+			it('debounce fires once even if idle prompt appears in multiple chunks (timer is not re-armed)', () => {
+				vi.useFakeTimers();
+				try {
+					const { analyzer, turnCompletes } = makeAnalyzerWith(resolveMarkers('*'));
+					analyzer.ingest('❯ ');
+					vi.advanceTimersByTime(500);
+					analyzer.ingest('❯ '); // second observation — timer already armed, stays at original deadline
+					vi.advanceTimersByTime(1000); // 1500ms total from first arm
+					expect(turnCompletes).toHaveLength(1);
+				} finally {
+					vi.useRealTimers();
+				}
+			});
+		});
+
+		describe('S4: spinner-glyph cessation ("*" default markers, no grace period)', () => {
+			// S4 unit tests use "*" default markers (postPromptGraceMs=undefined → 0ms grace)
+			// so the timer arms immediately without needing to advance past a grace window.
+			// v2.1.141-specific grace-period behavior is tested in the dedicated block below.
+			it('fires after 1.5s of no spinner chunks following a spinner observation', () => {
+				vi.useFakeTimers();
+				try {
+					const { analyzer, turnCompletes } = makeAnalyzerWith(resolveMarkers('*'));
+					analyzer.ingest('✻ processing...'); // spinner glyph → seenSpinnerGlyph = true
+					expect(turnCompletes).toHaveLength(0);
+					analyzer.ingest('regular text'); // no spinner → timer starts
+					vi.advanceTimersByTime(1500);
+					expect(turnCompletes).toHaveLength(1);
+				} finally {
+					vi.useRealTimers();
+				}
+			});
+
+			it('does NOT fire when a new spinner chunk arrives before the stop-timer expires', () => {
+				vi.useFakeTimers();
+				try {
+					const { analyzer, turnCompletes } = makeAnalyzerWith(resolveMarkers('*'));
+					analyzer.ingest('✻ processing...');
+					analyzer.ingest('partial output'); // timer starts
+					vi.advanceTimersByTime(500);
+					analyzer.ingest('✻ still spinning'); // timer cleared
+					vi.advanceTimersByTime(2000); // no new chunks — timer was cleared, nothing fires
+					expect(turnCompletes).toHaveLength(0);
+				} finally {
+					vi.useRealTimers();
+				}
+			});
+
+			it('does NOT fire when only spinner chunks arrive (S4 timer never starts without a non-spinner chunk)', () => {
+				vi.useFakeTimers();
+				try {
+					const { analyzer, turnCompletes } = makeAnalyzerWith(resolveMarkers('*'));
+					analyzer.ingest('✻ working');
+					analyzer.ingest('✻ working');
+					analyzer.ingest('✻ working');
+					// Advance to 2999ms — well past S4 debounce (1500ms) but < SETUP_GRACE_MS
+					// (3000ms). S4 never armed because no non-spinner chunk followed; trough
+					// suppressed by grace window. Both mechanisms correctly produce no fire.
+					vi.advanceTimersByTime(2999);
+					expect(turnCompletes).toHaveLength(0);
+				} finally {
+					vi.useRealTimers();
+				}
+			});
+
+			it('dispose() prevents spinner-stop timer from firing', () => {
+				vi.useFakeTimers();
+				try {
+					const { analyzer, turnCompletes } = makeAnalyzerWith(resolveMarkers('*'));
+					analyzer.ingest('✻ processing...');
+					analyzer.ingest('regular text'); // timer starts
+					analyzer.dispose();
+					vi.advanceTimersByTime(3000);
+					expect(turnCompletes).toHaveLength(0);
+				} finally {
+					vi.useRealTimers();
+				}
+			});
+		});
+
+		describe('v2.1.141 postPromptGraceMs: startup spinners do NOT arm S4', () => {
+			// v2.1.141 has postPromptGraceMs=2000. Spinner chunks arriving within 2s of
+			// beginTurn() (startup banner phase) must not arm the S4 cessation timer.
+			it('does NOT arm S4 when spinner arrives within postPromptGraceMs window', () => {
+				vi.useFakeTimers();
+				try {
+					const { analyzer, turnCompletes } = makeAnalyzerWith(resolveMarkers('2.1.141'));
+					// Simulate startup banner arriving immediately (within 0ms of beginTurn)
+					analyzer.ingest('✻ startup spinner');
+					analyzer.ingest('no spinner — startup quiet');
+					// Advance 2999ms — well past the 1500ms S4 debounce, and within both
+					// postPromptGraceMs=2000ms AND SETUP_GRACE_MS=3000ms (trough suppressed).
+					// S4 must not fire because spinner arrived before grace expired.
+					vi.advanceTimersByTime(2999);
+					expect(turnCompletes).toHaveLength(0);
+				} finally {
+					vi.useRealTimers();
+				}
+			});
+
+			it('DOES arm S4 when spinner arrives after postPromptGraceMs has elapsed', () => {
+				vi.useFakeTimers();
+				try {
+					const { analyzer, turnCompletes } = makeAnalyzerWith(resolveMarkers('2.1.141'));
+					// Advance past the 2000ms grace period before any spinner arrives
+					vi.advanceTimersByTime(2001);
+					analyzer.ingest('◐ thinking spinner');
+					analyzer.ingest('response text'); // no spinner → S4 armed
+					vi.advanceTimersByTime(1500);
+					expect(turnCompletes).toHaveLength(1);
+				} finally {
+					vi.useRealTimers();
+				}
+			});
+
+			it('v2.1.141 S3 never fires because idlePromptMarkers is empty', () => {
+				vi.useFakeTimers();
+				try {
+					const { analyzer, turnCompletes } = makeAnalyzerWith(resolveMarkers('2.1.141'));
+					// ❯ present in every chunk — S3 must NOT fire since idlePromptMarkers=[]
+					analyzer.ingest('❯ response text\n');
+					analyzer.ingest('❯ more text\n');
+					// Advance 2999ms — well past S3 debounce (1500ms) but < SETUP_GRACE_MS
+					// (3000ms) so the trough poll timer is also suppressed. S3 never armed
+					// because idlePromptMarkers=[] for v2.1.141.
+					vi.advanceTimersByTime(2999);
+					expect(turnCompletes).toHaveLength(0);
+				} finally {
+					vi.useRealTimers();
+				}
+			});
+		});
+
+		describe('S5: completion-phrase + idle-prompt legacy fast-path (back-compat with "*" markers)', () => {
+			it('simple-task fixture still fires via the S5 fast-path with "*" default markers', () => {
+				const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+				const markers = resolveMarkers('unknown-xyz');
+				warnSpy.mockRestore();
+
+				const { analyzer, events, turnCompletes } = makeAnalyzerWith(markers);
+
+				const fixture = loadFixture('simple-task.txt');
+				for (const line of fixture.split('\n')) {
+					analyzer.ingest(line + '\n');
+				}
+
+				expect(events.filter((e) => e.type === 'result')).toHaveLength(1);
+				expect(turnCompletes).toHaveLength(1);
+			});
+
+			it('fires immediately (no debounce) when completion phrase + idle prompt appear together', () => {
+				const { analyzer, turnCompletes } = makeAnalyzerWith(resolveMarkers('*'));
+				analyzer.ingest('Task complete\n');
+				analyzer.ingest('╰─ (claude) ❯ \n');
+				expect(turnCompletes).toHaveLength(1);
+			});
 		});
 	});
 });

@@ -1,11 +1,12 @@
 import { Terminal } from '@xterm/headless';
 import type { ParsedEvent } from '../parsers/agent-output-parser';
-import {
-	ERROR_SIGNATURES,
-	IDLE_PROMPT_MARKERS,
-	COMPLETION_PHRASES,
-	type RunnerExitReason,
-} from './claude-pty-helpers';
+import { ERROR_SIGNATURES, type RunnerExitReason } from './claude-pty-helpers';
+import { type VersionMarkers } from './claude-pty-markers';
+
+interface ByteSample {
+	ts: number;
+	bytes: number;
+}
 
 export interface ClaudePtyAnalyzerCallbacks {
 	/** Emit a ParsedEvent identical to what claude-output-parser would emit. */
@@ -16,31 +17,100 @@ export interface ClaudePtyAnalyzerCallbacks {
 
 export class ClaudePtyStreamAnalyzer {
 	/**
-	 * Debounce window for the idle-prompt-only completion path: if Claude's REPL prompt
-	 * (╰─ / ❯ / $ / (claude)) appears in the rendered tail AND no new assistant output
-	 * arrives for this many ms, treat the turn as complete. The completion-phrase fast
-	 * path (Done!, Task complete, …) fires synchronously without waiting for this window.
+	 * Debounce window (ms) for idle-prompt and spinner-stop detection paths.
+	 * A stable 1.5s observation window with no new non-spinner output → turn complete.
 	 */
 	private static readonly IDLE_DEBOUNCE_MS = 1500;
+	private static readonly SPINNER_STOP_DEBOUNCE_MS = 1500;
 
+	/** Trough detector: rolling window length for byte-rate measurement. */
+	private static readonly TROUGH_WINDOW_MS = 2500;
+	/** Trough detector: byte/sec threshold below which the PTY is considered idle. */
+	private static readonly TROUGH_THRESHOLD_BPS = 50;
+	/**
+	 * Trough detector: ignore the trough detector for this long after spawn, so the
+	 * startup banner (which has natural low-rate periods) doesn't fire turn-complete
+	 * before the prompt is even sent.
+	 */
+	private static readonly SETUP_GRACE_MS = 3000;
+	/**
+	 * Trough detector: polling interval for the background timer. The timer calls
+	 * _checkTrough() even when no PTY data arrives, so the detector fires on true
+	 * PTY idle (no chunks at all) rather than only on ingest().
+	 */
+	private static readonly TROUGH_POLL_MS = 250;
+
+	/** Fast-path marker set. undefined = no fast-path (trough detector handles everything). */
+	private readonly markers: VersionMarkers | undefined;
 	private term: Terminal;
 	private currentExitReason: RunnerExitReason = 'SUCCESS';
 	private hasInitFired = false;
+	private byteWindow: ByteSample[] = [];
+	/**
+	 * Timestamp of the last chunk that arrived AFTER SETUP_GRACE_MS has elapsed AND
+	 * after beginTurn().  Used by the empty-window path so the trough can fire 2.5s
+	 * after the last response chunk even when the byteWindow eviction boundary falls
+	 * between two timer ticks (which would cause the non-empty-window path to miss).
+	 */
+	private lastChunkAfterGrace: number | null = null;
+	private troughPollTimer: ReturnType<typeof setInterval> | null = null;
+	private readonly analyzerStartTime: number = Date.now();
 	private inThinkingBlock = false;
 	private accumulatedAssistantText = '';
 	private accumulatedThinkingText = '';
 	private expectedEcho = '';
 	private turnCompleteEmitted = false;
 	private seenCompletionPhrase = false;
+	private seenSpinnerGlyph = false;
+	private spinnerStopTimer: ReturnType<typeof setTimeout> | null = null;
 	private idleDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 	private disposed = false;
+	/**
+	 * Gate: completion signals are suppressed until beginTurn() is called.
+	 * This prevents startup output (e.g. "? for shortcuts" in the Claude REPL
+	 * status bar rendered BEFORE the prompt is written) from triggering a
+	 * false-positive turn-complete that races the actual response.
+	 * The runner calls beginTurn() immediately after writing the prompt to the PTY.
+	 */
+	private turnStarted = false;
+	/**
+	 * Wall-clock timestamp of the last beginTurn() call. Used with
+	 * markers.postPromptGraceMs to suppress S3/S4 arming for a configurable
+	 * period after the prompt is written, preventing startup-banner spinners
+	 * (which arrive after beginTurn() in versions with slow startup) from
+	 * triggering a premature spinner-cessation detection.
+	 */
+	private turnStartedAt: number | null = null;
 
 	constructor(
 		_maestroSessionId: string,
 		private readonly claudeSessionId: string,
-		private readonly callbacks: ClaudePtyAnalyzerCallbacks
+		private readonly callbacks: ClaudePtyAnalyzerCallbacks,
+		markers?: VersionMarkers
 	) {
+		this.markers = markers;
 		this.term = new Terminal({ cols: 120, rows: 40, allowProposedApi: true });
+	}
+
+	/**
+	 * Unlock completion-signal detection. Must be called after the prompt has been
+	 * written to the PTY. Until this is called, S1–S5 signals are accumulated but
+	 * onTurnComplete is never fired, preventing startup output from triggering a
+	 * false positive.
+	 *
+	 * Also records the wall-clock time for the postPromptGraceMs window (S3/S4
+	 * suppression during the startup phase — see VersionMarkers.postPromptGraceMs).
+	 */
+	beginTurn(): void {
+		this.turnStarted = true;
+		this.turnStartedAt = Date.now();
+		// Start polling timer — fires _checkTrough() even when no PTY chunks arrive,
+		// ensuring the trough detector fires on true PTY idle (PTY stops emitting entirely).
+		if (this.troughPollTimer === null) {
+			this.troughPollTimer = setInterval(() => {
+				this._checkTrough();
+			}, ClaudePtyStreamAnalyzer.TROUGH_POLL_MS);
+		}
 	}
 
 	/** Tell the analyzer the runner is about to write this text — echo of it should be suppressed. */
@@ -53,6 +123,16 @@ export class ClaudePtyStreamAnalyzer {
 		// 1. Echo cancellation
 		chunk = this._cancelEcho(chunk);
 		if (chunk === '') return;
+
+		// Trough detector — sample push (runs on every non-empty chunk)
+		const troughNow = Date.now();
+		this.byteWindow.push({ ts: troughNow, bytes: chunk.length });
+		if (
+			this.turnStarted &&
+			troughNow - this.analyzerStartTime >= ClaudePtyStreamAnalyzer.SETUP_GRACE_MS
+		) {
+			this.lastChunkAfterGrace = troughNow;
+		}
 
 		// 2. Feed into headless xterm
 		this.term.write(chunk);
@@ -95,9 +175,9 @@ export class ClaudePtyStreamAnalyzer {
 			});
 		}
 
-		// Check for completion phrases in the outside text
-		if (outsideText) {
-			for (const phrase of COMPLETION_PHRASES) {
+		// Check for completion phrases in the outside text (fast-path only)
+		if (outsideText && this.markers) {
+			for (const phrase of this.markers.completionPhrases) {
 				if (outsideText.includes(phrase)) {
 					this.seenCompletionPhrase = true;
 					break;
@@ -113,39 +193,86 @@ export class ClaudePtyStreamAnalyzer {
 			}
 		}
 
-		// 7. Idle-prompt + completion detection.
+		// 7. Multi-signal turn-completion detector (fast-path optimization).
 		//
-		// Once we see the REPL prompt marker (❯ / ╰─ / (claude) / $) in the cleaned
-		// stream, Claude has handed control back to the REPL. Subsequent chunks from
-		// claude v2.1.141 are spinner cleanup + status frames ("Sautéed for 2s",
-		// "? for shortcuts") that emit outsideText but do NOT mean Claude is still
-		// responding. So we deliberately do NOT cancel the debounce timer on new
-		// outsideText — the window simply elapses and we fire complete.
+		// Only active when a VersionMarkers object was provided — this is an EARLY-EXIT
+		// optimization that fires turn-complete immediately when a known-good marker is
+		// seen, bypassing the TROUGH_WINDOW_MS wait. If markers is undefined, this block
+		// is a no-op and the trough detector (below) handles everything.
 		//
-		// The theoretical risk is Claude emitting ❯ as a literal character mid-response
-		// and then continuing. In practice this doesn't happen with v2.1.141 prompts;
-		// if it ever does, the 1.5s window is short enough that it'd at worst fire
-		// complete one debounce-window earlier than ideal, not catastrophically wrong.
-		if (!this.turnCompleteEmitted && !this.inThinkingBlock) {
-			// Check both the xterm-rendered tail AND the raw cleaned chunk. Under heavy
-			// cursor-manipulation output (real claude v2.1.141 under TERM=dumb still emits
-			// CSI sequences for animations/spinners), the headless xterm buffer can mangle
-			// the prompt marker's position. The cleaned chunk is the most reliable signal
-			// for the REPL prompt's appearance; debounce protects against false-positives
-			// when ❯ shows up as literal content mid-turn.
+		// Signal priority (first match wins):
+		//   S1. Help-line marker in chunk       → fire immediately (highest confidence)
+		//   S2. Completion-stats marker          → fire immediately (high confidence)
+		//   S3. Idle-prompt marker + 1.5s debounce → fire (medium confidence)
+		//   S4. Spinner-glyph cessation          → fire after SPINNER_STOP_DEBOUNCE_MS
+		//   S5. Completion-phrase + idle-prompt  → fire immediately (legacy back-compat)
+		//
+		// NOTE: gated on this.turnStarted — beginTurn() must be called (by the runner,
+		// after writing the prompt) before any signal can fire.  This prevents startup
+		// PTY output (e.g. the "? for shortcuts" status bar rendered at REPL idle before
+		// the prompt is submitted) from triggering a premature turn-complete.
+		if (this.markers && !this.turnCompleteEmitted && !this.inThinkingBlock && this.turnStarted) {
+			// S1: Help-line marker — strongest signal, appears only at idle.
+			if (this.markers.helpLineMarkers.some((m) => m.test(chunk))) {
+				this._fireTurnComplete();
+				return;
+			}
+
+			// S2: Completion-stats line (✻ Sautéed for 2s, ✓ Done in 4s, etc.)
+			if (this.markers.completionStatsMarkers.some((m) => m.test(chunk))) {
+				this._fireTurnComplete();
+				return;
+			}
+
+			// Grace-period check for S3/S4: suppress debounce-timer arming for
+			// postPromptGraceMs after beginTurn(). This prevents startup animation
+			// glyphs (which arrive after beginTurn() in versions with slow startup,
+			// e.g. v2.1.141) from arming the spinner-cessation or idle-prompt timers
+			// before the actual response phase begins.
+			const graceMs = this.markers.postPromptGraceMs ?? 0;
+			const graceExpired =
+				graceMs === 0 || this.turnStartedAt === null || Date.now() - this.turnStartedAt >= graceMs;
+
+			// Spinner-glyph tracking for S4: arm/re-arm the spinner-stop timer on
+			// every chunk that contains at least one glyph.
+			const hasSpinner = [...this.markers.spinnerGlyphs].some((g) => chunk.includes(g));
+			if (hasSpinner) {
+				this.seenSpinnerGlyph = true;
+				// Clear any pending stop-timer when a new spinner chunk arrives.
+				if (this.spinnerStopTimer !== null) {
+					clearTimeout(this.spinnerStopTimer);
+					this.spinnerStopTimer = null;
+				}
+			} else if (this.seenSpinnerGlyph && this.spinnerStopTimer === null && graceExpired) {
+				// S4: We've seen spinners before, this chunk has none, and we're past
+				// the startup grace window — start the cessation debounce timer.
+				this.spinnerStopTimer = setTimeout(() => {
+					this.spinnerStopTimer = null;
+					if (this.disposed || this.turnCompleteEmitted) return;
+					this._fireTurnComplete();
+				}, ClaudePtyStreamAnalyzer.SPINNER_STOP_DEBOUNCE_MS);
+			}
+
+			// S3 + S5: Idle-prompt detection via cleaned chunk and rendered tail.
+			// Check both surfaces: the headless xterm buffer may mangle prompt position
+			// under heavy cursor-manipulation output (CSI sequences from v2.1.141 spinners).
+			// Also gated on graceExpired so that idle markers appearing during startup
+			// (e.g. a continuously-present ❯ cursor in v2.1.141) don't arm the timer.
 			const renderedTail = this._getRenderedTail();
 			const idleDetected =
-				IDLE_PROMPT_MARKERS.some((marker) => marker.test(renderedTail)) ||
-				IDLE_PROMPT_MARKERS.some((marker) => marker.test(chunk));
-			if (idleDetected) {
+				this.markers.idlePromptMarkers.some((m) => m.test(renderedTail)) ||
+				this.markers.idlePromptMarkers.some((m) => m.test(chunk));
+
+			if (idleDetected && graceExpired) {
+				// S5: Legacy fast path — completion phrase already seen → fire immediately.
 				if (this.seenCompletionPhrase) {
-					// Fast path: explicit completion phrase + REPL prompt return → fire now.
 					this._fireTurnComplete();
-				} else if (this.idleDebounceTimer === null) {
-					// Slow path: prompt return alone. Most prompts (code edits, short Q&A)
-					// don't elicit a narrative completion phrase, so the REPL return is the
-					// only reliable end-of-turn signal. Debounce to avoid false-positives
-					// from transient buffer states.
+					return;
+				}
+
+				// S3: Debounce path — arm the idle timer once (do not re-arm on each chunk
+				// so the window starts from first prompt observation, not last).
+				if (this.idleDebounceTimer === null) {
 					this.idleDebounceTimer = setTimeout(() => {
 						this.idleDebounceTimer = null;
 						if (this.disposed || this.turnCompleteEmitted) return;
@@ -154,13 +281,85 @@ export class ClaudePtyStreamAnalyzer {
 				}
 			}
 		}
+
+		// Trough check — runs inline on every ingest AND via the poll timer.
+		this._checkTrough(troughNow);
+	}
+
+	/**
+	 * Primary mode-agnostic end-of-turn signal.
+	 *
+	 * Called from both `ingest()` (on every incoming chunk) and from the poll timer
+	 * (every TROUGH_POLL_MS) so it fires even when the PTY stops emitting entirely.
+	 *
+	 * Fires when the byte rate in the rolling TROUGH_WINDOW_MS window drops below
+	 * TROUGH_THRESHOLD_BPS — meaning the PTY has returned to idle.
+	 *
+	 * Two paths:
+	 *
+	 * Non-empty-window path (normal): bps = totalBytes * 1000 / windowSpan < THRESHOLD.
+	 *
+	 * Empty-window path (all samples evicted): fires when TROUGH_WINDOW_MS has elapsed
+	 * since `lastChunkAfterGrace` — the last chunk that arrived after SETUP_GRACE_MS.
+	 * This handles the case where the timer-boundary falls AFTER the last sample is
+	 * evicted (the non-empty-window path can never fire then), which happens with TERM=dumb
+	 * when Claude's thinking-phase spinner is suppressed and the last response chunk
+	 * doesn't align with a 250ms timer tick.  Safe because `lastChunkAfterGrace` is only
+	 * set after SETUP_GRACE_MS (banner silent periods cannot trigger it).
+	 */
+	private _checkTrough(now?: number): void {
+		if (this.turnCompleteEmitted || this.disposed) return;
+		if (!this.turnStarted) return;
+		const ts = now ?? Date.now();
+		if (ts - this.analyzerStartTime < ClaudePtyStreamAnalyzer.SETUP_GRACE_MS) return;
+
+		// Evict stale samples
+		const cutoff = ts - ClaudePtyStreamAnalyzer.TROUGH_WINDOW_MS;
+		while (this.byteWindow.length > 0 && this.byteWindow[0].ts < cutoff) {
+			this.byteWindow.shift();
+		}
+
+		if (this.byteWindow.length === 0) {
+			// Empty-window path: fire if lastChunkAfterGrace is set and TROUGH_WINDOW_MS
+			// has elapsed since then.  Prevents premature fire during startup silence
+			// (before any response chunk arrives) while ensuring reliable detection after
+			// the last response chunk is evicted by the rolling window.
+			if (
+				this.lastChunkAfterGrace !== null &&
+				ts - this.lastChunkAfterGrace >= ClaudePtyStreamAnalyzer.TROUGH_WINDOW_MS
+			) {
+				this._fireTurnComplete();
+			}
+			return;
+		}
+
+		const windowSpan = ts - this.byteWindow[0].ts;
+		if (windowSpan < ClaudePtyStreamAnalyzer.TROUGH_WINDOW_MS) return;
+
+		const bytesInWindow = this.byteWindow.reduce((s, x) => s + x.bytes, 0);
+		const bps = (bytesInWindow * 1000) / windowSpan;
+		if (bps < ClaudePtyStreamAnalyzer.TROUGH_THRESHOLD_BPS) {
+			this._fireTurnComplete();
+		}
+	}
+
+	private _stopTroughPollTimer(): void {
+		if (this.troughPollTimer !== null) {
+			clearInterval(this.troughPollTimer);
+			this.troughPollTimer = null;
+		}
 	}
 
 	private _fireTurnComplete(): void {
 		this.turnCompleteEmitted = true;
+		this._stopTroughPollTimer();
 		if (this.idleDebounceTimer !== null) {
 			clearTimeout(this.idleDebounceTimer);
 			this.idleDebounceTimer = null;
+		}
+		if (this.spinnerStopTimer !== null) {
+			clearTimeout(this.spinnerStopTimer);
+			this.spinnerStopTimer = null;
 		}
 		this.callbacks.onEvent({
 			type: 'result',
@@ -172,16 +371,21 @@ export class ClaudePtyStreamAnalyzer {
 	}
 
 	/**
-	 * Tear-down hook for the runner: cancel any pending idle-debounce timer and
-	 * suppress further completion callbacks. Idempotent. Call when the PTY exits
-	 * (success, kill, timeout) to prevent a pending debounce from firing post-end
-	 * and triggering a phantom onTurnComplete after the runner has already wound down.
+	 * Tear-down hook for the runner: cancel all pending timers and suppress further
+	 * completion callbacks. Idempotent. Call when the PTY exits (success, kill, timeout)
+	 * to prevent pending debounce timers from firing post-exit and triggering phantom
+	 * onTurnComplete callbacks after the runner has already wound down.
 	 */
 	dispose(): void {
 		this.disposed = true;
+		this._stopTroughPollTimer();
 		if (this.idleDebounceTimer !== null) {
 			clearTimeout(this.idleDebounceTimer);
 			this.idleDebounceTimer = null;
+		}
+		if (this.spinnerStopTimer !== null) {
+			clearTimeout(this.spinnerStopTimer);
+			this.spinnerStopTimer = null;
 		}
 	}
 
@@ -201,9 +405,19 @@ export class ClaudePtyStreamAnalyzer {
 		this.expectedEcho = '';
 		this.turnCompleteEmitted = false;
 		this.seenCompletionPhrase = false;
+		this.seenSpinnerGlyph = false;
+		this.byteWindow = [];
+		this.lastChunkAfterGrace = null;
+		this._stopTroughPollTimer();
+		this.turnStarted = false;
+		this.turnStartedAt = null;
 		if (this.idleDebounceTimer !== null) {
 			clearTimeout(this.idleDebounceTimer);
 			this.idleDebounceTimer = null;
+		}
+		if (this.spinnerStopTimer !== null) {
+			clearTimeout(this.spinnerStopTimer);
+			this.spinnerStopTimer = null;
 		}
 		this.disposed = false;
 	}
