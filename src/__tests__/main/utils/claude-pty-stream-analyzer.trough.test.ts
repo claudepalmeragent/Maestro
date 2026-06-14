@@ -38,6 +38,12 @@ vi.mock('@xterm/headless', () => {
 	return { Terminal: MockTerminal };
 });
 
+// Prevent real FS/SSH calls from the JSONL reader — result event is tested in the dedicated
+// jsonl-result integration test. Trough tests only care about onTurnComplete firing.
+vi.mock('../../../main/utils/claude-session-jsonl-reader', () => ({
+	readLatestAssistantTurn: vi.fn().mockResolvedValue(null),
+}));
+
 import { ClaudePtyStreamAnalyzer } from '../../../main/utils/claude-pty-stream-analyzer';
 import type { ParsedEvent } from '../../../main/parsers/agent-output-parser';
 

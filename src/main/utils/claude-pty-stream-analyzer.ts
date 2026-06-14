@@ -2,6 +2,8 @@ import { Terminal } from '@xterm/headless';
 import type { ParsedEvent } from '../parsers/agent-output-parser';
 import { ERROR_SIGNATURES, type RunnerExitReason } from './claude-pty-helpers';
 import { type VersionMarkers } from './claude-pty-markers';
+import { readLatestAssistantTurn } from './claude-session-jsonl-reader';
+import type { SshRemoteConfig } from '../../shared/types';
 
 interface ByteSample {
 	ts: number;
@@ -65,6 +67,8 @@ export class ClaudePtyStreamAnalyzer {
 	private spinnerStopTimer: ReturnType<typeof setTimeout> | null = null;
 	private idleDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 	private disposed = false;
+	/** Unix ms timestamp captured at the start of each turn (beginTurn call). Used as notBeforeTs for JSONL flush-race guard. */
+	private turnStartTs: number | null = null;
 	/**
 	 * Gate: completion signals are suppressed until beginTurn() is called.
 	 * This prevents startup output (e.g. "? for shortcuts" in the Claude REPL
@@ -86,7 +90,10 @@ export class ClaudePtyStreamAnalyzer {
 		_maestroSessionId: string,
 		private readonly claudeSessionId: string,
 		private readonly callbacks: ClaudePtyAnalyzerCallbacks,
-		markers?: VersionMarkers
+		markers?: VersionMarkers,
+		private readonly cwd: string = '',
+		private readonly sshRemote?: SshRemoteConfig,
+		private readonly homeDirRemote?: string
 	) {
 		this.markers = markers;
 		this.term = new Terminal({ cols: 120, rows: 40, allowProposedApi: true });
@@ -104,6 +111,7 @@ export class ClaudePtyStreamAnalyzer {
 	beginTurn(): void {
 		this.turnStarted = true;
 		this.turnStartedAt = Date.now();
+		this.turnStartTs = Date.now();
 		// Start polling timer — fires _checkTrough() even when no PTY chunks arrive,
 		// ensuring the trough detector fires on true PTY idle (PTY stops emitting entirely).
 		if (this.troughPollTimer === null) {
@@ -361,12 +369,34 @@ export class ClaudePtyStreamAnalyzer {
 			clearTimeout(this.spinnerStopTimer);
 			this.spinnerStopTimer = null;
 		}
-		this.callbacks.onEvent({
-			type: 'result',
-			text: this.accumulatedAssistantText,
-			sessionId: this.claudeSessionId,
-			raw: { source: 'claude-pty-runner' },
-		});
+
+		// Asynchronously read the authoritative JSONL turn and emit a clean result event.
+		// onTurnComplete() fires synchronously below so watchdog/exit ordering is preserved;
+		// the JSONL-sourced result event arrives on a microtask shortly after.
+		void readLatestAssistantTurn(this.cwd, this.claudeSessionId, {
+			sshRemote: this.sshRemote,
+			homeDirRemote: this.homeDirRemote,
+			notBeforeTs: this.turnStartTs ?? undefined,
+		})
+			.then((turn) => {
+				if (!turn) return; // graceful degradation — streaming text remains in UI
+				const resultEvent: ParsedEvent = {
+					type: 'result',
+					sessionId: this.claudeSessionId,
+					text: turn.text,
+					raw: {
+						source: 'claude-session-jsonl-reader',
+						stopReason: turn.stopReason,
+						timestamp: turn.timestamp,
+						contentBlocks: turn.contentBlocks,
+					},
+				};
+				this.callbacks.onEvent(resultEvent);
+			})
+			.catch(() => {
+				// swallow — readLatestAssistantTurn returns null on its own errors
+			});
+
 		this.callbacks.onTurnComplete();
 	}
 
@@ -411,6 +441,7 @@ export class ClaudePtyStreamAnalyzer {
 		this._stopTroughPollTimer();
 		this.turnStarted = false;
 		this.turnStartedAt = null;
+		this.turnStartTs = null;
 		if (this.idleDebounceTimer !== null) {
 			clearTimeout(this.idleDebounceTimer);
 			this.idleDebounceTimer = null;

@@ -40,6 +40,12 @@ vi.mock('@xterm/headless', () => {
 	return { Terminal: MockTerminal };
 });
 
+// Prevent real FS/SSH calls — result event sourcing via JSONL is tested in the dedicated
+// jsonl-result integration test. Fixture-mode tests focus on trough detector correctness.
+vi.mock('../../../main/utils/claude-session-jsonl-reader', () => ({
+	readLatestAssistantTurn: vi.fn().mockResolvedValue(null),
+}));
+
 import { ClaudePtyStreamAnalyzer } from '../../../main/utils/claude-pty-stream-analyzer';
 import { cleanTerminalChunk } from '../../../main/utils/claude-pty-helpers';
 import type { ParsedEvent } from '../../../main/parsers/agent-output-parser';
@@ -162,7 +168,9 @@ describe('ClaudePtyStreamAnalyzer — fixture-mode integration (trough detector,
 				feedFixtureWithTiming(analyzer, raw, meta);
 				triggerIdle(analyzer);
 
-				expect(events.filter((e) => e.type === 'result')).toHaveLength(1);
+				// result event is now async-sourced from JSONL reader; mocked to null here so
+				// no result event is emitted. onTurnComplete still fires synchronously.
+				expect(events.filter((e) => e.type === 'result')).toHaveLength(0);
 				expect(turnCompletes).toHaveLength(1);
 			});
 

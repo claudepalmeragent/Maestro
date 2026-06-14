@@ -41,10 +41,17 @@ vi.mock('@xterm/headless', () => {
 	return { Terminal: MockTerminal };
 });
 
+// Default: JSONL reader returns null so tests don't hit the FS. Tests that specifically
+// assert on the result event override this mock per-test via vi.mocked().mockResolvedValueOnce.
+vi.mock('../../../main/utils/claude-session-jsonl-reader', () => ({
+	readLatestAssistantTurn: vi.fn().mockResolvedValue(null),
+}));
+
 import { ClaudePtyStreamAnalyzer } from '../../../main/utils/claude-pty-stream-analyzer';
 import type { ParsedEvent } from '../../../main/parsers/agent-output-parser';
 import { resolveMarkers } from '../../../main/utils/claude-pty-markers';
 import type { VersionMarkers } from '../../../main/utils/claude-pty-markers';
+import { readLatestAssistantTurn } from '../../../main/utils/claude-session-jsonl-reader';
 
 const FIXTURES_DIR = path.join(__dirname, '../../fixtures/claude-pty');
 
@@ -130,7 +137,15 @@ describe('ClaudePtyStreamAnalyzer', () => {
 	describe('simple task fixture', () => {
 		// The simple-task fixture ends with '╰─ (claude) ❯' which matches the '*' default
 		// idlePromptMarkers. These tests use explicit '*' markers to exercise the fast-path.
-		it('emits init → text events → result event → onTurnComplete', () => {
+		it('emits init → text events → result event → onTurnComplete', async () => {
+			// result event is now async-sourced from JSONL reader; override mock to emit one.
+			vi.mocked(readLatestAssistantTurn).mockResolvedValueOnce({
+				text: 'fixture result text',
+				contentBlocks: [{ type: 'text', text: 'fixture result text' }],
+				timestamp: new Date().toISOString(),
+				stopReason: 'end_turn',
+			});
+
 			const fixture = loadFixture('simple-task.txt');
 			const { analyzer, events, turnCompletes } = makeAnalyzerWith(resolveMarkers('*'));
 
@@ -139,6 +154,10 @@ describe('ClaudePtyStreamAnalyzer', () => {
 			for (const line of lines) {
 				analyzer.ingest(line + '\n');
 			}
+
+			// Flush the async JSONL read promise (two microtask ticks: mock resolution + .then)
+			await Promise.resolve();
+			await Promise.resolve();
 
 			const initEvents = events.filter((e) => e.type === 'init');
 			const textEvents = events.filter((e) => e.type === 'text');
@@ -150,7 +169,15 @@ describe('ClaudePtyStreamAnalyzer', () => {
 			expect(turnCompletes).toHaveLength(1);
 		});
 
-		it('result event contains accumulated assistant text', () => {
+		it('result event text is sourced from JSONL reader', async () => {
+			// Previously, result text was accumulated from PTY chunks; now it comes from JSONL.
+			vi.mocked(readLatestAssistantTurn).mockResolvedValueOnce({
+				text: 'response from jsonl',
+				contentBlocks: [{ type: 'text', text: 'response from jsonl' }],
+				timestamp: new Date().toISOString(),
+				stopReason: 'end_turn',
+			});
+
 			const fixture = loadFixture('simple-task.txt');
 			const { analyzer, events } = makeAnalyzerWith(resolveMarkers('*'));
 
@@ -158,9 +185,14 @@ describe('ClaudePtyStreamAnalyzer', () => {
 				analyzer.ingest(line + '\n');
 			}
 
+			// Flush the async JSONL read promise
+			await Promise.resolve();
+			await Promise.resolve();
+
 			const resultEvent = events.find((e) => e.type === 'result');
 			expect(resultEvent?.text).toBeTruthy();
 			expect(typeof resultEvent?.text).toBe('string');
+			expect(resultEvent?.text).toBe('response from jsonl');
 		});
 	});
 
@@ -626,7 +658,15 @@ describe('ClaudePtyStreamAnalyzer', () => {
 		});
 
 		describe('S5: completion-phrase + idle-prompt legacy fast-path (back-compat with "*" markers)', () => {
-			it('simple-task fixture still fires via the S5 fast-path with "*" default markers', () => {
+			it('simple-task fixture still fires via the S5 fast-path with "*" default markers', async () => {
+				// result event is now async-sourced from JSONL reader; override mock to emit one.
+				vi.mocked(readLatestAssistantTurn).mockResolvedValueOnce({
+					text: 's5-result',
+					contentBlocks: [{ type: 'text', text: 's5-result' }],
+					timestamp: new Date().toISOString(),
+					stopReason: 'end_turn',
+				});
+
 				const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 				const markers = resolveMarkers('unknown-xyz');
 				warnSpy.mockRestore();
@@ -637,6 +677,10 @@ describe('ClaudePtyStreamAnalyzer', () => {
 				for (const line of fixture.split('\n')) {
 					analyzer.ingest(line + '\n');
 				}
+
+				// Flush the async JSONL read promise
+				await Promise.resolve();
+				await Promise.resolve();
 
 				expect(events.filter((e) => e.type === 'result')).toHaveLength(1);
 				expect(turnCompletes).toHaveLength(1);

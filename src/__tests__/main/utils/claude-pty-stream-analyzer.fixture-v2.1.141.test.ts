@@ -40,10 +40,17 @@ vi.mock('@xterm/headless', () => {
 	return { Terminal: MockTerminal };
 });
 
+// Prevent real FS/SSH calls — result event sourcing via JSONL is tested in the dedicated
+// jsonl-result integration test. v2.1.141 fixture regression tests focus on S4 correctness.
+vi.mock('../../../main/utils/claude-session-jsonl-reader', () => ({
+	readLatestAssistantTurn: vi.fn().mockResolvedValue(null),
+}));
+
 import { ClaudePtyStreamAnalyzer } from '../../../main/utils/claude-pty-stream-analyzer';
 import { resolveMarkers } from '../../../main/utils/claude-pty-markers';
 import { cleanTerminalChunk } from '../../../main/utils/claude-pty-helpers';
 import type { ParsedEvent } from '../../../main/parsers/agent-output-parser';
+import { readLatestAssistantTurn } from '../../../main/utils/claude-session-jsonl-reader';
 
 const FIXTURES_DIR = path.join(__dirname, '../../fixtures/claude-pty');
 
@@ -125,8 +132,9 @@ describe('ClaudePtyStreamAnalyzer — v2.1.141 fixture regression', () => {
 			// Workspace path appears in the Claude Code startup banner.
 			expect(combinedText).toContain('/app/maestro-dev-4');
 
-			// 2. Exactly one result event fires.
-			expect(events.filter((e) => e.type === 'result')).toHaveLength(1);
+			// 2. result event is now async-sourced from JSONL reader; mocked to null here so
+			// no result event is emitted. S4 correctness is verified via onTurnComplete alone.
+			expect(events.filter((e) => e.type === 'result')).toHaveLength(0);
 
 			// 3. onTurnComplete fires exactly once.
 			expect(turnCompletes).toHaveLength(1);
@@ -154,9 +162,18 @@ describe('ClaudePtyStreamAnalyzer — v2.1.141 fixture regression', () => {
 		expect(events.filter((e) => e.type === 'init')).toHaveLength(1);
 	});
 
-	it('result event accumulated text contains content seen before turn-complete fires', () => {
+	it('result event text is sourced from JSONL reader at turn-complete', async () => {
 		vi.useFakeTimers();
 		try {
+			// Override per-test: JSONL reader returns a stub turn so the result event fires.
+			// Previously, result text was accumulated from PTY chunks; now it comes from JSONL.
+			vi.mocked(readLatestAssistantTurn).mockResolvedValueOnce({
+				text: 'mocked-jsonl-response',
+				contentBlocks: [{ type: 'text', text: 'mocked-jsonl-response' }],
+				timestamp: new Date().toISOString(),
+				stopReason: 'end_turn',
+			});
+
 			const events: ParsedEvent[] = [];
 			const analyzer = new ClaudePtyStreamAnalyzer(
 				'fixture-maestro-session',
@@ -172,10 +189,14 @@ describe('ClaudePtyStreamAnalyzer — v2.1.141 fixture regression', () => {
 			feedFixture(analyzer, raw);
 			vi.advanceTimersByTime(2000);
 
+			// Flush the async JSONL read promise (two microtask ticks: mock resolution + .then)
+			await Promise.resolve();
+			await Promise.resolve();
+
 			const resultEvent = events.find((e) => e.type === 'result');
 			expect(resultEvent).toBeTruthy();
-			// Result text accumulates everything emitted before turn-complete fires.
-			expect(resultEvent?.text).toContain('/app/maestro-dev-4');
+			// Result text now sourced from JSONL reader stub, not accumulated PTY bytes.
+			expect(resultEvent?.text).toBe('mocked-jsonl-response');
 		} finally {
 			vi.useRealTimers();
 		}
@@ -199,9 +220,10 @@ describe('ClaudePtyStreamAnalyzer — v2.1.141 fixture regression', () => {
 			feedFixture(analyzer, raw);
 			vi.advanceTimersByTime(2000);
 
-			// turnCompleteEmitted = true after S4; subsequent chunks must not
-			// re-trigger the signal detector and emit extra result events.
-			expect(events.filter((e) => e.type === 'result')).toHaveLength(1);
+			// turnCompleteEmitted = true after S4; subsequent chunks must not re-trigger.
+			// result event is async-sourced from JSONL (mocked null) → 0 result events.
+			// The guard being tested (no double-fire) is still enforced by turnCompleteEmitted.
+			expect(events.filter((e) => e.type === 'result')).toHaveLength(0);
 		} finally {
 			vi.useRealTimers();
 		}
