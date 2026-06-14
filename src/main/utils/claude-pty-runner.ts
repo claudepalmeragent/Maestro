@@ -4,6 +4,7 @@ import * as os from 'os';
 import * as path from 'path';
 import * as pty from 'node-pty';
 import type { ParsedEvent } from '../parsers/agent-output-parser';
+import type { SshRemoteConfig } from '../../shared/types';
 import {
 	stripPrintArgs,
 	deriveStableClaudeSessionId,
@@ -37,6 +38,10 @@ export interface ClaudePtyRunnerOptions {
 	env?: Record<string, string>;
 	/** Optional explicit Claude --session-id override (for resume case). Default: derived from maestroSessionId. */
 	claudeSessionIdOverride?: string;
+	/** SSH config when claude runs on a remote host. Forwarded to the analyzer for JSONL reads. */
+	sshRemote?: SshRemoteConfig;
+	/** Remote $HOME hint passed to the JSONL reader to avoid an extra SSH round-trip. */
+	homeDirRemote?: string;
 	/** Default 45_000 ms. Idle = no PTY data. */
 	idleTimeoutMs?: number;
 	/** Default 5 * 60_000 ms. Total execution time. */
@@ -101,7 +106,7 @@ export class ClaudePtyRunner extends EventEmitter {
 				options.claudeSessionIdOverride ?? deriveStableClaudeSessionId(options.maestroSessionId),
 			env: {},
 			...options,
-		};
+		} as Required<ClaudePtyRunnerOptions>;
 	}
 
 	/** Run a single turn: spawn, write prompt, watch for exit, emit. */
@@ -165,7 +170,10 @@ export class ClaudePtyRunner extends EventEmitter {
 				onEvent: (e) => this.emit('event', e),
 				onTurnComplete: () => this.gracefulCompleteTurn(),
 			},
-			markersForAnalyzer
+			markersForAnalyzer,
+			this.opts.cwd,
+			this.opts.sshRemote,
+			this.opts.homeDirRemote
 		);
 		// Claude's TUI input handler runs in raw mode: Enter sends \r, not \n.
 		// expectEcho must match what the PTY echoes back when we write prompt + '\r'.
