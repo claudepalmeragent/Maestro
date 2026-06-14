@@ -165,7 +165,9 @@ describe('ClaudePtyStreamAnalyzer', () => {
 
 			expect(initEvents).toHaveLength(1);
 			expect(textEvents.length).toBeGreaterThan(0);
-			expect(resultEvents).toHaveLength(1);
+			// Two result events expected: synchronous pty-buffer + async claude-session-jsonl-reader.
+			const sources = resultEvents.map((e) => (e as { raw?: { source?: string } }).raw?.source);
+			expect(sources).toContain('claude-session-jsonl-reader');
 			expect(turnCompletes).toHaveLength(1);
 		});
 
@@ -189,10 +191,14 @@ describe('ClaudePtyStreamAnalyzer', () => {
 			await Promise.resolve();
 			await Promise.resolve();
 
-			const resultEvent = events.find((e) => e.type === 'result');
-			expect(resultEvent?.text).toBeTruthy();
-			expect(typeof resultEvent?.text).toBe('string');
-			expect(resultEvent?.text).toBe('response from jsonl');
+			const jsonlResult = events.find(
+				(e) =>
+					e.type === 'result' &&
+					(e as { raw?: { source?: string } }).raw?.source === 'claude-session-jsonl-reader'
+			);
+			expect(jsonlResult?.text).toBeTruthy();
+			expect(typeof jsonlResult?.text).toBe('string');
+			expect(jsonlResult?.text).toBe('response from jsonl');
 		});
 	});
 
@@ -682,7 +688,11 @@ describe('ClaudePtyStreamAnalyzer', () => {
 				await Promise.resolve();
 				await Promise.resolve();
 
-				expect(events.filter((e) => e.type === 'result')).toHaveLength(1);
+				// pty-buffer (sync) + claude-session-jsonl-reader (async)
+				const sources = events
+					.filter((e) => e.type === 'result')
+					.map((e) => (e as { raw?: { source?: string } }).raw?.source);
+				expect(sources).toContain('claude-session-jsonl-reader');
 				expect(turnCompletes).toHaveLength(1);
 			});
 

@@ -126,6 +126,48 @@ describe('ClaudePtyRunner', () => {
 			mockPty._exit(0);
 		});
 
+		it('passes SSH args through untouched when claudeBinary is "ssh" (do not strip SSH -p port)', () => {
+			// Regression guard: stripPrintArgs would eat SSH's `-p <port>` flag because
+			// `-p` is claude's short form for `--print`. When the SSH branch wraps the
+			// runner with claudeBinary='ssh', that strip would corrupt the SSH
+			// destination (port stays as positional 2227, parsed as IPv4 0.0.8.179).
+			const sshArgs = [
+				'-tt',
+				'-i',
+				'/tmp/id_ssh',
+				'-o',
+				'ServerAliveInterval=15',
+				'-p',
+				'2227',
+				'user@example.host',
+				'/bin/bash --norc --noprofile -c "exec claude --resume xyz"',
+			];
+			// Seed version cache for the 'ssh' binary keyed by the host extracted
+			// from the args (the runner uses `ssh:<host>` for SSH-keyed entries).
+			_seedVersionCacheForTest('ssh:user@example.host', 'unknown');
+			const runner = makeRunner({
+				claudeBinary: 'ssh',
+				claudeBaseArgs: sshArgs,
+			});
+
+			runner.executeTurn('hello');
+
+			const [binary, args] = vi.mocked(nodePty.spawn).mock.calls[0];
+			expect(binary).toBe('ssh');
+			// SSH's -p MUST survive (NOT stripped as claude's --print short form)
+			expect(args).toContain('-p');
+			expect(args).toContain('2227');
+			// `-p` and `2227` must remain adjacent in original order
+			const pIdx = args.indexOf('-p');
+			expect(args[pIdx + 1]).toBe('2227');
+			// Destination must remain after the port pair
+			expect(args).toContain('user@example.host');
+			// Runner must NOT inject --session-id past the SSH args
+			expect(args).not.toContain('--session-id');
+
+			mockPty._exit(0);
+		});
+
 		it('emits rawData events as PTY data arrives', () => {
 			const runner = makeRunner();
 			const rawChunks: string[] = [];

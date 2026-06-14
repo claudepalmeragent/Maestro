@@ -168,9 +168,14 @@ describe('ClaudePtyStreamAnalyzer — fixture-mode integration (trough detector,
 				feedFixtureWithTiming(analyzer, raw, meta);
 				triggerIdle(analyzer);
 
-				// result event is now async-sourced from JSONL reader; mocked to null here so
-				// no result event is emitted. onTurnComplete still fires synchronously.
-				expect(events.filter((e) => e.type === 'result')).toHaveLength(0);
+				// JSONL-sourced result event is mocked to null; the synchronous pty-buffer
+				// result event still fires from the headless terminal snapshot at trough.
+				const jsonlResults = events.filter(
+					(e) =>
+						e.type === 'result' &&
+						(e as { raw?: { source?: string } }).raw?.source === 'claude-session-jsonl-reader'
+				);
+				expect(jsonlResults).toHaveLength(0);
 				expect(turnCompletes).toHaveLength(1);
 			});
 
