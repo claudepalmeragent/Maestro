@@ -411,6 +411,8 @@ export function useRemoteHandlers(deps: UseRemoteHandlersDeps): UseRemoteHandler
 					sessionCustomModel: session.customModel,
 					sessionCustomContextWindow: session.customContextWindow,
 					sessionSshRemoteConfig: session.sessionSshRemoteConfig,
+					sessionTransportMode: session.transportMode,
+					tabTransportMode: activeTab?.transportMode,
 				});
 
 				console.log(`[Remote] ${session.toolType} spawn initiated successfully`);
