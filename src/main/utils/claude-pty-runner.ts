@@ -130,13 +130,28 @@ export class ClaudePtyRunner extends EventEmitter {
 		this.rawBuffer = [];
 		this.rawBufferSize = 0;
 
-		const args = stripPrintArgs(this.opts.claudeBaseArgs);
+		// SSH branch passes claudeBinary='ssh' with the SSH args array (which contains
+		// `-p <port>` for SSH's port flag). stripPrintArgs would eat `-p` thinking it's
+		// claude's --print short-form, mangling the SSH destination. Only strip when the
+		// binary actually IS claude (or claude resolved via path).
+		const isSshBinary = this.opts.claudeBinary === 'ssh';
+		const args = isSshBinary
+			? [...this.opts.claudeBaseArgs]
+			: stripPrintArgs(this.opts.claudeBaseArgs);
 
-		// Inject --session-id if not already present and not using --resume
-		const hasSessionId = args.includes('--session-id');
-		const hasResume = args.includes('--resume');
-		if (!hasSessionId && !hasResume) {
-			args.push('--session-id', this.opts.claudeSessionIdOverride);
+		// Inject --session-id if not already present and not using --resume.
+		// Skip injection when binary is 'ssh' — the SSH args don't include claude
+		// flags as discrete elements (claude flags are inside the wrapped bash
+		// command string), so the includes() checks would falsely return false
+		// and we'd append --session-id past the wrapped bash, corrupting the SSH
+		// invocation. SSH callers pre-embed --session-id / --resume inside the
+		// remote command string instead.
+		if (!isSshBinary) {
+			const hasSessionId = args.includes('--session-id');
+			const hasResume = args.includes('--resume');
+			if (!hasSessionId && !hasResume) {
+				args.push('--session-id', this.opts.claudeSessionIdOverride);
+			}
 		}
 
 		// Detect claude version (cached per binary/host) and resolve the marker set.
