@@ -132,9 +132,14 @@ describe('ClaudePtyStreamAnalyzer — v2.1.141 fixture regression', () => {
 			// Workspace path appears in the Claude Code startup banner.
 			expect(combinedText).toContain('/app/maestro-dev-4');
 
-			// 2. result event is now async-sourced from JSONL reader; mocked to null here so
-			// no result event is emitted. S4 correctness is verified via onTurnComplete alone.
-			expect(events.filter((e) => e.type === 'result')).toHaveLength(0);
+			// 2. JSONL-sourced result event mocked to null; synchronous pty-buffer result
+			// still fires. S4 correctness is verified via onTurnComplete alone.
+			const jsonlResults = events.filter(
+				(e) =>
+					e.type === 'result' &&
+					(e as { raw?: { source?: string } }).raw?.source === 'claude-session-jsonl-reader'
+			);
+			expect(jsonlResults).toHaveLength(0);
 
 			// 3. onTurnComplete fires exactly once.
 			expect(turnCompletes).toHaveLength(1);
@@ -193,10 +198,14 @@ describe('ClaudePtyStreamAnalyzer — v2.1.141 fixture regression', () => {
 			await Promise.resolve();
 			await Promise.resolve();
 
-			const resultEvent = events.find((e) => e.type === 'result');
-			expect(resultEvent).toBeTruthy();
+			const jsonlResult = events.find(
+				(e) =>
+					e.type === 'result' &&
+					(e as { raw?: { source?: string } }).raw?.source === 'claude-session-jsonl-reader'
+			);
+			expect(jsonlResult).toBeTruthy();
 			// Result text now sourced from JSONL reader stub, not accumulated PTY bytes.
-			expect(resultEvent?.text).toBe('mocked-jsonl-response');
+			expect(jsonlResult?.text).toBe('mocked-jsonl-response');
 		} finally {
 			vi.useRealTimers();
 		}
@@ -221,9 +230,19 @@ describe('ClaudePtyStreamAnalyzer — v2.1.141 fixture regression', () => {
 			vi.advanceTimersByTime(2000);
 
 			// turnCompleteEmitted = true after S4; subsequent chunks must not re-trigger.
-			// result event is async-sourced from JSONL (mocked null) → 0 result events.
-			// The guard being tested (no double-fire) is still enforced by turnCompleteEmitted.
-			expect(events.filter((e) => e.type === 'result')).toHaveLength(0);
+			// JSONL-sourced result event is mocked null → 0 of those. The synchronous
+			// pty-buffer result fires once and only once (no double-fire) — that's the guard.
+			const jsonlResults = events.filter(
+				(e) =>
+					e.type === 'result' &&
+					(e as { raw?: { source?: string } }).raw?.source === 'claude-session-jsonl-reader'
+			);
+			expect(jsonlResults).toHaveLength(0);
+			const bufferResults = events.filter(
+				(e) =>
+					e.type === 'result' && (e as { raw?: { source?: string } }).raw?.source === 'pty-buffer'
+			);
+			expect(bufferResults.length).toBeLessThanOrEqual(1);
 		} finally {
 			vi.useRealTimers();
 		}

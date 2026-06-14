@@ -96,7 +96,7 @@ export class ClaudePtyStreamAnalyzer {
 		private readonly homeDirRemote?: string
 	) {
 		this.markers = markers;
-		this.term = new Terminal({ cols: 120, rows: 40, allowProposedApi: true });
+		this.term = new Terminal({ cols: 120, rows: 40, scrollback: 5000, allowProposedApi: true });
 	}
 
 	/**
@@ -370,6 +370,20 @@ export class ClaudePtyStreamAnalyzer {
 			this.spinnerStopTimer = null;
 		}
 
+		// Synchronously emit a buffer-sourced result event from the headless terminal.
+		// This is the fast path: zero SSH round-trips, available immediately at trough-fire.
+		// The JSONL-sourced event below arrives shortly after with structured/authoritative data.
+		const bufferText = this.getVisibleBuffer();
+		if (bufferText.trim().length > 0) {
+			const bufferResultEvent: ParsedEvent = {
+				type: 'result',
+				sessionId: this.claudeSessionId,
+				text: bufferText,
+				raw: { source: 'pty-buffer' },
+			};
+			this.callbacks.onEvent(bufferResultEvent);
+		}
+
 		// Asynchronously read the authoritative JSONL turn and emit a clean result event.
 		// onTurnComplete() fires synchronously below so watchdog/exit ordering is preserved;
 		// the JSONL-sourced result event arrives on a microtask shortly after.
@@ -426,7 +440,7 @@ export class ClaudePtyStreamAnalyzer {
 
 	/** Reset state for a new turn (rare in per-turn-spawn lifecycle; useful for tests). */
 	reset(): void {
-		this.term = new Terminal({ cols: 120, rows: 40, allowProposedApi: true });
+		this.term = new Terminal({ cols: 120, rows: 40, scrollback: 5000, allowProposedApi: true });
 		this.currentExitReason = 'SUCCESS';
 		this.hasInitFired = false;
 		this.inThinkingBlock = false;
@@ -580,6 +594,25 @@ export class ClaudePtyStreamAnalyzer {
 		}
 
 		return { outsideText, insideText };
+	}
+
+	/**
+	 * Snapshot the headless terminal's visible buffer as plain text. Used at trough-fire
+	 * to emit a synchronous `result` event from observed PTY output. Trailing blank
+	 * lines are trimmed.
+	 */
+	public getVisibleBuffer(): string {
+		const buf = this.term.buffer.active;
+		const lines: string[] = [];
+		for (let y = 0; y < buf.length; y++) {
+			const line = buf.getLine(y);
+			if (!line) continue;
+			lines.push(line.translateToString(true));
+		}
+		while (lines.length > 0 && lines[lines.length - 1].trim() === '') {
+			lines.pop();
+		}
+		return lines.join('\n');
 	}
 
 	private _getRenderedTail(): string {
