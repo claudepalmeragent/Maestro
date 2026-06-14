@@ -951,6 +951,9 @@ export interface ProcessConfig {
 		remoteId: string | null;
 		workingDirOverride?: string;
 	};
+	// Per-session and per-tab transport mode (feed the strict-ratchet cascade)
+	sessionTransportMode?: TransportMode;
+	tabTransportMode?: TransportMode;
 	// Windows command line length workaround
 	sendPromptViaStdin?: boolean; // If true, send the prompt via stdin as JSON instead of command line
 	sendPromptViaStdinRaw?: boolean; // If true, send the prompt via stdin as raw text instead of command line

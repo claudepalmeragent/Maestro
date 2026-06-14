@@ -262,8 +262,9 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 								try {
 									const status = await gitService.getStatus(activeSession.cwd);
 									gitBranch = status.branch;
+									// swallow-ok(best-effort): git status is optional template context
 								} catch {
-									// Ignore git errors
+									// intentional
 								}
 							}
 							substituteTemplateVariables(matchingCustomCommand.prompt, {
@@ -591,9 +592,9 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 							cwdChanged = true;
 							newShellCwd = candidatePath;
 						}
+						// swallow-ok(best-effort): directory check fails; shell shows its own error
 					} catch {
-						// Directory doesn't exist, keep the current CWD
-						// The shell will show its own error message
+						// intentional
 					}
 				}
 			}
@@ -963,6 +964,8 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 														sessionCustomContextWindow: freshSession.customContextWindow,
 														// Per-session SSH remote config (takes precedence over agent-level SSH config)
 														sessionSshRemoteConfig: freshSession.sessionSshRemoteConfig,
+														sessionTransportMode: freshSession.transportMode,
+														tabTransportMode: freshActiveTab?.transportMode,
 													})
 													.catch((err: unknown) => {
 														console.error('[InputProcessing] Resume spawn failed:', err);
@@ -973,6 +976,7 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 										return; // Don't proceed — wait for user decision
 									}
 								}
+								// swallow-ok(best-effort): capacity check failure should not block user input
 							} catch (err) {
 								console.warn(
 									'[InputProcessing] Interactive capacity check failed, proceeding:',
@@ -1031,8 +1035,9 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 								try {
 									const status = await gitService.getStatus(freshSession.cwd);
 									gitBranch = status.branch;
+									// swallow-ok(best-effort): git status is optional template context
 								} catch {
-									// Ignore git errors
+									// intentional
 								}
 							}
 
@@ -1045,8 +1050,9 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 								try {
 									historyFilePath =
 										(await window.maestro.history.getFilePath(freshSession.id)) || undefined;
+									// swallow-ok(best-effort): history path is optional task-recall context
 								} catch {
-									// Ignore history errors
+									// intentional
 								}
 							}
 
@@ -1098,6 +1104,8 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 							sessionCustomContextWindow: freshSession.customContextWindow,
 							// Per-session SSH remote config (takes precedence over agent-level SSH config)
 							sessionSshRemoteConfig: freshSession.sessionSshRemoteConfig,
+							sessionTransportMode: freshSession.transportMode,
+							tabTransportMode: freshActiveTab?.transportMode,
 							// Windows stdin handling - send prompt via stdin to avoid shell escaping issues
 							// For stream-json agents (Claude Code, Codex): use JSON format via stdin
 							// For other agents (OpenCode, etc.): use raw text via stdin

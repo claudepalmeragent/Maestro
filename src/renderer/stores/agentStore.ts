@@ -214,8 +214,9 @@ export const useAgentStore = create<AgentStore>()((set, get) => ({
 		// Kill any existing AI process
 		try {
 			await window.maestro.process.kill(`${sessionId}-ai`);
+			// swallow-ok(best-effort): process may not exist yet
 		} catch {
-			// Process may not exist
+			// intentional
 		}
 	},
 
@@ -306,8 +307,9 @@ export const useAgentStore = create<AgentStore>()((set, get) => ({
 						try {
 							const status = await gitService.getStatus(session.cwd);
 							gitBranch = status.branch;
+							// swallow-ok(best-effort): git status is optional template context
 						} catch {
-							// Ignore git errors
+							// intentional
 						}
 					}
 
@@ -348,6 +350,8 @@ export const useAgentStore = create<AgentStore>()((set, get) => ({
 					sessionCustomModel: session.customModel,
 					sessionCustomContextWindow: session.customContextWindow,
 					sessionSshRemoteConfig: session.sessionSshRemoteConfig,
+					sessionTransportMode: session.transportMode,
+					tabTransportMode: targetTab?.transportMode,
 				});
 			} else if (item.type === 'command' && item.command) {
 				// Process a slash command - find matching command
@@ -362,8 +366,9 @@ export const useAgentStore = create<AgentStore>()((set, get) => ({
 						try {
 							const status = await gitService.getStatus(session.cwd);
 							gitBranch = status.branch;
+							// swallow-ok(best-effort): git status is optional template context
 						} catch {
-							// Ignore git errors
+							// intentional
 						}
 					}
 
@@ -435,6 +440,8 @@ export const useAgentStore = create<AgentStore>()((set, get) => ({
 						sessionCustomModel: session.customModel,
 						sessionCustomContextWindow: session.customContextWindow,
 						sessionSshRemoteConfig: session.sessionSshRemoteConfig,
+						sessionTransportMode: session.transportMode,
+						tabTransportMode: targetTab?.transportMode,
 					});
 				} else {
 					// Unknown command - add error log and reset to idle
@@ -513,16 +520,18 @@ export const useAgentStore = create<AgentStore>()((set, get) => ({
 		const target = suffix ? `${sessionId}-${suffix}` : `${sessionId}-ai`;
 		try {
 			await window.maestro.process.kill(target);
+			// swallow-ok(best-effort): process may not exist
 		} catch {
-			// Process may not exist
+			// intentional
 		}
 	},
 
 	interruptAgent: async (sessionId) => {
 		try {
 			await window.maestro.process.interrupt(sessionId);
+			// swallow-ok(best-effort): process may not exist
 		} catch {
-			// Process may not exist
+			// intentional
 		}
 	},
 }));

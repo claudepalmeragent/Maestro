@@ -28,7 +28,7 @@ import {
 import { buildStreamJsonMessage } from '../../process-manager/utils/streamJsonBuilder';
 import { getWindowsShellForAgentExecution } from '../../process-manager/utils/shellEscape';
 import { buildExpandedEnv } from '../../../shared/pathUtils';
-import type { SshRemoteConfig } from '../../../shared/types';
+import type { SshRemoteConfig, TransportMode } from '../../../shared/types';
 import { powerManager } from '../../power-manager';
 import { MaestroSettings } from './persistence';
 
@@ -45,6 +45,35 @@ const handlerOpts = (
 	operation,
 	...extra,
 });
+
+/**
+ * Pure helper: build tabLevel and agentLevel cascade inputs from the spawn config
+ * and the global agentConfigValues for a tool type.
+ *
+ * Exported for unit testing; not part of the public IPC surface.
+ */
+export function buildTransportCascadeInputs(
+	config: {
+		tabTransportMode?: TransportMode;
+		sessionTransportMode?: TransportMode;
+	},
+	agentConfigValues: Record<string, unknown>
+): {
+	tabLevel: { transportMode?: TransportMode } | undefined;
+	agentLevel: { transportMode?: TransportMode } | undefined;
+} {
+	const tabLevel: { transportMode?: TransportMode } | undefined = config.tabTransportMode
+		? { transportMode: config.tabTransportMode }
+		: undefined;
+
+	const agentLevel: { transportMode?: TransportMode } | undefined = config.sessionTransportMode
+		? { transportMode: config.sessionTransportMode }
+		: agentConfigValues?.transportMode
+			? { transportMode: agentConfigValues.transportMode as TransportMode }
+			: undefined;
+
+	return { tabLevel, agentLevel };
+}
 
 /**
  * Interface for agent configuration store data
@@ -116,6 +145,9 @@ export function registerProcessHandlers(deps: ProcessHandlerDependencies): void 
 					remoteId: string | null;
 					workingDirOverride?: string;
 				};
+				// Per-session and per-tab transport mode (feed the strict-ratchet cascade)
+				sessionTransportMode?: TransportMode;
+				tabTransportMode?: TransportMode;
 				// Stats tracking options
 				querySource?: 'user' | 'auto'; // Whether this query is user-initiated or from Auto Run
 				tabId?: string; // Tab ID for multi-tab tracking
@@ -359,22 +391,13 @@ export function registerProcessHandlers(deps: ProcessHandlerDependencies): void 
 						'legacy-print'
 					) as 'interactive-pty' | 'legacy-print';
 
-					// Build cascade objects for the resolver. Only levels that are accessible
-					// from the spawn handler's available data are populated; others are left
-					// undefined so the strict-ratchet treats them as 'legacy-print'.
-					const tabLevel = undefined; // tab transportMode not yet in spawn IPC payload
-					const agentLevel: { transportMode?: string } | undefined =
-						agentConfigValues?.transportMode
-							? { transportMode: agentConfigValues.transportMode as string }
-							: undefined;
+					// Build cascade objects via shared helper (also used by SSH branch and tests).
+					const { tabLevel, agentLevel } = buildTransportCascadeInputs(config, agentConfigValues);
 					const projectLevel = undefined; // groupsStore not in ProcessHandlerDependencies
 
-					const resolvedMode = resolveClaudeTransportMode(
-						tabLevel,
-						agentLevel as { transportMode?: 'interactive-pty' | 'legacy-print' } | undefined,
-						projectLevel,
-						{ claudeCodeDefaultTransportMode: appTransportMode }
-					);
+					const resolvedMode = resolveClaudeTransportMode(tabLevel, agentLevel, projectLevel, {
+						claudeCodeDefaultTransportMode: appTransportMode,
+					});
 
 					if (resolvedMode === 'interactive-pty') {
 						// Strip API keys — interactive-pty always uses subscription billing.
@@ -515,18 +538,11 @@ export function registerProcessHandlers(deps: ProcessHandlerDependencies): void 
 								'legacy-print'
 							) as 'interactive-pty' | 'legacy-print';
 
-							const sshAgentLevel:
-								| { transportMode?: 'interactive-pty' | 'legacy-print' }
-								| undefined = agentConfigValues?.transportMode
-								? {
-										transportMode: agentConfigValues.transportMode as
-											| 'interactive-pty'
-											| 'legacy-print',
-									}
-								: undefined;
+							const { tabLevel: sshTabLevel, agentLevel: sshAgentLevel } =
+								buildTransportCascadeInputs(config, agentConfigValues);
 
 							const sshResolvedMode = resolveClaudeTransportMode(
-								undefined,
+								sshTabLevel,
 								sshAgentLevel,
 								undefined,
 								{ claudeCodeDefaultTransportMode: sshAppTransportMode }

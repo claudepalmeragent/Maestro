@@ -495,6 +495,8 @@ You are taking over this conversation. Based on the context above, provide a bri
 						sessionCustomModel: targetSession.customModel,
 						sessionCustomContextWindow: targetSession.customContextWindow,
 						sessionSshRemoteConfig: targetSession.sessionSshRemoteConfig,
+						sessionTransportMode: targetSession.transportMode,
+						tabTransportMode: undefined, // new tab — no tab-level override yet
 					});
 				} catch (error) {
 					captureException(error, {

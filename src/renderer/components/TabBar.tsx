@@ -646,7 +646,7 @@ const Tab = memo(function Tab({
 					title={
 						resolvedTransportMode.source === 'default'
 							? 'Legacy -p mode (default)'
-							: `Inherited from ${resolvedTransportMode.source}: ${resolvedTransportMode.mode === 'interactive-pty' ? 'Interactive PTY' : 'Legacy -p'}`
+							: `Inherited from ${resolvedTransportMode.source}: ${resolvedTransportMode.mode === 'interactive-pty' ? 'PTY' : 'Legacy -p'}`
 					}
 					className="text-[9px] px-1 rounded shrink-0 font-medium leading-[16px]"
 					style={{
@@ -660,7 +660,7 @@ const Tab = memo(function Tab({
 								: theme.colors.textDim,
 					}}
 				>
-					{resolvedTransportMode.mode === 'interactive-pty' ? 'Interactive PTY' : 'Legacy -p'}
+					{resolvedTransportMode.mode === 'interactive-pty' ? 'PTY' : 'Legacy -p'}
 				</span>
 			)}
 
