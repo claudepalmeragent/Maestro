@@ -246,8 +246,13 @@ describe('stats IPC handlers', () => {
 
 				await handler!({} as any, queryEvent);
 
-				// PR-B 1.5: enqueueQueryEvent is called instead of insertQueryEvent
-				expect(mockEnqueueQueryEvent).toHaveBeenCalledWith(mockStatsDB.database, queryEvent);
+				// PR-B 1.5: enqueueQueryEvent is called instead of insertQueryEvent.
+				// The handler enriches the event with cost/billing fields before
+				// enqueuing, so match on the original keys via objectContaining.
+				expect(mockEnqueueQueryEvent).toHaveBeenCalledWith(
+					mockStatsDB.database,
+					expect.objectContaining(queryEvent)
+				);
 				expect(mockMainWindow.webContents.send).toHaveBeenCalledWith('stats:updated');
 				expect(mockMainWindow.webContents.send).toHaveBeenCalledTimes(1);
 			});
@@ -622,9 +627,9 @@ describe('stats IPC handlers', () => {
 
 			await handler!({} as any, queryEvent);
 
-			expect(mockStatsDB.insertQueryEvent).toHaveBeenCalled();
-			const insertedEvent = (mockStatsDB.insertQueryEvent as ReturnType<typeof vi.fn>).mock
-				.calls[0][0];
+			// PR-B 1.5: handler enqueues into the buffer instead of writing directly.
+			expect(mockEnqueueQueryEvent).toHaveBeenCalled();
+			const insertedEvent = mockEnqueueQueryEvent.mock.calls[0][1] as any;
 
 			// maestro_pricing_model should be the RESOLVED full-form model ID
 			expect(insertedEvent.maestroPricingModel).toBe('claude-opus-4-6-20260115');
@@ -650,9 +655,9 @@ describe('stats IPC handlers', () => {
 
 			await handler!({} as any, queryEvent);
 
-			expect(mockStatsDB.insertQueryEvent).toHaveBeenCalled();
-			const insertedEvent = (mockStatsDB.insertQueryEvent as ReturnType<typeof vi.fn>).mock
-				.calls[0][0];
+			// PR-B 1.5: handler enqueues into the buffer instead of writing directly.
+			expect(mockEnqueueQueryEvent).toHaveBeenCalled();
+			const insertedEvent = mockEnqueueQueryEvent.mock.calls[0][1] as any;
 
 			// Non-Claude models should still be marked as free
 			expect(insertedEvent.maestroBillingMode).toBe('free');
@@ -699,9 +704,9 @@ describe('stats IPC handlers', () => {
 
 			await handler!({} as any, queryEvent);
 
-			expect(mockStatsDB.insertQueryEvent).toHaveBeenCalled();
-			const insertedEvent = (mockStatsDB.insertQueryEvent as ReturnType<typeof vi.fn>).mock
-				.calls[0][0];
+			// PR-B 1.5: handler enqueues into the buffer instead of writing directly.
+			expect(mockEnqueueQueryEvent).toHaveBeenCalled();
+			const insertedEvent = mockEnqueueQueryEvent.mock.calls[0][1] as any;
 
 			// Should preserve the pre-existing values, not overwrite them
 			expect(insertedEvent.anthropicModel).toBe('claude-opus-4-6-20260115');
