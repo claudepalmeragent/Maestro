@@ -14,16 +14,17 @@ Cue is an event-driven automation system that triggers AI agent prompts in respo
 
 ### Supported Trigger Types
 
-| Event Type            | Description                                               | Source Module                                  |
-| --------------------- | --------------------------------------------------------- | ---------------------------------------------- |
-| `app.startup`         | Fires once per process lifecycle on Electron launch       | `cue-session-runtime-service` (runtime loop)   |
-| `time.heartbeat`      | Periodic interval timer ("run every N minutes")           | `triggers/cue-heartbeat-trigger-source.ts`     |
-| `time.scheduled`      | Cron-like triggers (specific times/days)                  | `triggers/cue-scheduled-trigger-source.ts`     |
-| `file.changed`        | File system change via chokidar watcher                   | `triggers/cue-file-watcher-trigger-source.ts`  |
-| `agent.completed`     | Fires when another agent finishes                         | `cue-engine` (reactive)                        |
-| `github.pull_request` | New PRs detected via `gh` CLI polling                     | `triggers/cue-github-poller-trigger-source.ts` |
-| `github.issue`        | New issues detected via `gh` CLI polling                  | `triggers/cue-github-poller-trigger-source.ts` |
-| `task.pending`        | Unchecked markdown tasks (`- [ ]`) found in watched files | `triggers/cue-task-scanner-trigger-source.ts`  |
+| Event Type            | Description                                                                                                              | Source Module                                  |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------- |
+| `app.startup`         | Fires once per process lifecycle on Electron launch                                                                      | `cue-session-runtime-service` (runtime loop)   |
+| `time.heartbeat`      | Periodic interval timer ("run every N minutes")                                                                          | `triggers/cue-heartbeat-trigger-source.ts`     |
+| `time.scheduled`      | Cron-like triggers (specific times/days)                                                                                 | `triggers/cue-scheduled-trigger-source.ts`     |
+| `time.once`           | One-shot fire at an absolute ISO-8601 timestamp; the sub self-destructs after firing (or after missing its grace window) | `triggers/cue-once-trigger-source.ts`          |
+| `file.changed`        | File system change via chokidar watcher                                                                                  | `triggers/cue-file-watcher-trigger-source.ts`  |
+| `agent.completed`     | Fires when another agent finishes                                                                                        | `cue-engine` (reactive)                        |
+| `github.pull_request` | New PRs detected via `gh` CLI polling                                                                                    | `triggers/cue-github-poller-trigger-source.ts` |
+| `github.issue`        | New issues detected via `gh` CLI polling                                                                                 | `triggers/cue-github-poller-trigger-source.ts` |
+| `task.pending`        | Unchecked markdown tasks (`- [ ]`) found in watched files                                                                | `triggers/cue-task-scanner-trigger-source.ts`  |
 
 ### Execution Patterns
 
@@ -131,6 +132,7 @@ The `cue-subscription-setup.ts` module was deleted on rc. Each event source is n
 | `cue-trigger-filter.ts`               | Shared filter-matching helpers                                      |
 | `cue-heartbeat-trigger-source.ts`     | `time.heartbeat` interval timer                                     |
 | `cue-scheduled-trigger-source.ts`     | `time.scheduled` cron-like firing                                   |
+| `cue-once-trigger-source.ts`          | `time.once` one-shot fire at an absolute ISO-8601 timestamp         |
 | `cue-schedule-utils.ts`               | Next-occurrence calculation (replaces `calculateNextScheduledTime`) |
 | `cue-file-watcher-trigger-source.ts`  | `file.changed` chokidar wrapper                                     |
 | `cue-github-poller-trigger-source.ts` | `github.pull_request` / `github.issue` poller                       |
@@ -245,6 +247,11 @@ The engine orchestration logic was split into focused services on rc:
 | `cue-session-runtime-service.ts` | Session lifecycle, YAML hot-reload, teardown                         |
 | `cue-session-state.ts`           | Immutable session state model                                        |
 | `pipeline-layout-store.ts`       | Persistence for the visual pipeline editor layout (nodes + viewport) |
+
+### Subdirectories
+
+- `backup/cue-backup-manager.ts` - Snapshot/restore manager for the Cue subscription config and SQLite state (paired with the `cueBackup` IPC namespace and `cue-backup.ts` handler).
+- `stats/cue-stats-query.ts`, `stats/cue-token-accessor.ts` - Per-Cue token / cost aggregation surfaced by the `cue:stats` IPC handler. See also `AGENT-TOKEN-AUDIT.md` in the same directory for the empirical audit notes.
 
 ### cue-db.ts (~320 lines)
 

@@ -29,24 +29,24 @@ const result = await execFileNoThrow('git', ['status'], cwd);
 
 ## 3. Settings Persistence
 
-Add new settings in `useSettings.ts`:
+Settings live in `src/renderer/stores/settingsStore.ts` (Zustand). The legacy `useSettings` hook is now a thin adapter over the store and is kept for backwards compatibility, so you do not edit per-setting state/loader/setter code by hand any more. To add a new setting:
+
+1. Add metadata (id, default, type) to `src/shared/settingsMetadata.ts`.
+2. Add the main-process default to `src/main/stores/defaults.ts` if it needs to be readable from main.
+3. Add the field + setter to `settingsStore` (state slot + a setter that calls `window.maestro.settings.set(...)`).
 
 ```typescript
-// 1. Add state with default value
-const [mySetting, setMySettingState] = useState(defaultValue);
+// Read inside React
+const mySetting = useSettingsStore((s) => s.mySetting);
 
-// 2. Add wrapper that persists
-const setMySetting = (value) => {
-	setMySettingState(value);
-	window.maestro.settings.set('mySetting', value);
-};
+// Read outside React (services, main-loop code)
+const mySetting = useSettingsStore.getState().mySetting;
 
-// 3. Load from batch response in useEffect (settings use batch loading)
-// In the loadSettings useEffect, extract from allSettings object:
-const allSettings = await window.maestro.settings.getAll();
-const savedMySetting = allSettings['mySetting'];
-if (savedMySetting !== undefined) setMySettingState(savedMySetting);
+// Update (persists via window.maestro.settings.set internally)
+useSettingsStore.getState().setMySetting(value);
 ```
+
+The store is hydrated once at startup via `loadAllSettings()` (single batched IPC call), so there is no per-setting `useEffect`/`getAll()` loader to add.
 
 **MANDATORY: Register the setting with Settings Search.** Every user-facing setting must be findable from the Settings modal search bar (Cmd+F). Two steps, both required:
 
@@ -312,6 +312,31 @@ const isRemote = !!session.sshRemoteId;
 // CORRECT
 const isRemote = !!session.sshRemoteId || !!session.sessionSshRemoteConfig?.enabled;
 ```
+
+### Spawning agents over SSH (`wrapSpawnWithSsh`)
+
+Any code path that spawns an agent process must run the spawn config through `wrapSpawnWithSsh()` from `src/main/utils/ssh-spawn-wrapper.ts`:
+
+```typescript
+import { wrapSpawnWithSsh, type SshSpawnWrapConfig } from '../utils/ssh-spawn-wrapper';
+import { createSshRemoteStoreAdapter } from '../utils/ssh-remote-resolver';
+
+const wrapped = await wrapSpawnWithSsh(
+	{ command, args, cwd, prompt, customEnvVars, promptArgs, noPromptSeparator, agentBinaryName },
+	session.sessionSshRemoteConfig,
+	createSshRemoteStoreAdapter(settingsStore)
+);
+
+// wrapped.command may now be 'ssh ...' with wrapped.sshStdinScript carrying the prompt;
+// wrapped.sshRemoteUsed is the resolved SshRemoteConfig (or null for local).
+processManager.spawn(wrapped);
+```
+
+Call sites that must use this wrapper: the `process:spawn` IPC handler, Cue executor (`src/main/cue/cue-spawn-builder.ts`, `cue-shell-executor.ts`), Group Chat (`src/main/group-chat/spawnGroupChatAgent.ts`, `group-chat-router.ts`), the CLI agent spawner (`src/cli/services/agent-spawner.ts`), and Claude interactive tab-naming (`src/main/ipc/handlers/tabNaming.ts`). When the user enabled SSH but the configured remote can't be resolved, fail loudly (see `sshUnresolvedFailure()` in the CLI spawner) rather than silently running locally.
+
+### Claude `maestro-p` TUI vs `claude --print` (per-turn token mode)
+
+For Claude Code only, each turn picks between two execution paths: `interactive` runs the bundled `maestro-p` TUI shim (which fronts the Claude TUI so output can be replayed), and `api` runs `claude --print`. The active choice is resolved per-turn via the token-mode resolver and threaded through both spawn paths; over SSH, `maestro-p` runs on the remote host (Group Chat warms a remote `maestro-p --status` probe before resolving so a missing binary falls back to API instead of exiting 127). Replay/diffing of the interactive TUI lives in `src/main/agents/claude-interactive-replay.ts`. Non-Claude agents ignore this flag.
 
 ## 11. UI Bug Debugging Checklist
 

@@ -19,6 +19,7 @@ The `Session` interface is the core data model for Maestro. Each session represe
 | bookmarked    | `boolean`            | ✓        | Pinned to top of sidebar in dedicated section                                                         |
 | statusMessage | `string`             | ✓        | Custom status for thinking indicator (e.g., "Agent is synopsizing...")                                |
 | busySource    | `'ai' \| 'terminal'` | ✓        | Which mode triggered the busy state (for correct indicator when switching modes)                      |
+| createdAt     | `number`             |          | Timestamp when the session was created                                                                |
 
 ## Paths
 
@@ -31,11 +32,11 @@ The `Session` interface is the core data model for Maestro. Each session represe
 
 ## Processes & Communication
 
-| Field       | Type     | Optional | Description                                                                                    |
-| ----------- | -------- | -------- | ---------------------------------------------------------------------------------------------- |
-| aiPid       | `number` |          | AI process PID (0 for batch-mode agents that spawn per-message)                                |
-| terminalPid | `number` |          | Terminal PID (always 0 — kept for backwards compat; terminal uses `runCommand()` fresh shells) |
-| port        | `number` |          | Web server communication port                                                                  |
+| Field       | Type     | Optional | Description                                                                                  |
+| ----------- | -------- | -------- | -------------------------------------------------------------------------------------------- |
+| aiPid       | `number` |          | AI process PID (0 for batch-mode agents that spawn per-message)                              |
+| terminalPid | `number` |          | **DEPRECATED** - Replaced by `terminalTabs[].pid`; each terminal tab now has its own PTY pid |
+| port        | `number` |          | Web server communication port                                                                |
 
 ## State & Lifecycle
 
@@ -50,25 +51,41 @@ The `Session` interface is the core data model for Maestro. Each session represe
 | pendingAICommandForSynopsis | `string`  | ✓        | Pending AI command that triggers synopsis on completion (e.g., `'/commit'`)          |
 | synopsisInProgress          | `boolean` | ✓        | Runtime only — set when synopsis running on SSH session to prevent message hijacking |
 | nudgeMessage                | `string`  | ✓        | Appended to every interactive user message (max 1000 chars, not visible in UI)       |
+| newSessionMessage           | `string`  | ✓        | Prefixed to the first message when creating a new session/tab (not visible in UI)    |
 
 ## AI Tab System
 
-| Field            | Type          | Optional | Description                                          |
-| ---------------- | ------------- | -------- | ---------------------------------------------------- |
-| aiTabs           | `AITab[]`     |          | Multiple conversation tabs within this session       |
-| activeTabId      | `string`      |          | ID of the currently active AI tab                    |
-| closedTabHistory | `ClosedTab[]` |          | Undo stack for closed AI tabs (max 25, runtime-only) |
+| Field                | Type          | Optional | Description                                                                                 |
+| -------------------- | ------------- | -------- | ------------------------------------------------------------------------------------------- |
+| aiTabs               | `AITab[]`     |          | Multiple conversation tabs within this session                                              |
+| activeTabId          | `string`      |          | ID of the currently active AI tab                                                           |
+| closedTabHistory     | `ClosedTab[]` |          | Undo stack for closed AI tabs (max 25, runtime-only) - legacy AI-only stack                 |
+| orphanedThinkingTabs | `AITab[]`     | ✓        | Tabs closed while still thinking (kept so the thinking pill can surface them); runtime-only |
+
+## Terminal Tabs
+
+| Field               | Type             | Optional | Description                                                              |
+| ------------------- | ---------------- | -------- | ------------------------------------------------------------------------ |
+| terminalTabs        | `TerminalTab[]`  |          | Each tab has its own PTY session rendered via xterm.js                   |
+| activeTerminalTabId | `string \| null` |          | Active terminal tab ID (`null` if an AI, file, or browser tab is active) |
+
+## Browser Tabs
+
+| Field              | Type             | Optional | Description                                                              |
+| ------------------ | ---------------- | -------- | ------------------------------------------------------------------------ |
+| browserTabs        | `BrowserTab[]`   |          | Embedded web-browsing tabs (Electron webview)                            |
+| activeBrowserTabId | `string \| null` |          | Active browser tab ID (`null` if an AI, file, or terminal tab is active) |
 
 ## File Preview Tabs
 
-| Field                   | Type                        | Optional | Description                                               |
-| ----------------------- | --------------------------- | -------- | --------------------------------------------------------- |
-| filePreviewTabs         | `FilePreviewTab[]`          |          | Open file preview tabs                                    |
-| activeFileTabId         | `string \| null`            |          | Active file tab ID (`null` if an AI tab is active)        |
-| unifiedTabOrder         | `UnifiedTabRef[]`           |          | Visual order of all tabs (AI + file)                      |
-| unifiedClosedTabHistory | `ClosedTabEntry[]`          |          | Unified undo stack for Cmd+Shift+T (max 25, runtime-only) |
-| filePreviewHistory      | `{ name, content, path }[]` | ✓        | Per-session file preview navigation history               |
-| filePreviewHistoryIndex | `number`                    | ✓        | Current index in file preview navigation history          |
+| Field                   | Type                        | Optional | Description                                                              |
+| ----------------------- | --------------------------- | -------- | ------------------------------------------------------------------------ |
+| filePreviewTabs         | `FilePreviewTab[]`          |          | Open file preview tabs                                                   |
+| activeFileTabId         | `string \| null`            |          | Active file tab ID (`null` if an AI, terminal, or browser tab is active) |
+| unifiedTabOrder         | `UnifiedTabRef[]`           |          | Visual order of all tabs (AI + file + terminal + browser)                |
+| unifiedClosedTabHistory | `ClosedTabEntry[]`          |          | Unified undo stack for Cmd+Shift+T (max 25, runtime-only)                |
+| filePreviewHistory      | `{ name, content, path }[]` | ✓        | Per-session file preview navigation history                              |
+| filePreviewHistoryIndex | `number`                    | ✓        | Current index in file preview navigation history                         |
 
 ## Execution Queue
 
@@ -78,11 +95,11 @@ The `Session` interface is the core data model for Maestro. Each session represe
 
 ## Logs
 
-| Field     | Type            | Optional | Description                    |
-| --------- | --------------- | -------- | ------------------------------ |
-| aiLogs    | `LogEntry[]`    |          | AI conversation output history |
-| shellLogs | `LogEntry[]`    |          | Terminal output history        |
-| workLog   | `WorkLogItem[]` |          | Work tracking entries          |
+| Field     | Type            | Optional | Description                                                                                     |
+| --------- | --------------- | -------- | ----------------------------------------------------------------------------------------------- |
+| aiLogs    | `LogEntry[]`    |          | AI conversation output history                                                                  |
+| shellLogs | `LogEntry[]`    |          | **DEPRECATED** - Legacy shell output logs; terminal tabs use xterm.js with direct PTY streaming |
+| workLog   | `WorkLogItem[]` |          | Work tracking entries                                                                           |
 
 ## Usage & Analytics
 
@@ -127,6 +144,8 @@ The `Session` interface is the core data model for Maestro. Each session represe
 | fileTreeLoading             | `boolean`                                              | ✓        | Whether file tree is currently loading                                          |
 | fileTreeLastScanTime        | `number`                                               | ✓        | Unix timestamp (seconds) of last successful scan — used for incremental refresh |
 | fileTreeAutoRefreshInterval | `number`                                               | ✓        | Auto-refresh interval in seconds (0 = disabled)                                 |
+| fileTreeTruncated           | `boolean`                                              | ✓        | True when the last file tree load hit the entry cap and stopped early           |
+| fileTreeLoadedCap           | `number`                                               | ✓        | Entry cap that was in effect when the file tree was last loaded                 |
 
 ## Auto Run / Batch
 
@@ -145,13 +164,13 @@ The `Session` interface is the core data model for Maestro. Each session represe
 
 ## SSH Remote Execution
 
-| Field                  | Type                                         | Optional | Description                                            |
-| ---------------------- | -------------------------------------------- | -------- | ------------------------------------------------------ |
-| sshRemote              | `{ id, name, host }`                         | ✓        | SSH remote being used for agent execution              |
-| sshRemoteId            | `string`                                     | ✓        | SSH remote config ID (flattened from `sshRemote.id`)   |
-| remoteCwd              | `string`                                     | ✓        | Current working directory on remote host               |
-| sessionSshRemoteConfig | `{ enabled, remoteId, workingDirOverride? }` | ✓        | Per-session SSH remote config (overrides agent-level)  |
-| sshConnectionFailed    | `boolean`                                    | ✓        | Runtime only — set when background SSH operations fail |
+| Field                  | Type                                                                                  | Optional | Description                                                                                                                                                                                                    |
+| ---------------------- | ------------------------------------------------------------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| sshRemote              | `{ id, name, host }`                                                                  | ✓        | SSH remote being used for agent execution                                                                                                                                                                      |
+| sshRemoteId            | `string`                                                                              | ✓        | SSH remote config ID (flattened from `sshRemote.id`)                                                                                                                                                           |
+| remoteCwd              | `string`                                                                              | ✓        | Current working directory on remote host                                                                                                                                                                       |
+| sessionSshRemoteConfig | `{ enabled, remoteId, workingDirOverride?, syncHistory?, shareHistoryToProjectDir? }` | ✓        | Per-session SSH remote config (overrides agent-level). `syncHistory` pushes history entries to the remote's `.maestro/history/`; `shareHistoryToProjectDir` mirrors to the local project's `.maestro/history/` |
+| sshConnectionFailed    | `boolean`                                                                             | ✓        | Runtime only — set when background SSH operations fail                                                                                                                                                         |
 
 ## Web / Live Sessions
 
@@ -178,14 +197,26 @@ The `Session` interface is the core data model for Maestro. Each session represe
 
 ## Per-Session Agent Config Overrides
 
-| Field               | Type                     | Optional | Description                                          |
-| ------------------- | ------------------------ | -------- | ---------------------------------------------------- |
-| customPath          | `string`                 | ✓        | Custom path to agent binary (overrides agent-level)  |
-| customArgs          | `string`                 | ✓        | Custom CLI arguments (overrides agent-level)         |
-| customEnvVars       | `Record<string, string>` | ✓        | Custom environment variables (overrides agent-level) |
-| customModel         | `string`                 | ✓        | Custom model ID (overrides agent-level)              |
-| customProviderPath  | `string`                 | ✓        | Custom provider path (overrides agent-level)         |
-| customContextWindow | `number`                 | ✓        | Custom context window size (overrides agent-level)   |
+| Field               | Type                     | Optional | Description                                             |
+| ------------------- | ------------------------ | -------- | ------------------------------------------------------- |
+| customPath          | `string`                 | ✓        | Custom path to agent binary (overrides agent-level)     |
+| customArgs          | `string`                 | ✓        | Custom CLI arguments (overrides agent-level)            |
+| customEnvVars       | `Record<string, string>` | ✓        | Custom environment variables (overrides agent-level)    |
+| customModel         | `string`                 | ✓        | Custom model ID (overrides agent-level)                 |
+| customEffort        | `string`                 | ✓        | Custom effort / reasoning level (overrides agent-level) |
+| customProviderPath  | `string`                 | ✓        | Custom provider path (overrides agent-level)            |
+| customContextWindow | `number`                 | ✓        | Custom context window size (overrides agent-level)      |
+
+## Claude Token Mode (maestro-p / billing routing)
+
+These fields control how Claude Code is spawned: through the bundled `maestro-p` TUI (Time Limits / Max plan) or via `claude --print` (API limits / per-token). Together `enableMaestroP` and `maestroPMode` encode the three user-facing modes (API, TUI, Dynamic). See `getClaudeTokenMode` in `src/shared/claudeTokenMode.ts`.
+
+| Field             | Type                                                                                     | Optional | Description                                                                                                                                                             |
+| ----------------- | ---------------------------------------------------------------------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| enableMaestroP    | `boolean`                                                                                | ✓        | Per-session token-source opt-in (Claude Code only). When true, spawner routes through `maestro-p` instead of `claude --print`                                           |
+| maestroPMode      | `'interactive' \| 'dynamic'`                                                             | ✓        | Refines `enableMaestroP`: `'interactive'` always drives the TUI; `'dynamic'` (default) auto-switches based on latest usage snapshot                                     |
+| maestroPPath      | `string`                                                                                 | ✓        | Override for the `maestro-p` binary path; falls back to bundled script (`process.resourcesPath/maestro-p.js` packaged / `dist/cli/maestro-p.js` dev)                    |
+| claudeInteractive | `{ mode: 'interactive' \| 'api'; modeReason: 'auto' \| 'limit'; lastUsageSnapshotKey? }` | ✓        | Last resolved Claude headless-mode state (Claude Code with `enableMaestroP === true` only); single source of truth for popover, sticky-limit logic, and reactive replay |
 
 ## Terminal
 
@@ -196,13 +227,13 @@ The `Session` interface is the core data model for Maestro. Each session represe
 
 ## Advanced Features
 
-| Field               | Type                                      | Optional | Description                                                              |
-| ------------------- | ----------------------------------------- | -------- | ------------------------------------------------------------------------ |
-| wizardState         | `SessionWizardState`                      | ✓        | Per-session inline wizard state for `/wizard` command                    |
-| documentGraphLayout | `'mindmap' \| 'radial' \| 'force'`        | ✓        | Document Graph layout algorithm preference (overrides global default)    |
-| projectFolderIds    | `string[]`                                | ✓        | Project Folders this session belongs to (empty/undefined = "Unassigned") |
-| symphonyMetadata    | `SymphonySessionMetadata`                 | ✓        | Symphony contribution metadata (only set for Symphony sessions)          |
-| cliActivity         | `{ playbookId, playbookName, startedAt }` | ✓        | Present when CLI is running a playbook on this session                   |
+| Field               | Type                                                 | Optional | Description                                                              |
+| ------------------- | ---------------------------------------------------- | -------- | ------------------------------------------------------------------------ |
+| wizardState         | `SessionWizardState`                                 | ✓        | Per-session inline wizard state for `/wizard` command                    |
+| documentGraphLayout | `'mindmap' \| 'radial' \| 'hierarchical' \| 'force'` | ✓        | Document Graph layout algorithm preference (overrides global default)    |
+| projectFolderIds    | `string[]`                                           | ✓        | Project Folders this session belongs to (empty/undefined = "Unassigned") |
+| symphonyMetadata    | `SymphonySessionMetadata`                            | ✓        | Symphony contribution metadata (only set for Symphony sessions)          |
+| cliActivity         | `{ playbookId, playbookName, startedAt }`            | ✓        | Present when CLI is running a playbook on this session                   |
 
 ---
 
@@ -231,6 +262,9 @@ Each tab represents a separate AI agent conversation within a session.
 | saveToHistory        | `boolean`            | ✓        | When true, synopsis is saved to History on completion                               |
 | lastSynopsisTime     | `number`             | ✓        | Timestamp of last synopsis generation                                               |
 | showThinking         | `ThinkingMode`       |          | Controls thinking display: `'off'` \| `'on'` (temporary) \| `'sticky'` (persistent) |
+| enterToSend          | `boolean`            | ✓        | Per-tab send-key override; undefined inherits `enterToSendAI` setting               |
+| customModel          | `string`             | ✓        | Per-tab model override; falls back to `session.customModel`, then agent default     |
+| customEffort         | `string`             | ✓        | Per-tab effort / reasoning override; falls back to `session.customEffort`           |
 | awaitingSessionId    | `boolean`            | ✓        | True when tab sent a message and is awaiting its session ID                         |
 | thinkingStartTime    | `number`             | ✓        | Timestamp when tab started thinking                                                 |
 | scrollTop            | `number`             | ✓        | Saved scroll position for this tab's output view                                    |
@@ -245,28 +279,69 @@ Each tab represents a separate AI agent conversation within a session.
 
 In-tab file viewing. Tabs persist across session switches and app restarts.
 
-| Field             | Type                        | Optional | Description                                                                |
-| ----------------- | --------------------------- | -------- | -------------------------------------------------------------------------- |
-| id                | `string`                    |          | Unique tab ID (UUID)                                                       |
-| path              | `string`                    |          | Full file path                                                             |
-| name              | `string`                    |          | Filename without extension (displayed as tab name)                         |
-| extension         | `string`                    |          | File extension with dot (e.g., `'.md'`, `'.ts'`) — shown as badge          |
-| content           | `string`                    |          | File content (stored directly — file previews are typically small)         |
-| scrollTop         | `number`                    |          | Saved scroll position                                                      |
-| searchQuery       | `string`                    |          | Preserved search query                                                     |
-| editMode          | `boolean`                   |          | Whether tab was in edit mode                                               |
-| editContent       | `string \| undefined`       |          | Unsaved edit content (`undefined` if no pending changes)                   |
-| createdAt         | `number`                    |          | Timestamp for ordering                                                     |
-| lastModified      | `number`                    |          | Timestamp (ms) when file was last modified on disk (for refresh detection) |
-| sshRemoteId       | `string`                    | ✓        | SSH remote ID for re-fetching content if needed                            |
-| isLoading         | `boolean`                   | ✓        | True while content is being loaded (for SSH remote files)                  |
-| navigationHistory | `FilePreviewHistoryEntry[]` | ✓        | Stack of visited files for breadcrumb navigation                           |
-| navigationIndex   | `number`                    | ✓        | Current position in navigation history                                     |
+| Field               | Type                          | Optional | Description                                                                         |
+| ------------------- | ----------------------------- | -------- | ----------------------------------------------------------------------------------- |
+| id                  | `string`                      |          | Unique tab ID (UUID)                                                                |
+| path                | `string`                      |          | Full file path                                                                      |
+| name                | `string`                      |          | Filename without extension (displayed as tab name)                                  |
+| extension           | `string`                      |          | File extension with dot (e.g., `'.md'`, `'.ts'`) — shown as badge                   |
+| content             | `string`                      |          | File content (stored directly — file previews are typically small)                  |
+| scrollTop           | `number`                      |          | Saved scroll position                                                               |
+| searchQuery         | `string`                      |          | Preserved search query                                                              |
+| editMode            | `boolean`                     |          | Whether tab was in edit mode                                                        |
+| editContent         | `string \| undefined`         |          | Unsaved edit content (`undefined` if no pending changes)                            |
+| createdAt           | `number`                      |          | Timestamp for ordering                                                              |
+| lastModified        | `number`                      |          | Timestamp (ms) when file was last modified on disk (for refresh detection)          |
+| sshRemoteId         | `string`                      | ✓        | SSH remote ID for re-fetching content if needed                                     |
+| isLoading           | `boolean`                     | ✓        | True while content is being loaded (for SSH remote files)                           |
+| loadRequestId       | `string`                      | ✓        | In-flight `fs:readFile` requestId while loading; cancelled if tab is closed         |
+| navigationHistory   | `FilePreviewHistoryEntry[]`   | ✓        | Stack of visited files for breadcrumb navigation                                    |
+| navigationIndex     | `number`                      | ✓        | Current position in navigation history                                              |
+| previewTierOverride | `'rich' \| 'fast' \| 'giant'` | ✓        | Force a specific preview tier regardless of file size (cleared on close)            |
+| htmlRenderMode      | `boolean`                     | ✓        | On `.html`/`.htm` files, render in sandboxed iframe instead of source view          |
+| pendingScrollToLine | `number`                      | ✓        | Transient: scroll to a 1-based line on next render (e.g. `maestro://file/...#L<n>`) |
+
+### TerminalTab
+
+PTY shell session with full terminal emulation via xterm.js. Unlike `AITab` (which stores logs), `TerminalTab` relies on xterm.js to manage its own scrollback buffer. The PTY process is identified by `pid` (0 = not yet spawned / lazy init).
+
+| Field             | Type                           | Optional | Description                                                            |
+| ----------------- | ------------------------------ | -------- | ---------------------------------------------------------------------- |
+| id                | `string`                       |          | Unique tab ID (UUID)                                                   |
+| name              | `string \| null`               |          | User-defined name; `null` displays "Terminal N" (auto-numbered)        |
+| shellType         | `string`                       |          | Shell binary name, e.g. `'zsh'`, `'bash'`, `'sh'`                      |
+| pid               | `number`                       |          | PTY process ID; 0 if PTY has not been spawned yet                      |
+| cwd               | `string`                       |          | Current working directory for this shell session                       |
+| createdAt         | `number`                       |          | Unix timestamp (ms) when the tab was created                           |
+| state             | `'idle' \| 'busy' \| 'exited'` |          | PTY lifecycle state                                                    |
+| exitCode          | `number`                       | ✓        | Exit code when `state === 'exited'`                                    |
+| scrollTop         | `number`                       | ✓        | Saved scroll position (restored on tab re-focus)                       |
+| searchQuery       | `string`                       | ✓        | Preserved search query for the xterm.js search addon                   |
+| startupCommand    | `string`                       | ✓        | Command to run automatically each time the PTY is spawned for this tab |
+| startupCommandCwd | `string`                       | ✓        | Working directory for the startup command (falls back to `tab.cwd`)    |
+
+### BrowserTab
+
+Embedded web browsing via Electron webview. Browser tabs persist their chrome state, but guest contents are recreated on restore.
+
+| Field         | Type             | Optional | Description                                                                               |
+| ------------- | ---------------- | -------- | ----------------------------------------------------------------------------------------- |
+| id            | `string`         |          | Unique tab ID (UUID)                                                                      |
+| url           | `string`         |          | Current URL shown in the address bar                                                      |
+| title         | `string`         |          | Last known document title (falls back to URL)                                             |
+| customTitle   | `string`         | ✓        | User-assigned tab name; locks displayed label and overrides page-set titles until cleared |
+| createdAt     | `number`         |          | Timestamp for ordering                                                                    |
+| partition     | `string`         | ✓        | Persisted Electron partition so browser tabs share session data per agent                 |
+| canGoBack     | `boolean`        |          | Navigation state for toolbar back button                                                  |
+| canGoForward  | `boolean`        |          | Navigation state for toolbar forward button                                               |
+| isLoading     | `boolean`        |          | Current loading state for toolbar and restore UX                                          |
+| favicon       | `string \| null` | ✓        | Optional site icon URL/data for tab chrome                                                |
+| webContentsId | `number`         | ✓        | Runtime-only: populated by the embedded Electron browser surface, never persisted         |
 
 ### UnifiedTabRef
 
 ```typescript
-type UnifiedTabRef = { type: 'ai' | 'file'; id: string };
+type UnifiedTabRef = { type: 'ai' | 'file' | 'terminal' | 'browser'; id: string };
 ```
 
 Reference to any tab in the unified tab system. Used for unified tab ordering across different tab types.
@@ -276,7 +351,9 @@ Reference to any tab in the unified tab system. Used for unified tab ordering ac
 ```typescript
 type ClosedTabEntry =
 	| { type: 'ai'; tab: AITab; unifiedIndex: number; closedAt: number }
-	| { type: 'file'; tab: FilePreviewTab; unifiedIndex: number; closedAt: number };
+	| { type: 'file'; tab: FilePreviewTab; unifiedIndex: number; closedAt: number }
+	| { type: 'terminal'; tab: TerminalTab; unifiedIndex: number; closedAt: number }
+	| { type: 'browser'; tab: BrowserTab; unifiedIndex: number; closedAt: number };
 ```
 
 Discriminated union for undo functionality (Cmd+Shift+T). Uses `unifiedIndex` for restoring position in the unified tab order.

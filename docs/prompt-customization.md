@@ -4,7 +4,7 @@ description: Customize the system prompts that control how Maestro's AI features
 icon: wand-magic-sparkles
 ---
 
-Maestro ships with 23 core system prompts that control wizard conversations, Auto Run behavior, group chat moderation, context management, and more - plus a library of reusable **include** fragments (Auto Run spec, CLI reference, Cue model, file-access rules, etc.) that other prompts reference. Every prompt is a Markdown template you can edit, and changes take effect immediately - no restart required.
+Maestro ships with 27 core system prompts that control wizard conversations, Auto Run behavior, group chat moderation, context management, and more - plus a library of reusable **include** fragments (Auto Run spec, CLI reference, Cue model, file-access rules, etc.) that other prompts reference. Every prompt is a Markdown template you can edit, and changes take effect immediately - no restart required.
 
 ## Opening the Prompt Editor
 

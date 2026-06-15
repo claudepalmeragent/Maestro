@@ -1,6 +1,10 @@
 # IPC & Preload API Reference
 
-The `window.maestro` object exposes ~33 namespaces with ~120 IPC channels. Each namespace is defined as a preload module in `src/main/preload/` and backed by handler registrations in `src/main/ipc/handlers/`.
+The `window.maestro` object exposes ~60 namespaces. Each namespace is defined as a preload module in `src/main/preload/` and backed by handler registrations in `src/main/ipc/handlers/`. `window.maestro.platform` is a synchronous string (`process.platform`) rather than a namespace object.
+
+**v0.17.0-new namespaces:** `cue`, `cueBackup`, `cueStats`, `maestroCli`, `memory`, `prompts`, `wakatime`, `tabNaming`, `bmad`, `ghFeedback`.
+
+**Fork-only namespaces:** `feedback` (like/dislike), `projectFolders`, `promptLibrary`, `knowledgeGraph`, `gpuMonitor`, `honeycomb`, `audit`, `reconstruction`, `directorNotes`, `groupChat`, `symphony`, `leaderboard`, `sshRemote`.
 
 For the main guide, see [[CLAUDE.md]]. For the Session data model, see [[CLAUDE-SESSION]].
 
@@ -923,11 +927,174 @@ Communicates with the RunMaestro.ai leaderboard API. All fetch requests have a 3
 
 ### window.maestro.cli (CLI Activity)
 
-Handler: `src/main/ipc/handlers/persistence.ts`
+Preload: `src/main/preload/files.ts` · Handler: `src/main/ipc/handlers/persistence.ts`
 
-| Method          | IPC Channel       | Description                                                      |
-| --------------- | ----------------- | ---------------------------------------------------------------- |
-| `getActivity()` | `cli:getActivity` | Get CLI activities (for detecting when CLI is running playbooks) |
+| Method                      | IPC Channel          | Description                                                      |
+| --------------------------- | -------------------- | ---------------------------------------------------------------- |
+| `getActivity()`             | `cli:getActivity`    | Get CLI activities (for detecting when CLI is running playbooks) |
+| `onActivityChange(handler)` | `cli:activityChange` | Subscribe to CLI activity change events                          |
+
+### window.maestro.tempfile (Temporary Files)
+
+Preload: `src/main/preload/files.ts` · Handler: `src/main/ipc/handlers/files.ts`
+
+| Method                      | IPC Channel       | Description                                    |
+| --------------------------- | ----------------- | ---------------------------------------------- |
+| `write(content, filename?)` | `tempfile:write`  | Write content to a temp file; returns filepath |
+| `read(filePath)`            | `tempfile:read`   | Read a temp file's contents                    |
+| `delete(filePath)`          | `tempfile:delete` | Delete a temp file                             |
+
+### window.maestro.feedback (Like/Dislike Feedback - Fork)
+
+Preload: `src/main/preload/feedback.ts` · Handler: `src/main/ipc/handlers/feedback.ts`
+
+Fork-only RLM feedback recording surface. Stored as JSONL for later review.
+
+| Method          | IPC Channel       | Description                                                                                                                                         |
+| --------------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `record(entry)` | `feedback:record` | Record a like/dislike on an AI response; entry: `{ rating, sessionId, agentType, userQuery, aiResponse, timestamp, sessionName?, tabId?, reason? }` |
+| `getAll()`      | `feedback:getAll` | Get all recorded feedback as a string                                                                                                               |
+
+### window.maestro.ghFeedback (GitHub Issue Feedback)
+
+Preload: `src/main/preload/feedback.ts` · Handler: `src/main/ipc/handlers/feedback.ts`
+
+Upstream-introduced surface for submitting structured feedback as GitHub issues via the `gh` CLI.
+
+| Method                                      | IPC Channel                        | Description                                                                                                                                                                   |
+| ------------------------------------------- | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `checkGhAuth()`                             | `feedback:check-gh-auth`           | Check whether `gh` CLI is installed and authenticated                                                                                                                         |
+| `submit(payload)`                           | `feedback:submit`                  | Submit structured feedback and create a GitHub issue; payload includes category, summary, expectedBehavior, details, optional reproductionSteps/additionalContext/attachments |
+| `composePrompt(feedbackText, attachments?)` | `feedback:compose-prompt`          | Compose a feedback prompt; returns `{ prompt }`                                                                                                                               |
+| `getConversationPrompt()`                   | `feedback:get-conversation-prompt` | Get the conversational feedback system prompt; returns `{ prompt, environment }`                                                                                              |
+| `submitConversation(payload)`               | `feedback:submit-conversation`     | Submit feedback gathered through the conversational interface                                                                                                                 |
+| `searchIssues(query)`                       | `feedback:search-issues`           | Search existing GitHub issues for potential duplicates                                                                                                                        |
+| `subscribeIssue(issueNumber, comment?)`     | `feedback:subscribe-issue`         | Subscribe (+1) to an existing issue and optionally add a comment                                                                                                              |
+
+### window.maestro.speckit (Spec-Kit Slash Commands)
+
+Preload: `src/main/preload/commands.ts` · Handler: `src/main/ipc/handlers/speckit.ts`
+
+| Method                     | IPC Channel           | Description                                                 |
+| -------------------------- | --------------------- | ----------------------------------------------------------- |
+| `getMetadata()`            | `speckit:getMetadata` | Get Spec-Kit metadata: lastRefreshed, commitSha, source     |
+| `getPrompts()`             | `speckit:getPrompts`  | Get all Spec-Kit command prompts (with isCustom/isModified) |
+| `getCommand(slashCommand)` | `speckit:getCommand`  | Get a single command definition by slash command            |
+| `savePrompt(id, content)`  | `speckit:savePrompt`  | Save user customization for a Spec-Kit prompt               |
+| `resetPrompt(id)`          | `speckit:resetPrompt` | Reset to bundled default                                    |
+| `refresh()`                | `speckit:refresh`     | Refresh Spec-Kit prompts from upstream source               |
+
+### window.maestro.openspec (OpenSpec Slash Commands)
+
+Preload: `src/main/preload/commands.ts` · Handler: `src/main/ipc/handlers/openspec.ts`
+
+| Method                     | IPC Channel            | Description                            |
+| -------------------------- | ---------------------- | -------------------------------------- |
+| `getMetadata()`            | `openspec:getMetadata` | Get OpenSpec metadata                  |
+| `getPrompts()`             | `openspec:getPrompts`  | Get all OpenSpec command prompts       |
+| `getCommand(slashCommand)` | `openspec:getCommand`  | Get a single command definition        |
+| `savePrompt(id, content)`  | `openspec:savePrompt`  | Save user customization                |
+| `resetPrompt(id)`          | `openspec:resetPrompt` | Reset to bundled default               |
+| `refresh()`                | `openspec:refresh`     | Refresh OpenSpec prompts from upstream |
+
+### window.maestro.bmad (BMAD Slash Commands)
+
+Preload: `src/main/preload/commands.ts` · Handler: `src/main/ipc/handlers/bmad.ts`
+
+Same shape as `speckit`/`openspec`:
+
+| Method                     | IPC Channel        |
+| -------------------------- | ------------------ |
+| `getMetadata()`            | `bmad:getMetadata` |
+| `getPrompts()`             | `bmad:getPrompts`  |
+| `getCommand(slashCommand)` | `bmad:getCommand`  |
+| `savePrompt(id, content)`  | `bmad:savePrompt`  |
+| `resetPrompt(id)`          | `bmad:resetPrompt` |
+| `refresh()`                | `bmad:refresh`     |
+
+### window.maestro.prompts (Core System Prompts)
+
+Preload: `src/main/preload/prompts.ts` · Handler: `src/main/ipc/handlers/prompts.ts`
+
+Manages user-editable core system prompts (wizard, Auto Run, tab naming, etc.). Customizations are persisted under `userData/core-prompts-customizations.json`. The Maestro Prompts tab in Settings is the UI surface.
+
+| Method                  | IPC Channel                 | Description                                                                                        |
+| ----------------------- | --------------------------- | -------------------------------------------------------------------------------------------------- |
+| `get(id)`               | `prompts:get`               | Get a single prompt's effective content (merged customization or bundled default)                  |
+| `getAll()`              | `prompts:getAll`            | Get all prompts with metadata (id, filename, description, category, isModified, hasDefaultDrifted) |
+| `getAllIds()`           | `prompts:getAllIds`         | Get all prompt IDs                                                                                 |
+| `save(id, content)`     | `prompts:save`              | Save a user customization for a prompt (immediate effect)                                          |
+| `reset(id)`             | `prompts:reset`             | Reset a prompt to the bundled default                                                              |
+| `getBundledDefault(id)` | `prompts:getBundledDefault` | Fetch the shipped default content (used to surface drift)                                          |
+| `getPath()`             | `prompts:getPath`           | Get the prompts directory path (for "Open Folder")                                                 |
+| `listFiles()`           | `prompts:listFiles`         | List all `.md` files in the prompts directory (includes user-added files)                          |
+
+### window.maestro.memory (Per-Project Memory)
+
+Preload: `src/main/preload/memory.ts` · Handler: `src/main/ipc/handlers/memory.ts`
+
+Per-project Claude Code memory viewer (`CLAUDE.md` files under `.claude/`). All methods accept an optional `agentId` (default: `'claude-code'`).
+
+| Method                                             | IPC Channel      | Description                                       |
+| -------------------------------------------------- | ---------------- | ------------------------------------------------- |
+| `list(projectPath, agentId?)`                      | `memory:list`    | List memory files for a project (entries + stats) |
+| `read(projectPath, filename, agentId?)`            | `memory:read`    | Read a memory file's contents                     |
+| `write(projectPath, filename, content, agentId?)`  | `memory:write`   | Overwrite a memory file                           |
+| `create(projectPath, filename, content, agentId?)` | `memory:create`  | Create a new memory file                          |
+| `delete(projectPath, filename, agentId?)`          | `memory:delete`  | Delete a memory file                              |
+| `getPath(projectPath, agentId?)`                   | `memory:getPath` | Get the memory directory path                     |
+
+### window.maestro.debug (Debug Package)
+
+Preload: `src/main/preload/debug.ts` · Handler: `src/main/ipc/handlers/debug.ts`
+
+| Method                    | IPC Channel            | Description                                                                                                                         |
+| ------------------------- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `createPackage(options?)` | `debug:createPackage`  | Generate a debug ZIP package; options: `{ includeLogs?, includeErrors?, includeSessions?, includeGroupChats?, includeBatchState? }` |
+| `previewPackage()`        | `debug:previewPackage` | Preview what would be included in the package                                                                                       |
+| `getAppStats()`           | `debug:getAppStats`    | Get runtime snapshot: main process memory, Electron processes, managed processes (PIDs, RSS, CPU)                                   |
+
+### window.maestro.maestroCli (Maestro CLI Installation)
+
+Preload: `src/main/preload/maestroCli.ts` · Handler: `src/main/ipc/handlers/maestroCli.ts`
+
+| Method              | IPC Channel                  | Description                                             |
+| ------------------- | ---------------------------- | ------------------------------------------------------- |
+| `checkStatus()`     | `maestroCli:checkStatus`     | Check whether `maestro-cli` is installed and up to date |
+| `installOrUpdate()` | `maestroCli:installOrUpdate` | Install or update the `maestro-cli` binary              |
+
+### window.maestro.wakatime (WakaTime Integration)
+
+Preload: `src/main/preload/wakatime.ts` · Handler: `src/main/ipc/handlers/wakatime.ts`
+
+| Method                | IPC Channel               | Description                                                             |
+| --------------------- | ------------------------- | ----------------------------------------------------------------------- |
+| `checkCli()`          | `wakatime:checkCli`       | Check if `wakatime-cli` is available; returns `{ available, version? }` |
+| `validateApiKey(key)` | `wakatime:validateApiKey` | Validate a WakaTime API key                                             |
+
+### window.maestro.reconstruction (Historical Data Reconstruction)
+
+Preload: `src/main/preload/reconstruction.ts` · Handler: `src/main/ipc/handlers/reconstruction.ts`
+
+Reconstructs stats DB from agent JSONL transcripts (local and SSH remote). Used by the Reconstruction Preview modal.
+
+| Method                             | IPC Channel              | Description                                                                                                        |
+| ---------------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------ |
+| `start(options?)`                  | `reconstruction:start`   | Run reconstruction (writes to DB); options: `{ includeLocalAgents?, includeSshRemotes?, sshConfigs?, dateRange? }` |
+| `preview(options?)`                | `reconstruction:preview` | Dry-run preview (no DB writes); same options as `start`                                                            |
+| `onReconstructionUpdate(callback)` | `reconstruction:updated` | Subscribe to reconstruction-completed events                                                                       |
+
+### window.maestro.cueStats (Cue Dashboard Aggregation)
+
+Preload: `src/main/preload/cueStats.ts` · Handler: `src/main/ipc/handlers/cueStats.ts`
+
+| Method                  | IPC Channel                 | Description                                                                                                                                                        |
+| ----------------------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `getAggregation(range)` | `cue-stats:get-aggregation` | Get full Cue stats aggregation for a time range. Throws `Error('CueStatsDisabled')` when either `encoreFeatures.usageStats` or `encoreFeatures.maestroCue` is off. |
+
+### window.maestro.platform (Synchronous)
+
+Synchronously exposed as `process.platform` (`'darwin' | 'win32' | 'linux' | ...`). Not a namespace object - no methods.
 
 ---
 
@@ -1034,7 +1201,7 @@ window.maestro.cueBackup = {
 
 Every write path validates the backup zip lives inside `userData/cue-backups/` to prevent path traversal. See `src/main/cue/backup/cue-backup-manager.ts` for the implementation and `src/shared/cue-backup-types.ts` for the manifest/diff-status contracts.
 
-## Power Management
+## Checking If a Session Is Remote
 
 Similarly, for checking if a session is remote:
 

@@ -2,11 +2,11 @@
 
 # Renderer Services and Constants Guide
 
-Covers `src/renderer/services/` (13 files, ~4,470 lines) and `src/renderer/constants/` (10 files, ~1,676 lines).
+Covers `src/renderer/services/` (16 files) and `src/renderer/constants/` (11 files).
 
-Not documented in detail below but present in `services/`: `bmad.ts` (BMAD slash command service, mirrors `speckit.ts`/`openspec.ts`) and `feedbackConversation.ts` (feedback/wizard conversation flow).
+Not documented in detail below but present in `services/`: `bmad.ts` (BMAD slash command service, mirrors `speckit.ts`/`openspec.ts`), `feedbackConversation.ts` (feedback/wizard conversation flow), `cue.ts` (Cue IPC service wrapper), `cueBackup.ts` (Cue backup IPC service), and `promptInit.ts` (centralized prompt initialization for the renderer).
 
-Not documented in detail below but present in `constants/`: `cueYamlDefaults.ts` (default Cue YAML templates).
+Not documented in detail below but present in `constants/`: `cueYamlDefaults.ts` (default Cue YAML templates) and `rightPanel.ts` (right panel tab constants).
 
 ---
 

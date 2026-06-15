@@ -66,8 +66,11 @@ maestro/
 ├── src/
 │   ├── main/              # Electron main process (Node.js backend)
 │   │   ├── index.ts       # Entry point, IPC handlers
-│   │   ├── process-manager.ts
-│   │   ├── preload.ts     # Secure IPC bridge
+│   │   ├── process-manager/  # PTY/child_process spawning (runners, spawners, handlers)
+│   │   ├── preload/       # Secure IPC bridge (per-namespace modules)
+│   │   ├── cue/           # Maestro Cue event-driven automation engine
+│   │   ├── agents/        # Agent capabilities, Claude spawn-mode resolver, interactive replay
+│   │   ├── ipc/handlers/  # IPC handler modules (split by domain)
 │   │   └── utils/         # Shared utilities
 │   ├── renderer/          # React frontend (Desktop UI)
 │   │   ├── App.tsx        # Main coordinator
@@ -383,8 +386,8 @@ Maestro bundles two spec-driven workflow systems. To add a similar bundled comma
 3. **Create index.ts**: Export command definitions with IDs, slash commands, descriptions, and prompts
 4. **Create metadata.json**: Track source version, commit SHA, and last refreshed date
 5. **Create manager**: `src/main/my-workflow-manager.ts` (handles loading, saving, refreshing)
-6. **Add IPC handlers**: In `src/main/index.ts` for get/set/refresh operations
-7. **Add preload API**: In `src/main/preload.ts` to expose to renderer
+6. **Add IPC handlers**: In `src/main/ipc/handlers/` (a new module per namespace) for get/set/refresh operations
+7. **Add preload API**: In `src/main/preload/<namespace>.ts` and register it in `src/main/preload/index.ts` to expose to renderer
 8. **Create UI panel**: Similar to `OpenSpecCommandsPanel.tsx` or `SpecKitCommandsPanel.tsx`
 9. **Add to extraResources**: In `package.json` build config for all platforms
 10. **Create refresh script**: `scripts/refresh-my-workflow.mjs`
@@ -424,7 +427,7 @@ Then add the ID to `ThemeId` type in `src/shared/theme-types.ts` and to the `isV
 
 ### Adding an IPC Handler
 
-1. Add handler in `src/main/index.ts`:
+1. Add handler in `src/main/ipc/handlers/<namespace>.ts` (create the module if needed and register it from `src/main/ipc/handlers/index.ts`):
 
    ```typescript
    ipcMain.handle('myNamespace:myAction', async (_, arg1, arg2) => {
@@ -433,15 +436,15 @@ Then add the ID to `ThemeId` type in `src/shared/theme-types.ts` and to the `isV
    });
    ```
 
-2. Expose in `src/main/preload.ts`:
+2. Expose in `src/main/preload/<namespace>.ts` (and register the module in `src/main/preload/index.ts`):
 
    ```typescript
-   myNamespace: {
-     myAction: (arg1, arg2) => ipcRenderer.invoke('myNamespace:myAction', arg1, arg2),
-   },
+   export const myNamespace = {
+   	myAction: (arg1, arg2) => ipcRenderer.invoke('myNamespace:myAction', arg1, arg2),
+   };
    ```
 
-3. Add types to `MaestroAPI` interface in preload.ts.
+3. Add types to `MaestroAPI` interface in `src/renderer/global.d.ts`. See [[CLAUDE-IPC.md]] for the per-namespace shape.
 
 ## Encore Features (Feature Gating)
 
@@ -760,7 +763,7 @@ For detailed implementation guide, see [AGENT_SUPPORT.md](AGENT_SUPPORT.md).
 
 - Strict mode enabled
 - Interface definitions for all data structures
-- Export types via `preload.ts` for renderer
+- Export types via `src/renderer/global.d.ts` (`MaestroAPI`) for renderer; preload modules live under `src/main/preload/`
 
 ### React Components
 

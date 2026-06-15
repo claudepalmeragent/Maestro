@@ -18,9 +18,18 @@ Deep technical documentation for Maestro's architecture and design patterns. For
 - [Auto Run System](#auto-run-system)
 - [Achievement System](#achievement-system)
 - [Project Folders](#project-folders)
-- [AI Tab System](#ai-tab-system)
-- [File Preview Tab System](#file-preview-tab-system)
+- [Prompt Library](#prompt-library)
+- [GPU Monitoring](#gpu-monitoring)
+- [Honeycomb Telemetry](#honeycomb-telemetry)
+- [Unified Tab System](#unified-tab-system)
 - [Terminal Tab System](#terminal-tab-system)
+- [Browser Tab Subsystem](#browser-tab-subsystem)
+- [maestro-p Wrapper + Claude Spawn Mode Resolver](#maestro-p-wrapper--claude-spawn-mode-resolver)
+- [Claude Interactive Replay Controller](#claude-interactive-replay-controller)
+- [Cue Engine + Dispatch](#cue-engine--dispatch)
+- [Editable System Prompts](#editable-system-prompts)
+- [maestro-cli Desktop Control Surface](#maestro-cli-desktop-control-surface)
+- [CodeMirror 6 File Preview](#codemirror-6-file-preview)
 - [Execution Queue](#execution-queue)
 - [Navigation History](#navigation-history)
 - [Group Chat System](#group-chat-system)
@@ -90,10 +99,14 @@ Node.js backend with full system access:
 | File                      | Purpose                                                       |
 | ------------------------- | ------------------------------------------------------------- |
 | `index.ts`                | App entry, IPC handlers, window management                    |
-| `process-manager.ts`      | PTY and child process spawning                                |
+| `process-manager/`        | PTY and child process spawning (split into runners/spawners)  |
 | `web-server.ts`           | Fastify HTTP/WebSocket server for mobile remote control       |
 | `agent-detector.ts`       | Auto-detect CLI tools via PATH                                |
-| `preload.ts`              | Secure IPC bridge via contextBridge                           |
+| `preload/`                | Secure IPC bridge via contextBridge (per-namespace modules)   |
+| `cue/`                    | Maestro Cue event-driven automation engine                    |
+| `agents/`                 | Agent capabilities, spawn-mode resolver, interactive replay   |
+| `maestro-cli-manager.ts`  | maestro-cli installer/version checker for desktop control     |
+| `prompt-manager.ts`       | Core editable system prompts loader and customizer            |
 | `tunnel-manager.ts`       | Cloudflare tunnel management for secure remote access         |
 | `themes.ts`               | Theme definitions for web interface (mirrors renderer themes) |
 | `utils/execFile.ts`       | Safe command execution utility                                |
@@ -210,7 +223,7 @@ window.maestro = {
 
 ## Process Manager
 
-The `ProcessManager` class (`src/main/process-manager.ts`) handles two process types:
+The `ProcessManager` class (`src/main/process-manager/ProcessManager.ts`, split into `runners/`, `spawners/`, `handlers/`, and `utils/`) handles two process types:
 
 ### PTY Processes (via `node-pty`)
 
@@ -2186,6 +2199,273 @@ Utilities for processing template variables in Custom AI Commands:
 	}
 } // Agent type
 ```
+
+---
+
+## Browser Tab Subsystem
+
+In-tab web browser implemented via an Electron `<webview>` tag. Browser tabs participate in the unified tab bar alongside AI, file, and terminal tabs, and survive session restore.
+
+### Purpose
+
+- Open URLs from AI output, docs panes, or the omnibox without leaving Maestro.
+- Provide a controlled browsing surface for agent-driven flows (Honeycomb dashboards, GitHub PRs, docs lookup).
+- Persist navigation state across app restarts.
+
+### Components and key files
+
+| File                                                    | Purpose                                                                                |
+| ------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `src/renderer/components/MainPanel/BrowserTabView.tsx`  | Webview host. Wires `<webview>` events (`did-navigate`, `page-title-updated`, loading) |
+| `src/renderer/components/TabBar/BrowserTabItem.tsx`     | Tab-bar rendering for browser tabs (favicon, title, close)                             |
+| `src/renderer/utils/browserTabPersistence.ts`           | Defaults (`DEFAULT_BROWSER_TAB_URL`, `DEFAULT_BROWSER_TAB_TITLE`), navigation resolver |
+| `src/renderer/types/index.ts`                           | `BrowserTab` interface, `browserTabs[]` and `activeBrowserTabId` on `Session`          |
+| Unified tab plumbing in `tabHelpers.ts` / `tabStore.ts` | Browser tabs added to `unifiedTabOrder` as `{ type: 'browser', id }`                   |
+
+### Data flow
+
+1. User opens a URL (omnibox, `Open in browser tab` action, or link in AI output).
+2. `createBrowserTab(url)` appends to `session.browserTabs` and `unifiedTabOrder`, sets `activeBrowserTabId`, clears `activeTabId` and `activeFileTabId`.
+3. `BrowserTabView` mounts a `<webview>` pointed at the tab's URL; navigation events (`did-navigate`, `page-title-updated`) write back to the tab record via `updateSessionWith`.
+4. Closing follows the unified close path; closed tabs land in `unifiedClosedTabHistory` and can be reopened with `Cmd+Shift+T`.
+
+### Persistence
+
+`browserTabs` is part of the persisted `Session` record (debounced via `useDebouncedPersistence`). On restore, each tab re-mounts at its last URL; navigation history within the webview is not preserved (Electron limitation), but the unified tab order, active selection, and visible URL are.
+
+### Security note
+
+The webview is sandboxed and isolated from the renderer (`nodeIntegration` off, `contextIsolation` on). See [SECURITY.md](SECURITY.md) for browser-tab attack-surface notes.
+
+---
+
+## maestro-p Wrapper + Claude Spawn Mode Resolver
+
+`maestro-p` is Maestro's PTY wrapper around the `claude` Claude Code CLI. It allows the Max-plan interactive TUI to be driven from a parent process that does not own a terminal, and is the cornerstone of the fork's response to Anthropic's billing-mode changes (see `/app/__AUTORUN/PHASE_1-Claude-PTY-Runner/` for the upstream ARD).
+
+### Purpose
+
+- Run the Claude Code TUI as a child of Maestro without giving the parent a PTY (maestro-p allocates its own PTY internally via `node-pty`).
+- Let Maestro pick per-turn whether a Claude spawn uses **interactive mode** (Max-plan quota via maestro-p) or **API mode** (`claude --print`, billed against API credit).
+- Honor the per-agent token-source selector everywhere Claude is spawned: desktop turn, Auto Run, background synopsis, tab naming, group chat, Cue.
+
+### Components and key files
+
+| File                                        | Purpose                                                                                       |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `src/main/agents/resolveClaudeSpawnMode.ts` | Single shared decision: given token mode + usage snapshot, returns command/args/env transform |
+| `src/main/agents/claude-mode-selector.ts`   | Pure selector: choose `interactive` vs `api` from a `UsageSnapshot`                           |
+| `src/main/agents/claude-usage-startup.ts`   | Resolves the bundled `maestro-p` binary path; `isMaestroPBinaryPath` predicate                |
+| `src/main/agents/probeRemoteMaestroP.ts`    | Probes whether a remote SSH host has maestro-p installed                                      |
+| `src/main/agents/remoteMaestroPCache.ts`    | Caches remote maestro-p availability per host                                                 |
+| `src/main/stores/claudeUsageStore.ts`       | Usage snapshot store keyed by `CLAUDE_CONFIG_DIR`                                             |
+| `src/main/agents/claude-usage-sampler.ts`   | Background sampler that refreshes usage snapshots                                             |
+| `src/shared/claudeTokenMode.ts`             | Shared `ClaudeTokenMode` type (`'auto' \| 'max' \| 'api'`)                                    |
+
+### Spawn flow
+
+1. Caller (process IPC handler, Auto Run runner, group chat router, Cue executor) builds a base `ProcessConfig` for Claude Code.
+2. Calls `resolveClaudeSpawnMode({ config, tokenMode, configDirKey, ... })`.
+3. Resolver consults `claudeUsageStore.getSnapshot(configDirKey)` and `claude-mode-selector.selectMode()` to pick interactive vs API.
+4. If interactive: rewrites the spawn to `process.execPath <maestro-p-bin>`, sets `MAESTRO_CLAUDE_BIN=<resolved claude path>`, strips the API-only flags.
+5. If API: leaves the spawn as `claude --print ...`, ensures `MAESTRO_CLAUDE_BIN` is absent.
+6. Resolver returns the transformed config plus a `modeResolved` event payload the caller emits on `process:claude-mode-resolved` so the renderer can flip the per-tab badge.
+
+### Why a shared resolver
+
+Pre-fork, this logic lived inline inside `process:spawn`. Every other spawn surface (Auto Run, group chat, tab naming, Cue) was silently API-only. Extracting the resolver is what lets every Claude entry point honor the user's per-agent selection.
+
+---
+
+## Claude Interactive Replay Controller
+
+Reactive limit-detection layer that sits above `maestro-p` interactive spawns. When the wrapper exits mid-turn with code `2` (Max-plan quota exhausted), the controller transparently re-spawns the same prompt under `claude --print` (API mode) so the user sees one continuous response with a single mode-badge change.
+
+### Key files
+
+| File                                                          | Purpose                                                                            |
+| ------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `src/main/agents/claude-interactive-replay.ts`                | Controller: registers exit listener, drives the replay flow                        |
+| `src/__tests__/main/agents/claude-interactive-replay.test.ts` | Vitest unit tests (controller is pure-EventEmitter for testability)                |
+| `src/main/ipc/handlers/process.ts`                            | Wires the controller into the `process:spawn` handler for interactive Claude turns |
+
+### Flow on exit code 2
+
+1. Refresh the `claudeUsageStore` snapshot for the relevant `configDirKey` (best-effort, non-blocking).
+2. Persist `session.claudeInteractive = { mode: 'api', modeReason: 'limit' }` via the injected write-through.
+3. Re-emit `process:claude-mode-resolved` so the renderer mirror flips its badge immediately, before the replay spawn lands.
+4. Call the caller's `buildApiSpawnConfig()` closure to produce a fresh `ProcessConfig` and hand it to `spawnReplay()`.
+
+### Replay-once semantics
+
+The exit listener removes itself before running the flow, so a duplicate `exit` event (process manager re-fires, hook errors) cannot re-trigger the replay. The replay's own spawn is a fresh, non-interactive turn that does not re-register the controller.
+
+### Design
+
+The controller takes an `EventEmitter` and a handful of pure-function callbacks, with no `electron` or `electron-store` imports. Unit tests wire it up against `new EventEmitter()` and Vitest spies without booting Electron.
+
+---
+
+## Cue Engine + Dispatch
+
+Maestro Cue is the event-driven automation engine that watches for triggers (file changes, time intervals, agent completions, GitHub PRs/issues, pending markdown tasks) and fires prompts against configured agents. Configured per-agent via `.maestro/cue.yaml`. Gated as an Encore Feature.
+
+**Authoritative reference:** [CLAUDE-CUE.md](CLAUDE-CUE.md) (architecture, gotchas) and [docs/agent-guides/CUE-PIPELINE.md](docs/agent-guides/CUE-PIPELINE.md) (module-level reference). This section is a brief overview for navigation purposes.
+
+### Service layout
+
+`src/main/cue/` is organized as a thin façade (`cue-engine.ts`) over single-responsibility services:
+
+| Service                              | File                             |
+| ------------------------------------ | -------------------------------- |
+| Session registry (dedup keys, state) | `cue-session-registry.ts`        |
+| Session runtime lifecycle            | `cue-session-runtime-service.ts` |
+| Run manager (concurrency, queue)     | `cue-run-manager.ts`             |
+| Dispatch (fan-out routing)           | `cue-dispatch-service.ts`        |
+| Completion routing                   | `cue-completion-service.ts`      |
+| Fan-in state machine                 | `cue-fan-in-tracker.ts`          |
+| Query (read-only projections)        | `cue-query-service.ts`           |
+| Recovery (sleep detect, replay)      | `cue-recovery-service.ts`        |
+| Heartbeat writer                     | `cue-heartbeat.ts`               |
+| Activity log                         | `cue-activity-log.ts`            |
+
+### Trigger sources
+
+`src/main/cue/triggers/` adapters wrap individual signal sources (`cue-file-watcher.ts`, `cue-github-poller.ts`, scheduled clock, app startup, `agent.completed`, `cue-task-scanner.ts`) and emit normalized `CueEvent` records into the engine.
+
+### Persistence
+
+`cue-db.ts` (better-sqlite3, WAL) holds `cue_events`, `cue_event_queue`, `cue_heartbeat`, `cue_github_seen`. The queue survives crashes and is drained on next engine start.
+
+### Executors
+
+Three executors handle different action types: `cue-executor.ts` (`action: prompt`), `cue-shell-executor.ts` (`action: command, mode: shell`), and `cue-cli-executor.ts` (`action: command, mode: cli`). All three honor SSH wrapping via the shared spawn path.
+
+---
+
+## Editable System Prompts
+
+Core Maestro system prompts (wizard, Auto Run, tab naming, context grooming, group chat coordinator, director notes, Cue) live as `.md` files on disk and can be edited by users without rebuilding the app.
+
+### Architecture
+
+Modeled on SpecKit / OpenSpec's split between bundled defaults and user customizations.
+
+| Layer               | Location                                                               |
+| ------------------- | ---------------------------------------------------------------------- |
+| Bundled defaults    | `Resources/prompts/core/*.md` (read-only, app resources)               |
+| Source-of-truth     | `src/prompts/*.md` (built into the bundled defaults)                   |
+| User customizations | `userData/core-prompts-customizations.json`                            |
+| Prompt registry     | `src/shared/promptDefinitions.ts` (`CORE_PROMPTS` array, `PROMPT_IDS`) |
+| Loader              | `src/main/prompt-manager.ts` (`PromptManager` class)                   |
+
+### Key files
+
+| File                                                   | Purpose                                                                        |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------ |
+| `src/main/prompt-manager.ts`                           | Loads bundled prompts at startup; resolves `{{INCLUDE:name}}` / `{{REF:name}}` |
+| `src/shared/promptDefinitions.ts`                      | Registry of every prompt with id/filename/description/category                 |
+| `src/main/preload/prompts.ts`                          | IPC bridge for prompt get/set/reset/list                                       |
+| `src/renderer/components/Settings/tabs/PromptsTab.tsx` | "Maestro Prompts" tab in Settings (browse, edit, reset, drift indicator)       |
+| `src/main/ipc/handlers/maestro-cli.ts`                 | `maestro-cli prompts get <name>` command for agent self-fetch                  |
+
+### Resolution rules
+
+- User customization wins when `isModified: true`.
+- Otherwise the bundled default is served.
+- `hasDefaultDrifted: true` is set when a user's saved customization is based on an old bundled default (baseline hash comparison) so the UI can show a "default changed" indicator.
+
+### Directives
+
+Within prompt markdown:
+
+- `{{INCLUDE:name}}` inlines another prompt's content recursively (max depth 3, cycle-detected).
+- `{{REF:name}}` expands to the absolute on-disk path of the bundled `.md` (host OS path separator). Authors wrap with surrounding prose.
+
+### Customization-aware fetch
+
+Agents that need the user's current effective content (not the bundled default) should call `maestro-cli prompts get <name>` from inside their session, which routes through the running app's preload layer rather than reading bundled resources directly.
+
+---
+
+## maestro-cli Desktop Control Surface
+
+`maestro-cli` is a user-facing CLI that lets running agents (or scripts) drive the Maestro desktop app from outside its renderer process. Honors the Constitution's **Agent Omniscience** tenet: anything reachable through the GUI is equally reachable through the CLI.
+
+### Components
+
+| Component                              | Purpose                                                                                 |
+| -------------------------------------- | --------------------------------------------------------------------------------------- |
+| `maestro-cli` binary                   | Bundled CLI, installed into `~/.local/bin/` (Unix) or `%LOCALAPPDATA%\...` (Windows)    |
+| `src/main/maestro-cli-manager.ts`      | `MaestroCliManager` class: install/uninstall, version check, PATH setup                 |
+| `src/main/preload/maestroCli.ts`       | Renderer-side IPC bridge for install/status                                             |
+| `src/main/ipc/handlers/maestro-cli.ts` | Main-process IPC for commands the CLI sends back into the running app                   |
+| `src/cli/commands/` (CLI side)         | Per-command implementations: notify, prompts, sessions, list-agents, run-playbook, etc. |
+
+### Control channels
+
+The CLI uses two channels depending on the action:
+
+1. **Local IPC to the running app** for actions that mutate the GUI state (e.g., `notify toast`, `prompts get`, jump-to-session). The CLI connects to the app's local IPC endpoint and sends a structured command.
+2. **Direct filesystem / SQLite** for read-only inspection that does not require the GUI to be running (e.g., listing playbooks, dumping sessions).
+
+### Notify surface
+
+A first-class CLI surface for agents to alert the conductor:
+
+- `maestro-cli notify toast` (with `--agent`, `--tab`, `--open-file`, `--open-url`, `--action-url`, `--source-agent`, `--dismissible`)
+- `maestro-cli notify flash <message> --color <green|yellow|orange|red|theme>`
+
+Toasts go through the renderer's `notifyToast()` helper (see `notificationStore.ts`); click actions are data-driven (`clickAction`) so they survive the IPC bridge.
+
+### Installer
+
+`MaestroCliManager` writes the binary to `~/.local/bin/maestro-cli` and ensures the directory is on PATH (appending a marker comment to `~/.zshrc` / `~/.bashrc` if needed). On Windows it writes a `.cmd` shim and updates the user PATH via `setx`.
+
+### Security note
+
+The local IPC endpoint is bound to localhost only. Any process running as the same user can send commands. See [SECURITY.md](SECURITY.md).
+
+---
+
+## CodeMirror 6 File Preview
+
+The File Preview Tab system (above) renders file content using CodeMirror 6 for syntax highlighting, search, and editing.
+
+### Component layout
+
+| File                                                                    | Purpose                                                                 |
+| ----------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `src/renderer/components/FilePreview/FilePreview.tsx`                   | Top-level file preview view (loads content, manages edit mode)          |
+| `src/renderer/components/FilePreview/markdownEditor/MarkdownEditor.tsx` | CodeMirror 6 editor for markdown (with custom extensions)               |
+| `src/renderer/components/FilePreview/markdownEditor/extensions.ts`      | Markdown-specific CM6 extensions (headings, lists, link rendering)      |
+| `src/renderer/components/FilePreview/markdownEditor/searchHighlight.ts` | CM6 decoration for in-buffer search highlights                          |
+| `src/renderer/components/FilePreview/giantPreview/extensions.ts`        | CM6 extensions for the "giant preview" path (very large files)          |
+| `src/renderer/components/FilePreview/giantPreview/searchEngine.ts`      | Off-thread search for files too large to fit in a single CM6 state      |
+| `src/renderer/components/FilePreview/PreviewTierChip.tsx`               | UI badge showing which preview tier (markdown / code / giant) is in use |
+| `src/renderer/components/FilePreview/lineSync.ts`                       | Keeps split markdown source/preview scroll positions in sync            |
+| `src/renderer/components/FilePreview/filePreviewUtils.ts`               | Helpers: language detection, tier selection                             |
+
+### Languages
+
+CodeMirror 6 language packs registered in `extensions.ts`:
+
+- `@codemirror/lang-javascript`, `lang-python`, `lang-rust`, `lang-go`, `lang-java`, `lang-cpp`, `lang-php`, `lang-css`, `lang-html`, `lang-xml`, `lang-json`, `lang-yaml`, `lang-markdown`, `lang-sql`
+- `@codemirror/legacy-modes` for the long tail (Lua, Ruby, Shell, etc.)
+
+### Preview tiers
+
+A file is routed to one of three tiers based on size and extension:
+
+1. **Markdown** (`.md`, `.mdx`): split-pane CM6 source + rendered preview with `lineSync`.
+2. **Code** (everything else under the size cap): single CM6 instance with language pack + search.
+3. **Giant** (files above the size cap): `giantPreview/` path streams content with virtualized rendering and an off-thread search engine.
+
+The `PreviewTierChip` surfaces the active tier so users understand why a giant file lacks edit mode.
+
+### Edit mode
+
+When `editMode: true` on a `FilePreviewTab`, the CM6 view becomes editable and a save bar appears. Unsaved changes set `editContent !== undefined` and surface a prompt on tab close.
 
 ---
 

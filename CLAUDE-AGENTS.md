@@ -18,7 +18,7 @@ Agent support documentation for the Maestro codebase. For the main guide, see [[
 
 ## Agent Capabilities
 
-Each agent declares capabilities that control UI feature availability. See `src/main/agents/capabilities.ts` for the full `AgentCapabilities` interface (23 boolean flags + 1 optional). The complete capability list is shown below.
+Each agent declares capabilities that control UI feature availability. The canonical `AgentCapabilities` interface lives in `src/shared/types.ts` and is re-exported from `src/main/agents/capabilities.ts`. The complete capability list is shown below (25 boolean flags + 1 optional enum).
 
 | Capability                    | Description                              | UI Feature Controlled      |
 | ----------------------------- | ---------------------------------------- | -------------------------- |
@@ -33,7 +33,7 @@ Each agent declares capabilities that control UI feature availability. See `src/
 | `supportsCostTracking`        | Reports token costs                      | Cost widget                |
 | `supportsUsageStats`          | Reports token counts                     | Context window widget      |
 | `supportsBatchMode`           | Runs per-message                         | Batch processing           |
-| `requiresPromptToStart`       | No eager spawn — needs prompt            | Deferred spawn             |
+| `requiresPromptToStart`       | No eager spawn, needs prompt             | Deferred spawn             |
 | `supportsStreaming`           | Streams output                           | Real-time display          |
 | `supportsModelSelection`      | Supports --model flag                    | Model dropdown             |
 | `supportsResultMessages`      | Distinguishes final result               | Message classification     |
@@ -45,7 +45,18 @@ Each agent declares capabilities that control UI feature availability. See `src/
 | `usesJsonLineOutput`          | Uses JSONL output in batch mode          | CLI batch parsing strategy |
 | `usesCombinedContextWindow`   | Uses combined input+output context       | Context bar display mode   |
 | `supportsStreamJsonInput`     | Accepts stream-json input via stdin      | Image input method         |
+| `supportsAppendSystemPrompt`  | Accepts a system-prompt append flag      | Append-system-prompt path  |
+| `supportsProjectMemory`       | Stores per-project memory                | Project memory feature     |
 | `imageResumeMode?`            | Image handling on resume (optional)      | Resume image strategy      |
+
+### Claude Token-Source Flags (Claude Code only)
+
+Claude Code's spawn path is uniquely bimodal: it can run via the `maestro-p` TUI (Max-plan quota) or `claude --print` (per-token API billing). Two coupled fields track which path was taken per turn:
+
+- **`session.claudeInteractive`** (`src/shared/types.ts`) - persisted on the agent session as `{ mode: 'interactive' | 'api', modeReason: 'auto' | 'limit' }`. Set by `resolveClaudeSpawnMode()` in `src/main/agents/resolveClaudeSpawnMode.ts` for every Claude spawn surface (desktop turn, Auto Run, group chat, Cue, background synopsis, tab naming). Sticky-limit semantics: once `modeReason === 'limit'`, subsequent spawns stay on API until the Max-plan quota recovers.
+- **`HistoryEntry.tokenSource`** + **`tokenSourceReason`** - per-turn copies stamped into the history entry from `session.claudeInteractive` (see `src/renderer/hooks/agent/useAgentSessionManagement.ts`). Drives the history token-source pill (`getTokenSourcePill()` in `HistoryEntryItem.tsx` / `HistoryDetailModal.tsx`). Absent on non-Claude agents and on entries pre-dating the flag.
+
+Mode selection logic lives in `src/main/agents/claude-mode-selector.ts` (`selectMode()`), driven by the cached usage snapshot in `claudeUsageStore`. Replay/back-fill helpers are in `src/main/agents/claude-interactive-replay.ts`. These fields are **not** part of `AgentCapabilities` - they are session/history state, not static per-agent flags.
 
 ### Accessing Capabilities
 
@@ -90,6 +101,9 @@ The backing data (`AGENT_DISPLAY_NAMES` record, `BETA_AGENTS` set) is module-pri
 - **Resume:** `--resume <session-id>`
 - **Read-only:** `--permission-mode plan`
 - **Session Storage:** `~/.claude/projects/<encoded-path>/`
+- **Append System Prompt:** `--append-system-prompt`
+- **Project Memory:** `~/.claude/projects/<path>/memory/`
+- **Token Source (Maestro-only):** Each spawn is resolved by `resolveClaudeSpawnMode()` to either `interactive` (maestro-p TUI driving the Max-plan quota) or `api` (`claude --print`). The decision is persisted on `session.claudeInteractive` and stamped per turn onto `HistoryEntry.tokenSource` / `tokenSourceReason`. See the Claude Token-Source Flags section above.
 
 ### Codex
 
@@ -150,14 +164,23 @@ The backing data (`AGENT_DISPLAY_NAMES` record, `BETA_AGENTS` set) is module-pri
 
 - **Agent ID:** `copilot-cli`
 - **Binary:** `copilot`
-- **JSON Output:** `--output-format json`
+- **Status:** Beta (v0.17.0 expansion; see `BETA_AGENTS` set in `src/shared/agentMetadata.ts`)
+- **JSON Output:** `--output-format json` (emits JSONL; `usesJsonLineOutput: true`)
 - **Batch Mode:** `-p, --prompt <text>`
+- **Initial Prompt:** `-i <text>` (interactive mode seed prompt)
 - **Resume:** `--continue`, `--resume[=session-id]`
 - **Read-only:** CLI-enforced via `--allow-tool=read,url`, `--deny-tool=write,shell,memory,github`, `--no-ask-user`
-- **Thinking Display:** Streams `assistant.reasoning_delta` / `assistant.reasoning` into Maestro's thinking panel
-- **Images:** Prompt-embedded `@/tmp/...` mentions (maps Maestro uploads to Copilot file/image mentions)
+- **Model Selection:** `--model <model>`
+- **Thinking Display:** Streams `assistant.reasoning_delta` / `assistant.reasoning` events through Maestro's thinking-chunk pipeline
+- **Result Messages:** `assistant.message` events with `phase=final_answer` (also drives wizard structured output)
+- **Usage Stats:** `session.shutdown` event includes `modelMetrics` with per-model token counts. Uses combined input+output context window math (`usesCombinedContextWindow: true`) because Copilot's usage layer reports cumulative input (including cache) regardless of underlying model.
+- **Images:** Prompt-embedded `@/tmp/...` mentions (maps Maestro uploads to Copilot file/image mentions). Works on resume as well.
 - **Session Storage:** `~/.copilot/session-state/<session-id>/` (local and SSH-remote)
+- **Slash Commands:** Supported in interactive mode
+- **Group Chat Moderation:** Supported (uses the standard batch-mode orchestration path)
+- **Wizard:** Supported via JSON `final_answer` events
 - **Model Discovery:** Fetches available models from [models.dev](https://models.dev) (github-copilot provider) with a 3s timeout, falling back to the user's configured model in `~/.copilot/config.json`. See `readCopilotConfiguredModel` / `fetchCopilotModelsFromApi` in `src/main/agents/detector.ts`.
+- **Not supported:** `supportsCostTracking`, `supportsStreamJsonInput`, `supportsAppendSystemPrompt`, `supportsProjectMemory` (no CLI equivalents verified).
 - **Known Limitations:**
   - **SSH interactive mode:** PTY-based interactive Copilot sessions do not go through `wrapSpawnWithSsh()`, so interactive Copilot over SSH remote is not supported. Batch mode (`-p`) over SSH works correctly via the standard child-process spawner.
 
@@ -167,7 +190,7 @@ To add support for a new agent:
 
 1. Add agent ID to `src/shared/agentIds.ts` → `AGENT_IDS` tuple
 2. Add agent definition to `src/main/agents/definitions.ts` → `AGENT_DEFINITIONS`
-3. Define capabilities in `src/main/agents/capabilities.ts` → `AGENT_CAPABILITIES` (23 boolean flags)
+3. Define capabilities in `src/main/agents/capabilities.ts` → `AGENT_CAPABILITIES` (25 boolean flags + optional `imageResumeMode`)
 4. Add display name and beta status to `src/shared/agentMetadata.ts` (internal maps, accessed via `getAgentDisplayName()` / `isBetaAgent()`)
 5. Add context window default to `src/shared/agentConstants.ts` → `DEFAULT_CONTEXT_WINDOWS`
 6. Sync `AgentCapabilities` interface in renderer: `useAgentCapabilities.ts`, `types/index.ts`, `global.d.ts`

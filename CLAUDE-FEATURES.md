@@ -1,6 +1,6 @@
 # CLAUDE-FEATURES.md
 
-Feature documentation for Usage Dashboard and Document Graph. For the main guide, see [[CLAUDE.md]].
+Feature documentation for Usage Dashboard, Document Graph, Memory Viewer, JSONL Viewer, and Image Annotator. For the main guide, see [[CLAUDE.md]].
 
 ## Usage Dashboard
 
@@ -415,3 +415,153 @@ Each entry is a markdown file with:
 - **Key Findings** — Summary of what was learned
 - **Session Statistics** — AI responses, exchanges, log entries, cost, context usage
 - **Full Conversation Transcript** — Detailed learnings from the session
+
+---
+
+## Memory Viewer
+
+The Memory Viewer (`src/renderer/components/MemoryViewer.tsx`) is a full-panel overlay for browsing and editing Claude Code per-project memory files. It mirrors the Claude Sessions browser shell (same header pattern, stats bar, close button) and reuses the shared `DualPaneFileEditor` for the list + markdown editor layout.
+
+### Architecture
+
+```
+src/renderer/components/
+└── MemoryViewer.tsx              # Modal shell, list + editor wiring, stats bar
+
+src/renderer/components/shared/
+└── DualPaneFileEditor.tsx        # Reused list/editor split pane
+
+src/main/
+├── memory-manager.ts             # Filesystem operations on the per-project memory directory
+└── ipc/handlers/memory.ts        # IPC handlers: memory:list, memory:read, memory:write,
+                                  #                memory:create, memory:delete, memory:getPath
+```
+
+### Capability Gating
+
+Available only on agents whose definition advertises the `supportsProjectMemory` capability. Today only Claude Code qualifies. The IPC handlers accept an `agentId` parameter (defaulting to `claude-code`) so the same surface can be opened against other agents in the future without renaming channels.
+
+### Entry Model
+
+Each memory directory contains:
+
+- A `MEMORY.md` index file (the first file created always uses this name) listing one-line pointers to individual memory files
+- One markdown file per memory entry, with a YAML frontmatter block declaring `name`, `description`, and `type`
+
+```markdown
+---
+name: new memory
+description: one-line description
+type: user
+---
+
+Write the memory body here.
+```
+
+### Stats Bar
+
+The header surfaces aggregate metrics across the memory directory:
+
+- File count
+- First created timestamp (relative)
+- Last modified timestamp (relative)
+- Total bytes on disk
+- Estimated token count (`estimateTokenCount` from `src/shared/formatters.ts`)
+
+### IPC Channels
+
+```typescript
+window.maestro.memory.list(projectPath, agentId); // returns entries, stats, path
+window.maestro.memory.read(projectPath, filename, agentId); // returns content
+window.maestro.memory.write(projectPath, filename, content, agentId);
+window.maestro.memory.create(projectPath, filename, content, agentId);
+window.maestro.memory.delete(projectPath, filename, agentId);
+window.maestro.memory.getPath(projectPath, agentId);
+```
+
+---
+
+## JSONL Viewer
+
+The JSONL Viewer (`src/renderer/components/JsonlViewer.tsx`) is a structured viewer for newline-delimited JSON and single-document JSON files, used inside the File Preview tab system for `.jsonl` and `.json` previews.
+
+### Architecture
+
+```
+src/renderer/components/
+├── JsonlViewer.tsx               # Two view modes (tree, table), jq filter input
+└── CollapsibleJsonViewer.tsx     # Reused per-record tree renderer
+
+src/renderer/utils/
+└── jqFilter.ts                   # Parses and evaluates jq-style filter expressions
+
+src/renderer/hooks/file/
+└── useFilePreviewSearch.ts       # Integrates JsonlViewer into FilePreview search
+```
+
+### View Modes
+
+- **Tree mode** - Per-record collapsible tree using `CollapsibleJsonViewer`
+- **Table mode** - Auto-detected tabular view when at least 60% of sampled records share a stable schema (`TABLE_SCHEMA_THRESHOLD = 0.6`, sampled across the first 50 records). Columns are sortable ascending/descending
+
+### Parse Modes
+
+- `parseMode='jsonl'` - Splits on newlines, parses each non-empty line as its own JSON document, surfaces per-line parse errors inline
+- `parseMode='json'` - Parses the entire content as a single JSON document
+
+### Filtering
+
+A debounced jq-style filter input (200ms) evaluates a parsed `JqExpr` against each record. Filter errors are surfaced via the `onJqError` callback to the parent search bar. The viewer also accepts a `searchQuery` for plain-text search across raw lines and reports match counts via `onMatchCount`.
+
+### Performance Limits
+
+```typescript
+const MAX_DISPLAY_LINES = 500; // Hard cap on rendered records
+const FILTER_DEBOUNCE_MS = 200; // jq filter debounce
+const SCHEMA_SAMPLE_SIZE = 50; // Records sampled for table-mode schema detection
+const TABLE_SCHEMA_THRESHOLD = 0.6; // Minimum schema overlap to enable table mode
+```
+
+---
+
+## Image Annotator
+
+The Image Annotator (`src/renderer/components/ImageAnnotator/`) is a freehand image markup modal used to annotate screenshots and pasted images before sending them to an agent. It is invoked from the input area, the lightbox, and Auto Run task thumbnails.
+
+### Architecture
+
+```
+src/renderer/components/ImageAnnotator/
+├── ImageAnnotator.tsx            # Modal root, owns SVG ref + composite save/copy
+├── AnnotatorCanvas.tsx           # SVG drawing surface, pointer-event routing
+├── AnnotatorToolbar.tsx          # Tool buttons, color/stroke, save/copy actions
+├── AnnotatorSettingsDrawer.tsx   # Stroke, color, font-size, eraser settings
+├── useAnnotatorState.ts          # Reducer for tool state, history, undo/redo
+├── imageAnnotatorStore.ts        # Zustand store: isOpen, imageDataUrl, onSave, closeAnnotator
+├── compositeAnnotatedImage.ts    # Renders annotations + base image onto a flattened PNG
+├── editClipboardImage.ts         # Entry helper for "annotate clipboard image"
+├── getSvgPathFromStroke.ts       # perfect-freehand stroke to SVG path conversion
+└── annotatorConstants.ts         # Default colors, sizes, keyboard hint strings
+```
+
+### Self-Mounting Modal Pattern
+
+`ImageAnnotator` self-sources `isOpen`, `imageDataUrl`, `onSave`, and `closeAnnotator` from `useImageAnnotatorStore`. Callers (input area, lightbox, Auto Run thumbnails) just push state into the store and the modal mounts itself. The component renders nothing while `isOpen` is false but stays mounted, so the `useModalLayer` registration stays stable across open/close cycles via the `enabled` flag.
+
+### Tools and Hotkeys
+
+Single-key tool shortcuts (lowercased):
+
+| Key | Tool             |
+| --- | ---------------- |
+| D   | Pen (Draw)       |
+| P   | Pan              |
+| E   | Eraser           |
+| S   | Rect (Square)    |
+| C   | Ellipse (Circle) |
+| T   | Text             |
+| A   | Arrow            |
+
+### Save and Copy Compositing
+
+Save and copy compositing live in `ImageAnnotator.tsx` (not in the toolbar). The toolbar emits `onSave` / `onCopy` callbacks; the parent owns the SVG ref + image data URL and feeds them to `compositeAnnotatedImage` to flatten annotations + base image into a single PNG. Copy uses `safeClipboardWriteImage` with toast notification feedback on success or failure.

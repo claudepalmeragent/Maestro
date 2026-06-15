@@ -117,7 +117,7 @@ setSessions(newSessions)
     → ~13 useSessionStore((s) => s.sessions) subscribers re-render
       → useEffect dependencies re-evaluate
         → SSH commands queued (file tree refresh, git status, etc.)
-          → p-limit concurrency slots consumed (8 max per host)
+          → per-host concurrency slots consumed (4 max per host)
 ```
 
 **Mitigations:**
@@ -142,18 +142,22 @@ setSessions(newSessions)
 
 3. **Debounced persistence** — Session persistence uses a 2-second debounce (`useDebouncedPersistence`) so rapid `setSessions` calls don't cause excessive disk I/O.
 
-**SSH p-limit concurrency:**
+**SSH per-host concurrency:**
 
 ```typescript
 // src/main/utils/remote-fs.ts
-// OpenSSH default MaxSessions = 10, minus 2 reserved for agent + overhead = 8 concurrent slots
-const DEFAULT_MAX_SSH_SESSIONS = 10;
-const RESERVED_SSH_CHANNELS = 2;
-// Per-host limiter: calls exceeding the limit are queued FIFO, never dropped
-const limiter = pLimit(Math.max(1, maxSessions - RESERVED_SSH_CHANNELS));
+// Custom HostLimiter (async semaphore) caps in-flight SSH commands per host so a
+// runaway scan can't exhaust the SSH transport for agents/terminals/git.
+const MAX_CONCURRENT_SSH_PER_HOST = 4;
+class HostLimiter {
+	async acquire(): Promise<void> {
+		/* FIFO queue, never drops */
+	}
+	release(): void {}
+}
 ```
 
-Exceeding SSH concurrency limits causes `connection refused` errors. Every unnecessary `setSessions` → effect → SSH command chain eats into these 8 slots.
+Exceeding SSH concurrency limits causes `connection refused` errors. Every unnecessary `setSessions` → effect → SSH command chain eats into these 4 slots. OpenSSH `ControlMaster` connection pooling (see `src/main/utils/ssh-options.ts`, `ControlPersist=600`) means subsequent SSH commands multiplex over a single TCP connection, so the cost is mainly channel/MaxSessions pressure rather than connection setup.
 
 ## Data Structure Pre-computation
 
@@ -269,6 +273,66 @@ const handleScroll = useThrottledCallback(() => {
 // - updateUsage (accumulated)
 // - updateContextUsage (high water mark - never decreases)
 ```
+
+## xterm.js Terminal Rendering
+
+`XTerminal.tsx` lazy-loads `@xterm/addon-webgl` and attaches it after the canvas
+DOM addon is up. The WebGL renderer offloads cell painting to the GPU and is the
+single largest perf win for terminals with active scrollback:
+
+```typescript
+// src/renderer/components/XTerminal.tsx
+const term = new Terminal({
+	scrollback: 10000, // bounded - keep this finite, unbounded scrollback leaks
+	allowProposedApi: true,
+});
+const fitAddon = new FitAddon();
+// WebGL addon is imported dynamically and only attached if context creation succeeds
+import('@xterm/addon-webgl').then(({ WebglAddon }) => tryLoadWebgl(WebglAddon));
+```
+
+Guidelines when touching terminal code:
+
+- Do not raise `scrollback` past 10,000 without measuring memory; xterm allocates
+  per-row buffers eagerly.
+- If you add a new addon, attach it BEFORE `WebglAddon`: the WebGL renderer
+  caches glyph atlases and re-attachment after it is expensive.
+- The WebGL addon can fail to instantiate (lost GL context, headless). The
+  fallback to the DOM renderer is automatic; do not assume `webglAddonRef`
+  is non-null.
+
+## JSONL Viewer Display Cap
+
+`JsonlViewer.tsx` parses the full content in memory but only renders the first
+`MAX_DISPLAY_LINES = 500` lines after filtering. The cap is what keeps multi-MB
+agent transcripts interactive. Do not remove it without adding virtualization.
+Filter input is debounced through `useDebouncedValue(filter, 200)` so jq
+expression re-evaluation does not run on every keystroke.
+
+```typescript
+// src/renderer/components/JsonlViewer.tsx
+const MAX_DISPLAY_LINES = 500;
+const FILTER_DEBOUNCE_MS = 200;
+const SCHEMA_SAMPLE_SIZE = 50; // table-mode schema inference samples only N rows
+```
+
+If a future change needs all rows rendered (export, search-all), perform the
+work against `parsedLines` directly rather than the truncated display slice.
+
+## Cue Engine Throughput
+
+`src/main/cue/cue-engine.ts` is split across many small services (run manager,
+queue persistence, dispatch, file watcher, GitHub poller) so that no single
+tick blocks the event loop. Performance-sensitive invariants:
+
+- Queue entries are persisted (`cue-queue-persistence.ts`) so a crash does not
+  lose dispatched work, but the persistence façade batches writes, so do not
+  call it from inside a hot loop.
+- `queueOverflow` is surfaced through the typed log channel rather than being
+  silently dropped; consumers should treat it as backpressure, not an error.
+- File watchers and pollers (GitHub, schedule, task scanner) should be the
+  only sources of ticks. Do not add ad-hoc `setInterval` calls inside
+  executors, register a poller service instead.
 
 ## Virtual Scrolling
 

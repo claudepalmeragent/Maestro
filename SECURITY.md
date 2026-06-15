@@ -93,6 +93,22 @@ When the web/mobile interface is enabled, Maestro runs a local web server. The C
 
 Maestro uses Electron's IPC for communication between the main process and renderer. We follow Electron security best practices including context isolation and a minimal preload API surface.
 
+### Browser Tabs (Embedded Webview)
+
+Maestro can open in-app browser tabs that render arbitrary URLs via Electron `<webview>`. Webviews run in a separate process with `nodeIntegration` off and `contextIsolation` on, so a malicious page cannot reach Node APIs or the preload bridge. Users should still be aware:
+
+- Browser-tab URLs are not sandboxed from the network: the embedded page can make outbound requests as the user.
+- Cookies and storage persist across sessions per the Electron partition; treat them like a regular browser profile.
+- Closing a browser tab does not invalidate any auth sessions inside it.
+
+### maestro-cli Local Control Channel
+
+When the desktop app is running, `maestro-cli` can drive it from outside the renderer (notify toasts, jump to sessions, fetch prompts). This channel is bound to localhost / the user's home directory only, but any process running as the same user can send commands. Treat the maestro-cli surface as equivalent to local-user access to the GUI.
+
+### Cue Automation Dispatch
+
+Maestro Cue spawns agent processes in response to file changes, time triggers, GitHub events, and prior agent completions. Triggers run with the same privileges as the user. A malicious `.maestro/cue.yaml` checked into a repository could cause Maestro to spawn agents against attacker-controlled prompts the moment the project is opened. Treat untrusted Cue configurations like untrusted code: review `.maestro/cue.yaml` before opening third-party projects.
+
 ### Sentry DSN
 
 The Sentry DSN in the codebase is a **public secret by design**. This is standard practice for client-side error reporting—the DSN is intentionally exposed to allow error telemetry. Reporting this as a vulnerability is not necessary. We monitor for abuse and will rotate keys if needed.

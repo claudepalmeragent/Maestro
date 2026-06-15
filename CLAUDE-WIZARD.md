@@ -11,23 +11,43 @@ The wizard (`src/renderer/components/Wizard/`) guides new users through first-ru
 ```
 src/renderer/components/Wizard/
 ├── MaestroWizard.tsx           # Main orchestrator, screen transitions
-├── WizardContext.tsx           # State management (useReducer pattern)
+├── WizardContext.tsx           # Provider re-exporting from WizardContext/
+├── WizardContext/              # State management (useReducer pattern, split)
+│   ├── constants.ts               # WIZARD_TOTAL_STEPS, STEP_INDEX, INDEX_TO_STEP
+│   ├── types.ts                   # WizardStep, WizardState, WizardAction, API
+│   ├── reducer.ts                 # Reducer implementation
+│   ├── navigation.ts              # Step transition helpers
+│   ├── persistence.ts             # Resume state load/save/clear
+│   └── messageIds.ts              # Message ID helpers
 ├── WizardResumeModal.tsx       # Resume incomplete wizard dialog
 ├── WizardExitConfirmModal.tsx  # Exit confirmation dialog
+├── ExistingAutoRunDocsModal.tsx # Prompt when Auto Run docs already exist
+├── ExistingDocsModal.tsx       # Continue/fresh choice for existing docs
 ├── ScreenReaderAnnouncement.tsx # Accessibility announcements
-├── screens/                    # Individual wizard steps
-│   ├── AgentSelectionScreen.tsx    # Step 1: Choose AI agent
-│   ├── DirectorySelectionScreen.tsx # Step 2: Select project folder
-│   ├── ConversationScreen.tsx      # Step 3: AI project discovery
-│   └── PhaseReviewScreen.tsx       # Step 4: Review generated plan
+├── screens/                    # Individual wizard steps (each a folder)
+│   ├── AgentSelectionScreen/       # Step 1: Choose AI agent
+│   ├── DirectorySelectionScreen/   # Step 2: Select project folder
+│   ├── ConversationScreen/         # Step 3: AI project discovery
+│   ├── PreparingPlanScreen/        # Step 4: Plan-generation progress
+│   └── PhaseReviewScreen/          # Step 5: Review generated plan
 ├── services/                   # Business logic
 │   ├── wizardPrompts.ts           # System prompts, response parser
 │   ├── conversationManager.ts     # AI conversation handling
-│   └── phaseGenerator.ts          # Document generation
+│   ├── phaseGenerator.ts          # Document generation
+│   ├── austinFacts.ts             # Fun facts shown during generation
+│   ├── fillerPhrases.ts           # Loading filler messages
+│   ├── shuffle.ts                 # Shuffle helper for facts/fillers
+│   └── wizardErrorDetection.ts    # Error classification
+├── shared/                     # Cross-screen shared UI/helpers
+│   ├── DocumentEditor/             # Phase 1 editor
+│   ├── DocumentSelector.tsx        # Generated document picker
+│   ├── TypingIndicator.tsx         # Assistant typing dots
+│   └── wizardHelpers.ts            # Shared utilities
 └── tour/                       # Post-setup walkthrough
     ├── TourOverlay.tsx            # Spotlight overlay
     ├── TourStep.tsx               # Step tooltip
-    ├── tourSteps.ts               # Step definitions
+    ├── TourWelcome.tsx            # Tour intro panel
+    ├── tourSteps.tsx              # Step definitions (.tsx now)
     └── useTour.tsx                # Tour state management
 ```
 
@@ -36,7 +56,8 @@ src/renderer/components/Wizard/
 1. **Agent Selection** → Select available AI (Claude Code, etc.) and project name
 2. **Directory Selection** → Choose project folder, validates Git repo status
 3. **Conversation** → AI asks clarifying questions, builds confidence score (0-100)
-4. **Phase Review** → View/edit generated Phase 1 document, choose to start tour
+4. **Preparing Plan** → Plan generation progress (Austin Facts, cancellable)
+5. **Phase Review** → View/edit generated Phase 1 document, choose to start tour
 
 When confidence reaches 80+ and agent signals "ready", user proceeds to Phase Review where Auto Run documents are generated and saved to `.maestro/playbooks/initiation/`. The `initiation/` subfolder keeps wizard-generated documents separate from user-created playbooks.
 
@@ -139,14 +160,14 @@ The tour highlights UI elements with spotlight cutouts:
 
 ### Customization Points
 
-| What                            | Where                                                                    |
-| ------------------------------- | ------------------------------------------------------------------------ |
-| Add wizard step                 | `WizardContext.tsx` (WIZARD_TOTAL_STEPS, WizardStep type, STEP_INDEX)    |
-| Modify wizard prompts           | `src/prompts/wizard-*.md` (content), `services/wizardPrompts.ts` (logic) |
-| Change confidence threshold     | `READY_CONFIDENCE_THRESHOLD` in wizardPrompts.ts (default: 80)           |
-| Add tour step                   | `tour/tourSteps.ts` array                                                |
-| Modify Auto Run document format | `src/prompts/wizard-document-generation.md`                              |
-| Change wizard keyboard shortcut | `shortcuts.ts` → `openWizard`                                            |
+| What                            | Where                                                                                                                    |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Add wizard step                 | `WizardContext/constants.ts` (WIZARD_TOTAL_STEPS, STEP_INDEX, INDEX_TO_STEP), `WizardContext/types.ts` (WizardStep type) |
+| Modify wizard prompts           | `src/prompts/wizard-*.md` (content), `services/wizardPrompts.ts` (logic)                                                 |
+| Change confidence threshold     | `READY_CONFIDENCE_THRESHOLD` in wizardPrompts.ts (default: 80)                                                           |
+| Add tour step                   | `tour/tourSteps.tsx` array                                                                                               |
+| Modify Auto Run document format | `src/prompts/wizard-document-generation.md`                                                                              |
+| Change wizard keyboard shortcut | `shortcuts.ts` → `openWizard`                                                                                            |
 
 ### Related Settings
 
@@ -188,12 +209,20 @@ The Inline Wizard creates Auto Run Playbook documents from within an existing ag
 
 ```
 src/renderer/components/InlineWizard/
-├── WizardConversationView.tsx  # Conversation phase UI
-├── WizardInputPanel.tsx        # Input with confidence gauge
-├── DocumentGenerationView.tsx  # Generation phase with Austin Facts
-└── ... (see index.ts for full documentation)
+├── WizardConversationView.tsx     # Conversation phase UI
+├── WizardInputPanel.tsx           # Input with confidence gauge
+├── WizardConfidenceGauge.tsx      # Confidence meter widget
+├── WizardMessageBubble.tsx        # Per-message rendering
+├── WizardModePrompt.tsx           # Mode-selection entry prompt
+├── WizardPill.tsx                 # Inline status pill
+├── WizardExitConfirmDialog.tsx    # Exit confirmation
+├── DocumentGenerationView.tsx     # Generation phase with Austin Facts
+├── AustinFactsDisplay.tsx         # Facts shown during generation
+├── StreamingDocumentPreview.tsx   # Live preview of streamed docs
+├── GenerationCompleteOverlay.tsx  # Post-generation summary
+└── index.ts                       # See for full documentation
 
-src/renderer/hooks/useInlineWizard.ts    # Main hook
+src/renderer/hooks/batch/useInlineWizard.ts    # Main hook
 src/renderer/contexts/InlineWizardContext.tsx  # State provider
 ```
 

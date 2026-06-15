@@ -20,19 +20,27 @@ All stores are in `src/renderer/stores/`.
 
 ## Store Inventory
 
-| Store                 | File                   | Hook                   | Purpose                                                                                     |
-| --------------------- | ---------------------- | ---------------------- | ------------------------------------------------------------------------------------------- |
-| **sessionStore**      | `sessionStore.ts`      | `useSessionStore`      | Sessions, groups, active session, bookmarks, worktree tracking, initialization              |
-| **uiStore**           | `uiStore.ts`           | `useUIStore`           | UI layout: sidebars, focus, notifications, search, drag-and-drop, editing                   |
-| **tabStore**          | `tabStore.ts`          | `useTabStore`          | Tab operations (CRUD, navigation, metadata), gist state. Wraps tabHelpers.ts + sessionStore |
-| **agentStore**        | `agentStore.ts`        | `useAgentStore`        | Agent detection cache, error recovery, queue processing, agent lifecycle                    |
-| **modalStore**        | `modalStore.ts`        | `useModalStore`        | Modal visibility via registry pattern. Single Map replaces 90+ boolean fields               |
-| **groupChatStore**    | `groupChatStore.ts`    | `useGroupChatStore`    | Group chat state: chats list, messages, moderator, participants, execution queue            |
-| **settingsStore**     | `settingsStore.ts`     | `useSettingsStore`     | App settings (theme, font, shortcuts, agent configs, etc.)                                  |
-| **fileExplorerStore** | `fileExplorerStore.ts` | `useFileExplorerStore` | File explorer panel state                                                                   |
-| **batchStore**        | `batchStore.ts`        | `useBatchStore`        | Batch/Auto Run execution state                                                              |
-| **notificationStore** | `notificationStore.ts` | `useNotificationStore` | In-app notification queue                                                                   |
-| **operationStore**    | `operationStore.ts`    | `useOperationStore`    | Long-running operation tracking                                                             |
+| Store                   | File                     | Hook                     | Purpose                                                                                     |
+| ----------------------- | ------------------------ | ------------------------ | ------------------------------------------------------------------------------------------- |
+| **sessionStore**        | `sessionStore.ts`        | `useSessionStore`        | Sessions, groups, active session, bookmarks, worktree tracking, initialization              |
+| **uiStore**             | `uiStore.ts`             | `useUIStore`             | UI layout: sidebars, focus, notifications, search, drag-and-drop, editing                   |
+| **tabStore**            | `tabStore.ts`            | `useTabStore`            | Tab operations (CRUD, navigation, metadata), gist state. Wraps tabHelpers.ts + sessionStore |
+| **agentStore**          | `agentStore.ts`          | `useAgentStore`          | Agent detection cache, error recovery, queue processing, agent lifecycle                    |
+| **modalStore**          | `modalStore.ts`          | `useModalStore`          | Modal visibility via registry pattern. Single Map replaces 90+ boolean fields               |
+| **groupChatStore**      | `groupChatStore.ts`      | `useGroupChatStore`      | Group chat state: chats list, messages, moderator, participants, execution queue            |
+| **settingsStore**       | `settingsStore.ts`       | `useSettingsStore`       | App settings (theme, font, shortcuts, agent configs, etc.)                                  |
+| **fileExplorerStore**   | `fileExplorerStore.ts`   | `useFileExplorerStore`   | File explorer panel state                                                                   |
+| **batchStore**          | `batchStore.ts`          | `useBatchStore`          | Batch/Auto Run execution state                                                              |
+| **notificationStore**   | `notificationStore.ts`   | `useNotificationStore`   | In-app notification queue (`notifyToast` helper)                                            |
+| **operationStore**      | `operationStore.ts`      | `useOperationStore`      | Long-running operation tracking                                                             |
+| **centerFlashStore**    | `centerFlashStore.ts`    | `useCenterFlashStore`    | Center-screen flash overlay (`notifyFlash`, `flashCopiedToClipboard`)                       |
+| **claudeUsageStore**    | `claudeUsageStore.ts`    | `useClaudeUsageStore`    | Claude usage sampler state mirrored to the renderer                                         |
+| **codexUsageStore**     | `codexUsageStore.ts`     | `useCodexUsageStore`     | Codex usage sampler state mirrored to the renderer                                          |
+| **cueDirtyStore**       | `cueDirtyStore.ts`       | `useCueDirtyStore`       | Tracks unsaved edits in the Cue YAML / pipeline editors                                     |
+| **feedbackDraftStore**  | `feedbackDraftStore.ts`  | `useFeedbackDraftStore`  | Draft state for the like/dislike feedback flow                                              |
+| **messageGistStore**    | `messageGistStore.ts`    | `useMessageGistStore`    | Per-message GitHub Gist publish state                                                       |
+| **quitWhenIdleStore**   | `quitWhenIdleStore.ts`   | `useQuitWhenIdleStore`   | "Quit when idle" countdown / cancel state                                                   |
+| **restartPendingStore** | `restartPendingStore.ts` | `useRestartPendingStore` | Pending app-restart prompt (after updates/setting changes)                                  |
 
 ---
 

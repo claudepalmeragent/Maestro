@@ -135,16 +135,16 @@ Socket path: `/tmp/maestro-ssh-%C` (where `%C` is an SSH hash of the connection 
 
 The health monitor (`ssh-health-monitor.ts`) establishes master connections. Pre-flight validation (`ssh-socket-cleanup.ts`) checks socket health via `ssh -O check` before each operation (~1ms local check, cached 30s). Stale sockets are automatically cleaned up and masters re-established.
 
-**p-limit concurrency for SSH commands:**
+**Per-host concurrency limiter for SSH commands:**
 
 ```typescript
-// remote-fs.ts caps concurrent SSH exec calls per host
-// Default MaxSessions=10, reserved=2 (for agent process + overhead)
-// Effective limit: 8 concurrent SSH channels per host
-const DEFAULT_MAX_SSH_SESSIONS = 10;
-const RESERVED_SSH_CHANNELS = 2;
-// Configurable via SshRemoteConfig.maxSessions
-// Excess calls are queued FIFO — never dropped or errored
+// remote-fs.ts caps concurrent SSH exec calls per host using a custom
+// async semaphore (HostLimiter) keyed by `${user}@${host}:${port}`.
+// 4 in-flight per host steady-state — well below cloudflared's burst
+// threshold while still keeping multi-thousand-directory walks moving.
+const MAX_CONCURRENT_SSH_PER_HOST = 4;
+// Excess calls are queued FIFO — never dropped or errored.
+// `resetHostLimiter(config)` rebuilds the limiter when SSH settings change.
 ```
 
 **Find-based remote tree loading:**
