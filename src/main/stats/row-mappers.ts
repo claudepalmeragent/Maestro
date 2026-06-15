@@ -28,6 +28,7 @@ export interface QueryEventRow {
 	project_path: string | null;
 	tab_id: string | null;
 	is_remote: number | null;
+	is_worktree: number | null;
 	input_tokens: number | null;
 	output_tokens: number | null;
 	tokens_per_second: number | null;
@@ -83,6 +84,7 @@ export interface SessionLifecycleRow {
 	closed_at: number | null;
 	duration: number | null;
 	is_remote: number | null;
+	is_worktree: number | null;
 }
 
 export interface MigrationRecordRow {
@@ -109,6 +111,7 @@ export function mapQueryEventRow(row: QueryEventRow): QueryEvent {
 		projectPath: row.project_path ?? undefined,
 		tabId: row.tab_id ?? undefined,
 		isRemote: row.is_remote !== null ? row.is_remote === 1 : undefined,
+		isWorktree: row.is_worktree !== null ? row.is_worktree === 1 : undefined,
 		inputTokens: row.input_tokens ?? undefined,
 		outputTokens: row.output_tokens ?? undefined,
 		tokensPerSecond: row.tokens_per_second ?? undefined,
@@ -169,6 +172,7 @@ export function mapSessionLifecycleRow(row: SessionLifecycleRow): SessionLifecyc
 		closedAt: row.closed_at ?? undefined,
 		duration: row.duration ?? undefined,
 		isRemote: row.is_remote !== null ? row.is_remote === 1 : undefined,
+		isWorktree: row.is_worktree !== null ? row.is_worktree === 1 : undefined,
 	};
 }
 

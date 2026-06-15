@@ -419,7 +419,7 @@ describe('TransferProgressModal', () => {
 			);
 
 			expect(screen.getByText('Elapsed:')).toBeInTheDocument();
-			expect(screen.getByText('0s')).toBeInTheDocument();
+			expect(screen.getByText('0ms')).toBeInTheDocument();
 		});
 
 		it('updates elapsed time every second', async () => {
@@ -434,7 +434,7 @@ describe('TransferProgressModal', () => {
 				/>
 			);
 
-			expect(screen.getByText('0s')).toBeInTheDocument();
+			expect(screen.getByText('0ms')).toBeInTheDocument();
 
 			// Use act to wrap the timer advancement
 			await act(async () => {

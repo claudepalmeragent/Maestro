@@ -10,27 +10,33 @@ import React, {
 import {
 	PanelRightClose,
 	PanelRightOpen,
-	Loader2,
 	GitBranch,
 	Skull,
 	AlertTriangle,
+	Play,
+	XCircle,
+	Square,
 } from 'lucide-react';
+import { Spinner } from './ui/Spinner';
 import type { Session, Theme, RightPanelTab, BatchRunState, PinnedItem } from '../types';
 import type { FileTreeChanges } from '../utils/fileExplorer';
 import { FileExplorerPanel } from './FileExplorerPanel';
 import { HistoryPanel, HistoryPanelHandle } from './HistoryPanel';
 import { AutoRun, AutoRunHandle } from './AutoRun';
-import { AutoRunExpandedModal } from './AutoRunExpandedModal';
+import { AutoRunExpandedModal } from './AutoRun/AutoRunExpandedModal';
 import { PinnedPanel } from './PinnedPanel';
 import { formatShortcutKeys } from '../utils/shortcutFormatter';
 import { BatchRunStats } from './BatchRunStats';
 import { ConfirmModal } from './ConfirmModal';
 import { useResizablePanel } from '../hooks';
+import { useAutoRunAutoFollow } from '../hooks/batch/useAutoRunAutoFollow';
 import { useUIStore } from '../stores/uiStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useFileExplorerStore } from '../stores/fileExplorerStore';
 import { useBatchStore } from '../stores/batchStore';
-import { useSessionStore } from '../stores/sessionStore';
+import { useSessionStore, selectActiveSession } from '../stores/sessionStore';
+import type { FileNode } from '../types/fileTree';
+import { RIGHT_PANEL_MIN_WIDTH, RIGHT_PANEL_MAX_WIDTH } from '../constants/rightPanel';
 
 export interface RightPanelHandle {
 	refreshHistoryPanel: () => void;
@@ -57,7 +63,12 @@ interface RightPanelProps {
 		activeSessionId: string,
 		setSessions: React.Dispatch<React.SetStateAction<Session[]>>
 	) => void;
-	handleFileClick: (node: any, path: string, activeSession: Session) => Promise<void>;
+	toggleFolderRecursive: (
+		path: string,
+		activeSessionId: string,
+		setSessions: React.Dispatch<React.SetStateAction<Session[]>>
+	) => void;
+	handleFileClick: (node: FileNode, path: string, activeSession: Session) => Promise<void>;
 	expandAllFolders: (
 		activeSessionId: string,
 		activeSession: Session,
@@ -72,6 +83,7 @@ interface RightPanelProps {
 		setSessions: React.Dispatch<React.SetStateAction<Session[]>>
 	) => Promise<void>;
 	refreshFileTree: (sessionId: string) => Promise<FileTreeChanges | undefined>;
+	cancelFileTreeLoad: (sessionId: string) => void;
 	onAutoRefreshChange?: (interval: number) => void;
 	onShowFlash?: (message: string) => void;
 
@@ -99,7 +111,7 @@ interface RightPanelProps {
 	onResumeAfterError?: () => void;
 	onJumpToAgentSession?: (agentSessionId: string) => void;
 	onResumeSession?: (agentSessionId: string) => void;
-	onOpenSessionAsTab?: (agentSessionId: string) => void;
+	onOpenSessionAsTab?: (agentSessionId: string, projectPath?: string) => void;
 
 	// Modal handlers
 	onOpenAboutModal?: () => void;
@@ -114,14 +126,15 @@ interface RightPanelProps {
 	onUnpinMessage: (logId: string) => void;
 	onReorderPins: (orderedLogIds: string[]) => void;
 	onScrollToMessage: (timestamp: number) => void;
+
+	// Browser tab handler - used by file-tree "Open in Maestro Browser"
+	onOpenBrowserTabAt?: (url: string, options?: { title?: string }) => void;
 }
 
 export const RightPanel = memo(
 	forwardRef<RightPanelHandle, RightPanelProps>(function RightPanel(props, ref) {
 		// === State from stores (direct subscriptions — no prop drilling) ===
-		const session = useSessionStore(
-			(s) => s.sessions.find((x) => x.id === s.activeSessionId) ?? null
-		);
+		const session = useSessionStore(selectActiveSession);
 		const setSessions = useSessionStore((s) => s.setSessions);
 
 		const rightPanelOpen = useUIStore((s) => s.rightPanelOpen);
@@ -133,14 +146,15 @@ export const RightPanel = memo(
 		const rightPanelWidth = useSettingsStore((s) => s.rightPanelWidth);
 		const shortcuts = useSettingsStore((s) => s.shortcuts);
 		const showHiddenFiles = useSettingsStore((s) => s.showHiddenFiles);
+		const fileExplorerIconTheme = useSettingsStore((s) => s.fileExplorerIconTheme);
 		const setRightPanelWidth = useSettingsStore((s) => s.setRightPanelWidth);
 		const setShowHiddenFiles = useSettingsStore((s) => s.setShowHiddenFiles);
+		const autoRunDisabled = useSettingsStore((s) => s.autoRunDisabled);
 
 		const fileTreeFilter = useFileExplorerStore((s) => s.fileTreeFilter);
 		const fileTreeFilterOpen = useFileExplorerStore((s) => s.fileTreeFilterOpen);
 		const filteredFileTree = useFileExplorerStore((s) => s.filteredFileTree);
 		const selectedFileIndex = useFileExplorerStore((s) => s.selectedFileIndex);
-		const lastGraphFocusFile = useFileExplorerStore((s) => s.lastGraphFocusFilePath);
 		const setFileTreeFilter = useFileExplorerStore((s) => s.setFileTreeFilter);
 		const setFileTreeFilterOpen = useFileExplorerStore((s) => s.setFileTreeFilterOpen);
 		const setSelectedFileIndex = useFileExplorerStore((s) => s.setSelectedFileIndex);
@@ -150,6 +164,16 @@ export const RightPanel = memo(
 		const autoRunIsLoadingDocuments = useBatchStore((s) => s.isLoadingDocuments);
 		const autoRunDocumentTaskCounts = useBatchStore((s) => s.documentTaskCounts);
 
+		// Direct store subscription for error state — the prop chain passes error state
+		// through updateBatchStateAndBroadcast/UPDATE_PROGRESS which drops error fields.
+		const sessionId = session?.id;
+		const errorPaused = useBatchStore(
+			useCallback((s) => s.batchRunStates[sessionId ?? '']?.errorPaused ?? false, [sessionId])
+		);
+		const batchError = useBatchStore(
+			useCallback((s) => s.batchRunStates[sessionId ?? '']?.error, [sessionId])
+		);
+
 		// === Props (domain-hook handlers + theme + batch state + refs) ===
 		const {
 			theme,
@@ -157,11 +181,13 @@ export const RightPanel = memo(
 			fileTreeContainerRef,
 			fileTreeFilterInputRef,
 			toggleFolder,
+			toggleFolderRecursive,
 			handleFileClick,
 			expandAllFolders,
 			collapseAllFolders,
 			updateSessionWorkingDirectory,
 			refreshFileTree,
+			cancelFileTreeLoad,
 			onAutoRefreshChange,
 			onShowFlash,
 			onAutoRunContentChange,
@@ -191,6 +217,7 @@ export const RightPanel = memo(
 			onUnpinMessage,
 			onReorderPins,
 			onScrollToMessage,
+			onOpenBrowserTabAt,
 		} = props;
 
 		// === Values derived from session ===
@@ -205,8 +232,8 @@ export const RightPanel = memo(
 			transitionClass: rightPanelTransitionClass,
 		} = useResizablePanel({
 			width: rightPanelWidth,
-			minWidth: 384,
-			maxWidth: 800,
+			minWidth: RIGHT_PANEL_MIN_WIDTH,
+			maxWidth: RIGHT_PANEL_MAX_WIDTH,
 			settingsKey: 'rightPanelWidth',
 			setWidth: setRightPanelWidth,
 			side: 'right',
@@ -244,6 +271,18 @@ export const RightPanel = memo(
 				prevSelectedFileRef.current = session?.autoRunSelectedFile;
 			}
 		}, [autoRunContent, autoRunContentVersion, session?.id, session?.autoRunSelectedFile]);
+
+		// Auto-follow: automatically select the active document during batch runs
+		const { autoFollowEnabled, setAutoFollowEnabled } = useAutoRunAutoFollow({
+			currentSessionBatchState,
+			onAutoRunSelectDocument,
+			selectedFile: session?.autoRunSelectedFile ?? null,
+			setActiveRightTab,
+			rightPanelOpen,
+			setRightPanelOpen,
+			onAutoRunModeChange,
+			currentMode: session?.autoRunMode,
+		});
 
 		// Expanded modal state for Auto Run
 		const [autoRunExpanded, setAutoRunExpanded] = useState(false);
@@ -385,23 +424,35 @@ export const RightPanel = memo(
 			onOpenMarketplace,
 			onLaunchWizard,
 			onShowFlash,
+			autoFollowEnabled,
 		};
 
 		return (
 			<div
 				ref={panelRef}
 				tabIndex={0}
-				className={`border-l flex flex-col ${rightPanelTransitionClass} outline-none relative ${rightPanelOpen ? '' : 'w-0 overflow-hidden opacity-0'} ${activeFocus === 'right' ? 'ring-1 ring-inset z-10' : ''}`}
+				className={`border-l flex flex-col ${rightPanelTransitionClass} outline-none relative ${rightPanelOpen ? '' : 'w-0 overflow-hidden opacity-0'}`}
 				style={
 					{
 						width: rightPanelOpen ? `${rightPanelWidth}px` : '0',
 						backgroundColor: theme.colors.bgSidebar,
 						borderColor: theme.colors.border,
-						'--tw-ring-color': theme.colors.accent,
+						boxShadow:
+							activeFocus === 'right'
+								? `inset 1px 0 0 ${theme.colors.accent}, inset -1px 0 0 ${theme.colors.accent}, inset 0 -1px 0 ${theme.colors.accent}`
+								: undefined,
 					} as React.CSSProperties
 				}
 				onClick={() => setActiveFocus('right')}
 				onFocus={() => setActiveFocus('right')}
+				onBlur={(e) => {
+					// Clear focus ring when focus moves entirely outside this panel
+					if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+						if (useUIStore.getState().activeFocus === 'right') {
+							setActiveFocus('main');
+						}
+					}
+				}}
 			>
 				{/* Resize Handle */}
 				{rightPanelOpen && (
@@ -413,24 +464,26 @@ export const RightPanel = memo(
 
 				{/* Tab Header */}
 				<div className="flex border-b h-16" style={{ borderColor: theme.colors.border }}>
-					{['files', 'history', 'autorun', 'pins'].map((tab) => (
-						<button
-							key={tab}
-							onClick={() => setActiveRightTab(tab as RightPanelTab)}
-							className="flex-1 text-xs font-bold border-b-2 transition-colors"
-							style={{
-								borderColor: activeRightTab === tab ? theme.colors.accent : 'transparent',
-								color: activeRightTab === tab ? theme.colors.textMain : theme.colors.textDim,
-							}}
-							data-tour={`${tab}-tab`}
-						>
-							{tab === 'autorun'
-								? 'Auto Run'
-								: tab === 'pins'
-									? 'Pins'
-									: tab.charAt(0).toUpperCase() + tab.slice(1)}
-						</button>
-					))}
+					{(['files', 'history', ...(autoRunDisabled ? [] : ['autorun']), 'pins'] as const).map(
+						(tab) => (
+							<button
+								key={tab}
+								onClick={() => setActiveRightTab(tab as RightPanelTab)}
+								className="flex-1 text-xs font-bold border-b-2 transition-colors"
+								style={{
+									borderColor: activeRightTab === tab ? theme.colors.accent : 'transparent',
+									color: activeRightTab === tab ? theme.colors.textMain : theme.colors.textDim,
+								}}
+								data-tour={`${tab}-tab`}
+							>
+								{tab === 'autorun'
+									? 'Auto Run'
+									: tab === 'pins'
+										? 'Pins'
+										: tab.charAt(0).toUpperCase() + tab.slice(1)}
+							</button>
+						)
+					)}
 
 					<button
 						onClick={() => setRightPanelOpen(!rightPanelOpen)}
@@ -448,7 +501,7 @@ export const RightPanel = memo(
 				{/* Tab Content */}
 				<div
 					ref={fileTreeContainerRef}
-					className="flex-1 px-4 pb-4 overflow-y-auto overflow-x-hidden min-w-[24rem] outline-none scrollbar-thin"
+					className="flex-1 px-4 pb-4 overflow-y-auto overflow-x-hidden outline-none scrollbar-thin"
 					tabIndex={-1}
 					onClick={(e) => {
 						setActiveFocus('right');
@@ -491,19 +544,21 @@ export const RightPanel = memo(
 							setActiveFocus={setActiveFocus}
 							fileTreeFilterInputRef={fileTreeFilterInputRef}
 							toggleFolder={toggleFolder}
+							toggleFolderRecursive={toggleFolderRecursive}
 							handleFileClick={handleFileClick}
 							expandAllFolders={expandAllFolders}
 							collapseAllFolders={collapseAllFolders}
 							updateSessionWorkingDirectory={updateSessionWorkingDirectory}
 							refreshFileTree={refreshFileTree}
+							cancelFileTreeLoad={cancelFileTreeLoad}
 							setSessions={setSessions}
 							onAutoRefreshChange={onAutoRefreshChange}
 							onShowFlash={onShowFlash}
 							showHiddenFiles={showHiddenFiles}
+							fileExplorerIconTheme={fileExplorerIconTheme}
 							setShowHiddenFiles={setShowHiddenFiles}
 							onFocusFileInGraph={onFocusFileInGraph}
-							lastGraphFocusFile={lastGraphFocusFile}
-							onOpenLastDocumentGraph={onOpenLastDocumentGraph}
+							onOpenBrowserTabAt={onOpenBrowserTabAt}
 						/>
 					</div>
 
@@ -523,7 +578,7 @@ export const RightPanel = memo(
 						</div>
 					)}
 
-					{activeRightTab === 'autorun' && (
+					{activeRightTab === 'autorun' && !autoRunDisabled && (
 						<div data-tour="autorun-panel" className="h-full">
 							<AutoRun ref={autoRunRef} {...autoRunSharedProps} onExpand={handleExpandAutoRun} />
 						</div>
@@ -545,7 +600,7 @@ export const RightPanel = memo(
 				</div>
 
 				{/* Auto Run Expanded Modal */}
-				{autoRunExpanded && session && (
+				{autoRunExpanded && session && !autoRunDisabled && (
 					<AutoRunExpandedModal {...autoRunSharedProps} onClose={handleCollapseAutoRun} />
 				)}
 
@@ -554,26 +609,19 @@ export const RightPanel = memo(
 					<div
 						className="mx-4 mb-4 px-4 py-3 rounded border flex-shrink-0"
 						style={{
-							backgroundColor: currentSessionBatchState.errorPaused
-								? `${theme.colors.error}15`
-								: theme.colors.bgActivity,
-							borderColor: currentSessionBatchState.errorPaused
-								? theme.colors.error
-								: theme.colors.warning,
+							backgroundColor: errorPaused ? `${theme.colors.error}15` : theme.colors.bgActivity,
+							borderColor: errorPaused ? theme.colors.error : theme.colors.warning,
 						}}
 					>
 						{/* Header with status and elapsed time */}
 						<div className="flex items-center justify-between mb-2">
 							<div className="flex items-center gap-2">
-								{currentSessionBatchState.errorPaused ? (
+								{errorPaused ? (
 									<AlertTriangle className="w-4 h-4" style={{ color: theme.colors.error }} />
 								) : (
-									<Loader2
-										className="w-4 h-4 animate-spin"
-										style={{ color: theme.colors.warning }}
-									/>
+									<Spinner size={16} color={theme.colors.warning} />
 								)}
-								{currentSessionBatchState.errorPaused ? (
+								{errorPaused ? (
 									<button
 										onClick={() => setActiveRightTab('autorun')}
 										className="text-xs font-bold uppercase cursor-pointer hover:underline"
@@ -587,7 +635,7 @@ export const RightPanel = memo(
 										className="text-xs font-bold uppercase"
 										style={{ color: theme.colors.textMain }}
 									>
-										{currentSessionBatchState.isStopping ? 'Stopping...' : 'Auto Run Active'}
+										{currentSessionBatchState.isStopping ? 'Stopping' : 'Auto Run Active'}
 									</span>
 								)}
 								{currentSessionBatchState.worktreeActive && (
@@ -707,7 +755,7 @@ export const RightPanel = memo(
 												: 0
 									}%`,
 									backgroundColor:
-										currentSessionBatchState.isStopping || currentSessionBatchState.errorPaused
+										currentSessionBatchState.isStopping || errorPaused
 											? theme.colors.error
 											: theme.colors.warning,
 								}}
@@ -717,21 +765,52 @@ export const RightPanel = memo(
 						{/* Overall completed count with loop info */}
 						<div className="mt-2 flex items-start justify-between gap-2">
 							<span
-								className="text-[10px]"
+								className="text-[10px] min-w-0 flex-1 truncate"
 								style={{
-									color: currentSessionBatchState.errorPaused
-										? theme.colors.error
-										: theme.colors.textDim,
+									color: errorPaused ? theme.colors.error : theme.colors.textDim,
 								}}
 							>
-								{currentSessionBatchState.errorPaused
-									? currentSessionBatchState.error?.message || 'Paused due to error'
+								{errorPaused
+									? batchError?.message || 'Paused due to error'
 									: currentSessionBatchState.isStopping
 										? 'Waiting for current task to complete before stopping...'
 										: currentSessionBatchState.totalTasksAcrossAllDocs > 0
 											? `${currentSessionBatchState.completedTasksAcrossAllDocs} of ${currentSessionBatchState.totalTasksAcrossAllDocs} tasks completed`
 											: `${currentSessionBatchState.completedTasks} of ${currentSessionBatchState.totalTasks} tasks completed`}
 							</span>
+							{/* Resume/Abort buttons when error-paused */}
+							{errorPaused && (
+								<div className="flex items-center gap-1.5 shrink-0">
+									{batchError?.recoverable && onResumeAfterError && (
+										<button
+											onClick={onResumeAfterError}
+											className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-colors hover:opacity-80"
+											style={{
+												backgroundColor: theme.colors.accent,
+												color: theme.colors.accentForeground,
+											}}
+											title="Resume Auto Run after re-authenticating"
+										>
+											<Play className="w-3 h-3" />
+											Resume
+										</button>
+									)}
+									{onAbortBatchOnError && (
+										<button
+											onClick={onAbortBatchOnError}
+											className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-colors hover:opacity-80"
+											style={{
+												backgroundColor: theme.colors.error,
+												color: 'white',
+											}}
+											title="Stop Auto Run completely"
+										>
+											<XCircle className="w-3 h-3" />
+											Abort
+										</button>
+									)}
+								</div>
+							)}
 							<div className="flex items-center gap-2 shrink-0">
 								{/* Loop iteration indicator */}
 								{currentSessionBatchState.loopEnabled && (
@@ -746,8 +825,8 @@ export const RightPanel = memo(
 										{currentSessionBatchState.maxLoops ?? '∞'}
 									</span>
 								)}
-								{/* View history link - only shown on auto-run tab */}
-								{activeRightTab === 'autorun' && (
+								{/* View history link - shown on all tabs except history */}
+								{activeRightTab !== 'history' && (
 									<button
 										className="text-[10px] whitespace-nowrap bg-transparent border-none p-0 cursor-pointer"
 										style={{
@@ -782,6 +861,36 @@ export const RightPanel = memo(
 								</span>
 							</div>
 						)}
+
+						<div className="mt-2 flex items-center justify-between gap-2">
+							<label className="flex items-center gap-1.5 cursor-pointer">
+								<input
+									type="checkbox"
+									checked={autoFollowEnabled}
+									onChange={(e) => setAutoFollowEnabled(e.target.checked)}
+									className="w-3 h-3 rounded cursor-pointer accent-current"
+									style={{ accentColor: theme.colors.accent }}
+								/>
+								<span className="text-[10px]" style={{ color: theme.colors.textDim }}>
+									Follow active task
+								</span>
+							</label>
+							{!errorPaused && !currentSessionBatchState.isStopping && onStopBatchRun && (
+								<button
+									onClick={() => onStopBatchRun(session.id)}
+									className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-colors hover:opacity-80"
+									style={{
+										backgroundColor: theme.colors.error,
+										color: 'white',
+										border: `1px solid ${theme.colors.error}`,
+									}}
+									title="Stop auto-run after the current task finishes"
+								>
+									<Square className="w-3 h-3" />
+									Stop
+								</button>
+							)}
+						</div>
 					</div>
 				)}
 

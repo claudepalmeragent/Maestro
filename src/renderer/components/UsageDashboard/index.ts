@@ -8,3 +8,5 @@
 export { UsageDashboardModal } from './UsageDashboardModal';
 export { SessionStats } from './SessionStats';
 export { ReconstructionPanel } from './ReconstructionPanel';
+export { ClaudePlanUsage } from './ClaudePlanUsage';
+export { CodexPlanUsage } from './CodexPlanUsage';

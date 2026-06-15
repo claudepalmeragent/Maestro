@@ -32,6 +32,12 @@ export function createSettingsApi() {
 				pointsCleared: number;
 				backupPath: string | null;
 			}>,
+		/** Listen for external settings file changes (e.g., from maestro-cli) */
+		onExternalChange: (handler: () => void) => {
+			const wrappedHandler = () => handler();
+			ipcRenderer.on('settings:externalChange', wrappedHandler);
+			return () => ipcRenderer.removeListener('settings:externalChange', wrappedHandler);
+		},
 	};
 }
 
@@ -42,6 +48,16 @@ export function createSessionsApi() {
 	return {
 		getAll: () => ipcRenderer.invoke('sessions:getAll'),
 		setAll: (sessions: StoredSession[]) => ipcRenderer.invoke('sessions:setAll', sessions),
+		/**
+		 * Incremental persistence: merge `updates` into the stored sessions and
+		 * remove any whose id is in `removeIds`. Preferred over `setAll` for
+		 * debounced flushes — avoids cloning + serializing the entire sessions
+		 * tree on every change.
+		 */
+		setMany: (updates: StoredSession[], removeIds: string[] = []) =>
+			ipcRenderer.invoke('sessions:setMany', updates, removeIds),
+		getActiveSessionId: () => ipcRenderer.invoke('sessions:getActiveSessionId') as Promise<string>,
+		setActiveSessionId: (id: string) => ipcRenderer.invoke('sessions:setActiveSessionId', id),
 	};
 }
 

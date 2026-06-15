@@ -18,6 +18,7 @@ import { FastifyInstance, FastifyReply } from 'fastify';
 import path from 'path';
 import { existsSync, readFileSync } from 'fs';
 import { logger } from '../../utils/logger';
+import { captureException } from '../../utils/sentry';
 
 // Logger context for all static route logs
 const LOG_CONTEXT = 'WebServer:Static';
@@ -114,8 +115,7 @@ export class StaticRoutes {
 		}
 
 		const indexPath = path.join(this.webAssetsPath, 'index.html');
-		const cachedHtml = getCachedFile(indexPath);
-		if (cachedHtml === null) {
+		if (!existsSync(indexPath)) {
 			reply.code(404).send({
 				error: 'Not Found',
 				message: 'Web interface index.html not found.',
@@ -124,8 +124,8 @@ export class StaticRoutes {
 		}
 
 		try {
-			// Use cached HTML and transform asset paths
-			let html = cachedHtml;
+			// Read index.html fresh so rebuilt asset hashes are reflected immediately.
+			let html = readFileSync(indexPath, 'utf-8');
 
 			// Transform relative paths to use the token-prefixed absolute paths
 			html = html.replace(/\.\/assets\//g, `/${this.securityToken}/assets/`);
@@ -152,6 +152,7 @@ export class StaticRoutes {
 
 			reply.type('text/html').send(html);
 		} catch (err) {
+			void captureException(err);
 			logger.error('Error serving index.html', LOG_CONTEXT, err);
 			reply.code(500).send({
 				error: 'Internal Server Error',

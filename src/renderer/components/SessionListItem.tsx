@@ -67,6 +67,8 @@ export interface SessionListItemProps {
 	renameValue: string;
 	/** Current search mode for conditional display */
 	searchMode: 'title' | 'user' | 'assistant' | 'all';
+	/** Current search query (used to highlight matches inside the preview) */
+	searchQuery?: string;
 	/** Search result info for content searches (optional) */
 	searchResultInfo?: SearchResultInfo | null;
 	/** Theme for styling */
@@ -106,6 +108,43 @@ export interface SessionListItemProps {
 /**
  * SessionListItem component for rendering a single session row
  */
+/**
+ * Render a preview string with case-insensitive occurrences of `query` visually
+ * emphasized. Falls back to plain text if the query is empty or not present.
+ */
+function renderHighlightedPreview(
+	preview: string,
+	query: string | undefined,
+	accentColor: string
+): React.ReactNode {
+	if (!query) return preview;
+	const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+	const regex = new RegExp(`(${escaped})`, 'gi');
+	const parts = preview.split(regex);
+	if (parts.length === 1) return preview;
+	let offset = 0;
+	return parts.map((part) => {
+		const key = offset;
+		offset += part.length;
+		return regex.test(part) ? (
+			<mark
+				key={key}
+				style={{
+					backgroundColor: accentColor,
+					color: '#fff',
+					padding: '0 2px',
+					borderRadius: '2px',
+					fontStyle: 'normal',
+				}}
+			>
+				{part}
+			</mark>
+		) : (
+			<span key={key}>{part}</span>
+		);
+	});
+}
+
 export function SessionListItem({
 	session,
 	index,
@@ -115,6 +154,7 @@ export function SessionListItem({
 	renamingSessionId,
 	renameValue,
 	searchMode,
+	searchQuery,
 	searchResultInfo,
 	theme,
 	selectedItemRef,
@@ -279,7 +319,10 @@ export function SessionListItem({
 					{session.origin === 'user' && (
 						<span
 							className="text-[10px] font-bold px-1.5 py-0.5 rounded"
-							style={{ backgroundColor: theme.colors.accent + '30', color: theme.colors.accent }}
+							style={{
+								backgroundColor: theme.colors.accent + '40',
+								color: theme.colors.accentText,
+							}}
 							title="User-initiated through Maestro"
 						>
 							MAESTRO
@@ -288,7 +331,7 @@ export function SessionListItem({
 					{session.origin === 'auto' && (
 						<span
 							className="text-[10px] font-bold px-1.5 py-0.5 rounded"
-							style={{ backgroundColor: theme.colors.warning + '30', color: theme.colors.warning }}
+							style={{ backgroundColor: theme.colors.warning + '40', color: theme.colors.warning }}
 							title="Auto-run session"
 						>
 							AUTO
@@ -297,7 +340,7 @@ export function SessionListItem({
 					{!session.origin && (
 						<span
 							className="text-[10px] font-bold px-1.5 py-0.5 rounded"
-							style={{ backgroundColor: theme.colors.border, color: theme.colors.textDim }}
+							style={{ backgroundColor: theme.colors.border, color: theme.colors.textMain }}
 							title="Claude Code CLI session"
 						>
 							CLI
@@ -307,7 +350,7 @@ export function SessionListItem({
 					{/* Session ID pill */}
 					<span
 						className="text-[10px] font-mono px-1.5 py-0.5 rounded"
-						style={{ backgroundColor: theme.colors.border + '60', color: theme.colors.textDim }}
+						style={{ backgroundColor: theme.colors.border, color: theme.colors.textMain }}
 					>
 						{session.sessionId.startsWith('agent-')
 							? `AGENT-${session.sessionId.split('-')[1]?.toUpperCase() || ''}`
@@ -351,25 +394,41 @@ export function SessionListItem({
 							<span className="text-[10px]">+{session.subagentCount}</span>
 						</span>
 					)}
-
-					{/* Show match count for content searches */}
-					{searchResultInfo && searchResultInfo.matchCount > 0 && searchMode !== 'title' && (
-						<span
-							className="flex items-center gap-1 px-1.5 py-0.5 rounded"
-							style={{ backgroundColor: theme.colors.accent + '20', color: theme.colors.accent }}
-						>
-							<Search className="w-3 h-3" />
-							{searchResultInfo.matchCount}
-						</span>
-					)}
-
-					{/* Show match preview for content searches */}
-					{searchResultInfo && searchResultInfo.matchPreview && searchMode !== 'title' && (
-						<span className="truncate italic max-w-[400px]" style={{ color: theme.colors.accent }}>
-							"{searchResultInfo.matchPreview}"
-						</span>
-					)}
 				</div>
+
+				{/* Match row: shown only for content searches with results */}
+				{searchResultInfo &&
+					searchMode !== 'title' &&
+					(searchResultInfo.matchCount > 0 || searchResultInfo.matchPreview) && (
+						<div
+							className="flex items-center gap-2 mt-1.5 text-xs min-w-0"
+							style={{ color: theme.colors.textDim }}
+						>
+							{searchResultInfo.matchCount > 0 && (
+								<span
+									className="flex items-center gap-1 px-1.5 py-0.5 rounded shrink-0"
+									style={{
+										backgroundColor: theme.colors.accent + '30',
+										color: theme.colors.accentText,
+									}}
+								>
+									<Search className="w-3 h-3" />
+									{searchResultInfo.matchCount}
+								</span>
+							)}
+							{searchResultInfo.matchPreview && (
+								<span className="truncate italic min-w-0" style={{ color: theme.colors.accent }}>
+									"
+									{renderHighlightedPreview(
+										searchResultInfo.matchPreview,
+										searchQuery,
+										theme.colors.accent
+									)}
+									"
+								</span>
+							)}
+						</div>
+					)}
 			</div>
 
 			{/* Active indicator */}

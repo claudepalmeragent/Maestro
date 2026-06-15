@@ -13,6 +13,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { logger } from '../../../renderer/utils/logger';
 
 // Use the REAL modalStore (not the global mock) since these tests verify store state changes
 vi.unmock('../../../renderer/stores/modalStore');
@@ -42,10 +43,6 @@ vi.mock('../../../renderer/utils/ids', () => ({
 
 vi.mock('../../../renderer/utils/sessionValidation', () => ({
 	validateNewSession: vi.fn(() => ({ valid: true, error: null })),
-}));
-
-vi.mock('../../../renderer/components/Wizard', () => ({
-	AUTO_RUN_FOLDER_NAME: 'Auto Run Docs',
 }));
 
 // ============================================================================
@@ -144,7 +141,7 @@ function createSession(overrides: Partial<Session> = {}): Session {
 		activeFileTabId: null,
 		unifiedTabOrder: [{ type: 'ai' as const, id: 'tab-1' }],
 		unifiedClosedTabHistory: [],
-		autoRunFolderPath: '/test/project/Auto Run Docs',
+		autoRunFolderPath: '/test/project/.maestro/playbooks',
 		...overrides,
 	} as Session;
 }
@@ -203,7 +200,7 @@ describe('useSessionCrud', () => {
 	// addNewSession
 	// ========================================================================
 	describe('addNewSession', () => {
-		it('opens the new instance modal', () => {
+		it('opens the new agent choice modal', () => {
 			const deps = createDeps();
 			const { result } = renderHook(() => useSessionCrud(deps));
 
@@ -211,7 +208,7 @@ describe('useSessionCrud', () => {
 				result.current.addNewSession();
 			});
 
-			expect(useModalStore.getState().isOpen('newInstance')).toBe(true);
+			expect(useModalStore.getState().isOpen('newAgentChoice')).toBe(true);
 		});
 	});
 
@@ -301,6 +298,7 @@ describe('useSessionCrud', () => {
 					undefined,
 					undefined,
 					undefined,
+					undefined,
 					{ enabled: true, remoteId: 'remote-1' }
 				);
 			});
@@ -323,6 +321,7 @@ describe('useSessionCrud', () => {
 					'claude-code',
 					'/test/project',
 					'Remote Session',
+					undefined,
 					undefined,
 					undefined,
 					undefined,
@@ -363,7 +362,7 @@ describe('useSessionCrud', () => {
 
 		it('handles agent not found', async () => {
 			mockMaestro.agents.get.mockResolvedValueOnce(null);
-			const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+			const consoleError = vi.spyOn(logger, 'error').mockImplementation(() => {});
 
 			const deps = createDeps();
 			const { result } = renderHook(() => useSessionCrud(deps));
@@ -387,23 +386,55 @@ describe('useSessionCrud', () => {
 					'/test/project',
 					'Custom Session',
 					'Do X first',
+					'Init instructions',
 					'/custom/path',
 					'--flag',
 					{ API_KEY: 'secret' },
 					'gpt-4',
 					8192,
-					'/custom/provider'
+					'/custom/provider',
+					undefined,
+					'high'
 				);
 			});
 
 			const session = useSessionStore.getState().sessions[0];
 			expect(session.nudgeMessage).toBe('Do X first');
+			expect(session.newSessionMessage).toBe('Init instructions');
 			expect(session.customPath).toBe('/custom/path');
 			expect(session.customArgs).toBe('--flag');
 			expect(session.customEnvVars).toEqual({ API_KEY: 'secret' });
 			expect(session.customModel).toBe('gpt-4');
 			expect(session.customContextWindow).toBe(8192);
 			expect(session.customProviderPath).toBe('/custom/provider');
+			expect(session.customEffort).toBe('high');
+		});
+
+		it('inherits groupId on the new session when provided (issue #827)', async () => {
+			const deps = createDeps();
+			const { result } = renderHook(() => useSessionCrud(deps));
+
+			await act(async () => {
+				await result.current.createNewSession(
+					'claude-code',
+					'/test/project',
+					'Duplicated Agent',
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					'group-abc'
+				);
+			});
+
+			const session = useSessionStore.getState().sessions[0];
+			expect(session.groupId).toBe('group-abc');
 		});
 
 		it('sets input mode to terminal for terminal agent', async () => {
@@ -450,7 +481,7 @@ describe('useSessionCrud', () => {
 			});
 
 			expect(useSessionStore.getState().sessions[0].autoRunFolderPath).toBe(
-				'/test/project/Auto Run Docs'
+				'/test/project/.maestro/playbooks'
 			);
 		});
 
@@ -485,7 +516,7 @@ describe('useSessionCrud', () => {
 			expect(useUIStore.getState().activeFocus).toBe('main');
 		});
 
-		it('creates unified tab order with initial tab', async () => {
+		it('creates unified tab order with only the initial AI tab (no default terminal tab)', async () => {
 			const deps = createDeps();
 			const { result } = renderHook(() => useSessionCrud(deps));
 
@@ -498,9 +529,14 @@ describe('useSessionCrud', () => {
 			});
 
 			const session = useSessionStore.getState().sessions[0];
+			// New sessions start with only an AI tab — terminal tabs are created on demand
 			expect(session.unifiedTabOrder).toHaveLength(1);
-			expect(session.unifiedTabOrder[0].type).toBe('ai');
-			expect(session.unifiedTabOrder[0].id).toBe(session.activeTabId);
+			const aiRef = session.unifiedTabOrder.find((r) => r.type === 'ai');
+			const termRef = session.unifiedTabOrder.find((r) => r.type === 'terminal');
+			expect(aiRef).toBeDefined();
+			expect(aiRef!.id).toBe(session.activeTabId);
+			expect(termRef).toBeUndefined();
+			expect(session.terminalTabs).toHaveLength(0);
 		});
 	});
 
@@ -837,7 +873,7 @@ describe('useSessionCrud', () => {
 
 		it('continues even if process kill fails', async () => {
 			mockMaestro.process.kill.mockRejectedValueOnce(new Error('kill failed'));
-			const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+			const consoleError = vi.spyOn(logger, 'error').mockImplementation(() => {});
 
 			useSessionStore.setState({
 				groups: [{ id: 'grp-1', name: 'Error Group' }],

@@ -16,6 +16,12 @@ export interface ModeratorConfig {
 	customPath?: string;
 	customArgs?: string;
 	customEnvVars?: Record<string, string>;
+	/** Claude token-source opt-in (Claude Code moderator only). */
+	enableMaestroP?: boolean;
+	/** Refines enableMaestroP: 'interactive' (always TUI) vs 'dynamic' (auto-switch). */
+	maestroPMode?: 'interactive' | 'dynamic';
+	/** Optional maestro-p script override. */
+	maestroPPath?: string;
 }
 
 /**
@@ -120,6 +126,11 @@ export function createGroupChatApi() {
 
 		stopModerator: (id: string) => ipcRenderer.invoke('groupChat:stopModerator', id),
 
+		stopAll: (id: string) => ipcRenderer.invoke('groupChat:stopAll', id),
+
+		reportAutoRunComplete: (groupChatId: string, participantName: string, summary: string) =>
+			ipcRenderer.invoke('groupChat:reportAutoRunComplete', groupChatId, participantName, summary),
+
 		getModeratorSessionId: (id: string) =>
 			ipcRenderer.invoke('groupChat:getModeratorSessionId', id),
 
@@ -217,6 +228,31 @@ export function createGroupChatApi() {
 			) => callback(groupChatId, participantName, state);
 			ipcRenderer.on('groupChat:participantState', handler);
 			return () => ipcRenderer.removeListener('groupChat:participantState', handler);
+		},
+
+		onParticipantLiveOutput: (
+			callback: (groupChatId: string, participantName: string, chunk: string) => void
+		) => {
+			const handler = (_: any, groupChatId: string, participantName: string, chunk: string) =>
+				callback(groupChatId, participantName, chunk);
+			ipcRenderer.on('groupChat:participantLiveOutput', handler);
+			return () => ipcRenderer.removeListener('groupChat:participantLiveOutput', handler);
+		},
+
+		onAutoRunTriggered: (
+			callback: (groupChatId: string, participantName: string, filename?: string) => void
+		) => {
+			const handler = (_: any, groupChatId: string, participantName: string, filename?: string) =>
+				callback(groupChatId, participantName, filename);
+			ipcRenderer.on('groupChat:autoRunTriggered', handler);
+			return () => ipcRenderer.removeListener('groupChat:autoRunTriggered', handler);
+		},
+
+		onAutoRunBatchComplete: (callback: (groupChatId: string, participantName: string) => void) => {
+			const handler = (_: any, groupChatId: string, participantName: string) =>
+				callback(groupChatId, participantName);
+			ipcRenderer.on('groupChat:autoRunBatchComplete', handler);
+			return () => ipcRenderer.removeListener('groupChat:autoRunBatchComplete', handler);
 		},
 
 		onModeratorSessionIdChanged: (callback: (groupChatId: string, sessionId: string) => void) => {

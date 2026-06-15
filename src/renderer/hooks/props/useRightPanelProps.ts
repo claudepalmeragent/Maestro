@@ -8,8 +8,17 @@
  */
 
 import { useMemo } from 'react';
-import type { Session, Theme, RightPanelTab, BatchRunState, PinnedItem } from '../../types';
+import type {
+	Session,
+	Theme,
+	RightPanelTab,
+	BatchRunState,
+	PinnedItem,
+	LogEntry,
+	UsageStats,
+} from '../../types';
 import type { FileTreeChanges } from '../../utils/fileExplorer';
+import type { FileNode } from '../../types/fileTree';
 
 /**
  * Dependencies for computing RightPanel props.
@@ -32,7 +41,12 @@ export interface UseRightPanelPropsDeps {
 		activeSessionId: string,
 		setSessions: React.Dispatch<React.SetStateAction<Session[]>>
 	) => void;
-	handleFileClick: (node: any, path: string, activeSession: Session) => Promise<void>;
+	toggleFolderRecursive: (
+		path: string,
+		activeSessionId: string,
+		setSessions: React.Dispatch<React.SetStateAction<Session[]>>
+	) => void;
+	handleFileClick: (node: FileNode, path: string, activeSession: Session) => Promise<void>;
 	expandAllFolders: (
 		activeSessionId: string,
 		activeSession: Session,
@@ -47,6 +61,7 @@ export interface UseRightPanelPropsDeps {
 		setSessions: React.Dispatch<React.SetStateAction<Session[]>>
 	) => Promise<void>;
 	refreshFileTree: (sessionId: string) => Promise<FileTreeChanges | undefined>;
+	cancelFileTreeLoad: (sessionId: string) => void;
 	handleAutoRefreshChange: (interval: number) => void;
 	showSuccessFlash: (message: string) => void;
 
@@ -73,7 +88,14 @@ export interface UseRightPanelPropsDeps {
 	handleAbortBatchOnError: () => void;
 	handleResumeAfterError: () => void;
 	handleJumpToAgentSession: (agentSessionId: string) => void;
-	handleResumeSession: (agentSessionId: string) => void;
+	handleResumeSession: (
+		agentSessionId: string,
+		providedMessages?: LogEntry[],
+		sessionName?: string,
+		starred?: boolean,
+		usageStats?: UsageStats,
+		projectPath?: string
+	) => void;
 
 	// Modal handlers
 	handleOpenAboutModal: () => void;
@@ -92,6 +114,9 @@ export interface UseRightPanelPropsDeps {
 	handleUnpinMessage: (logId: string) => void;
 	handleReorderPins: (orderedLogIds: string[]) => void;
 	handleScrollToMessage: (timestamp: number) => void;
+
+	// Browser tab handler - used by file-tree "Open in Maestro Browser"
+	handleOpenBrowserTabAt: (url: string, options?: { title?: string }) => void;
 }
 
 /**
@@ -113,11 +138,13 @@ export function useRightPanelProps(deps: UseRightPanelPropsDeps) {
 
 			// File explorer handlers
 			toggleFolder: deps.toggleFolder,
+			toggleFolderRecursive: deps.toggleFolderRecursive,
 			handleFileClick: deps.handleFileClick,
 			expandAllFolders: deps.expandAllFolders,
 			collapseAllFolders: deps.collapseAllFolders,
 			updateSessionWorkingDirectory: deps.updateSessionWorkingDirectory,
 			refreshFileTree: deps.refreshFileTree,
+			cancelFileTreeLoad: deps.cancelFileTreeLoad,
 			onAutoRefreshChange: deps.handleAutoRefreshChange,
 			onShowFlash: deps.showSuccessFlash,
 
@@ -140,7 +167,15 @@ export function useRightPanelProps(deps: UseRightPanelPropsDeps) {
 			onResumeAfterError: deps.handleResumeAfterError,
 			onJumpToAgentSession: deps.handleJumpToAgentSession,
 			onResumeSession: deps.handleResumeSession,
-			onOpenSessionAsTab: deps.handleResumeSession,
+			onOpenSessionAsTab: (agentSessionId: string, projectPath?: string) =>
+				deps.handleResumeSession(
+					agentSessionId,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					projectPath
+				),
 
 			// Modal handlers
 			onOpenAboutModal: deps.handleOpenAboutModal,
@@ -159,6 +194,9 @@ export function useRightPanelProps(deps: UseRightPanelPropsDeps) {
 			onUnpinMessage: deps.handleUnpinMessage,
 			onReorderPins: deps.handleReorderPins,
 			onScrollToMessage: deps.handleScrollToMessage,
+
+			// Browser tab
+			onOpenBrowserTabAt: deps.handleOpenBrowserTabAt,
 		}),
 		[
 			deps.theme,
@@ -167,11 +205,13 @@ export function useRightPanelProps(deps: UseRightPanelPropsDeps) {
 			// Stable callbacks
 			deps.handleSetActiveRightTab,
 			deps.toggleFolder,
+			deps.toggleFolderRecursive,
 			deps.handleFileClick,
 			deps.expandAllFolders,
 			deps.collapseAllFolders,
 			deps.updateSessionWorkingDirectory,
 			deps.refreshFileTree,
+			deps.cancelFileTreeLoad,
 			deps.handleAutoRefreshChange,
 			deps.showSuccessFlash,
 			deps.handleAutoRunContentChange,
@@ -194,7 +234,7 @@ export function useRightPanelProps(deps: UseRightPanelPropsDeps) {
 			deps.handleLaunchWizardTab,
 			deps.handleMainPanelFileClick,
 			deps.handleFocusFileInGraph,
-			deps.handleOpenLastDocumentGraph,
+			deps.handleOpenBrowserTabAt,
 			// Refs (stable)
 			deps.fileTreeContainerRef,
 			deps.fileTreeFilterInputRef,

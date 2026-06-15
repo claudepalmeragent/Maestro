@@ -16,84 +16,9 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useDebouncedCallback } from '../utils/useThrottle';
-
-// Stats time range type matching the backend API
-export type StatsTimeRange = 'day' | 'week' | 'month' | 'quarter' | 'year' | 'all';
-
-// Aggregation data shape from the stats API
-export interface StatsAggregation {
-	totalQueries: number;
-	totalDuration: number;
-	avgDuration: number;
-	byAgent: Record<
-		string,
-		{ count: number; duration: number; totalOutputTokens: number; avgTokensPerSecond: number }
-	>;
-	bySource: { user: number; auto: number };
-	byLocation: { local: number; remote: number };
-	byDay: Array<{
-		date: string;
-		count: number;
-		duration: number;
-		outputTokens?: number;
-		avgTokensPerSecond?: number;
-	}>;
-	byHour: Array<{ hour: number; count: number; duration: number }>;
-	// Session lifecycle stats
-	totalSessions: number;
-	sessionsByAgent: Record<string, number>;
-	sessionsByDay: Array<{ date: string; count: number }>;
-	avgSessionDuration: number;
-	// Per-provider per-day breakdown for provider comparison and throughput trends
-	byAgentByDay: Record<
-		string,
-		Array<{
-			date: string;
-			count: number;
-			duration: number;
-			outputTokens: number;
-			avgTokensPerSecond: number;
-		}>
-	>;
-	// Per-session per-day breakdown for agent usage chart and throughput trends
-	bySessionByDay: Record<
-		string,
-		Array<{
-			date: string;
-			count: number;
-			duration: number;
-			outputTokens: number;
-			avgTokensPerSecond: number;
-		}>
-	>;
-	// Aggregation by Maestro agent ID (not fragmented session IDs) - for proper agent attribution in charts
-	byAgentIdByDay: Record<
-		string,
-		Array<{
-			date: string;
-			count: number;
-			duration: number;
-			outputTokens: number;
-			avgTokensPerSecond: number;
-		}>
-	>;
-	// Token metrics for throughput statistics
-	totalOutputTokens: number;
-	totalInputTokens: number;
-	avgTokensPerSecond: number;
-	avgOutputTokensPerQuery: number;
-	queriesWithTokenData: number;
-	// Cache token metrics (optional for backwards compatibility)
-	totalCacheReadInputTokens?: number;
-	totalCacheCreationInputTokens?: number;
-	// Cost metrics (optional for backwards compatibility)
-	/** Primary cost: Maestro calculated (billing-mode aware) */
-	totalCostUsd?: number;
-	/** Secondary cost: Anthropic reported (API pricing) - added in v7 */
-	anthropicCostUsd?: number;
-	/** Savings calculation (API - Maestro) - added in v7 */
-	savingsUsd?: number;
-}
+import { logger } from '../../utils/logger';
+import type { StatsTimeRange, StatsAggregation } from '../../../shared/stats-types';
+export type { StatsTimeRange, StatsAggregation } from '../../../shared/stats-types';
 
 // Return type for the useStats hook
 export interface UseStatsReturn {
@@ -154,7 +79,7 @@ export function useStats(range: StatsTimeRange, enabled: boolean = true): UseSta
 					setData(stats);
 				}
 			} catch (err) {
-				console.error('Failed to fetch usage stats:', err);
+				logger.error('Failed to fetch usage stats:', undefined, err);
 				if (mountedRef.current) {
 					setError(err instanceof Error ? err.message : 'Failed to load stats');
 				}

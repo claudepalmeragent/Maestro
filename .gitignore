@@ -1,11 +1,17 @@
 # Maestro
 TEMP-REFACTORING-PLAN.md
 TEMP-REFACTORING-PLAN-2.md
+CUE-NOTES.md
+CUE-REFACTORING.md
 Auto\ Run\ Docs/
 Work\ Trees/
+.worktrees/
 community-data/
 .mcp.json
 specs/
+.maestro/
+maestro-cue.yaml
+sm/
 
 # Debug/analysis scripts (temporary)
 analyze_*.js
@@ -27,10 +33,10 @@ node_modules/
 # Build outputs
 dist/
 release/
-src/generated/
 *.log
 tmp/
 scratch/
+dogfood-output/
 
 # Environment
 .env
@@ -61,3 +67,7 @@ yarn-error.log*
 .vscode/
 .VSCodeCounter
 .qodo
+
+# Claude Code local settings
+.claude/settings.local.json
+.cue-migration-backup-*/

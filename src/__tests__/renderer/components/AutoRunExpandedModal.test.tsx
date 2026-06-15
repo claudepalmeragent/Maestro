@@ -18,10 +18,12 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 // Undo the global mock from setup.ts so LayerStack Escape handling works in these tests
 vi.unmock('../../../renderer/contexts/LayerStackContext');
 
-import { AutoRunExpandedModal } from '../../../renderer/components/AutoRunExpandedModal';
+import { AutoRunExpandedModal } from '../../../renderer/components/AutoRun/AutoRunExpandedModal';
 import { LayerStackProvider } from '../../../renderer/contexts/LayerStackContext';
 import type { Theme, BatchRunState, SessionState, Shortcut } from '../../../renderer/types';
 import { formatShortcutKeys } from '../../../renderer/utils/shortcutFormatter';
+
+import { createMockTheme } from '../../helpers/mockTheme';
 
 // Mock createPortal to render in same container
 vi.mock('react-dom', async () => {
@@ -42,7 +44,7 @@ let autoRunRefMethods: {
 };
 
 // Mock AutoRun component
-vi.mock('../../../renderer/components/AutoRun', () => ({
+vi.mock('../../../renderer/components/AutoRun/AutoRun', () => ({
 	AutoRun: React.forwardRef((props: any, ref: any) => {
 		// Expose ref methods
 		React.useImperativeHandle(ref, () => autoRunRefMethods);
@@ -74,28 +76,6 @@ vi.mock('../../../renderer/utils/shortcutFormatter', () => ({
 	}),
 	isMacOS: vi.fn(() => false),
 }));
-
-// Create a mock theme for testing
-const createMockTheme = (): Theme => ({
-	id: 'test-theme',
-	name: 'Test Theme',
-	mode: 'dark',
-	colors: {
-		bgMain: '#1a1a1a',
-		bgSidebar: '#252525',
-		bgPanel: '#2d2d2d',
-		bgActivity: '#333333',
-		textMain: '#ffffff',
-		textDim: '#888888',
-		accent: '#0066ff',
-		accentForeground: '#ffffff',
-		border: '#333333',
-		highlight: '#0066ff33',
-		success: '#00aa00',
-		warning: '#ffaa00',
-		error: '#ff0000',
-	},
-});
 
 // Default props for AutoRunExpandedModal
 const createDefaultProps = (
@@ -221,7 +201,7 @@ describe('AutoRunExpandedModal', () => {
 
 			// Find the Edit button by its title (not the image button)
 			const editButton = screen.getByTitle('Edit document');
-			expect(editButton).toHaveClass('font-semibold');
+			expect(editButton).toHaveClass('font-medium');
 		});
 
 		it('should show Preview button as selected when mode is preview', () => {
@@ -229,7 +209,7 @@ describe('AutoRunExpandedModal', () => {
 			renderWithProvider(<AutoRunExpandedModal {...props} />);
 
 			const previewButton = screen.getByRole('button', { name: /preview/i });
-			expect(previewButton).toHaveClass('font-semibold');
+			expect(previewButton).toHaveClass('font-medium');
 		});
 
 		it('should call AutoRun switchMode when Edit button is clicked', () => {
@@ -387,7 +367,7 @@ describe('AutoRunExpandedModal', () => {
 			renderWithProvider(<AutoRunExpandedModal {...props} />);
 
 			const previewButton = screen.getByRole('button', { name: /preview/i });
-			expect(previewButton).toHaveClass('font-semibold');
+			expect(previewButton).toHaveClass('font-medium');
 		});
 	});
 
@@ -456,7 +436,9 @@ describe('AutoRunExpandedModal', () => {
 			expect(autoRunRefMethods.revert).toHaveBeenCalled();
 		});
 
-		it('should not show Save/Revert in preview mode even if dirty', async () => {
+		it('should show Save/Revert in preview mode when dirty', async () => {
+			// Save/Revert is mode-agnostic so users editing in the source pane
+			// can still confirm a save from the preview pane without flipping back.
 			autoRunRefMethods.isDirty.mockReturnValue(true);
 
 			const props = createDefaultProps({ mode: 'preview' });
@@ -467,7 +449,8 @@ describe('AutoRunExpandedModal', () => {
 				vi.advanceTimersByTime(200);
 			});
 
-			expect(screen.queryByRole('button', { name: /save/i })).not.toBeInTheDocument();
+			expect(screen.getByRole('button', { name: /save/i })).toBeInTheDocument();
+			expect(screen.getByRole('button', { name: /revert/i })).toBeInTheDocument();
 		});
 
 		it('should not show Save/Revert when locked even if dirty', async () => {
@@ -587,8 +570,8 @@ describe('AutoRunExpandedModal', () => {
 			const shortcuts: Record<string, Shortcut> = {
 				toggleAutoRunExpanded: {
 					id: 'toggleAutoRunExpanded',
-					name: 'Toggle Auto Run Expanded',
-					keys: ['Meta', 'Shift', 'A'],
+					name: 'Auto Run Expanded Preview',
+					keys: ['Meta', 'Shift', 'e'],
 				},
 			};
 
@@ -598,7 +581,7 @@ describe('AutoRunExpandedModal', () => {
 			const collapseButton = screen.getByRole('button', { name: /collapse/i });
 			expect(collapseButton).toHaveAttribute(
 				'title',
-				`Collapse (${formatShortcutKeys(['Meta', 'Shift', 'A'])})`
+				`Collapse (${formatShortcutKeys(['Meta', 'Shift', 'e'])})`
 			);
 		});
 
@@ -637,7 +620,7 @@ describe('AutoRunExpandedModal', () => {
 
 			const runButton = screen.getByRole('button', { name: /run/i });
 			expect(runButton).toHaveStyle({
-				backgroundColor: props.theme.colors.accent,
+				color: props.theme.colors.accent,
 			});
 		});
 

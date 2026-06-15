@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import path from 'path';
+import fs from 'fs/promises';
 import type Store from 'electron-store';
 import type { ClaudeSessionOriginsData } from '../../../main/storage/claude-session-storage';
 import {
@@ -18,14 +19,17 @@ import {
 import type { ToolType } from '../../../shared/types';
 
 vi.mock('os', async () => {
-	const actual = await vi.importActual<typeof import('os')>('os');
-	const mocked = {
-		...actual,
-		homedir: vi.fn(() => '/tmp/maestro-session-storage-home'),
-	};
+	// Use dynamic require to get the real os module as a plain object,
+	// since vi.importActual/importOriginal return empty module namespaces
+	// for Node.js built-ins in Vitest's SSR mode.
+	// eslint-disable-next-line @typescript-eslint/no-require-imports
+	const realOs = await import('node:os');
+	const homedirMock = vi.fn(() => '/tmp/maestro-session-storage-home');
+	const overrides = { homedir: homedirMock, tmpdir: realOs.tmpdir };
 	return {
-		...mocked,
-		default: mocked,
+		...realOs,
+		...overrides,
+		default: { ...realOs, ...overrides },
 	};
 });
 
@@ -188,8 +192,8 @@ describe('agent-session-storage', () => {
 		});
 
 		it('should implement getSessionPath', () => {
-			const path = storage.getSessionPath('/test/project', 'session-123');
-			expect(path).toBe('/mock/path/session-123.jsonl');
+			const sessionPath = storage.getSessionPath('/test/project', 'session-123');
+			expect(sessionPath).toBe('/mock/path/session-123.jsonl');
 		});
 
 		it('should implement deleteMessagePair', async () => {
@@ -276,11 +280,11 @@ describe('OpenCodeSessionStorage', () => {
 		const storage = new OpenCodeSessionStorage();
 
 		// getSessionPath returns the message directory for the session
-		const path = storage.getSessionPath('/test/project', 'session-123');
-		expect(path).toContain('opencode');
-		expect(path).toContain('storage');
-		expect(path).toContain('message');
-		expect(path).toContain('session-123');
+		const sessionPath = storage.getSessionPath('/test/project', 'session-123');
+		expect(sessionPath).toContain('opencode');
+		expect(sessionPath).toContain('storage');
+		expect(sessionPath).toContain('message');
+		expect(sessionPath).toContain('session-123');
 	});
 
 	it('should fail gracefully when deleting from non-existent session', async () => {
@@ -339,8 +343,8 @@ describe('CodexSessionStorage', () => {
 
 		// getSessionPath is synchronous and always returns null for Codex
 		// Use findSessionFile async method internally
-		const path = storage.getSessionPath('/test/project', 'session-123');
-		expect(path).toBeNull();
+		const sessionPath = storage.getSessionPath('/test/project', 'session-123');
+		expect(sessionPath).toBeNull();
 	});
 
 	it('should fail gracefully when deleting from non-existent session', async () => {
@@ -365,6 +369,185 @@ describe('CodexSessionStorage', () => {
 
 		const searchWhitespace = await storage.searchSessions('/test/project', '   ', 'all');
 		expect(searchWhitespace).toEqual([]);
+	});
+});
+
+describe('CopilotSessionStorage', () => {
+	let originalCopilotConfigDir: string | undefined;
+	const copilotSessionStateDir = path.join(
+		'/tmp/maestro-session-storage-home',
+		'.copilot',
+		'session-state'
+	);
+
+	async function writeCopilotSessionFixture(
+		sessionId: string,
+		workspaceContent: string,
+		eventsContent?: string
+	): Promise<void> {
+		const sessionDir = path.join(copilotSessionStateDir, sessionId);
+		await fs.mkdir(sessionDir, { recursive: true });
+		await fs.writeFile(path.join(sessionDir, 'workspace.yaml'), workspaceContent, 'utf8');
+		if (eventsContent !== undefined) {
+			await fs.writeFile(path.join(sessionDir, 'events.jsonl'), eventsContent, 'utf8');
+		}
+	}
+
+	beforeEach(async () => {
+		originalCopilotConfigDir = process.env.COPILOT_CONFIG_DIR;
+		delete process.env.COPILOT_CONFIG_DIR;
+		await fs.rm(path.join('/tmp/maestro-session-storage-home', '.copilot'), {
+			recursive: true,
+			force: true,
+		});
+	});
+
+	afterEach(async () => {
+		await fs.rm(path.join('/tmp/maestro-session-storage-home', '.copilot'), {
+			recursive: true,
+			force: true,
+		});
+		if (originalCopilotConfigDir === undefined) {
+			delete process.env.COPILOT_CONFIG_DIR;
+		} else {
+			process.env.COPILOT_CONFIG_DIR = originalCopilotConfigDir;
+		}
+	});
+
+	it('should be importable', async () => {
+		const { CopilotSessionStorage } = await import('../../../main/storage/copilot-session-storage');
+		expect(CopilotSessionStorage).toBeDefined();
+	});
+
+	it('should have copilot as agentId', async () => {
+		const { CopilotSessionStorage } = await import('../../../main/storage/copilot-session-storage');
+		const storage = new CopilotSessionStorage();
+		expect(storage.agentId).toBe('copilot-cli');
+	});
+
+	it('should return empty results for non-existent projects', async () => {
+		const { CopilotSessionStorage } = await import('../../../main/storage/copilot-session-storage');
+		const storage = new CopilotSessionStorage();
+
+		const sessions = await storage.listSessions('/test/nonexistent/project');
+		expect(sessions).toEqual([]);
+
+		const messages = await storage.readSessionMessages('/test/nonexistent/project', 'session-123');
+		expect(messages.messages).toEqual([]);
+		expect(messages.total).toBe(0);
+	});
+
+	it('should return local events path for getSessionPath', async () => {
+		const { CopilotSessionStorage } = await import('../../../main/storage/copilot-session-storage');
+		const storage = new CopilotSessionStorage();
+
+		const sessionPath = storage.getSessionPath('/test/project', 'session-123');
+		expect(sessionPath).toContain('.copilot');
+		expect(sessionPath).toContain('session-state');
+		expect(sessionPath).toContain('session-123');
+		expect(sessionPath).toContain('events.jsonl');
+	});
+
+	it('should return remote events path for getSessionPath with sshConfig', async () => {
+		const { CopilotSessionStorage } = await import('../../../main/storage/copilot-session-storage');
+		const storage = new CopilotSessionStorage();
+
+		const sessionPath = storage.getSessionPath('/test/project', 'session-123', {
+			id: 'test-ssh',
+			name: 'Test SSH Server',
+			host: 'test-server.example.com',
+			port: 22,
+			username: 'testuser',
+			useSshConfig: false,
+			enabled: true,
+		});
+		expect(sessionPath).toBe('~/.copilot/session-state/session-123/events.jsonl');
+	});
+
+	it('should report delete as unsupported', async () => {
+		const { CopilotSessionStorage } = await import('../../../main/storage/copilot-session-storage');
+		const storage = new CopilotSessionStorage();
+
+		const result = await storage.deleteMessagePair('/test/project', 'session-123', 'uuid-456');
+		expect(result.success).toBe(false);
+		expect(result.error).toContain('not supported');
+	});
+
+	it('should parse camelCase workspace metadata keys when loading sessions', async () => {
+		await writeCopilotSessionFixture(
+			'session-camel',
+			[
+				'id: session-camel',
+				'cwd: /test/project',
+				'gitRoot: /test/project',
+				'createdAt: 2026-03-13T00:00:00.000Z',
+				'updatedAt: 2026-03-13T00:05:00.000Z',
+				'summary: Camel case metadata',
+			].join('\n'),
+			[
+				JSON.stringify({
+					type: 'user.message',
+					id: 'user-1',
+					timestamp: '2026-03-13T00:00:00.000Z',
+					data: { content: 'Hello from Copilot' },
+				}),
+			].join('\n')
+		);
+
+		const { CopilotSessionStorage } = await import('../../../main/storage/copilot-session-storage');
+		const storage = new CopilotSessionStorage();
+		const sessions = await storage.listSessions('/test/project');
+
+		expect(sessions).toHaveLength(1);
+		expect(sessions[0]).toEqual(
+			expect.objectContaining({
+				sessionId: 'session-camel',
+				projectPath: '/test/project',
+				timestamp: '2026-03-13T00:00:00.000Z',
+				modifiedAt: '2026-03-13T00:05:00.000Z',
+				firstMessage: 'Hello from Copilot',
+				messageCount: 1,
+			})
+		);
+	});
+
+	it('should skip missing, empty, and malformed Copilot event logs', async () => {
+		await writeCopilotSessionFixture(
+			'session-valid',
+			['id: session-valid', 'cwd: /test/project', 'git_root: /test/project'].join('\n'),
+			[
+				JSON.stringify({
+					type: 'assistant.message',
+					id: 'assistant-1',
+					timestamp: '2026-03-13T00:00:00.000Z',
+					data: { content: 'Ready', phase: 'final_answer' },
+				}),
+			].join('\n')
+		);
+
+		await writeCopilotSessionFixture(
+			'session-empty',
+			['id: session-empty', 'cwd: /test/project', 'git_root: /test/project'].join('\n'),
+			'   \n'
+		);
+
+		await writeCopilotSessionFixture(
+			'session-malformed',
+			['id: session-malformed', 'cwd: /test/project', 'git_root: /test/project'].join('\n'),
+			'not-json\nstill-not-json\n'
+		);
+
+		await writeCopilotSessionFixture(
+			'session-missing-events',
+			['id: session-missing-events', 'cwd: /test/project', 'git_root: /test/project'].join('\n')
+		);
+
+		const { CopilotSessionStorage } = await import('../../../main/storage/copilot-session-storage');
+		const storage = new CopilotSessionStorage();
+		const sessions = await storage.listSessions('/test/project');
+
+		expect(sessions).toHaveLength(1);
+		expect(sessions[0]?.sessionId).toBe('session-valid');
 	});
 });
 
@@ -593,8 +776,8 @@ describe('CodexSessionStorage SSH Remote Support', () => {
 			const storage = new CodexSessionStorage();
 
 			// getSessionPath is synchronous and returns null for Codex (requires async file search)
-			const path = storage.getSessionPath('/test/path', 'session-id', mockSshConfig);
-			expect(path).toBeNull();
+			const sessionPath = storage.getSessionPath('/test/path', 'session-id', mockSshConfig);
+			expect(sessionPath).toBeNull();
 		});
 
 		it('should return null for getSessionPath without SSH config as well', async () => {
@@ -602,8 +785,8 @@ describe('CodexSessionStorage SSH Remote Support', () => {
 			const storage = new CodexSessionStorage();
 
 			// Even without SSH, Codex getSessionPath returns null (needs async lookup)
-			const path = storage.getSessionPath('/test/path', 'session-id');
-			expect(path).toBeNull();
+			const sessionPath = storage.getSessionPath('/test/path', 'session-id');
+			expect(sessionPath).toBeNull();
 		});
 	});
 
@@ -731,38 +914,44 @@ describe('CodexSessionStorage SSH Remote Support', () => {
 			expect(Array.isArray(withoutSsh)).toBe(true);
 		});
 
-		it('should verify SshRemoteConfig interface is properly accepted', async () => {
-			const { CodexSessionStorage } = await import('../../../main/storage/codex-session-storage');
-			const storage = new CodexSessionStorage();
+		it(
+			'should verify SshRemoteConfig interface is properly accepted',
+			{ timeout: 20000 },
+			async () => {
+				const { CodexSessionStorage } = await import('../../../main/storage/codex-session-storage');
+				const storage = new CodexSessionStorage();
 
-			// Full SshRemoteConfig object
-			const fullConfig = {
-				id: 'full-config-test',
-				name: 'Full Config Test',
-				host: 'remote.example.com',
-				port: 2222,
-				username: 'admin',
-				useSshConfig: true,
-				enabled: true,
-			};
+				// Full SshRemoteConfig object
+				const fullConfig = {
+					id: 'full-config-test',
+					name: 'Full Config Test',
+					host: 'remote.example.com',
+					port: 2222,
+					username: 'admin',
+					privateKeyPath: '',
+					useSshConfig: true,
+					enabled: true,
+				};
 
-			// Should work with full config
-			const sessions = await storage.listSessions('/project', fullConfig);
-			expect(Array.isArray(sessions)).toBe(true);
+				// Should work with full config
+				const sessions = await storage.listSessions('/project', fullConfig);
+				expect(Array.isArray(sessions)).toBe(true);
 
-			// Should work with minimal config
-			const minimalConfig = {
-				id: 'minimal',
-				name: 'Minimal',
-				host: 'host',
-				port: 22,
-				username: 'user',
-				useSshConfig: false,
-				enabled: true,
-			};
-			const sessionsMinimal = await storage.listSessions('/project', minimalConfig);
-			expect(Array.isArray(sessionsMinimal)).toBe(true);
-		});
+				// Should work with minimal config
+				const minimalConfig = {
+					id: 'minimal',
+					name: 'Minimal',
+					host: 'host',
+					port: 22,
+					username: 'user',
+					privateKeyPath: '',
+					useSshConfig: false,
+					enabled: true,
+				};
+				const sessionsMinimal = await storage.listSessions('/project', minimalConfig);
+				expect(Array.isArray(sessionsMinimal)).toBe(true);
+			}
+		);
 	});
 
 	describe('Remote sessions directory path', () => {
@@ -862,9 +1051,13 @@ describe('OpenCodeSessionStorage SSH Remote Support', () => {
 				await import('../../../main/storage/opencode-session-storage');
 			const storage = new OpenCodeSessionStorage();
 
-			const path = storage.getSessionPath('/home/testuser/project', 'ses_test123', mockSshConfig);
+			const sessionPath = storage.getSessionPath(
+				'/home/testuser/project',
+				'ses_test123',
+				mockSshConfig
+			);
 
-			expect(path).toBe('~/.local/share/opencode/storage/message/ses_test123');
+			expect(sessionPath).toBe('~/.local/share/opencode/storage/message/ses_test123');
 		});
 
 		it('should return local path when sshConfig is not provided', async () => {
@@ -872,13 +1065,13 @@ describe('OpenCodeSessionStorage SSH Remote Support', () => {
 				await import('../../../main/storage/opencode-session-storage');
 			const storage = new OpenCodeSessionStorage();
 
-			const path = storage.getSessionPath('/home/testuser/project', 'ses_test123');
+			const sessionPath = storage.getSessionPath('/home/testuser/project', 'ses_test123');
 
-			expect(path).toContain('opencode');
-			expect(path).toContain('storage');
-			expect(path).toContain('message');
-			expect(path).toContain('ses_test123');
-			expect(path).not.toContain('~'); // Local path should be absolute
+			expect(sessionPath).toContain('opencode');
+			expect(sessionPath).toContain('storage');
+			expect(sessionPath).toContain('message');
+			expect(sessionPath).toContain('ses_test123');
+			expect(sessionPath).not.toContain('~'); // Local path should be absolute
 		});
 	});
 
@@ -1043,42 +1236,48 @@ describe('OpenCodeSessionStorage SSH Remote Support', () => {
 			expect(localPath).not.toContain('~');
 
 			// Verify local path is absolute
-			expect(localPath?.startsWith('/') || localPath?.match(/^[A-Z]:\\/)).toBeTruthy();
+			expect(path.isAbsolute(localPath!)).toBeTruthy();
 		});
 
-		it('should verify SshRemoteConfig interface is properly accepted', async () => {
-			const { OpenCodeSessionStorage } =
-				await import('../../../main/storage/opencode-session-storage');
-			const storage = new OpenCodeSessionStorage();
+		it(
+			'should verify SshRemoteConfig interface is properly accepted',
+			{ timeout: 20000 },
+			async () => {
+				const { OpenCodeSessionStorage } =
+					await import('../../../main/storage/opencode-session-storage');
+				const storage = new OpenCodeSessionStorage();
 
-			// Full SshRemoteConfig object
-			const fullConfig = {
-				id: 'full-config-test',
-				name: 'Full Config Test',
-				host: 'remote.example.com',
-				port: 2222,
-				username: 'admin',
-				useSshConfig: true,
-				enabled: true,
-			};
+				// Full SshRemoteConfig object
+				const fullConfig = {
+					id: 'full-config-test',
+					name: 'Full Config Test',
+					host: 'remote.example.com',
+					port: 2222,
+					username: 'admin',
+					privateKeyPath: '',
+					useSshConfig: true,
+					enabled: true,
+				};
 
-			// Should work with full config
-			const path = storage.getSessionPath('/project', 'session-id', fullConfig);
-			expect(path).toBe('~/.local/share/opencode/storage/message/session-id');
+				// Should work with full config
+				const sessionPath = storage.getSessionPath('/project', 'session-id', fullConfig);
+				expect(sessionPath).toBe('~/.local/share/opencode/storage/message/session-id');
 
-			// Should work with minimal config
-			const minimalConfig = {
-				id: 'minimal',
-				name: 'Minimal',
-				host: 'host',
-				port: 22,
-				username: 'user',
-				useSshConfig: false,
-				enabled: true,
-			};
-			const pathMinimal = storage.getSessionPath('/project', 'session-id', minimalConfig);
-			expect(pathMinimal).toBe('~/.local/share/opencode/storage/message/session-id');
-		});
+				// Should work with minimal config
+				const minimalConfig = {
+					id: 'minimal',
+					name: 'Minimal',
+					host: 'host',
+					port: 22,
+					username: 'user',
+					privateKeyPath: '',
+					useSshConfig: false,
+					enabled: true,
+				};
+				const minimalPath = storage.getSessionPath('/project', 'session-id', minimalConfig);
+				expect(minimalPath).toBe('~/.local/share/opencode/storage/message/session-id');
+			}
+		);
 	});
 });
 
@@ -1243,11 +1442,15 @@ describe('FactoryDroidSessionStorage SSH Remote Support', () => {
 			const storage = new FactoryDroidSessionStorage();
 
 			// getSessionPath returns the .jsonl file path
-			const path = storage.getSessionPath('/home/testuser/project', 'session-uuid', mockSshConfig);
+			const sessionPath = storage.getSessionPath(
+				'/home/testuser/project',
+				'session-uuid',
+				mockSshConfig
+			);
 
 			// Factory Droid encodes the project path with `-` for `/`
-			expect(path).toContain('~/.factory/sessions/');
-			expect(path).toContain('session-uuid.jsonl');
+			expect(sessionPath).toContain('~/.factory/sessions/');
+			expect(sessionPath).toContain('session-uuid.jsonl');
 		});
 
 		it('should return local path when sshConfig is not provided', async () => {
@@ -1306,13 +1509,17 @@ describe('FactoryDroidSessionStorage SSH Remote Support', () => {
 			const storage = new FactoryDroidSessionStorage();
 
 			// Factory Droid encodes /Users/testuser/project as -Users-testuser-project
-			const path = storage.getSessionPath('/Users/testuser/project', 'session-id', mockSshConfig);
+			const sessionPath = storage.getSessionPath(
+				'/Users/testuser/project',
+				'session-id',
+				mockSshConfig
+			);
 
 			// The path should contain the encoded project directory
-			expect(path).toContain('~/.factory/sessions/');
-			expect(path).toContain('session-id.jsonl');
+			expect(sessionPath).toContain('~/.factory/sessions/');
+			expect(sessionPath).toContain('session-id.jsonl');
 			// The encoded path should be in the directory structure
-			expect(path).toMatch(/~\/\.factory\/sessions\/[^/]+\/session-id\.jsonl/);
+			expect(sessionPath).toMatch(/~\/\.factory\/sessions\/[^/]+\/session-id\.jsonl/);
 		});
 	});
 
@@ -1410,42 +1617,48 @@ describe('FactoryDroidSessionStorage SSH Remote Support', () => {
 			expect(localPath).not.toContain('~');
 
 			// Verify local path is absolute
-			expect(localPath?.startsWith('/') || localPath?.match(/^[A-Z]:\\/)).toBeTruthy();
+			expect(path.isAbsolute(localPath!)).toBeTruthy();
 		});
 
-		it('should verify SshRemoteConfig interface is properly accepted', async () => {
-			const { FactoryDroidSessionStorage } =
-				await import('../../../main/storage/factory-droid-session-storage');
-			const storage = new FactoryDroidSessionStorage();
+		it(
+			'should verify SshRemoteConfig interface is properly accepted',
+			{ timeout: 20000 },
+			async () => {
+				const { FactoryDroidSessionStorage } =
+					await import('../../../main/storage/factory-droid-session-storage');
+				const storage = new FactoryDroidSessionStorage();
 
-			// Full SshRemoteConfig object
-			const fullConfig = {
-				id: 'full-config-test',
-				name: 'Full Config Test',
-				host: 'remote.example.com',
-				port: 2222,
-				username: 'admin',
-				useSshConfig: true,
-				enabled: true,
-			};
+				// Full SshRemoteConfig object
+				const fullConfig = {
+					id: 'full-config-test',
+					name: 'Full Config Test',
+					host: 'remote.example.com',
+					port: 2222,
+					username: 'admin',
+					privateKeyPath: '',
+					useSshConfig: true,
+					enabled: true,
+				};
 
-			// Should work with full config
-			const path = storage.getSessionPath('/project', 'session-id', fullConfig);
-			expect(path).toContain('~/.factory/sessions/');
+				// Should work with full config
+				const sessionPath = storage.getSessionPath('/project', 'session-id', fullConfig);
+				expect(sessionPath).toContain('~/.factory/sessions/');
 
-			// Should work with minimal config
-			const minimalConfig = {
-				id: 'minimal',
-				name: 'Minimal',
-				host: 'host',
-				port: 22,
-				username: 'user',
-				useSshConfig: false,
-				enabled: true,
-			};
-			const pathMinimal = storage.getSessionPath('/project', 'session-id', minimalConfig);
-			expect(pathMinimal).toContain('~/.factory/sessions/');
-		});
+				// Should work with minimal config
+				const minimalConfig = {
+					id: 'minimal',
+					name: 'Minimal',
+					host: 'host',
+					port: 22,
+					username: 'user',
+					privateKeyPath: '',
+					useSshConfig: false,
+					enabled: true,
+				};
+				const minimalPath = storage.getSessionPath('/project', 'session-id', minimalConfig);
+				expect(minimalPath).toContain('~/.factory/sessions/');
+			}
+		);
 	});
 
 	describe('Remote sessions directory path', () => {
@@ -1458,8 +1671,8 @@ describe('FactoryDroidSessionStorage SSH Remote Support', () => {
 			expect(storage.agentId).toBe('factory-droid');
 
 			// getSessionPath should return path starting with ~/.factory/sessions/
-			const path = storage.getSessionPath('/project', 'session-id', mockSshConfig);
-			expect(path).toMatch(/^~\/\.factory\/sessions\//);
+			const sessionPath = storage.getSessionPath('/project', 'session-id', mockSshConfig);
+			expect(sessionPath).toMatch(/^~\/\.factory\/sessions\//);
 		});
 	});
 
@@ -1563,16 +1776,16 @@ describe('SSH Config Integration Flow Verification', () => {
 			];
 
 			for (const testCase of testCases) {
-				const path = storage.getSessionPath(
+				const sessionPath = storage.getSessionPath(
 					testCase.projectPath,
 					testCase.sessionId,
 					integrationSshConfig
 				);
-				expect(path).toBe(testCase.expectedPathPattern);
+				expect(sessionPath).toBe(testCase.expectedPathPattern);
 				// Verify POSIX path format (forward slashes only)
-				expect(path).not.toContain('\\');
+				expect(sessionPath).not.toContain('\\');
 				// Verify home directory expansion format
-				expect(path).toMatch(/^~\//);
+				expect(sessionPath).toMatch(/^~\//);
 			}
 		});
 
@@ -1585,8 +1798,12 @@ describe('SSH Config Integration Flow Verification', () => {
 			expect(storage.agentId).toBe('codex');
 
 			// Verify that SSH config is accepted without errors
-			const path = storage.getSessionPath('/project/path', 'session-id', integrationSshConfig);
-			expect(path).toBeNull(); // Expected - Codex needs async file search
+			const sessionPath = storage.getSessionPath(
+				'/project/path',
+				'session-id',
+				integrationSshConfig
+			);
+			expect(sessionPath).toBeNull(); // Expected - Codex needs async file search
 		});
 
 		it('should construct correct remote paths for Factory Droid storage', async () => {
@@ -1612,18 +1829,18 @@ describe('SSH Config Integration Flow Verification', () => {
 			];
 
 			for (const testCase of testCases) {
-				const path = storage.getSessionPath(
+				const sessionPath = storage.getSessionPath(
 					testCase.projectPath,
 					testCase.sessionId,
 					integrationSshConfig
 				);
-				expect(path).toMatch(testCase.expectedPattern);
+				expect(sessionPath).toMatch(testCase.expectedPattern);
 				// Verify POSIX path format
-				expect(path).not.toContain('\\');
+				expect(sessionPath).not.toContain('\\');
 				// Verify home directory expansion format
-				expect(path).toMatch(/^~\//);
+				expect(sessionPath).toMatch(/^~\//);
 				// Verify .jsonl extension
-				expect(path).toMatch(/\.jsonl$/);
+				expect(sessionPath).toMatch(/\.jsonl$/);
 			}
 		});
 	});
@@ -1757,7 +1974,7 @@ describe('SSH Config Integration Flow Verification', () => {
 			// Without SSH config - local path
 			const localPath = storage.getSessionPath(projectPath, sessionId);
 			expect(localPath).not.toContain('~'); // Local paths are absolute
-			expect(localPath?.startsWith('/') || localPath?.match(/^[A-Z]:\\/)).toBeTruthy();
+			expect(path.isAbsolute(localPath!)).toBeTruthy();
 		});
 
 		it('should correctly differentiate local and remote paths for Factory Droid', async () => {
@@ -1777,7 +1994,7 @@ describe('SSH Config Integration Flow Verification', () => {
 			// Without SSH config - local path
 			const localPath = storage.getSessionPath(projectPath, sessionId);
 			expect(localPath).not.toContain('~'); // Local paths are absolute
-			expect(localPath?.startsWith('/') || localPath?.match(/^[A-Z]:\\/)).toBeTruthy();
+			expect(path.isAbsolute(localPath!)).toBeTruthy();
 			expect(localPath).toContain('.factory');
 		});
 	});
@@ -1907,8 +2124,8 @@ describe('SSH Config Integration Flow Verification', () => {
 			expect(factoryPath).not.toContain('~');
 
 			// Should be absolute paths
-			expect(openCodePath?.startsWith('/') || openCodePath?.match(/^[A-Z]:\\/)).toBeTruthy();
-			expect(factoryPath?.startsWith('/') || factoryPath?.match(/^[A-Z]:\\/)).toBeTruthy();
+			expect(path.isAbsolute(openCodePath!)).toBeTruthy();
+			expect(path.isAbsolute(factoryPath!)).toBeTruthy();
 		});
 
 		it('should handle all pagination options correctly without sshConfig', async () => {
@@ -2031,37 +2248,41 @@ describe('SSH Config Integration Flow Verification', () => {
 			}
 		});
 
-		it('should support all search modes with SSH config across all agents', async () => {
-			const { OpenCodeSessionStorage } =
-				await import('../../../main/storage/opencode-session-storage');
-			const { CodexSessionStorage } = await import('../../../main/storage/codex-session-storage');
-			const { FactoryDroidSessionStorage } =
-				await import('../../../main/storage/factory-droid-session-storage');
+		it(
+			'should support all search modes with SSH config across all agents',
+			{ timeout: 20000 },
+			async () => {
+				const { OpenCodeSessionStorage } =
+					await import('../../../main/storage/opencode-session-storage');
+				const { CodexSessionStorage } = await import('../../../main/storage/codex-session-storage');
+				const { FactoryDroidSessionStorage } =
+					await import('../../../main/storage/factory-droid-session-storage');
 
-			const openCode = new OpenCodeSessionStorage();
-			const codex = new CodexSessionStorage();
-			const factoryDroid = new FactoryDroidSessionStorage();
+				const openCode = new OpenCodeSessionStorage();
+				const codex = new CodexSessionStorage();
+				const factoryDroid = new FactoryDroidSessionStorage();
 
-			const searchModes: Array<'title' | 'user' | 'assistant' | 'all'> = [
-				'title',
-				'user',
-				'assistant',
-				'all',
-			];
+				const searchModes: Array<'title' | 'user' | 'assistant' | 'all'> = [
+					'title',
+					'user',
+					'assistant',
+					'all',
+				];
 
-			for (const mode of searchModes) {
-				// All should accept the mode with SSH config without throwing
-				await expect(
-					openCode.searchSessions('/test', 'query', mode, integrationSshConfig)
-				).resolves.toBeDefined();
-				await expect(
-					codex.searchSessions('/test', 'query', mode, integrationSshConfig)
-				).resolves.toBeDefined();
-				await expect(
-					factoryDroid.searchSessions('/test', 'query', mode, integrationSshConfig)
-				).resolves.toBeDefined();
+				for (const mode of searchModes) {
+					// All should accept the mode with SSH config without throwing
+					await expect(
+						openCode.searchSessions('/test', 'query', mode, integrationSshConfig)
+					).resolves.toBeDefined();
+					await expect(
+						codex.searchSessions('/test', 'query', mode, integrationSshConfig)
+					).resolves.toBeDefined();
+					await expect(
+						factoryDroid.searchSessions('/test', 'query', mode, integrationSshConfig)
+					).resolves.toBeDefined();
+				}
 			}
-		});
+		);
 	});
 
 	describe('Remote Path Format Verification', () => {

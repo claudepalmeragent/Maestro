@@ -2,20 +2,60 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import {
 	useSettingsStore,
 	loadAllSettings,
-	getBadgeLevelForTime,
 	selectIsLeaderboardRegistered,
-	getSettingsState,
-	getSettingsActions,
-	DEFAULT_CONTEXT_MANAGEMENT_SETTINGS,
-	DEFAULT_AUTO_RUN_STATS,
-	DEFAULT_USAGE_STATS,
-	DEFAULT_KEYBOARD_MASTERY_STATS,
-	DEFAULT_ONBOARDING_STATS,
-	DEFAULT_AI_COMMANDS,
 } from '../../../renderer/stores/settingsStore';
 import type { SettingsStoreState } from '../../../renderer/stores/settingsStore';
+import { useUIStore } from '../../../renderer/stores/uiStore';
+import type { FileExplorerIconTheme } from '../../../renderer/utils/fileExplorerIcons/shared';
 import { DEFAULT_SHORTCUTS, TAB_SHORTCUTS } from '../../../renderer/constants/shortcuts';
 import { DEFAULT_CUSTOM_THEME_COLORS } from '../../../renderer/constants/themes';
+
+// Pull defaults from a freshly-initialized store so tests don't need to re-import them.
+// Deep-cloned so test mutations can't affect the captured reference.
+// These constants match what the store uses internally (kept non-exported to prevent fan-out).
+const _INITIAL_STATE = useSettingsStore.getState();
+const DEFAULT_CONTEXT_MANAGEMENT_SETTINGS = JSON.parse(
+	JSON.stringify(_INITIAL_STATE.contextManagementSettings)
+);
+const DEFAULT_AUTO_RUN_STATS = JSON.parse(JSON.stringify(_INITIAL_STATE.autoRunStats));
+const DEFAULT_USAGE_STATS = JSON.parse(JSON.stringify(_INITIAL_STATE.usageStats));
+const DEFAULT_KEYBOARD_MASTERY_STATS = JSON.parse(
+	JSON.stringify(_INITIAL_STATE.keyboardMasteryStats)
+);
+const DEFAULT_ONBOARDING_STATS = JSON.parse(JSON.stringify(_INITIAL_STATE.onboardingStats));
+const DEFAULT_AI_COMMANDS = JSON.parse(JSON.stringify(_INITIAL_STATE.customAICommands));
+
+// Inlined badge level calculator matching settingsStore's internal function.
+// Kept local so removing the export from the store doesn't break this test.
+function getBadgeLevelForTime(cumulativeTimeMs: number): number {
+	const MINUTE = 60 * 1000;
+	const HOUR = 60 * MINUTE;
+	const DAY = 24 * HOUR;
+	const WEEK = 7 * DAY;
+	const MONTH = 30 * DAY;
+	const thresholds = [
+		15 * MINUTE,
+		1 * HOUR,
+		8 * HOUR,
+		1 * DAY,
+		1 * WEEK,
+		1 * MONTH,
+		3 * MONTH,
+		6 * MONTH,
+		365 * DAY,
+		5 * 365 * DAY,
+		10 * 365 * DAY,
+	];
+	let level = 0;
+	for (let i = 0; i < thresholds.length; i++) {
+		if (cumulativeTimeMs >= thresholds[i]) {
+			level = i + 1;
+		} else {
+			break;
+		}
+	}
+	return level;
+}
 
 /**
  * Reset the Zustand store to initial state between tests.
@@ -25,6 +65,7 @@ function resetStore() {
 	useSettingsStore.setState({
 		settingsLoaded: false,
 		conductorProfile: '',
+		globalShowHotkey: [],
 		llmProvider: 'openrouter',
 		modelSlug: 'anthropic/claude-3.5-sonnet',
 		apiKey: '',
@@ -38,8 +79,8 @@ function resetStore() {
 		activeThemeId: 'dracula',
 		customThemeColors: DEFAULT_CUSTOM_THEME_COLORS,
 		customThemeBaseId: 'dracula',
-		enterToSendAI: false,
-		enterToSendTerminal: true,
+		enterToSendAI: true,
+		enterToSendAIExpanded: false,
 		defaultSaveToHistory: true,
 		defaultShowThinking: 'off',
 		leftSidebarWidth: 256,
@@ -47,14 +88,17 @@ function resetStore() {
 		markdownEditMode: false,
 		chatRawTextMode: false,
 		showHiddenFiles: true,
+		fileExplorerIconTheme: 'default',
 		terminalWidth: 100,
 		logLevel: 'info',
 		maxLogBuffer: 5000,
-		maxOutputLines: 25,
+		maxOutputLines: Infinity,
 		osNotificationsEnabled: true,
 		audioFeedbackEnabled: false,
 		audioFeedbackCommand: 'say',
 		toastDuration: 20,
+		idleNotificationEnabled: false,
+		idleNotificationCommand: 'say Maestro is idle',
 		checkForUpdatesOnStartup: true,
 		enableBetaUpdates: false,
 		crashReportingEnabled: true,
@@ -66,6 +110,7 @@ function resetStore() {
 		autoRunStats: DEFAULT_AUTO_RUN_STATS,
 		usageStats: DEFAULT_USAGE_STATS,
 		ungroupedCollapsed: false,
+		groupChatsExpanded: true,
 		tourCompleted: false,
 		firstAutoRunCompleted: false,
 		onboardingStats: DEFAULT_ONBOARDING_STATS,
@@ -78,7 +123,7 @@ function resetStore() {
 		documentGraphShowExternalLinks: false,
 		documentGraphMaxNodes: 50,
 		documentGraphPreviewCharLimit: 100,
-		documentGraphLayoutType: 'mindmap',
+		documentGraphLayoutType: 'hierarchical',
 		statsCollectionEnabled: true,
 		defaultStatsTimeRange: 'week',
 		preventSleepEnabled: false,
@@ -92,6 +137,8 @@ function resetStore() {
 		directorNotesSettings: { provider: 'claude-code', defaultLookbackDays: 7 },
 		wakatimeApiKey: '',
 		wakatimeEnabled: false,
+		forcedParallelExecution: false,
+		forcedParallelAcknowledged: false,
 	});
 }
 
@@ -118,7 +165,7 @@ describe('settingsStore', () => {
 	// ========================================================================
 
 	describe('initial state', () => {
-		it('has correct default values for all 65 fields', () => {
+		it('has correct default values for all 68 fields', () => {
 			const state = useSettingsStore.getState();
 
 			expect(state.settingsLoaded).toBe(false);
@@ -136,8 +183,8 @@ describe('settingsStore', () => {
 			expect(state.activeThemeId).toBe('dracula');
 			expect(state.customThemeColors).toEqual(DEFAULT_CUSTOM_THEME_COLORS);
 			expect(state.customThemeBaseId).toBe('dracula');
-			expect(state.enterToSendAI).toBe(false);
-			expect(state.enterToSendTerminal).toBe(true);
+			expect(state.enterToSendAI).toBe(true);
+			expect(state.enterToSendAIExpanded).toBe(false);
 			expect(state.defaultSaveToHistory).toBe(true);
 			expect(state.defaultShowThinking).toBe('off');
 			expect(state.leftSidebarWidth).toBe(256);
@@ -145,10 +192,11 @@ describe('settingsStore', () => {
 			expect(state.markdownEditMode).toBe(false);
 			expect(state.chatRawTextMode).toBe(false);
 			expect(state.showHiddenFiles).toBe(true);
+			expect(state.fileExplorerIconTheme).toBe('default');
 			expect(state.terminalWidth).toBe(100);
 			expect(state.logLevel).toBe('info');
 			expect(state.maxLogBuffer).toBe(5000);
-			expect(state.maxOutputLines).toBe(25);
+			expect(state.maxOutputLines).toBe(Infinity);
 			expect(state.osNotificationsEnabled).toBe(true);
 			expect(state.audioFeedbackEnabled).toBe(false);
 			expect(state.audioFeedbackCommand).toBe('say');
@@ -164,6 +212,9 @@ describe('settingsStore', () => {
 			expect(state.autoRunStats).toEqual(DEFAULT_AUTO_RUN_STATS);
 			expect(state.usageStats).toEqual(DEFAULT_USAGE_STATS);
 			expect(state.ungroupedCollapsed).toBe(false);
+			expect(state.groupChatsExpanded).toBe(true);
+			expect(state.groupChatSortAlphabetical).toBe(false);
+			expect(state.starredSessionsCollapsed).toBe(false);
 			expect(state.tourCompleted).toBe(false);
 			expect(state.firstAutoRunCompleted).toBe(false);
 			expect(state.onboardingStats).toEqual(DEFAULT_ONBOARDING_STATS);
@@ -176,7 +227,7 @@ describe('settingsStore', () => {
 			expect(state.documentGraphShowExternalLinks).toBe(false);
 			expect(state.documentGraphMaxNodes).toBe(50);
 			expect(state.documentGraphPreviewCharLimit).toBe(100);
-			expect(state.documentGraphLayoutType).toBe('mindmap');
+			expect(state.documentGraphLayoutType).toBe('hierarchical');
 			expect(state.statsCollectionEnabled).toBe(true);
 			expect(state.defaultStatsTimeRange).toBe('week');
 			expect(state.preventSleepEnabled).toBe(false);
@@ -193,6 +244,8 @@ describe('settingsStore', () => {
 			});
 			expect(state.wakatimeApiKey).toBe('');
 			expect(state.wakatimeEnabled).toBe(false);
+			expect(state.forcedParallelExecution).toBe(false);
+			expect(state.forcedParallelAcknowledged).toBe(false);
 		});
 	});
 
@@ -300,12 +353,6 @@ describe('settingsStore', () => {
 				expect(window.maestro.settings.set).toHaveBeenCalledWith('enterToSendAI', true);
 			});
 
-			it('setEnterToSendTerminal updates state and persists', () => {
-				useSettingsStore.getState().setEnterToSendTerminal(false);
-				expect(useSettingsStore.getState().enterToSendTerminal).toBe(false);
-				expect(window.maestro.settings.set).toHaveBeenCalledWith('enterToSendTerminal', false);
-			});
-
 			it('setDefaultSaveToHistory updates state and persists', () => {
 				useSettingsStore.getState().setDefaultSaveToHistory(false);
 				expect(useSettingsStore.getState().defaultSaveToHistory).toBe(false);
@@ -345,15 +392,15 @@ describe('settingsStore', () => {
 				expect(useSettingsStore.getState().showHiddenFiles).toBe(false);
 				expect(window.maestro.settings.set).toHaveBeenCalledWith('showHiddenFiles', false);
 			});
+
+			it('setFileExplorerIconTheme updates state and persists', () => {
+				useSettingsStore.getState().setFileExplorerIconTheme('rich');
+				expect(useSettingsStore.getState().fileExplorerIconTheme).toBe('rich');
+				expect(window.maestro.settings.set).toHaveBeenCalledWith('fileExplorerIconTheme', 'rich');
+			});
 		});
 
 		describe('Terminal', () => {
-			it('setTerminalWidth updates state and persists', () => {
-				useSettingsStore.getState().setTerminalWidth(120);
-				expect(useSettingsStore.getState().terminalWidth).toBe(120);
-				expect(window.maestro.settings.set).toHaveBeenCalledWith('terminalWidth', 120);
-			});
-
 			it('setMaxOutputLines updates state and persists', () => {
 				useSettingsStore.getState().setMaxOutputLines(50);
 				expect(useSettingsStore.getState().maxOutputLines).toBe(50);
@@ -461,6 +508,24 @@ describe('settingsStore', () => {
 				expect(window.maestro.settings.set).toHaveBeenCalledWith('ungroupedCollapsed', true);
 			});
 
+			it('setGroupChatsExpanded updates state and persists', () => {
+				useSettingsStore.getState().setGroupChatsExpanded(false);
+				expect(useSettingsStore.getState().groupChatsExpanded).toBe(false);
+				expect(window.maestro.settings.set).toHaveBeenCalledWith('groupChatsExpanded', false);
+			});
+
+			it('setGroupChatSortAlphabetical updates state and persists', () => {
+				useSettingsStore.getState().setGroupChatSortAlphabetical(true);
+				expect(useSettingsStore.getState().groupChatSortAlphabetical).toBe(true);
+				expect(window.maestro.settings.set).toHaveBeenCalledWith('groupChatSortAlphabetical', true);
+			});
+
+			it('setStarredSessionsCollapsed updates state and persists', () => {
+				useSettingsStore.getState().setStarredSessionsCollapsed(true);
+				expect(useSettingsStore.getState().starredSessionsCollapsed).toBe(true);
+				expect(window.maestro.settings.set).toHaveBeenCalledWith('starredSessionsCollapsed', true);
+			});
+
 			it('setTourCompleted updates state and persists', () => {
 				useSettingsStore.getState().setTourCompleted(true);
 				expect(useSettingsStore.getState().tourCompleted).toBe(true);
@@ -518,10 +583,10 @@ describe('settingsStore', () => {
 
 			it('setDocumentGraphLayoutType rejects invalid values and persists fallback', () => {
 				useSettingsStore.getState().setDocumentGraphLayoutType('invalid' as any);
-				expect(useSettingsStore.getState().documentGraphLayoutType).toBe('mindmap');
+				expect(useSettingsStore.getState().documentGraphLayoutType).toBe('hierarchical');
 				expect(window.maestro.settings.set).toHaveBeenCalledWith(
 					'documentGraphLayoutType',
-					'mindmap'
+					'hierarchical'
 				);
 			});
 		});
@@ -616,6 +681,31 @@ describe('settingsStore', () => {
 				expect(window.maestro.settings.set).toHaveBeenCalledWith('wakatimeEnabled', true);
 			});
 		});
+
+		describe('Forced Parallel Execution', () => {
+			it('setForcedParallelExecution updates state and persists', () => {
+				useSettingsStore.getState().setForcedParallelExecution(true);
+				expect(useSettingsStore.getState().forcedParallelExecution).toBe(true);
+				expect(window.maestro.settings.set).toHaveBeenCalledWith('forcedParallelExecution', true);
+			});
+
+			it('setForcedParallelAcknowledged updates state and persists', () => {
+				useSettingsStore.getState().setForcedParallelAcknowledged(true);
+				expect(useSettingsStore.getState().forcedParallelAcknowledged).toBe(true);
+				expect(window.maestro.settings.set).toHaveBeenCalledWith(
+					'forcedParallelAcknowledged',
+					true
+				);
+			});
+
+			it('forcedParallelExecution defaults to false', () => {
+				expect(useSettingsStore.getState().forcedParallelExecution).toBe(false);
+			});
+
+			it('forcedParallelAcknowledged defaults to false', () => {
+				expect(useSettingsStore.getState().forcedParallelAcknowledged).toBe(false);
+			});
+		});
 	});
 
 	// ========================================================================
@@ -623,13 +713,13 @@ describe('settingsStore', () => {
 	// ========================================================================
 
 	describe('setters with validation', () => {
-		it('setConductorProfile trims to 1000 characters', () => {
-			const longProfile = 'a'.repeat(1500);
+		it('setConductorProfile trims to 5000 characters', () => {
+			const longProfile = 'a'.repeat(6000);
 			useSettingsStore.getState().setConductorProfile(longProfile);
-			expect(useSettingsStore.getState().conductorProfile).toBe('a'.repeat(1000));
+			expect(useSettingsStore.getState().conductorProfile).toBe('a'.repeat(5000));
 			expect(window.maestro.settings.set).toHaveBeenCalledWith(
 				'conductorProfile',
-				'a'.repeat(1000)
+				'a'.repeat(5000)
 			);
 		});
 
@@ -1339,6 +1429,27 @@ describe('settingsStore', () => {
 			expect(state.enterToSendAI).toBe(true);
 		});
 
+		it('loads fileExplorerIconTheme when the persisted value is valid', async () => {
+			vi.mocked(window.maestro.settings.getAll).mockResolvedValue({
+				fileExplorerIconTheme: 'rich' satisfies FileExplorerIconTheme,
+			});
+
+			await loadAllSettings();
+
+			expect(useSettingsStore.getState().fileExplorerIconTheme).toBe('rich');
+		});
+
+		it('falls back to default for invalid fileExplorerIconTheme values', async () => {
+			useSettingsStore.setState({ fileExplorerIconTheme: 'rich' });
+			vi.mocked(window.maestro.settings.getAll).mockResolvedValue({
+				fileExplorerIconTheme: 'neon' as any,
+			});
+
+			await loadAllSettings();
+
+			expect(useSettingsStore.getState().fileExplorerIconTheme).toBe('default');
+		});
+
 		it('uses defaults when settings are empty/undefined', async () => {
 			vi.mocked(window.maestro.settings.getAll).mockResolvedValue({});
 
@@ -1348,6 +1459,27 @@ describe('settingsStore', () => {
 			expect(state.settingsLoaded).toBe(true);
 			expect(state.fontFamily).toBe('Roboto Mono, Menlo, "Courier New", monospace');
 			expect(state.fontSize).toBe(14);
+		});
+
+		it('loads persisted starredSessionsCollapsed into the settings store', async () => {
+			vi.mocked(window.maestro.settings.getAll).mockResolvedValue({
+				starredSessionsCollapsed: true,
+			});
+
+			await loadAllSettings();
+
+			expect(useSettingsStore.getState().starredSessionsCollapsed).toBe(true);
+		});
+
+		it('hydrates persisted bookmarksCollapsed into the uiStore', async () => {
+			useUIStore.setState({ bookmarksCollapsed: false });
+			vi.mocked(window.maestro.settings.getAll).mockResolvedValue({
+				bookmarksCollapsed: true,
+			});
+
+			await loadAllSettings();
+
+			expect(useUIStore.getState().bookmarksCollapsed).toBe(true);
 		});
 
 		it('sets settingsLoaded = true on failure', async () => {
@@ -1398,6 +1530,60 @@ describe('settingsStore', () => {
 			expect(useSettingsStore.getState().maxOutputLines).toBe(Infinity);
 		});
 
+		// Legacy installs persisted colorBlindMode as a string ('none' |
+		// 'enabled' | 'deuteranopia' | …); a bare `as boolean` cast left
+		// 'none' as a truthy string and silently forced every Usage Dashboard
+		// chart onto the colorblind palette. These guard the coercion.
+		it('coerces legacy colorBlindMode string "none" to false', async () => {
+			vi.mocked(window.maestro.settings.getAll).mockResolvedValue({
+				colorBlindMode: 'none' as unknown as boolean,
+			});
+
+			await loadAllSettings();
+
+			expect(useSettingsStore.getState().colorBlindMode).toBe(false);
+		});
+
+		it('coerces legacy colorBlindMode string "enabled" to true', async () => {
+			vi.mocked(window.maestro.settings.getAll).mockResolvedValue({
+				colorBlindMode: 'enabled' as unknown as boolean,
+			});
+
+			await loadAllSettings();
+
+			expect(useSettingsStore.getState().colorBlindMode).toBe(true);
+		});
+
+		it('coerces mobile colorBlindMode string "deuteranopia" to true', async () => {
+			vi.mocked(window.maestro.settings.getAll).mockResolvedValue({
+				colorBlindMode: 'deuteranopia' as unknown as boolean,
+			});
+
+			await loadAllSettings();
+
+			expect(useSettingsStore.getState().colorBlindMode).toBe(true);
+		});
+
+		it('coerces legacy colorBlindMode string "false" to false', async () => {
+			vi.mocked(window.maestro.settings.getAll).mockResolvedValue({
+				colorBlindMode: 'false' as unknown as boolean,
+			});
+
+			await loadAllSettings();
+
+			expect(useSettingsStore.getState().colorBlindMode).toBe(false);
+		});
+
+		it('passes boolean colorBlindMode through unchanged', async () => {
+			vi.mocked(window.maestro.settings.getAll).mockResolvedValue({
+				colorBlindMode: true,
+			});
+
+			await loadAllSettings();
+
+			expect(useSettingsStore.getState().colorBlindMode).toBe(true);
+		});
+
 		it('migrates shortcut Alt-key macOS special characters', async () => {
 			vi.mocked(window.maestro.settings.getAll).mockResolvedValue({
 				shortcuts: {
@@ -1423,6 +1609,58 @@ describe('settingsStore', () => {
 					}),
 				})
 			);
+		});
+
+		it('persists the default-remap on migration so subsequent loads are stable', async () => {
+			// User still has the OLD default for moveToGroup (Cmd+Shift+M).
+			// The remap should (a) bump their binding to the new default, (b) persist
+			// the new binding to disk so the next load does not re-trigger migration.
+			// Regression test for the crash-and-relaunch loop caused by write
+			// amplification: old code set needsMigration=true but wrote back the
+			// unchanged keys, which the file watcher would pick up and re-trigger.
+			const savedWithOldMoveToGroup = {
+				moveToGroup: {
+					id: 'moveToGroup',
+					label: 'Move to Group',
+					keys: ['Meta', 'Shift', 'm'],
+				},
+			};
+			vi.mocked(window.maestro.settings.getAll).mockResolvedValue({
+				shortcuts: savedWithOldMoveToGroup,
+			});
+
+			await loadAllSettings();
+
+			const shortcuts = useSettingsStore.getState().shortcuts;
+			expect(shortcuts.moveToGroup.keys).toEqual(['Alt', 'Meta', 'm']);
+			// The persisted raw value must contain the NEW keys, otherwise the next
+			// load re-detects migration and we re-enter the loop.
+			expect(window.maestro.settings.set).toHaveBeenCalledWith(
+				'shortcuts',
+				expect.objectContaining({
+					moveToGroup: expect.objectContaining({
+						keys: ['Alt', 'Meta', 'm'],
+					}),
+				})
+			);
+
+			// Simulate the re-load that the settings file watcher would trigger.
+			// Feed back the value that was just persisted and confirm migration
+			// does not fire a second write.
+			const persistedCall = vi
+				.mocked(window.maestro.settings.set)
+				.mock.calls.find(([k]) => k === 'shortcuts');
+			const persistedShortcuts = persistedCall?.[1] as Record<string, unknown>;
+			vi.mocked(window.maestro.settings.set).mockClear();
+			vi.mocked(window.maestro.settings.getAll).mockResolvedValue({
+				shortcuts: persistedShortcuts,
+			});
+
+			await loadAllSettings();
+
+			expect(
+				vi.mocked(window.maestro.settings.set).mock.calls.some(([k]) => k === 'shortcuts')
+			).toBe(false);
 		});
 
 		it('merges shortcuts: preserves user keys but updates labels from defaults', async () => {
@@ -1569,6 +1807,16 @@ describe('settingsStore', () => {
 			expect(useSettingsStore.getState().defaultStatsTimeRange).toBe('week');
 		});
 
+		it('accepts quarter as valid defaultStatsTimeRange', async () => {
+			vi.mocked(window.maestro.settings.getAll).mockResolvedValue({
+				defaultStatsTimeRange: 'quarter',
+			});
+
+			await loadAllSettings();
+
+			expect(useSettingsStore.getState().defaultStatsTimeRange).toBe('quarter');
+		});
+
 		it('validates documentGraphPreviewCharLimit on load (rejects out-of-range)', async () => {
 			vi.mocked(window.maestro.settings.getAll).mockResolvedValue({
 				documentGraphPreviewCharLimit: 5000, // above 500
@@ -1588,7 +1836,7 @@ describe('settingsStore', () => {
 			await loadAllSettings();
 
 			// Invalid value rejected, keeps default
-			expect(useSettingsStore.getState().documentGraphLayoutType).toBe('mindmap');
+			expect(useSettingsStore.getState().documentGraphLayoutType).toBe('hierarchical');
 		});
 
 		it('loads valid documentGraphLayoutType from settings', async () => {
@@ -1636,21 +1884,151 @@ describe('settingsStore', () => {
 	});
 
 	// ========================================================================
-	// 13. Non-React Access
+	// 13. setPersistentWebLink race-condition and rollback tests
+	// ========================================================================
+
+	describe('setPersistentWebLink', () => {
+		beforeEach(() => {
+			useSettingsStore.setState({ persistentWebLink: false });
+		});
+
+		it('should optimistically set persistentWebLink to true and call persistCurrentToken', async () => {
+			const { setPersistentWebLink } = useSettingsStore.getState();
+			await setPersistentWebLink(true);
+
+			expect(useSettingsStore.getState().persistentWebLink).toBe(true);
+			expect(window.maestro.live.persistCurrentToken).toHaveBeenCalledOnce();
+		});
+
+		it('should rollback to false on soft IPC failure (result.success === false)', async () => {
+			vi.mocked(window.maestro.live.persistCurrentToken).mockResolvedValueOnce({
+				success: false,
+				message: 'Web server is not running.',
+			});
+
+			const { setPersistentWebLink } = useSettingsStore.getState();
+			await setPersistentWebLink(true);
+
+			expect(useSettingsStore.getState().persistentWebLink).toBe(false);
+		});
+
+		it('should rollback to false on hard IPC failure (thrown exception)', async () => {
+			vi.mocked(window.maestro.live.persistCurrentToken).mockRejectedValueOnce(
+				new Error('IPC timeout')
+			);
+
+			const { setPersistentWebLink } = useSettingsStore.getState();
+			await setPersistentWebLink(true);
+
+			expect(useSettingsStore.getState().persistentWebLink).toBe(false);
+		});
+
+		it('should call clearPersistentToken when disabling', async () => {
+			useSettingsStore.setState({ persistentWebLink: true });
+
+			const { setPersistentWebLink } = useSettingsStore.getState();
+			await setPersistentWebLink(false);
+
+			expect(useSettingsStore.getState().persistentWebLink).toBe(false);
+			expect(window.maestro.live.clearPersistentToken).toHaveBeenCalledOnce();
+		});
+
+		it('should rollback to true on clearPersistentToken hard failure (thrown exception)', async () => {
+			useSettingsStore.setState({ persistentWebLink: true });
+			vi.mocked(window.maestro.live.clearPersistentToken).mockRejectedValueOnce(
+				new Error('IPC timeout')
+			);
+
+			const { setPersistentWebLink } = useSettingsStore.getState();
+			await setPersistentWebLink(false);
+
+			expect(useSettingsStore.getState().persistentWebLink).toBe(true);
+		});
+
+		it('should rollback to true on clearPersistentToken soft failure (result.success === false)', async () => {
+			useSettingsStore.setState({ persistentWebLink: true });
+			vi.mocked(window.maestro.live.clearPersistentToken).mockResolvedValueOnce({
+				success: false,
+				message: 'Settings write failed.',
+			} as any);
+
+			const { setPersistentWebLink } = useSettingsStore.getState();
+			await setPersistentWebLink(false);
+
+			expect(useSettingsStore.getState().persistentWebLink).toBe(true);
+		});
+
+		it('should handle rapid double-toggle (enable then disable) correctly', async () => {
+			// Simulate enable call that resolves slowly
+			let resolveEnable: (value: any) => void;
+			const slowEnable = new Promise((resolve) => {
+				resolveEnable = resolve;
+			});
+			vi.mocked(window.maestro.live.persistCurrentToken).mockReturnValueOnce(slowEnable as any);
+
+			const { setPersistentWebLink } = useSettingsStore.getState();
+
+			// Start enable (will be in-flight)
+			const enablePromise = setPersistentWebLink(true);
+			// Immediately disable (supersedes the enable)
+			const disablePromise = setPersistentWebLink(false);
+
+			// Resolve the slow enable after disable was called
+			resolveEnable!({ success: true });
+
+			await enablePromise;
+			await disablePromise;
+
+			// Final state should reflect the last user intent: disabled
+			expect(useSettingsStore.getState().persistentWebLink).toBe(false);
+			expect(window.maestro.live.clearPersistentToken).toHaveBeenCalled();
+		});
+
+		it('should handle rapid reverse toggle (disable then enable) correctly', async () => {
+			// Start with enabled state
+			useSettingsStore.setState({ persistentWebLink: true });
+
+			// Simulate disable call that resolves slowly
+			let resolveClear: (value: any) => void;
+			const slowClear = new Promise((resolve) => {
+				resolveClear = resolve;
+			});
+			vi.mocked(window.maestro.live.clearPersistentToken).mockReturnValueOnce(slowClear as any);
+
+			const { setPersistentWebLink } = useSettingsStore.getState();
+
+			// Start disable (will be in-flight)
+			const disablePromise = setPersistentWebLink(false);
+			// Immediately re-enable (supersedes the disable)
+			const enablePromise = setPersistentWebLink(true);
+
+			// Resolve the slow clear after enable was called
+			resolveClear!({ success: true });
+
+			await disablePromise;
+			await enablePromise;
+
+			// Final state should reflect the last user intent: enabled
+			expect(useSettingsStore.getState().persistentWebLink).toBe(true);
+			expect(window.maestro.live.persistCurrentToken).toHaveBeenCalled();
+		});
+	});
+
+	// ========================================================================
+	// 14. Non-React Access
 	// ========================================================================
 
 	describe('non-React access', () => {
-		it('getSettingsState returns current state', () => {
+		it('useSettingsStore.getState() returns current state', () => {
 			useSettingsStore.setState({ fontSize: 20 });
-			const state = getSettingsState();
+			const state = useSettingsStore.getState();
 			expect(state.fontSize).toBe(20);
 		});
 
-		it('getSettingsActions returns action functions that work', () => {
-			const actions = getSettingsActions();
-			expect(typeof actions.setFontSize).toBe('function');
+		it('useSettingsStore.getState() exposes action functions that work', () => {
+			expect(typeof useSettingsStore.getState().setFontSize).toBe('function');
 
-			actions.setFontSize(22);
+			useSettingsStore.getState().setFontSize(22);
 			expect(useSettingsStore.getState().fontSize).toBe(22);
 			expect(window.maestro.settings.set).toHaveBeenCalledWith('fontSize', 22);
 		});

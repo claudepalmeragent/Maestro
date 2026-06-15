@@ -3,6 +3,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { LiveOverlayPanel } from '../../../../renderer/components/SessionList/LiveOverlayPanel';
 import type { Theme } from '../../../../renderer/types';
 
+import { mockTheme } from '../../../helpers/mockTheme';
 // ---------------------------------------------------------------------------
 // Mocks
 // ---------------------------------------------------------------------------
@@ -20,24 +21,10 @@ vi.mock('../../../../renderer/utils/clipboard', () => ({
 	shell: {
 		openExternal: vi.fn(),
 	},
-};
-
-const mockTheme: Theme = {
-	name: 'test',
-	colors: {
-		bgMain: '#1a1a2e',
-		bgSidebar: '#16213e',
-		bgInput: '#0f3460',
-		bgActivity: '#1e1e3a',
-		textMain: '#e0e0e0',
-		textDim: '#888888',
-		accent: '#e94560',
-		border: '#333333',
-		error: '#ff4444',
-		success: '#00cc66',
-		warning: '#ffaa00',
+	tunnel: {
+		getStatus: vi.fn().mockResolvedValue({ isRunning: false, url: null, error: null }),
 	},
-} as Theme;
+};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -56,6 +43,8 @@ function createDefaultProps(overrides: Partial<Parameters<typeof LiveOverlayPane
 		copyFlash: null,
 		setCopyFlash: vi.fn(),
 		handleTunnelToggle: vi.fn(),
+		persistentWebLink: false,
+		setPersistentWebLink: vi.fn(),
 		webInterfaceUseCustomPort: false,
 		webInterfaceCustomPort: 8080,
 		setWebInterfaceUseCustomPort: vi.fn(),
@@ -64,6 +53,7 @@ function createDefaultProps(overrides: Partial<Parameters<typeof LiveOverlayPane
 		toggleGlobalLive: vi.fn(),
 		setLiveOverlayOpen: vi.fn(),
 		restartWebServer: vi.fn(),
+		restartTunnel: vi.fn(),
 		...overrides,
 	};
 }
@@ -75,6 +65,11 @@ function createDefaultProps(overrides: Partial<Parameters<typeof LiveOverlayPane
 describe('LiveOverlayPanel', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		(window as any).maestro.tunnel.getStatus.mockResolvedValue({
+			isRunning: false,
+			url: null,
+			error: null,
+		});
 	});
 
 	// -----------------------------------------------------------------------
@@ -131,6 +126,13 @@ describe('LiveOverlayPanel', () => {
 			expect(screen.getByText('Remote Control')).toBeTruthy();
 		});
 
+		it('shows Cloudflare tunnel description under Remote Control', () => {
+			render(<LiveOverlayPanel {...createDefaultProps()} />);
+			expect(
+				screen.getByText(/Uses Cloudflare tunnel for access outside your network/)
+			).toBeTruthy();
+		});
+
 		it('calls handleTunnelToggle when toggle button is clicked', () => {
 			const handleTunnelToggle = vi.fn();
 			render(<LiveOverlayPanel {...createDefaultProps({ handleTunnelToggle })} />);
@@ -155,8 +157,9 @@ describe('LiveOverlayPanel', () => {
 
 		it('disables toggle when tunnel is starting', () => {
 			render(<LiveOverlayPanel {...createDefaultProps({ tunnelStatus: 'starting' })} />);
-			const toggleBtn = screen.getByTitle('Enable remote control');
+			const toggleBtn = screen.getByTitle('Starting tunnel…');
 			expect(toggleBtn).toBeDisabled();
+			expect(toggleBtn.getAttribute('aria-busy')).toBe('true');
 		});
 
 		it('shows loading spinner when tunnel is starting', () => {
@@ -164,6 +167,13 @@ describe('LiveOverlayPanel', () => {
 				<LiveOverlayPanel {...createDefaultProps({ tunnelStatus: 'starting' })} />
 			);
 			expect(container.querySelector('.animate-spin')).toBeTruthy();
+		});
+
+		it('shows inline starting status with live region when tunnel is starting', () => {
+			render(<LiveOverlayPanel {...createDefaultProps({ tunnelStatus: 'starting' })} />);
+			const status = screen.getByRole('status');
+			expect(status.textContent).toMatch(/Starting tunnel/i);
+			expect(status.getAttribute('aria-live')).toBe('polite');
 		});
 
 		it('displays tunnel error message', () => {
@@ -181,6 +191,25 @@ describe('LiveOverlayPanel', () => {
 		it('shows disconnect title when tunnel is connected', () => {
 			render(<LiveOverlayPanel {...createDefaultProps({ tunnelStatus: 'connected' })} />);
 			expect(screen.getByTitle('Disable remote control')).toBeTruthy();
+		});
+
+		it('keeps connected state when tunnel status confirms process is running', () => {
+			(window as any).maestro.tunnel.getStatus.mockResolvedValue({
+				isRunning: true,
+				url: 'https://tunnel.example.com',
+				error: null,
+			});
+
+			render(
+				<LiveOverlayPanel
+					{...createDefaultProps({
+						tunnelStatus: 'connected',
+						tunnelUrl: 'https://tunnel.example.com',
+					})}
+				/>
+			);
+
+			expect(screen.getByText(/Remote tunnel active/)).toBeTruthy();
 		});
 	});
 
@@ -267,6 +296,29 @@ describe('LiveOverlayPanel', () => {
 
 			fireEvent.blur(screen.getByPlaceholderText('8080'));
 			expect(restartWebServer).toHaveBeenCalled();
+		});
+
+		it('restarts tunnel along with web server when tunnel is connected', async () => {
+			const restartWebServer = vi.fn().mockResolvedValue(null);
+			const restartTunnel = vi.fn().mockResolvedValue(undefined);
+			render(
+				<LiveOverlayPanel
+					{...createDefaultProps({
+						webInterfaceUseCustomPort: true,
+						isLiveMode: true,
+						tunnelStatus: 'connected',
+						restartWebServer,
+						restartTunnel,
+					})}
+				/>
+			);
+
+			fireEvent.blur(screen.getByPlaceholderText('8080'));
+			// handleServerRestart is async — flush microtasks
+			await vi.waitFor(() => {
+				expect(restartWebServer).toHaveBeenCalled();
+				expect(restartTunnel).toHaveBeenCalled();
+			});
 		});
 
 		it('clamps and restarts on Enter key', () => {

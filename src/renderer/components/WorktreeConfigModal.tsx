@@ -1,8 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
-import { X, GitBranch, FolderOpen, Plus, Loader2, AlertTriangle, Server } from 'lucide-react';
+import { X, GitBranch, FolderOpen, Plus, AlertTriangle, Server } from 'lucide-react';
+import { GhostIconButton } from './ui/GhostIconButton';
+import { Spinner } from './ui/Spinner';
 import type { Theme, Session, GhCliStatus } from '../types';
 import { useLayerStack } from '../contexts/LayerStackContext';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
+import { getParentDir } from '../../shared/formatters';
+import { openUrl } from '../utils/openUrl';
 
 interface WorktreeConfigModalProps {
 	isOpen: boolean;
@@ -49,14 +53,16 @@ export function WorktreeConfigModal({
 	const onCloseRef = useRef(onClose);
 	onCloseRef.current = onClose;
 
-	// Form state
-	const [basePath, setBasePath] = useState(session.worktreeConfig?.basePath || '');
+	// Form state — default base path to parent directory of the agent's cwd
+	const [basePath, setBasePath] = useState(
+		session.worktreeConfig?.basePath || getParentDir(session.cwd)
+	);
 	const [watchEnabled, setWatchEnabled] = useState(session.worktreeConfig?.watchEnabled ?? true);
 	const [newBranchName, setNewBranchName] = useState('');
 	const [isCreating, setIsCreating] = useState(false);
 	const [isValidating, setIsValidating] = useState(false);
 	const [error, setError] = useState<string | null>(null);
-	const canDisable = !!(session.worktreeConfig?.basePath || basePath.trim());
+	const canDisable = !!session.worktreeConfig?.basePath;
 
 	// gh CLI status
 	const [ghCliStatus, setGhCliStatus] = useState<GhCliStatus | null>(null);
@@ -86,12 +92,12 @@ export function WorktreeConfigModal({
 	useEffect(() => {
 		if (isOpen) {
 			checkGhCli();
-			setBasePath(session.worktreeConfig?.basePath || '');
+			setBasePath(session.worktreeConfig?.basePath || getParentDir(session.cwd));
 			setWatchEnabled(session.worktreeConfig?.watchEnabled ?? true);
 			setNewBranchName('');
 			setError(null);
 		}
-	}, [isOpen, session.worktreeConfig]);
+	}, [isOpen, session.worktreeConfig, session.cwd]);
 
 	const checkGhCli = async () => {
 		try {
@@ -200,9 +206,9 @@ export function WorktreeConfigModal({
 							Worktree Configuration
 						</h2>
 					</div>
-					<button onClick={onClose} className="p-1 rounded hover:bg-white/10 transition-colors">
+					<GhostIconButton onClick={onClose} ariaLabel="Close">
 						<X className="w-4 h-4" style={{ color: theme.colors.textDim }} />
-					</button>
+					</GhostIconButton>
 				</div>
 
 				{/* Content */}
@@ -228,7 +234,7 @@ export function WorktreeConfigModal({
 										type="button"
 										className="underline hover:opacity-80"
 										style={{ color: theme.colors.accent }}
-										onClick={() => window.maestro.shell.openExternal('https://cli.github.com')}
+										onClick={() => openUrl('https://cli.github.com')}
 									>
 										GitHub CLI
 									</button>{' '}
@@ -364,11 +370,7 @@ export function WorktreeConfigModal({
 									color: theme.colors.accentForeground,
 								}}
 							>
-								{isCreating ? (
-									<Loader2 className="w-4 h-4 animate-spin" />
-								) : (
-									<Plus className="w-4 h-4" />
-								)}
+								{isCreating ? <Spinner size={16} /> : <Plus className="w-4 h-4" />}
 								Create
 							</button>
 						</div>
@@ -432,7 +434,7 @@ export function WorktreeConfigModal({
 							color: theme.colors.accentForeground,
 						}}
 					>
-						{isValidating && <Loader2 className="w-4 h-4 animate-spin" />}
+						{isValidating && <Spinner size={16} />}
 						{isValidating ? 'Validating...' : 'Save Configuration'}
 					</button>
 				</div>

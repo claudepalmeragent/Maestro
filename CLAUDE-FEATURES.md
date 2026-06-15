@@ -10,13 +10,14 @@ The Usage Dashboard (`src/renderer/components/UsageDashboard/`) provides analyti
 
 ```
 src/renderer/components/UsageDashboard/
-├── UsageDashboardModal.tsx      # Main modal with view tabs (Overview, Agents, Activity, AutoRun, DS Comparison)
-├── SummaryCards.tsx             # Metric cards (queries, duration, cost, tokens)
-├── AgentComparisonChart.tsx     # Bar chart comparing agent usage
+├── UsageDashboardModal.tsx      # Main modal with view tabs (Overview, Agents, Agent Overview, Activity, Auto Run, DS Comparison, +Cue when Encore flags on)
+├── SummaryCards.tsx             # Metric cards (queries, duration, cost, tokens, streak, best day, active days, worktree %)
+├── AgentOverviewCards.tsx       # Per-agent overview cards (Agents tab)
+├── AgentComparisonChart.tsx     # Bar chart comparing provider usage
 ├── AgentCostGraph.tsx           # Per-agent cost breakdown with billing mode colors
-├── AgentEfficiencyChart.tsx     # Agent efficiency comparison
+├── AgentEfficiencyChart.tsx     # Agent efficiency chart (Agent Overview tab)
 ├── AgentThroughputChart.tsx     # Per-agent throughput (tokens/second)
-├── AgentUsageChart.tsx          # Agent usage breakdown
+├── AgentUsageChart.tsx          # Per-agent usage over time
 ├── ActivityHeatmap.tsx          # Weekly activity heatmap (GitHub-style)
 ├── AuditReportPanel.tsx         # Anthropic audit results with filtering
 ├── CostOverTimeGraph.tsx        # Daily cost trends over time
@@ -24,6 +25,10 @@ src/renderer/components/UsageDashboard/
 ├── DatasourceComparisonTab.tsx  # Honeycomb vs local data comparison tab
 ├── DatasourceSummaryCards.tsx   # Summary cards for datasource comparison
 ├── DivergenceTable.tsx          # Token divergence between Honeycomb and local data
+├── RadialActivityChart.tsx      # Polar chart pair: hour-of-day + day-of-week
+├── YearInPixelsStrip.tsx        # Time-range-adaptive day-cell hero strip on the Overview tab
+├── WeekdayComparisonChart.tsx   # Weekday vs weekend comparison (Activity tab)
+├── WorktreeAnalytics.tsx        # Worktree-child session analytics
 ├── DurationTrendsChart.tsx      # Line chart for duration over time
 ├── FlushStatusIndicator.tsx     # OTEL flush status for Honeycomb data
 ├── LocationDistributionChart.tsx # Local vs SSH remote distribution
@@ -38,6 +43,11 @@ src/renderer/components/UsageDashboard/
 ├── TokenBreakdownTooltip.tsx    # Detailed token breakdown in tooltips
 ├── WeekdayComparisonChart.tsx   # Weekday usage comparison
 ├── AutoRunStats.tsx             # Auto Run-specific statistics
+├── TasksByHourChart.tsx         # Auto Run tasks-by-hour chart
+├── LongestAutoRunsTable.tsx     # Longest Auto Runs leaderboard
+├── CueStats.tsx                 # Cue automation analytics (Cue tab, gated on Encore flags)
+├── Sparkline.tsx                # Reusable mini trend line for metric cards
+├── chartUtils.ts                # Shared chart helpers (palettes, tooltip clamping)
 ├── ChartSkeletons.tsx           # Loading skeleton components
 ├── ChartErrorBoundary.tsx       # Error boundary with retry
 └── EmptyState.tsx               # Empty state when no data
@@ -219,6 +229,8 @@ defaultStatsTimeRange: 'day' | 'week' | 'month' | 'year' | 'all'; // Default tim
 colorBlindMode: boolean; // Use accessible color palettes
 preventSleepEnabled: boolean; // Prevent system sleep while agents are busy (default: false)
 keyboardMasteryStats: KeyboardMasteryStats; // Per-shortcut usage counts and mastery level
+showSessionIdPill: boolean; // Show session UUID pill in main panel header (default: false, opt-in)
+showSessionCostPill: boolean; // Show cost pill in main panel header (default: true)
 ```
 
 ---

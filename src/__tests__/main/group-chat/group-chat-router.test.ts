@@ -46,15 +46,41 @@ vi.mock('../../../main/utils/ssh-spawn-wrapper', () => ({
 	wrapSpawnWithSsh: (...args: unknown[]) => mockWrapSpawnWithSsh(...args),
 }));
 
+const mockCaptureException = vi.fn();
+vi.mock('../../../main/utils/sentry', () => ({
+	captureException: (...args: unknown[]) => mockCaptureException(...args),
+}));
+
+vi.mock('../../../main/prompt-manager', () => ({
+	getPrompt: vi.fn((id: string) => {
+		const fs = require('fs');
+		const path = require('path');
+		const promptsDir = path.resolve(__dirname, '..', '..', '..', '..', 'src', 'prompts');
+		const filenameMap: Record<string, string> = {
+			'group-chat-participant': 'group-chat-participant.md',
+			'group-chat-participant-request': 'group-chat-participant-request.md',
+			'group-chat-participant-continuation': 'group-chat-participant-continuation.md',
+			'group-chat-moderator-system': 'group-chat-moderator-system.md',
+			'group-chat-moderator-synthesis': 'group-chat-moderator-synthesis.md',
+		};
+		const filename = filenameMap[id];
+		if (!filename) throw new Error(`Unknown prompt ID in test mock: ${id}`);
+		return fs.readFileSync(path.join(promptsDir, filename), 'utf-8');
+	}),
+}));
+
 import {
 	extractMentions,
+	extractAllMentions,
+	extractAutoRunDirectives,
 	routeUserMessage,
 	routeModeratorResponse,
 	routeAgentResponse,
+	spawnModeratorSynthesis,
 	getGroupChatReadOnlyState,
 	setGetSessionsCallback,
 	setSshStore,
-	type SessionInfo,
+	type GroupChatSessionInfo,
 } from '../../../main/group-chat/group-chat-router';
 import {
 	spawnModerator,
@@ -69,10 +95,12 @@ import {
 	createGroupChat,
 	deleteGroupChat,
 	loadGroupChat,
+	getGroupChatHistory,
 	GroupChatParticipant,
 } from '../../../main/group-chat/group-chat-storage';
 import { readLog } from '../../../main/group-chat/group-chat-log';
 import { AgentDetector } from '../../../main/agents';
+import { groupChatEmitters } from '../../../main/ipc/handlers/groupChat';
 
 describe('group-chat-router', () => {
 	let mockProcessManager: IProcessManager;
@@ -147,6 +175,7 @@ describe('group-chat-router', () => {
 
 		// Clear mocks
 		vi.clearAllMocks();
+		groupChatEmitters.emitMessage = undefined;
 	});
 
 	// Helper to track created chats for cleanup
@@ -316,6 +345,99 @@ describe('group-chat-router', () => {
 	});
 
 	// ===========================================================================
+	// Test 5.2b: Markdown-formatted mentions
+	// AI moderators often wrap mentions in bold/italic/code markdown.
+	// ===========================================================================
+	describe('extractMentions - markdown formatting', () => {
+		const participants: GroupChatParticipant[] = [
+			{ name: 'controlplane', agentId: 'claude-code', sessionId: '1', addedAt: 0 },
+			{ name: 'dataplane', agentId: 'claude-code', sessionId: '2', addedAt: 0 },
+			{ name: 'Client', agentId: 'claude-code', sessionId: '3', addedAt: 0 },
+		];
+
+		it('handles bold markdown **@name**', () => {
+			const mentions = extractMentions(
+				'**@controlplane** — Please execute your plan.',
+				participants
+			);
+			expect(mentions).toEqual(['controlplane']);
+		});
+
+		it('handles italic markdown _@name_', () => {
+			const mentions = extractMentions('_@Client_ should review this', participants);
+			expect(mentions).toEqual(['Client']);
+		});
+
+		it('handles bold+italic markdown ***@name***', () => {
+			const mentions = extractMentions('***@dataplane*** is ready', participants);
+			expect(mentions).toEqual(['dataplane']);
+		});
+
+		it('handles backtick markdown `@name`', () => {
+			const mentions = extractMentions('`@controlplane` run the task', participants);
+			expect(mentions).toEqual(['controlplane']);
+		});
+
+		it('handles strikethrough markdown ~~@name~~', () => {
+			const mentions = extractMentions('~~@Client~~ was reassigned', participants);
+			expect(mentions).toEqual(['Client']);
+		});
+
+		it('handles multiple markdown-formatted mentions in one message', () => {
+			const mentions = extractMentions(
+				'- **@controlplane** — execute plan\n- **@dataplane** — verify results',
+				participants
+			);
+			expect(mentions).toEqual(['controlplane', 'dataplane']);
+		});
+
+		it('handles mixed formatted and plain mentions', () => {
+			const mentions = extractMentions(
+				'**@controlplane** and @dataplane should coordinate',
+				participants
+			);
+			expect(mentions).toEqual(['controlplane', 'dataplane']);
+		});
+	});
+
+	// ===========================================================================
+	// Test 5.2c: extractAllMentions with markdown formatting
+	// ===========================================================================
+	describe('extractAllMentions - markdown formatting', () => {
+		it('strips markdown from extracted mention names', () => {
+			const mentions = extractAllMentions('**@controlplane** and _@dataplane_');
+			expect(mentions).toEqual(['controlplane', 'dataplane']);
+		});
+
+		it('handles backtick-wrapped mentions', () => {
+			const mentions = extractAllMentions('`@myAgent` should handle this');
+			expect(mentions).toEqual(['myAgent']);
+		});
+
+		it('does not produce empty mentions from bare @**', () => {
+			const mentions = extractAllMentions('@** is not a real mention');
+			expect(mentions).toEqual([]);
+		});
+	});
+
+	// ===========================================================================
+	// Test 5.2d: extractAutoRunDirectives with markdown formatting
+	// ===========================================================================
+	describe('extractAutoRunDirectives - markdown formatting', () => {
+		it('strips markdown from autorun directive participant names', () => {
+			const result = extractAutoRunDirectives('!autorun @**controlplane**');
+			expect(result.autoRunParticipants).toEqual(['controlplane']);
+		});
+
+		it('handles autorun with filename and markdown', () => {
+			const result = extractAutoRunDirectives('!autorun @*controlplane*:plan.md');
+			expect(result.autoRunDirectives).toEqual([
+				{ participantName: 'controlplane', filename: 'plan.md' },
+			]);
+		});
+	});
+
+	// ===========================================================================
 	// Test 5.3: routeUserMessage spawns moderator process in batch mode
 	// Note: routeUserMessage now spawns a batch process per message instead of
 	// writing to a persistent session.
@@ -466,10 +588,33 @@ describe('group-chat-router', () => {
 			expect(mockProcessManager.spawn).not.toHaveBeenCalled();
 		});
 
-		it('throws for non-existent chat', async () => {
+		it('treats unresolved @tokens as plain text without emitting a system warning', async () => {
+			const chat = await createTestChatWithModerator('Literal At Symbol Test');
+			const emitMessage = vi.fn();
+			groupChatEmitters.emitMessage = emitMessage;
+
+			mockProcessManager.spawn.mockClear();
+
+			await routeModeratorResponse(
+				chat.id,
+				'Please keep the literal @example value in the final message.',
+				mockProcessManager,
+				mockAgentDetector
+			);
+
+			expect(mockProcessManager.spawn).not.toHaveBeenCalled();
+			expect(emitMessage).not.toHaveBeenCalledWith(
+				chat.id,
+				expect.objectContaining({
+					from: 'system',
+				})
+			);
+		});
+
+		it('is a no-op for non-existent chat (benign race on moderator exit)', async () => {
 			await expect(
 				routeModeratorResponse('non-existent-id', 'Hello', mockProcessManager)
-			).rejects.toThrow(/not found/i);
+			).resolves.toBeUndefined();
 		});
 
 		it('works without process manager (log only)', async () => {
@@ -483,6 +628,82 @@ describe('group-chat-router', () => {
 
 			const messages = await readLog(chat.logPath);
 			expect(messages.some((m) => m.from === 'moderator')).toBe(true);
+		});
+	});
+
+	// ===========================================================================
+	// Test 5.4b: moderator history entries are classified by what the turn did
+	// ===========================================================================
+	describe('moderator history entry classification', () => {
+		it('classifies a turn that forwards work to participants as delegation', async () => {
+			const chat = await createTestChatWithModerator('Delegation Classify Test');
+			await addParticipant(chat.id, 'Client', 'claude-code', mockProcessManager);
+
+			await routeModeratorResponse(
+				chat.id,
+				'@Client: Please implement the login form',
+				mockProcessManager,
+				mockAgentDetector
+			);
+
+			const history = await getGroupChatHistory(chat.id);
+			const moderatorEntry = history.find((e) => e.participantName === 'Moderator');
+			expect(moderatorEntry?.type).toBe('delegation');
+		});
+
+		it('classifies a plain moderator turn with no mentions as response', async () => {
+			const chat = await createTestChatWithModerator('Response Classify Test');
+			await addParticipant(chat.id, 'Client', 'claude-code', mockProcessManager);
+
+			await routeModeratorResponse(
+				chat.id,
+				'Here is the final summary for the user.',
+				mockProcessManager,
+				mockAgentDetector
+			);
+
+			const history = await getGroupChatHistory(chat.id);
+			const moderatorEntry = history.find((e) => e.participantName === 'Moderator');
+			expect(moderatorEntry?.type).toBe('response');
+		});
+
+		it('classifies the post-round summary turn as synthesis', async () => {
+			const chat = await createTestChatWithModerator('Synthesis Classify Test');
+			await addParticipant(chat.id, 'Client', 'claude-code', mockProcessManager);
+
+			// Spawning synthesis marks the next moderator turn as a synthesis round.
+			await spawnModeratorSynthesis(chat.id, mockProcessManager, mockAgentDetector);
+
+			await routeModeratorResponse(
+				chat.id,
+				'Synthesizing: the participants agreed on the approach.',
+				mockProcessManager,
+				mockAgentDetector
+			);
+
+			const history = await getGroupChatHistory(chat.id);
+			const moderatorEntry = history.find((e) => e.participantName === 'Moderator');
+			expect(moderatorEntry?.type).toBe('synthesis');
+		});
+
+		it('records an error entry when a participant fails to spawn', async () => {
+			const chat = await createTestChatWithModerator('Spawn Error Classify Test');
+			await addParticipant(chat.id, 'Client', 'claude-code', mockProcessManager);
+
+			// Make the participant spawn throw (moderator was already spawned during setup).
+			mockProcessManager.spawn = vi.fn().mockImplementation(() => {
+				throw new Error('spawn failed');
+			});
+
+			await routeModeratorResponse(
+				chat.id,
+				'@Client: Please implement the login form',
+				mockProcessManager,
+				mockAgentDetector
+			);
+
+			const history = await getGroupChatHistory(chat.id);
+			expect(history.some((e) => e.type === 'error' && e.participantName === 'Client')).toBe(true);
 		});
 	});
 
@@ -717,6 +938,54 @@ describe('group-chat-router', () => {
 			expect(participantSpawnCall).toBeDefined();
 			expect(participantSpawnCall?.[0].readOnlyMode).toBe(false);
 		});
+
+		it('auto-added participants are only started once for a moderator handoff', async () => {
+			const chat = await createTestChatWithModerator('Auto Add Single Spawn Test');
+			setGetSessionsCallback(() => [
+				{
+					id: 'session-client',
+					name: 'Client',
+					toolType: 'claude-code',
+					cwd: '/tmp/project',
+				},
+			]);
+
+			await routeModeratorResponse(
+				chat.id,
+				'@Client: Please create the requested file',
+				mockProcessManager,
+				mockAgentDetector
+			);
+
+			const participantSpawns = mockProcessManager.spawn.mock.calls.filter((call) =>
+				call[0].sessionId?.includes(`group-chat-${chat.id}-participant-Client-`)
+			);
+			expect(participantSpawns).toHaveLength(1);
+		});
+
+		it('does not report auto-add races after the moderator has stopped', async () => {
+			const chat = await createTestChatWithModerator('Auto Add Stopped Moderator Test');
+			clearAllModeratorSessions();
+			mockCaptureException.mockClear();
+			setGetSessionsCallback(() => [
+				{
+					id: 'session-client',
+					name: 'Client',
+					toolType: 'claude-code',
+					cwd: '/tmp/project',
+				},
+			]);
+
+			await routeModeratorResponse(
+				chat.id,
+				'@Client: Please create the requested file',
+				mockProcessManager,
+				mockAgentDetector
+			);
+
+			expect(mockCaptureException).not.toHaveBeenCalled();
+			expect((await loadGroupChat(chat.id))?.participants).toEqual([]);
+		});
 	});
 
 	// ===========================================================================
@@ -815,11 +1084,11 @@ describe('group-chat-router', () => {
 			mockWrapSpawnWithSsh.mockReset();
 		});
 
-		it('user-mention auto-add passes sshRemoteConfig and sshStore to addParticipant', async () => {
+		it('user-mention auto-add stores SSH participant metadata without spawning yet', async () => {
 			const chat = await createTestChatWithModerator('SSH User Mention Test');
 
 			// Set up a session with SSH config that the router can discover
-			const sshSession: SessionInfo = {
+			const sshSession: GroupChatSessionInfo = {
 				id: 'ses-ssh-1',
 				name: 'RemoteAgent',
 				toolType: 'claude-code',
@@ -838,13 +1107,15 @@ describe('group-chat-router', () => {
 				mockAgentDetector
 			);
 
-			// The SSH wrapper should have been called when addParticipant spawned the agent
-			expect(mockWrapSpawnWithSsh).toHaveBeenCalledWith(
-				expect.objectContaining({
-					command: expect.any(String),
-				}),
-				sshRemoteConfig,
-				mockSshStore
+			expect(mockWrapSpawnWithSsh).not.toHaveBeenCalled();
+			const updatedChat = await loadGroupChat(chat.id);
+			expect(updatedChat?.participants).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						name: 'RemoteAgent',
+						sshRemoteName: 'PedTome',
+					}),
+				])
 			);
 		});
 
@@ -852,7 +1123,7 @@ describe('group-chat-router', () => {
 			const chat = await createTestChatWithModerator('SSH Moderator Mention Test');
 
 			// Set up session with SSH config
-			const sshSession: SessionInfo = {
+			const sshSession: GroupChatSessionInfo = {
 				id: 'ses-ssh-2',
 				name: 'SSHWorker',
 				toolType: 'claude-code',
@@ -907,7 +1178,7 @@ describe('group-chat-router', () => {
 			const chat = await createTestChatWithModerator('No SSH Test');
 
 			// Session without SSH config
-			const localSession: SessionInfo = {
+			const localSession: GroupChatSessionInfo = {
 				id: 'ses-local-1',
 				name: 'LocalAgent',
 				toolType: 'claude-code',

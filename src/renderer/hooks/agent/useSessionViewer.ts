@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
+import { logger } from '../../utils/logger';
 
 /**
  * Session message from Claude session JSONL files
@@ -10,6 +11,8 @@ export interface SessionMessage {
 	timestamp: string;
 	uuid: string;
 	toolUse?: any;
+	/** Base64 data URLs reconstructed from image content blocks in the transcript. */
+	images?: string[];
 }
 
 /**
@@ -188,7 +191,7 @@ export function useSessionViewer({
 			} catch (error) {
 				// Discard errors if session was cleared while loading
 				if (generation !== loadGenerationRef.current) return;
-				console.error('Failed to load messages:', error);
+				logger.error('Failed to load messages:', undefined, error);
 			} finally {
 				// Only clear loading state if this is still the current generation
 				if (generation === loadGenerationRef.current) {

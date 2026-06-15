@@ -14,6 +14,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act, cleanup } from '@testing-library/react';
 import type { Session, BatchRunState, AgentError } from '../../../renderer/types';
+import { createMockSession as baseCreateMockSession } from '../../helpers/mockSession';
 
 // Use the REAL modalStore (not the global mock) since these tests verify store state changes
 vi.unmock('../../../renderer/stores/modalStore');
@@ -60,6 +61,7 @@ import {
 import { useBatchProcessor } from '../../../renderer/hooks/batch/useBatchProcessor';
 import { useSessionStore } from '../../../renderer/stores/sessionStore';
 import { useSettingsStore } from '../../../renderer/stores/settingsStore';
+import { useBatchStore } from '../../../renderer/stores/batchStore';
 import { useModalStore } from '../../../renderer/stores/modalStore';
 
 // ============================================================================
@@ -91,13 +93,12 @@ function createDefaultBatchState(overrides: Partial<BatchRunState> = {}): BatchR
 	};
 }
 
+// Thin wrapper: pre-populates an AI tab so batch handlers have something
+// to operate on. Delegates to the shared factory for baseline fields.
 function createMockSession(overrides: Partial<Session> = {}): Session {
-	return {
+	return baseCreateMockSession({
 		id: 'session-1',
 		name: 'Test Agent',
-		state: 'idle',
-		busySource: undefined,
-		toolType: 'claude-code',
 		aiTabs: [
 			{
 				id: 'tab-1',
@@ -106,20 +107,11 @@ function createMockSession(overrides: Partial<Session> = {}): Session {
 				logs: [],
 				state: 'idle',
 			},
-		],
+		] as any,
 		activeTabId: 'tab-1',
-		terminalTabs: [],
-		executionQueue: [],
-		manualHistory: [],
-		historyIndex: -1,
-		cwd: '/test',
-		thinkingStartTime: null,
-		isStarred: false,
-		isUnread: false,
-		hasUnseenOutput: false,
 		createdAt: Date.now(),
 		...overrides,
-	} as Session;
+	});
 }
 
 const mockSpawnAgentForSession = vi.fn().mockResolvedValue({ success: true });
@@ -174,6 +166,10 @@ beforeEach(() => {
 		modals: new Map(),
 	});
 
+	useBatchStore.setState({
+		batchRunStates: {},
+	});
+
 	// Ensure window.maestro.app is available for quit confirmation
 	(window as any).maestro = {
 		...((window as any).maestro || {}),
@@ -187,6 +183,9 @@ beforeEach(() => {
 		},
 		leaderboard: {
 			submit: vi.fn().mockResolvedValue({ success: false }),
+		},
+		process: {
+			getActiveProcesses: vi.fn().mockResolvedValue([]),
 		},
 	};
 });
@@ -240,11 +239,22 @@ describe('useBatchHandlers', () => {
 			expect(callArgs.groups).toEqual([{ id: 'g1', name: 'Group 1' }]);
 		});
 
-		it('passes spawnAgentForSession as onSpawnAgent', () => {
+		it('passes onSpawnAgent wrapper that marks Auto Run batch spawns', async () => {
 			renderHook(() => useBatchHandlers(createDeps()));
 
 			const callArgs = vi.mocked(useBatchProcessor).mock.calls[0][0];
-			expect(callArgs.onSpawnAgent).toBe(mockSpawnAgentForSession);
+			expect(callArgs.onSpawnAgent).not.toBe(mockSpawnAgentForSession);
+
+			await callArgs.onSpawnAgent('session-1', 'Do work', '/tmp/worktree');
+
+			expect(mockSpawnAgentForSession).toHaveBeenCalledWith(
+				'session-1',
+				'Do work',
+				'/tmp/worktree',
+				{
+					isAutoRun: true,
+				}
+			);
 		});
 
 		it('passes audio feedback settings from store', () => {
@@ -450,8 +460,13 @@ describe('useBatchHandlers', () => {
 	});
 
 	describe('handleSkipCurrentDocument', () => {
-		it('calls skipCurrentDocument and clears agent error for active batch session', () => {
+		it('calls skipCurrentDocument for the error-paused session', () => {
 			mockActiveBatchSessionIds = ['session-2'];
+			useBatchStore.setState({
+				batchRunStates: {
+					'session-2': createDefaultBatchState({ isRunning: true, errorPaused: true }),
+				},
+			});
 			const { result } = renderHook(() => useBatchHandlers(createDeps()));
 
 			act(() => {
@@ -462,9 +477,14 @@ describe('useBatchHandlers', () => {
 			expect(mockHandleClearAgentError).toHaveBeenCalledWith('session-2');
 		});
 
-		it('falls back to active session when no active batch sessions', () => {
+		it('prefers active session when it is error-paused', () => {
 			const session = createMockSession({ id: 'session-1' });
 			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
+			useBatchStore.setState({
+				batchRunStates: {
+					'session-1': createDefaultBatchState({ isRunning: true, errorPaused: true }),
+				},
+			});
 			mockActiveBatchSessionIds = [];
 
 			const { result } = renderHook(() => useBatchHandlers(createDeps()));
@@ -477,8 +497,9 @@ describe('useBatchHandlers', () => {
 			expect(mockHandleClearAgentError).toHaveBeenCalledWith('session-1');
 		});
 
-		it('does nothing when no session ID can be resolved', () => {
+		it('does nothing when no session is error-paused', () => {
 			useSessionStore.setState({ sessions: [], activeSessionId: '' });
+			useBatchStore.setState({ batchRunStates: {} });
 			mockActiveBatchSessionIds = [];
 
 			const { result } = renderHook(() => useBatchHandlers(createDeps()));
@@ -493,8 +514,13 @@ describe('useBatchHandlers', () => {
 	});
 
 	describe('handleResumeAfterError', () => {
-		it('calls resumeAfterError and clears agent error for active batch session', () => {
+		it('calls resumeAfterError for the error-paused session', () => {
 			mockActiveBatchSessionIds = ['session-2'];
+			useBatchStore.setState({
+				batchRunStates: {
+					'session-2': createDefaultBatchState({ isRunning: true, errorPaused: true }),
+				},
+			});
 			const { result } = renderHook(() => useBatchHandlers(createDeps()));
 
 			act(() => {
@@ -505,9 +531,14 @@ describe('useBatchHandlers', () => {
 			expect(mockHandleClearAgentError).toHaveBeenCalledWith('session-2');
 		});
 
-		it('falls back to active session when no active batch sessions', () => {
+		it('prefers active session when it is error-paused', () => {
 			const session = createMockSession({ id: 'session-1' });
 			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
+			useBatchStore.setState({
+				batchRunStates: {
+					'session-1': createDefaultBatchState({ isRunning: true, errorPaused: true }),
+				},
+			});
 			mockActiveBatchSessionIds = [];
 
 			const { result } = renderHook(() => useBatchHandlers(createDeps()));
@@ -520,8 +551,9 @@ describe('useBatchHandlers', () => {
 			expect(mockHandleClearAgentError).toHaveBeenCalledWith('session-1');
 		});
 
-		it('does nothing when no session ID can be resolved', () => {
+		it('does nothing when no session is error-paused', () => {
 			useSessionStore.setState({ sessions: [], activeSessionId: '' });
+			useBatchStore.setState({ batchRunStates: {} });
 			mockActiveBatchSessionIds = [];
 
 			const { result } = renderHook(() => useBatchHandlers(createDeps()));
@@ -535,8 +567,13 @@ describe('useBatchHandlers', () => {
 	});
 
 	describe('handleAbortBatchOnError', () => {
-		it('calls abortBatchOnError and clears agent error for active batch session', () => {
+		it('calls abortBatchOnError for the error-paused session', () => {
 			mockActiveBatchSessionIds = ['session-3'];
+			useBatchStore.setState({
+				batchRunStates: {
+					'session-3': createDefaultBatchState({ isRunning: true, errorPaused: true }),
+				},
+			});
 			const { result } = renderHook(() => useBatchHandlers(createDeps()));
 
 			act(() => {
@@ -547,9 +584,10 @@ describe('useBatchHandlers', () => {
 			expect(mockHandleClearAgentError).toHaveBeenCalledWith('session-3');
 		});
 
-		it('falls back to active session when no active batch sessions', () => {
+		it('does nothing when no session is error-paused', () => {
 			const session = createMockSession({ id: 'session-1' });
 			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
+			useBatchStore.setState({ batchRunStates: {} });
 			mockActiveBatchSessionIds = [];
 
 			const { result } = renderHook(() => useBatchHandlers(createDeps()));
@@ -558,12 +596,13 @@ describe('useBatchHandlers', () => {
 				result.current.handleAbortBatchOnError();
 			});
 
-			expect(mockAbortBatchOnError).toHaveBeenCalledWith('session-1');
-			expect(mockHandleClearAgentError).toHaveBeenCalledWith('session-1');
+			expect(mockAbortBatchOnError).not.toHaveBeenCalled();
+			expect(mockHandleClearAgentError).not.toHaveBeenCalled();
 		});
 
 		it('does nothing when no session ID can be resolved', () => {
 			useSessionStore.setState({ sessions: [], activeSessionId: '' });
+			useBatchStore.setState({ batchRunStates: {} });
 			mockActiveBatchSessionIds = [];
 
 			const { result } = renderHook(() => useBatchHandlers(createDeps()));
@@ -659,29 +698,31 @@ describe('useBatchHandlers', () => {
 			expect(window.maestro.app.onQuitConfirmationRequest).toHaveBeenCalled();
 		});
 
-		it('calls confirmQuit when no busy agents and no active auto-runs', () => {
+		it('calls confirmQuit when no busy agents and no active auto-runs', async () => {
 			const session = createMockSession({ id: 'session-1', state: 'idle' });
 			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
 			mockGetBatchState.mockReturnValue(createDefaultBatchState({ isRunning: false }));
 
 			// Capture the callback
-			let quitCallback: () => void = () => {};
-			(window.maestro.app.onQuitConfirmationRequest as any).mockImplementation((cb: () => void) => {
-				quitCallback = cb;
-				return vi.fn();
-			});
+			let quitCallback: () => Promise<void> = async () => {};
+			(window.maestro.app.onQuitConfirmationRequest as any).mockImplementation(
+				(cb: () => Promise<void>) => {
+					quitCallback = cb;
+					return vi.fn();
+				}
+			);
 
 			renderHook(() => useBatchHandlers(createDeps()));
 
 			// Trigger quit confirmation
-			act(() => {
-				quitCallback();
+			await act(async () => {
+				await quitCallback();
 			});
 
 			expect(window.maestro.app.confirmQuit).toHaveBeenCalled();
 		});
 
-		it('opens quit confirm modal when agents are busy', () => {
+		it('opens quit confirm modal when agents are busy', async () => {
 			const busySession = createMockSession({
 				id: 'session-1',
 				state: 'busy',
@@ -690,16 +731,48 @@ describe('useBatchHandlers', () => {
 			});
 			useSessionStore.setState({ sessions: [busySession], activeSessionId: 'session-1' });
 
-			let quitCallback: () => void = () => {};
-			(window.maestro.app.onQuitConfirmationRequest as any).mockImplementation((cb: () => void) => {
-				quitCallback = cb;
-				return vi.fn();
+			let quitCallback: () => Promise<void> = async () => {};
+			(window.maestro.app.onQuitConfirmationRequest as any).mockImplementation(
+				(cb: () => Promise<void>) => {
+					quitCallback = cb;
+					return vi.fn();
+				}
+			);
+
+			renderHook(() => useBatchHandlers(createDeps()));
+
+			await act(async () => {
+				await quitCallback();
+			});
+
+			expect(window.maestro.app.confirmQuit).not.toHaveBeenCalled();
+			const quitModal = useModalStore.getState().modals.get('quitConfirm');
+			expect(quitModal?.open).toBe(true);
+		});
+
+		it('opens quit confirm modal when auto-runs are active', async () => {
+			const session = createMockSession({ id: 'session-1', state: 'idle' });
+			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
+
+			let quitCallback: () => Promise<void> = async () => {};
+			(window.maestro.app.onQuitConfirmationRequest as any).mockImplementation(
+				(cb: () => Promise<void>) => {
+					quitCallback = cb;
+					return vi.fn();
+				}
+			);
+
+			// Auto Run activity is sourced from the batch store, not the ref getter.
+			useBatchStore.setState({
+				batchRunStates: {
+					'session-1': createDefaultBatchState({ isRunning: true }),
+				},
 			});
 
 			renderHook(() => useBatchHandlers(createDeps()));
 
-			act(() => {
-				quitCallback();
+			await act(async () => {
+				await quitCallback();
 			});
 
 			expect(window.maestro.app.confirmQuit).not.toHaveBeenCalled();
@@ -707,32 +780,7 @@ describe('useBatchHandlers', () => {
 			expect(quitModal?.open).toBe(true);
 		});
 
-		it('opens quit confirm modal when auto-runs are active', () => {
-			const session = createMockSession({ id: 'session-1', state: 'idle' });
-			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
-
-			let quitCallback: () => void = () => {};
-			(window.maestro.app.onQuitConfirmationRequest as any).mockImplementation((cb: () => void) => {
-				quitCallback = cb;
-				return vi.fn();
-			});
-
-			const { result } = renderHook(() => useBatchHandlers(createDeps()));
-
-			// Set the ref to return a running state
-			result.current.getBatchStateRef.current = (sessionId: string) =>
-				createDefaultBatchState({ isRunning: true });
-
-			act(() => {
-				quitCallback();
-			});
-
-			expect(window.maestro.app.confirmQuit).not.toHaveBeenCalled();
-			const quitModal = useModalStore.getState().modals.get('quitConfirm');
-			expect(quitModal?.open).toBe(true);
-		});
-
-		it('excludes terminal sessions from busy check', () => {
+		it('excludes terminal sessions from busy check', async () => {
 			const terminalSession = createMockSession({
 				id: 'session-1',
 				state: 'busy',
@@ -745,16 +793,18 @@ describe('useBatchHandlers', () => {
 			});
 			mockGetBatchState.mockReturnValue(createDefaultBatchState({ isRunning: false }));
 
-			let quitCallback: () => void = () => {};
-			(window.maestro.app.onQuitConfirmationRequest as any).mockImplementation((cb: () => void) => {
-				quitCallback = cb;
-				return vi.fn();
-			});
+			let quitCallback: () => Promise<void> = async () => {};
+			(window.maestro.app.onQuitConfirmationRequest as any).mockImplementation(
+				(cb: () => Promise<void>) => {
+					quitCallback = cb;
+					return vi.fn();
+				}
+			);
 
 			renderHook(() => useBatchHandlers(createDeps()));
 
-			act(() => {
-				quitCallback();
+			await act(async () => {
+				await quitCallback();
 			});
 
 			// Terminal sessions should not prevent quitting
@@ -1398,7 +1448,7 @@ describe('useBatchHandlers', () => {
 	// ====================================================================
 
 	describe('quit confirmation edge cases', () => {
-		it('shows modal (does not confirm) when both busy agents AND active auto-runs exist', () => {
+		it('shows modal (does not confirm) when both busy agents AND active auto-runs exist', async () => {
 			const busySession = createMockSession({
 				id: 'session-1',
 				state: 'busy',
@@ -1415,11 +1465,13 @@ describe('useBatchHandlers', () => {
 				activeSessionId: 'session-1',
 			});
 
-			let quitCallback: () => void = () => {};
-			(window.maestro.app.onQuitConfirmationRequest as any).mockImplementation((cb: () => void) => {
-				quitCallback = cb;
-				return vi.fn();
-			});
+			let quitCallback: () => Promise<void> = async () => {};
+			(window.maestro.app.onQuitConfirmationRequest as any).mockImplementation(
+				(cb: () => Promise<void>) => {
+					quitCallback = cb;
+					return vi.fn();
+				}
+			);
 
 			const { result } = renderHook(() => useBatchHandlers(createDeps()));
 
@@ -1429,8 +1481,8 @@ describe('useBatchHandlers', () => {
 				return createDefaultBatchState({ isRunning: false });
 			};
 
-			act(() => {
-				quitCallback();
+			await act(async () => {
+				await quitCallback();
 			});
 
 			expect(window.maestro.app.confirmQuit).not.toHaveBeenCalled();
@@ -1438,7 +1490,7 @@ describe('useBatchHandlers', () => {
 			expect(quitModal?.open).toBe(true);
 		});
 
-		it('shows modal for busy session with busySource=terminal for non-terminal agent type', () => {
+		it('shows modal for busy session with busySource=terminal for non-terminal agent type', async () => {
 			// A non-terminal agent (e.g. claude-code) that is busy with source 'ai' should block quit.
 			// But busySource='terminal' on a non-terminal agent should also be checked.
 			// Per the code: filter is s.state === 'busy' && s.busySource === 'ai' && s.toolType !== 'terminal'
@@ -1452,16 +1504,18 @@ describe('useBatchHandlers', () => {
 			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
 			mockGetBatchState.mockReturnValue(createDefaultBatchState({ isRunning: false }));
 
-			let quitCallback: () => void = () => {};
-			(window.maestro.app.onQuitConfirmationRequest as any).mockImplementation((cb: () => void) => {
-				quitCallback = cb;
-				return vi.fn();
-			});
+			let quitCallback: () => Promise<void> = async () => {};
+			(window.maestro.app.onQuitConfirmationRequest as any).mockImplementation(
+				(cb: () => Promise<void>) => {
+					quitCallback = cb;
+					return vi.fn();
+				}
+			);
 
 			renderHook(() => useBatchHandlers(createDeps()));
 
-			act(() => {
-				quitCallback();
+			await act(async () => {
+				await quitCallback();
 			});
 
 			// busySource is 'terminal' not 'ai', so agent is NOT in busyAgents filter
@@ -1469,19 +1523,21 @@ describe('useBatchHandlers', () => {
 			expect(window.maestro.app.confirmQuit).toHaveBeenCalled();
 		});
 
-		it('confirms quit immediately when there are no sessions at all', () => {
+		it('confirms quit immediately when there are no sessions at all', async () => {
 			useSessionStore.setState({ sessions: [], activeSessionId: '' });
 
-			let quitCallback: () => void = () => {};
-			(window.maestro.app.onQuitConfirmationRequest as any).mockImplementation((cb: () => void) => {
-				quitCallback = cb;
-				return vi.fn();
-			});
+			let quitCallback: () => Promise<void> = async () => {};
+			(window.maestro.app.onQuitConfirmationRequest as any).mockImplementation(
+				(cb: () => Promise<void>) => {
+					quitCallback = cb;
+					return vi.fn();
+				}
+			);
 
 			renderHook(() => useBatchHandlers(createDeps()));
 
-			act(() => {
-				quitCallback();
+			await act(async () => {
+				await quitCallback();
 			});
 
 			expect(window.maestro.app.confirmQuit).toHaveBeenCalled();

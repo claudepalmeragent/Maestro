@@ -19,6 +19,104 @@ import { WizardExitConfirmModal } from '../../../../renderer/components/Wizard/W
 import { WizardResumeModal } from '../../../../renderer/components/Wizard/WizardResumeModal';
 import { TourStep } from '../../../../renderer/components/Wizard/tour/TourStep';
 
+// Mock lucide-react icons
+vi.mock('lucide-react', () => ({
+	X: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="x-icon" className={className} style={style} />
+	),
+	Check: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="check-icon" className={className} style={style} />
+	),
+	AlertCircle: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="alert-icon" className={className} style={style} />
+	),
+	AlertTriangle: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="alert-triangle-icon" className={className} style={style} />
+	),
+	Eye: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="eye-icon" className={className} style={style} />
+	),
+	Edit: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="edit-icon" className={className} style={style} />
+	),
+	Image: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="image-icon" className={className} style={style} />
+	),
+	Loader2: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="loader-icon" className={className} style={style} />
+	),
+	Rocket: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="rocket-icon" className={className} style={style} />
+	),
+	Compass: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="compass-icon" className={className} style={style} />
+	),
+	ChevronDown: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="chevron-down-icon" className={className} style={style} />
+	),
+	ChevronRight: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="chevron-right-icon" className={className} style={style} />
+	),
+	FileText: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="file-text-icon" className={className} style={style} />
+	),
+	Bot: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="bot-icon" className={className} style={style} />
+	),
+	RefreshCw: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="refresh-icon" className={className} style={style} />
+	),
+	RotateCcw: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="rotate-icon" className={className} style={style} />
+	),
+	FolderOpen: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="folder-icon" className={className} style={style} />
+	),
+	Settings: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="settings-icon" className={className} style={style} />
+	),
+	ArrowLeft: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="arrow-left-icon" className={className} style={style} />
+	),
+	Plus: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="plus-icon" className={className} style={style} />
+	),
+	Trash2: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="trash-icon" className={className} style={style} />
+	),
+	// Icons used by tour system (tourSteps.tsx)
+	PenLine: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="pen-line-icon" className={className} style={style} />
+	),
+	ImageIcon: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="image-icon" className={className} style={style} />
+	),
+	History: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="history-icon" className={className} style={style} />
+	),
+	Brain: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="brain-icon" className={className} style={style} />
+	),
+	Keyboard: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="keyboard-icon" className={className} style={style} />
+	),
+	Search: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="search-icon" className={className} style={style} />
+	),
+	Sparkles: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="sparkles-icon" className={className} style={style} />
+	),
+	Gauge: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="gauge-icon" className={className} style={style} />
+	),
+	Info: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="info-icon" className={className} style={style} />
+	),
+	Wand2: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="wand-icon" className={className} style={style} />
+	),
+}));
+
 // Mock react-markdown
 vi.mock('react-markdown', () => ({
 	default: ({ children }: { children: string }) => <div data-testid="markdown">{children}</div>,

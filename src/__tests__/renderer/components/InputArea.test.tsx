@@ -2,9 +2,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act, within, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { InputArea } from '../../../renderer/components/InputArea';
-import { formatShortcutKeys, formatEnterToSend } from '../../../renderer/utils/shortcutFormatter';
-import type { Session, Theme } from '../../../renderer/types';
+import { formatEnterToSend } from '../../../renderer/utils/shortcutFormatter';
+import type { Session } from '../../../renderer/types';
+import { createMockSession as baseCreateMockSession } from '../../helpers/mockSession';
 
+import { mockTheme } from '../../helpers/mockTheme';
 // Mock scrollIntoView since jsdom doesn't support it
 Element.prototype.scrollIntoView = vi.fn();
 
@@ -98,34 +100,20 @@ vi.mock('../../../renderer/components/InlineWizard', () => ({
 	)),
 }));
 
-// Default theme for tests
-const mockTheme: Theme = {
-	id: 'dracula',
-	name: 'Dracula',
-	mode: 'dark',
-	colors: {
-		bgMain: '#282a36',
-		bgSidebar: '#21222c',
-		bgActivity: '#343746',
-		textMain: '#f8f8f2',
-		textDim: '#6272a4',
-		accent: '#bd93f9',
-		accentForeground: '#282a36',
-		border: '#44475a',
-		success: '#50fa7b',
-		error: '#ff5555',
-		warning: '#f1fa8c',
-		info: '#8be9fd',
-	},
-};
+vi.mock('../../../renderer/components/NotificationPopover', () => ({
+	NotificationPopover: vi.fn(({ onClose }) => (
+		<div data-testid="notification-popover">NotificationPopover</div>
+	)),
+}));
 
-// Default session for tests
-// Note: wizardState is per-tab, so pass it separately or via aiTabs override
+// Default theme for tests
+
+// Thin wrapper: InputArea tests accept an ad-hoc `wizardState` override that
+// gets routed onto the first AI tab (wizard state is per-tab in the real
+// model). Builds that tab and delegates baseline fields to the shared factory.
 const createMockSession = (overrides: Partial<Session> & { wizardState?: any } = {}): Session => {
-	// Extract wizardState from overrides (it should go on the tab, not session)
 	const { wizardState, ...sessionOverrides } = overrides;
 
-	// Build aiTabs - if wizardState is provided, add it to the first tab
 	const defaultTab = {
 		id: 'tab-1',
 		logs: [],
@@ -143,32 +131,19 @@ const createMockSession = (overrides: Partial<Session> & { wizardState?: any } =
 		...(wizardState ? { wizardState } : {}),
 	};
 
-	return {
-		id: 'session-1',
-		name: 'Test Session',
-		toolType: 'claude-code',
-		state: 'idle',
-		inputMode: 'ai',
+	return baseCreateMockSession({
 		cwd: '/Users/test/project',
+		fullPath: '/Users/test/project',
 		projectRoot: '/Users/test/project',
-		aiPid: 0,
-		terminalPid: 0,
-		aiTabs: [defaultTab],
+		aiTabs: [defaultTab] as any,
 		activeTabId: 'tab-1',
-		shellLogs: [],
-		usageStats: { inputTokens: 0, outputTokens: 0, totalCost: 0 },
-		agentSessionId: null,
-		isGitRepo: false,
-		fileTree: [],
-		fileExplorerExpanded: [],
-		messageQueue: [],
+		usageStats: { inputTokens: 0, outputTokens: 0, totalCost: 0 } as any,
 		shellCommandHistory: [],
 		aiCommandHistory: [],
-		closedTabHistory: [],
 		shellCwd: '/Users/test/project',
-		busySource: null,
+		busySource: undefined,
 		...sessionOverrides,
-	};
+	});
 };
 
 // Default props factory
@@ -230,13 +205,11 @@ describe('InputArea', () => {
 			expect(screen.getByRole('textbox')).toBeInTheDocument();
 		});
 
-		it('renders the mode toggle button', () => {
+		it('renders the notification settings button', () => {
 			const props = createDefaultProps();
 			render(<InputArea {...props} />);
 
-			expect(
-				screen.getByTitle(`Toggle Mode (${formatShortcutKeys(['Meta', 'j'])})`)
-			).toBeInTheDocument();
+			expect(screen.getByTitle('Notification Settings')).toBeInTheDocument();
 		});
 
 		it('renders the send button', () => {
@@ -341,9 +314,9 @@ describe('InputArea', () => {
 			});
 			render(<InputArea {...props} />);
 
-			const toggle = screen.getByTitle(/Toggle read-only mode/);
+			const toggle = screen.getByTitle(/Toggle plan mode/);
 			expect(toggle).toBeInTheDocument();
-			expect(toggle).toHaveTextContent('Read-only');
+			expect(toggle).toHaveTextContent('Plan-Mode');
 		});
 
 		it('hides read-only toggle when agent does not support read-only mode', async () => {
@@ -383,7 +356,7 @@ describe('InputArea', () => {
 			render(<InputArea {...props} />);
 
 			// Read-only toggle should not be present
-			expect(screen.queryByTitle(/Toggle read-only mode/)).not.toBeInTheDocument();
+			expect(screen.queryByTitle(/Toggle (plan mode|Read-Only mode)/)).not.toBeInTheDocument();
 		});
 
 		it('shows save to history toggle when onToggleTabSaveToHistory is provided', () => {
@@ -546,7 +519,7 @@ describe('InputArea', () => {
 			});
 			render(<InputArea {...props} />);
 
-			const toggle = screen.getByTitle("Toggle read-only mode (agent won't modify files)");
+			const toggle = screen.getByTitle('Toggle plan mode (agent will plan but not modify files)');
 			expect(toggle).not.toBeDisabled();
 
 			fireEvent.click(toggle);
@@ -562,7 +535,7 @@ describe('InputArea', () => {
 			render(<InputArea {...props} />);
 
 			expect(
-				screen.getByTitle("Toggle read-only mode (agent won't modify files)")
+				screen.getByTitle('Toggle plan mode (agent will plan but not modify files)')
 			).toBeInTheDocument();
 		});
 
@@ -575,7 +548,7 @@ describe('InputArea', () => {
 			});
 			render(<InputArea {...props} />);
 
-			const toggle = screen.getByTitle("Toggle read-only mode (agent won't modify files)");
+			const toggle = screen.getByTitle('Toggle plan mode (agent will plan but not modify files)');
 			expect(toggle).toHaveStyle({ color: mockTheme.colors.textDim });
 		});
 	});
@@ -669,8 +642,9 @@ describe('InputArea', () => {
 			});
 			render(<InputArea {...props} />);
 
-			expect(screen.getByText('/clear')).toBeInTheDocument();
-			expect(screen.queryByText('/help')).not.toBeInTheDocument();
+			// Fuzzy highlight splits text into spans, so use a function matcher
+			expect(screen.getByText((_, el) => el?.textContent === '/clear')).toBeInTheDocument();
+			expect(screen.queryByText((_, el) => el?.textContent === '/help')).not.toBeInTheDocument();
 		});
 
 		it('shows terminalOnly commands in terminal mode', () => {
@@ -696,7 +670,7 @@ describe('InputArea', () => {
 
 			// The second command (/help) should have accent background
 			// Find the parent div that has the background style (px-4 py-3 class)
-			const helpCmd = screen.getByText('/help').closest('.px-4');
+			const helpCmd = screen.getByText('/help').closest('button');
 			expect(helpCmd).toHaveStyle({ backgroundColor: mockTheme.colors.accent });
 		});
 
@@ -709,7 +683,7 @@ describe('InputArea', () => {
 			});
 			render(<InputArea {...props} />);
 
-			const helpCmd = screen.getByText('/help').closest('.px-4');
+			const helpCmd = screen.getByText('/help').closest('button');
 			fireEvent.mouseEnter(helpCmd!);
 
 			expect(setSelectedSlashCommandIndex).toHaveBeenCalledWith(1);
@@ -728,7 +702,7 @@ describe('InputArea', () => {
 			});
 			render(<InputArea {...props} />);
 
-			const clearCmd = screen.getByText('/clear').closest('.px-4');
+			const clearCmd = screen.getByText('/clear').closest('button');
 			fireEvent.doubleClick(clearCmd!);
 
 			expect(setInputValue).toHaveBeenCalledWith('/clear');
@@ -812,7 +786,7 @@ describe('InputArea', () => {
 			});
 			render(<InputArea {...props} />);
 
-			const helpCmd = screen.getByText('/help').closest('.px-4');
+			const helpCmd = screen.getByText('/help').closest('button');
 			fireEvent.click(helpCmd!);
 
 			// Single click should update selection
@@ -842,11 +816,11 @@ describe('InputArea', () => {
 			render(<InputArea {...props} />);
 
 			// The second item (/help) should NOT have accent background since index 0 is selected
-			const helpCmd = screen.getByText('/help').closest('.px-4');
+			const helpCmd = screen.getByText('/help').closest('button');
 			// Unselected items don't have the accent color background
 			expect(helpCmd).not.toHaveStyle({ backgroundColor: mockTheme.colors.accent });
 			// First item (selected) should have accent background
-			const clearCmd = screen.getByText('/clear').closest('.px-4');
+			const clearCmd = screen.getByText('/clear').closest('button');
 			expect(clearCmd).toHaveStyle({ backgroundColor: mockTheme.colors.accent });
 		});
 
@@ -1493,14 +1467,13 @@ describe('InputArea', () => {
 	});
 
 	describe('Button Actions', () => {
-		it('calls toggleInputMode when clicking mode toggle', () => {
-			const toggleInputMode = vi.fn();
-			const props = createDefaultProps({ toggleInputMode });
+		it('opens notification popover when clicking notification button', () => {
+			const props = createDefaultProps();
 			render(<InputArea {...props} />);
 
-			fireEvent.click(screen.getByTitle(`Toggle Mode (${formatShortcutKeys(['Meta', 'j'])})`));
+			fireEvent.click(screen.getByTitle('Notification Settings'));
 
-			expect(toggleInputMode).toHaveBeenCalled();
+			expect(screen.getByTestId('notification-popover')).toBeInTheDocument();
 		});
 
 		it('calls processInput when clicking send button', () => {
@@ -1531,7 +1504,7 @@ describe('InputArea', () => {
 			});
 			render(<InputArea {...props} />);
 
-			fireEvent.click(screen.getByTitle(/Toggle read-only mode/));
+			fireEvent.click(screen.getByTitle(/Toggle plan mode/));
 
 			expect(onToggleTabReadOnlyMode).toHaveBeenCalled();
 		});
@@ -1736,75 +1709,28 @@ describe('InputArea', () => {
 		});
 	});
 
-	describe('Mode Icon Display', () => {
-		it('shows Terminal icon in terminal mode', () => {
-			const props = createDefaultProps({
-				session: createMockSession({ inputMode: 'terminal' }),
-			});
+	describe('Notification Button', () => {
+		it('renders bell icon notification button', () => {
+			const props = createDefaultProps();
 			render(<InputArea {...props} />);
 
-			// Terminal icon should be in the mode toggle button
-			const modeButton = screen.getByTitle(`Toggle Mode (${formatShortcutKeys(['Meta', 'j'])})`);
-			expect(modeButton.querySelector('[data-testid="terminal-icon"]')).toBeInTheDocument();
+			const notifButton = screen.getByTitle('Notification Settings');
+			expect(notifButton).toBeInTheDocument();
 		});
 
-		it('shows Cpu icon in AI mode', () => {
-			const props = createDefaultProps({
-				session: createMockSession({ inputMode: 'ai' }),
-			});
+		it('shows notification popover on click and hides on second click', () => {
+			const props = createDefaultProps();
 			render(<InputArea {...props} />);
 
-			const modeButton = screen.getByTitle(`Toggle Mode (${formatShortcutKeys(['Meta', 'j'])})`);
-			expect(modeButton.querySelector('[data-testid="cpu-icon"]')).toBeInTheDocument();
-		});
+			const notifButton = screen.getByTitle('Notification Settings');
 
-		it('shows Wand2 icon in AI mode when wizard is active', () => {
-			const props = createDefaultProps({
-				session: createMockSession({
-					inputMode: 'ai',
-					wizardState: {
-						isActive: true,
-						mode: 'new',
-						confidence: 50,
-						conversationHistory: [],
-						previousUIState: {
-							readOnlyMode: false,
-							saveToHistory: true,
-							showThinking: 'off',
-						},
-					},
-				}),
-				// Note: onExitWizard is intentionally NOT provided, so we test the fallback path
-				// in the regular InputArea (not WizardInputPanel)
-			});
-			render(<InputArea {...props} />);
+			// Click to open
+			fireEvent.click(notifButton);
+			expect(screen.getByTestId('notification-popover')).toBeInTheDocument();
 
-			const modeButton = screen.getByTitle(`Toggle Mode (${formatShortcutKeys(['Meta', 'j'])})`);
-			// wand2 icon should be shown with accent color
-			expect(modeButton.querySelector('[data-testid="wand2-icon"]')).toBeInTheDocument();
-		});
-
-		it('shows Terminal icon in terminal mode even when wizard is active', () => {
-			const props = createDefaultProps({
-				session: createMockSession({
-					inputMode: 'terminal',
-					wizardState: {
-						isActive: true,
-						mode: 'new',
-						confidence: 50,
-						conversationHistory: [],
-						previousUIState: {
-							readOnlyMode: false,
-							saveToHistory: true,
-							showThinking: 'off',
-						},
-					},
-				}),
-			});
-			render(<InputArea {...props} />);
-
-			const modeButton = screen.getByTitle(`Toggle Mode (${formatShortcutKeys(['Meta', 'j'])})`);
-			expect(modeButton.querySelector('[data-testid="terminal-icon"]')).toBeInTheDocument();
+			// Click again to close (toggle)
+			fireEvent.click(notifButton);
+			expect(screen.queryByTestId('notification-popover')).not.toBeInTheDocument();
 		});
 	});
 
@@ -1817,7 +1743,7 @@ describe('InputArea', () => {
 			});
 			render(<InputArea {...props} />);
 
-			const toggle = screen.getByTitle(/Toggle read-only mode/);
+			const toggle = screen.getByTitle(/Toggle plan mode/);
 			// Should have warning color and background
 			expect(toggle).toHaveStyle({ color: mockTheme.colors.warning });
 		});
@@ -2111,9 +2037,7 @@ describe('InputArea', () => {
 			expect(screen.getByTestId('wizard-input-panel')).toBeInTheDocument();
 			// Normal components should NOT be rendered
 			expect(screen.queryByTestId('thinking-status-pill')).not.toBeInTheDocument();
-			expect(
-				screen.queryByTitle(`Toggle Mode (${formatShortcutKeys(['Meta', 'j'])})`)
-			).not.toBeInTheDocument();
+			expect(screen.queryByTitle('Notification Settings')).not.toBeInTheDocument();
 			expect(screen.queryByTitle('Send message')).not.toBeInTheDocument();
 		});
 

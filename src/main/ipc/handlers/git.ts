@@ -2,9 +2,10 @@ import { ipcMain, BrowserWindow } from 'electron';
 import fs from 'fs/promises';
 import path from 'path';
 import chokidar, { FSWatcher } from 'chokidar';
-import { execFileNoThrow } from '../../utils/execFile';
+import { execFileNoThrow, execFileBufferNoThrow } from '../../utils/execFile';
 import { execGit } from '../../utils/remote-git';
 import { logger } from '../../utils/logger';
+import { getSshRemoteById } from '../../stores';
 import { isWebContentsAvailable } from '../../utils/safe-send';
 import {
 	withIpcErrorLogging,
@@ -12,6 +13,9 @@ import {
 	CreateHandlerOptions,
 } from '../../utils/ipcHandler';
 import { resolveGhPath, getCachedGhStatus, setCachedGhStatus } from '../../utils/cliDetection';
+import { getShellPath } from '../../runtime/getShellPath';
+import { captureMessage } from '../../utils/sentry';
+import { WINDOWS_LOCKED_SYSTEM_FILES } from '../../utils/watcher-ignore';
 import {
 	parseGitBranches,
 	parseGitTags,
@@ -19,8 +23,9 @@ import {
 	countUncommittedChanges,
 	isImageFile,
 	getImageMimeType,
+	isWorktreeAlreadyUsedError,
+	parseWorktreePathForBranch,
 } from '../../../shared/gitUtils';
-import { SshRemoteConfig } from '../../../shared/types';
 import {
 	worktreeInfoRemote,
 	worktreeSetupRemote,
@@ -29,6 +34,7 @@ import {
 	getRepoRootRemote,
 } from '../../utils/remote-git';
 import { readDirRemote } from '../../utils/remote-fs';
+import { captureException } from '../../utils/sentry';
 
 const LOG_CONTEXT = '[Git]';
 
@@ -42,29 +48,11 @@ export interface GitHandlerDependencies {
 	};
 }
 
-// Module-level reference to settings store (set during registration)
-let gitSettingsStore: GitHandlerDependencies['settingsStore'] | null = null;
-
-/**
- * Look up SSH remote configuration by ID.
- * Returns null if ID is not provided or config not found.
- */
-function getSshRemoteById(sshRemoteId?: string): SshRemoteConfig | null {
-	if (!sshRemoteId || !gitSettingsStore) return null;
-
-	const sshRemotes = gitSettingsStore.get('sshRemotes', []) as SshRemoteConfig[];
-	const config = sshRemotes.find((r) => r.id === sshRemoteId && r.enabled);
-
-	if (!config) {
-		logger.debug(`SSH remote not found or disabled: ${sshRemoteId}`, LOG_CONTEXT);
-		return null;
-	}
-
-	return config;
-}
-
 // Worktree directory watchers keyed by session ID
 const worktreeWatchers = new Map<string, FSWatcher>();
+// Debounce timers keyed by "sessionId:dirPath" so each discovered directory
+// gets its own independent timer (previously keyed by sessionId alone, which
+// caused only the last of multiple near-simultaneous addDir events to fire).
 const worktreeWatchDebounceTimers = new Map<string, NodeJS.Timeout>();
 
 /** Helper to create handler options with Git context */
@@ -73,6 +61,36 @@ const handlerOpts = (operation: string, logSuccess = false): CreateHandlerOption
 	operation,
 	logSuccess,
 });
+
+/**
+ * Look up the worktree path currently checked out on the given branch
+ * by running `git worktree list --porcelain` against the local repo.
+ *
+ * Used to recover from `git worktree add` failures with the "already used /
+ * already checked out" error: instead of bubbling up an opaque error, we
+ * return the existing worktree path so callers can open it as a session.
+ *
+ * Stale registrations (where the directory was deleted manually without
+ * `git worktree prune`) are filtered out by an `fs.access` check so callers
+ * never get a path that points at nothing.
+ *
+ * @returns Absolute worktree path, or null if not found / stale
+ */
+async function findLocalWorktreeForBranch(
+	mainRepoCwd: string,
+	branchName: string
+): Promise<string | null> {
+	const result = await execFileNoThrow('git', ['worktree', 'list', '--porcelain'], mainRepoCwd);
+	if (result.exitCode !== 0) return null;
+	const existingPath = parseWorktreePathForBranch(result.stdout, branchName);
+	if (!existingPath) return null;
+	try {
+		await fs.access(existingPath);
+		return existingPath;
+	} catch {
+		return null;
+	}
+}
 
 /**
  * Register all Git-related IPC handlers.
@@ -87,8 +105,12 @@ const handlerOpts = (operation: string, logSuccess = false): CreateHandlerOption
  * @param deps Dependencies including settingsStore for SSH remote configuration lookup
  */
 export function registerGitHandlers(deps: GitHandlerDependencies): void {
-	// Store the settings reference for SSH remote lookups
-	gitSettingsStore = deps.settingsStore;
+	// `deps.settingsStore` was previously stored at module scope for handler
+	// closures, but the v0.17.0 merge resolution dropped every read site, so
+	// the stored reference was orphaned. Re-introduce the module-level store
+	// pattern (per src/main/ipc/handlers/agentSessions.ts) when a handler in
+	// this file again needs SSH-config lookup.
+	void deps.settingsStore;
 
 	// Basic Git operations
 	// All handlers accept optional sshRemoteId and remoteCwd for remote execution
@@ -99,7 +121,7 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 		withIpcErrorLogging(
 			handlerOpts('status'),
 			async (cwd: string, sshRemoteId?: string, remoteCwd?: string) => {
-				const sshRemote = getSshRemoteById(sshRemoteId);
+				const sshRemote = sshRemoteId ? getSshRemoteById(sshRemoteId) : undefined;
 				const effectiveRemoteCwd = sshRemote ? remoteCwd || cwd : undefined;
 				const result = await execGit(
 					['--no-pager', 'status', '--porcelain'],
@@ -118,7 +140,7 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 			handlerOpts('diff'),
 			async (cwd: string, file?: string, sshRemoteId?: string, remoteCwd?: string) => {
 				const args = file ? ['--no-pager', 'diff', file] : ['--no-pager', 'diff'];
-				const sshRemote = getSshRemoteById(sshRemoteId);
+				const sshRemote = sshRemoteId ? getSshRemoteById(sshRemoteId) : undefined;
 				const effectiveRemoteCwd = sshRemote ? remoteCwd || cwd : undefined;
 				const result = await execGit(args, cwd, sshRemote, effectiveRemoteCwd);
 				return { stdout: result.stdout, stderr: result.stderr };
@@ -131,7 +153,7 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 		withIpcErrorLogging(
 			handlerOpts('isRepo'),
 			async (cwd: string, sshRemoteId?: string, remoteCwd?: string) => {
-				const sshRemote = getSshRemoteById(sshRemoteId);
+				const sshRemote = sshRemoteId ? getSshRemoteById(sshRemoteId) : undefined;
 				const effectiveRemoteCwd = sshRemote ? remoteCwd || cwd : undefined;
 				const result = await execGit(
 					['--no-pager', 'rev-parse', '--is-inside-work-tree'],
@@ -144,12 +166,42 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 		)
 	);
 
+	// Initialize a new git repository at the given directory.
+	// Returns { success, error? }. Used by the agent-create UI to offer
+	// `git init` when a chosen working directory isn't already a repo.
+	ipcMain.handle(
+		'git:init',
+		withIpcErrorLogging(
+			handlerOpts('init'),
+			async (cwd: string, sshRemoteId?: string, remoteCwd?: string) => {
+				const sshRemote = sshRemoteId ? getSshRemoteById(sshRemoteId) : undefined;
+				// Fail fast if an SSH remote was requested but can't be resolved —
+				// otherwise we'd silently `git init` the wrong (local) directory.
+				if (sshRemoteId && !sshRemote) {
+					return {
+						success: false,
+						error: `SSH remote not found: ${sshRemoteId}`,
+					};
+				}
+				const effectiveRemoteCwd = sshRemote ? remoteCwd || cwd : undefined;
+				const result = await execGit(['init'], cwd, sshRemote, effectiveRemoteCwd);
+				if (result.exitCode !== 0) {
+					return {
+						success: false,
+						error: result.stderr?.trim() || 'git init failed',
+					};
+				}
+				return { success: true };
+			}
+		)
+	);
+
 	ipcMain.handle(
 		'git:numstat',
 		withIpcErrorLogging(
 			handlerOpts('numstat'),
 			async (cwd: string, sshRemoteId?: string, remoteCwd?: string) => {
-				const sshRemote = getSshRemoteById(sshRemoteId);
+				const sshRemote = sshRemoteId ? getSshRemoteById(sshRemoteId) : undefined;
 				const effectiveRemoteCwd = sshRemote ? remoteCwd || cwd : undefined;
 				const result = await execGit(
 					['--no-pager', 'diff', '--numstat'],
@@ -167,7 +219,7 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 		withIpcErrorLogging(
 			handlerOpts('branch'),
 			async (cwd: string, sshRemoteId?: string, remoteCwd?: string) => {
-				const sshRemote = getSshRemoteById(sshRemoteId);
+				const sshRemote = sshRemoteId ? getSshRemoteById(sshRemoteId) : undefined;
 				const effectiveRemoteCwd = sshRemote ? remoteCwd || cwd : undefined;
 				const result = await execGit(
 					['--no-pager', 'rev-parse', '--abbrev-ref', 'HEAD'],
@@ -185,7 +237,7 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 		withIpcErrorLogging(
 			handlerOpts('remote'),
 			async (cwd: string, sshRemoteId?: string, remoteCwd?: string) => {
-				const sshRemote = getSshRemoteById(sshRemoteId);
+				const sshRemote = sshRemoteId ? getSshRemoteById(sshRemoteId) : undefined;
 				const effectiveRemoteCwd = sshRemote ? remoteCwd || cwd : undefined;
 				const result = await execGit(
 					['--no-pager', 'remote', 'get-url', 'origin'],
@@ -203,7 +255,7 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 		withIpcErrorLogging(
 			handlerOpts('branches'),
 			async (cwd: string, sshRemoteId?: string, remoteCwd?: string) => {
-				const sshRemote = getSshRemoteById(sshRemoteId);
+				const sshRemote = sshRemoteId ? getSshRemoteById(sshRemoteId) : undefined;
 				const effectiveRemoteCwd = sshRemote ? remoteCwd || cwd : undefined;
 				const result = await execGit(
 					['--no-pager', 'branch', '-a', '--format=%(refname:short)'],
@@ -226,7 +278,7 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 		withIpcErrorLogging(
 			handlerOpts('tags'),
 			async (cwd: string, sshRemoteId?: string, remoteCwd?: string) => {
-				const sshRemote = getSshRemoteById(sshRemoteId);
+				const sshRemote = sshRemoteId ? getSshRemoteById(sshRemoteId) : undefined;
 				const effectiveRemoteCwd = sshRemote ? remoteCwd || cwd : undefined;
 				const result = await execGit(
 					['--no-pager', 'tag', '--list'],
@@ -249,7 +301,7 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 		withIpcErrorLogging(
 			handlerOpts('info'),
 			async (cwd: string, sshRemoteId?: string, remoteCwd?: string) => {
-				const sshRemote = getSshRemoteById(sshRemoteId);
+				const sshRemote = sshRemoteId ? getSshRemoteById(sshRemoteId) : undefined;
 				const effectiveRemoteCwd = sshRemote ? remoteCwd || cwd : undefined;
 				// Get comprehensive git info in a single call
 				const [branchResult, remoteResult, statusResult, behindAheadResult] = await Promise.all([
@@ -308,7 +360,7 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 				// interpreted as shell operators in the $SHELL -ilc "..." double-quote context.
 				// Locally, | is safe because execFile() with shell:false has no shell interpretation.
 				const limit = options?.limit || 100;
-				const sshRemote = getSshRemoteById(sshRemoteId);
+				const sshRemote = sshRemoteId ? getSshRemoteById(sshRemoteId) : undefined;
 				const effectiveRemoteCwd = sshRemote ? remoteCwd || cwd : undefined;
 				const isRemote = !!sshRemote;
 				const sep = isRemote ? '%x1E' : '|';
@@ -365,7 +417,7 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 		withIpcErrorLogging(
 			handlerOpts('commitCount'),
 			async (cwd: string, sshRemoteId?: string, remoteCwd?: string) => {
-				const sshRemote = getSshRemoteById(sshRemoteId);
+				const sshRemote = sshRemoteId ? getSshRemoteById(sshRemoteId) : undefined;
 				const effectiveRemoteCwd = sshRemote ? remoteCwd || cwd : undefined;
 				// Get total commit count using rev-list
 				const result = await execGit(
@@ -387,7 +439,7 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 		withIpcErrorLogging(
 			handlerOpts('show'),
 			async (cwd: string, hash: string, sshRemoteId?: string, remoteCwd?: string) => {
-				const sshRemote = getSshRemoteById(sshRemoteId);
+				const sshRemote = sshRemoteId ? getSshRemoteById(sshRemoteId) : undefined;
 				const effectiveRemoteCwd = sshRemote ? remoteCwd || cwd : undefined;
 				// Get the full diff for a specific commit
 				const result = await execGit(
@@ -413,17 +465,19 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 				const ext = filePath.split('.').pop()?.toLowerCase() || '';
 
 				if (isImageFile(filePath)) {
-					// For images, we need to get raw binary content
-					// Use spawnSync to capture raw binary output
-					const { spawnSync } = require('child_process');
-					const result = spawnSync('git', ['show', `${ref}:${filePath}`], {
+					// For images we need raw binary content. Use the async,
+					// binary-safe exec helper instead of spawnSync so reading the blob
+					// never blocks the main-process event loop (which would freeze the
+					// entire UI while a large image / cold git object is fetched).
+					const result = await execFileBufferNoThrow(
+						'git',
+						['show', `${ref}:${filePath}`],
 						cwd,
-						encoding: 'buffer',
-						maxBuffer: 50 * 1024 * 1024, // 50MB max
-					});
+						50 * 1024 * 1024 // 50MB max
+					);
 
-					if (result.status !== 0) {
-						return { error: result.stderr?.toString() || 'Failed to read file from git' };
+					if (result.exitCode !== 0) {
+						return { error: result.stderr || 'Failed to read file from git' };
 					}
 
 					const base64 = result.stdout.toString('base64');
@@ -452,7 +506,7 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 			async (worktreePath: string, sshRemoteId?: string) => {
 				// SSH remote: dispatch to remote git operations
 				if (sshRemoteId) {
-					const sshConfig = getSshRemoteById(sshRemoteId);
+					const sshConfig = sshRemoteId ? getSshRemoteById(sshRemoteId) : undefined;
 					if (!sshConfig) {
 						throw new Error(`SSH remote not found: ${sshRemoteId}`);
 					}
@@ -533,7 +587,7 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 		createIpcHandler(handlerOpts('getRepoRoot'), async (cwd: string, sshRemoteId?: string) => {
 			// SSH remote: dispatch to remote git operations
 			if (sshRemoteId) {
-				const sshConfig = getSshRemoteById(sshRemoteId);
+				const sshConfig = sshRemoteId ? getSshRemoteById(sshRemoteId) : undefined;
 				if (!sshConfig) {
 					throw new Error(`SSH remote not found: ${sshRemoteId}`);
 				}
@@ -564,23 +618,25 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 				mainRepoCwd: string,
 				worktreePath: string,
 				branchName: string,
-				sshRemoteId?: string
+				sshRemoteId?: string,
+				baseBranch?: string
 			) => {
 				// SSH remote: dispatch to remote git operations
 				if (sshRemoteId) {
-					const sshConfig = getSshRemoteById(sshRemoteId);
+					const sshConfig = sshRemoteId ? getSshRemoteById(sshRemoteId) : undefined;
 					if (!sshConfig) {
 						throw new Error(`SSH remote not found: ${sshRemoteId}`);
 					}
 					logger.debug(
-						`${LOG_CONTEXT} worktreeSetup via SSH: ${JSON.stringify({ mainRepoCwd, worktreePath, branchName })}`,
+						`${LOG_CONTEXT} worktreeSetup via SSH: ${JSON.stringify({ mainRepoCwd, worktreePath, branchName, baseBranch })}`,
 						LOG_CONTEXT
 					);
 					const result = await worktreeSetupRemote(
 						mainRepoCwd,
 						worktreePath,
 						branchName,
-						sshConfig
+						sshConfig,
+						baseBranch
 					);
 					if (!result.success) {
 						throw new Error(result.error || 'Remote worktreeSetup failed');
@@ -590,7 +646,7 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 
 				// Local execution (existing code)
 				logger.debug(
-					`worktreeSetup called with: ${JSON.stringify({ mainRepoCwd, worktreePath, branchName })}`,
+					`worktreeSetup called with: ${JSON.stringify({ mainRepoCwd, worktreePath, branchName, baseBranch })}`,
 					LOG_CONTEXT
 				);
 
@@ -705,14 +761,24 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 
 				let createResult;
 				if (branchExists) {
-					// Branch exists, just add worktree pointing to it
+					// Branch exists, just add worktree pointing to it. baseBranch is
+					// ignored here because the existing branch already has its own commit.
 					createResult = await execFileNoThrow(
 						'git',
 						['worktree', 'add', worktreePath, branchName],
 						mainRepoCwd
 					);
+				} else if (baseBranch) {
+					// Branch doesn't exist; create it from the requested base branch.
+					// `git worktree add -b <new> <path> <base>` is the explicit form.
+					createResult = await execFileNoThrow(
+						'git',
+						['worktree', 'add', '-b', branchName, worktreePath, baseBranch],
+						mainRepoCwd
+					);
 				} else {
-					// Branch doesn't exist, create it with -b flag
+					// Branch doesn't exist and no base specified; defaults to current HEAD
+					// of the main repo (preserves pre-baseBranch behavior).
 					createResult = await execFileNoThrow(
 						'git',
 						['worktree', 'add', '-b', branchName, worktreePath],
@@ -721,6 +787,24 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 				}
 
 				if (createResult.exitCode !== 0) {
+					// Recover from "already used / already checked out" — the branch is
+					// already registered with another worktree on disk. Resolve that path
+					// from `git worktree list --porcelain` so the caller can open it.
+					const errMsg = createResult.stderr || '';
+					if (isWorktreeAlreadyUsedError(errMsg)) {
+						const existingPath = await findLocalWorktreeForBranch(mainRepoCwd, branchName);
+						if (existingPath) {
+							return {
+								success: true,
+								created: false,
+								alreadyExisted: true,
+								existingPath,
+								currentBranch: branchName,
+								requestedBranch: branchName,
+								branchMismatch: false,
+							};
+						}
+					}
 					return { success: false, error: createResult.stderr || 'Failed to create worktree' };
 				}
 
@@ -749,7 +833,7 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 			) => {
 				// SSH remote: dispatch to remote git operations
 				if (sshRemoteId) {
-					const sshConfig = getSshRemoteById(sshRemoteId);
+					const sshConfig = sshRemoteId ? getSshRemoteById(sshRemoteId) : undefined;
 					if (!sshConfig) {
 						throw new Error(`SSH remote not found: ${sshRemoteId}`);
 					}
@@ -844,11 +928,27 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 				const ghCommand = await resolveGhPath(ghPath);
 				logger.debug(`Using gh CLI at: ${ghCommand}`, LOG_CONTEXT);
 
+				// Build env with the user's full shell PATH so git hooks
+				// (e.g. Husky pre-push running npm) can find Node/npm binaries
+				let shellEnv: NodeJS.ProcessEnv | undefined;
+				try {
+					const shellPath = await getShellPath();
+					if (shellPath) {
+						shellEnv = { ...process.env, PATH: shellPath };
+					}
+				} catch (error) {
+					captureMessage(
+						`git:createPR falling back to default PATH: ${error instanceof Error ? error.message : String(error)}`,
+						'warning'
+					);
+				}
+
 				// First, push the current branch to origin
 				const pushResult = await execFileNoThrow(
 					'git',
 					['push', '-u', 'origin', 'HEAD'],
-					worktreePath
+					worktreePath,
+					shellEnv
 				);
 				if (pushResult.exitCode !== 0) {
 					return { success: false, error: `Failed to push branch: ${pushResult.stderr}` };
@@ -858,7 +958,8 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 				const prResult = await execFileNoThrow(
 					ghCommand,
 					['pr', 'create', '--base', baseBranch, '--title', title, '--body', body],
-					worktreePath
+					worktreePath,
+					shellEnv
 				);
 
 				if (prResult.exitCode !== 0) {
@@ -970,7 +1071,7 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 		createIpcHandler(handlerOpts('listWorktrees'), async (cwd: string, sshRemoteId?: string) => {
 			// SSH remote: dispatch to remote git operations
 			if (sshRemoteId) {
-				const sshConfig = getSshRemoteById(sshRemoteId);
+				const sshConfig = sshRemoteId ? getSshRemoteById(sshRemoteId) : undefined;
 				if (!sshConfig) {
 					throw new Error(`SSH remote not found: ${sshRemoteId}`);
 				}
@@ -1048,119 +1149,209 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 	// This is used for auto-discovering worktrees in a parent directory
 	// PERFORMANCE: Parallelized git operations to avoid blocking UI (was sequential before)
 	// Supports SSH remote execution via optional sshRemoteId parameter
+	//
+	// Recurses one level into non-git subdirectories so worktrees created from
+	// branch names with slashes (e.g. "fix/worktree-removal" → /worktrees/fix/worktree-removal)
+	// are still discovered. Without recursion, those nested worktrees are absent
+	// from the result and the renderer's stale-detection wrongly removes them.
 	ipcMain.handle(
 		'git:scanWorktreeDirectory',
 		createIpcHandler(
 			handlerOpts('scanWorktreeDirectory'),
 			async (parentPath: string, sshRemoteId?: string) => {
-				const sshRemote = getSshRemoteById(sshRemoteId);
+				const sshRemote = sshRemoteId ? getSshRemoteById(sshRemoteId) : undefined;
+
+				// Maximum recursion depth below the configured basePath. 1 covers the
+				// common case `<basePath>/<group>/<branch>` from slash-named branches.
+				// Going deeper would multiply git invocations without a real-world need
+				// (git itself rejects nested worktrees inside the main repo).
+				const MAX_DEPTH = 1;
+
+				type SubdirEntry = { name: string; isDirectory: boolean };
+				type ScanEntry = {
+					path: string;
+					name: string;
+					isWorktree: boolean;
+					branch: string | null;
+					repoRoot: string | null;
+					isBare: boolean;
+				};
+
+				const joinPath = (parent: string, child: string): string =>
+					sshRemote
+						? parent.endsWith('/')
+							? `${parent}${child}`
+							: `${parent}/${child}`
+						: path.join(parent, child);
+
+				// Throws on read failure (matching local `fs.readdir` behavior) so the
+				// outer try/catch can surface scanFailed: true at the top level. Nested
+				// recursion wraps this in its own try/catch and swallows the throw.
+				// Without this, an SSH `readDirRemote` failure would silently return []
+				// and the renderer would bulk-remove every child session.
+				const readSubdirs = async (dir: string): Promise<SubdirEntry[]> => {
+					if (sshRemote) {
+						const result = await readDirRemote(dir, sshRemote);
+						if (!result.success || !result.data) {
+							const err = new Error(
+								`Failed to read remote directory ${dir}: ${result.error || 'unknown error'}`
+							) as NodeJS.ErrnoException;
+							// Tag as ENOENT so the outer catch's Sentry-quieting branch applies —
+							// remote read failures are typically "path no longer exists / not reachable",
+							// not bugs worth paging on.
+							err.code = 'ENOENT';
+							throw err;
+						}
+						return result.data.filter((e) => e.isDirectory && !e.name.startsWith('.'));
+					}
+					const entries = await fs.readdir(dir, { withFileTypes: true });
+					return entries
+						.filter((e) => e.isDirectory() && !e.name.startsWith('.'))
+						.map((e) => ({ name: e.name, isDirectory: true }));
+				};
+
+				// Inspect a single directory: returns the worktree entry if it IS a
+				// git repo/worktree root, or null otherwise. Caller decides whether
+				// to recurse into a null result.
+				const inspectSubdir = async (
+					subdirPath: string,
+					name: string
+				): Promise<ScanEntry | null> => {
+					const isInsideWorkTree = await execGit(
+						['--no-pager', 'rev-parse', '--is-inside-work-tree'],
+						subdirPath,
+						sshRemote
+					);
+					if (isInsideWorkTree.exitCode !== 0) {
+						return null; // Not a git repo
+					}
+
+					// Verify this directory IS a worktree/repo root, not just a subdirectory inside one.
+					// Without this check, subdirectories like "build/" or "src/" inside a worktree
+					// would pass --is-inside-work-tree and be incorrectly treated as separate worktrees.
+					const toplevelResult = await execGit(
+						['rev-parse', '--show-toplevel'],
+						subdirPath,
+						sshRemote
+					);
+					if (toplevelResult.exitCode !== 0) {
+						return null; // Git command failed — treat as invalid
+					}
+					const toplevel = toplevelResult.stdout.trim();
+					// For local paths, canonicalize via realpath so that symlinked base
+					// paths (common on Linux: /home → /data/home; Windows junctions) match
+					// what git rev-parse --show-toplevel returns. path.resolve alone does
+					// NOT follow symlinks, which previously caused every subdir to be
+					// rejected and the entire worktree set to be marked stale.
+					const normalizedSubdir = sshRemote
+						? subdirPath
+						: await fs.realpath(subdirPath).catch(() => path.resolve(subdirPath));
+					const normalizedToplevel = sshRemote
+						? toplevel
+						: await fs.realpath(toplevel).catch(() => path.resolve(toplevel));
+					if (normalizedSubdir !== normalizedToplevel) {
+						return null; // Subdirectory inside a repo, not a repo/worktree root
+					}
+
+					// Check if this is a bare repo (exit code 0 but stdout "false")
+					// Bare repos are valid git resources (enable badges, worktree creation)
+					// but are NOT work trees themselves
+					const isBareRepo = isInsideWorkTree.stdout.trim() !== 'true';
+
+					// Run remaining git commands in parallel for each subdirectory (SSH-aware via execGit)
+					const [gitDirResult, gitCommonDirResult, branchResult] = await Promise.all([
+						execGit(['rev-parse', '--git-dir'], subdirPath, sshRemote),
+						execGit(['rev-parse', '--git-common-dir'], subdirPath, sshRemote),
+						execGit(['rev-parse', '--abbrev-ref', 'HEAD'], subdirPath, sshRemote),
+					]);
+
+					const gitDir = gitDirResult.exitCode === 0 ? gitDirResult.stdout.trim() : '';
+					const gitCommonDir =
+						gitCommonDirResult.exitCode === 0 ? gitCommonDirResult.stdout.trim() : gitDir;
+					const isWorktree = gitDir !== gitCommonDir;
+					const branch = branchResult.exitCode === 0 ? branchResult.stdout.trim() : null;
+
+					// Get repo root
+					let repoRoot: string | null = null;
+					if (isWorktree && gitCommonDir) {
+						// For SSH, use POSIX path operations
+						if (sshRemote) {
+							const commonDirAbs = gitCommonDir.startsWith('/')
+								? gitCommonDir
+								: `${subdirPath}/${gitCommonDir}`.replace(/\/+/g, '/');
+							// Get parent directory (remove last path component)
+							repoRoot = commonDirAbs.split('/').slice(0, -1).join('/') || '/';
+						} else {
+							const commonDirAbs = path.isAbsolute(gitCommonDir)
+								? gitCommonDir
+								: path.resolve(subdirPath, gitCommonDir);
+							repoRoot = path.dirname(commonDirAbs);
+						}
+					} else {
+						// For non-worktree git repos, the toplevel IS the repo root —
+						// reuse the value we already fetched above instead of re-running
+						// `git rev-parse --show-toplevel`.
+						repoRoot = toplevel;
+					}
+
+					return {
+						path: subdirPath,
+						name,
+						isWorktree,
+						branch,
+						repoRoot,
+						isBare: isBareRepo,
+					};
+				};
+
+				// Walk a directory level: inspect each subdir, then recurse into any
+				// non-git subdirs (up to MAX_DEPTH below the original parentPath).
+				// Failures while reading a nested directory are swallowed by the
+				// inner try/catch — a missing or unreadable group dir shouldn't fail
+				// the entire scan. Top-level failure propagates up to the outer
+				// try/catch so scanFailed is surfaced and the renderer skips removal.
+				const scanLevel = async (dir: string, depthRemaining: number): Promise<ScanEntry[]> => {
+					const subdirs = await readSubdirs(dir);
+
+					const results = await Promise.all(
+						subdirs.map(async (subdir) => {
+							const subdirPath = joinPath(dir, subdir.name);
+							const entry = await inspectSubdir(subdirPath, subdir.name);
+							if (entry) {
+								return [entry];
+							}
+							if (depthRemaining > 0) {
+								try {
+									return await scanLevel(subdirPath, depthRemaining - 1);
+								} catch (err) {
+									const code = (err as NodeJS.ErrnoException | undefined)?.code;
+									if (code !== 'ENOENT' && code !== 'EACCES' && code !== 'ENOTDIR') {
+										logger.warn(`${LOG_CONTEXT} Failed to recurse into ${subdirPath}: ${err}`);
+									}
+									return [];
+								}
+							}
+							return [];
+						})
+					);
+
+					return results.flat();
+				};
 
 				try {
-					// Read directory contents (SSH-aware)
-					let subdirs: Array<{ name: string; isDirectory: boolean }>;
-
-					if (sshRemote) {
-						// SSH remote: use readDirRemote
-						const result = await readDirRemote(parentPath, sshRemote);
-						if (!result.success || !result.data) {
-							logger.error(
-								`Failed to read remote directory ${parentPath}: ${result.error}`,
-								LOG_CONTEXT
-							);
-							return { gitSubdirs: [] };
-						}
-						// Filter to only directories (excluding .git and .git-repo bare repo)
-						subdirs = result.data.filter(
-							(e) => e.isDirectory && e.name !== '.git' && e.name !== '.git-repo'
-						);
-					} else {
-						// Local: use standard fs operations
-						const entries = await fs.readdir(parentPath, { withFileTypes: true });
-						// Filter to only directories (excluding .git and .git-repo bare repo)
-						subdirs = entries
-							.filter((e) => e.isDirectory() && e.name !== '.git' && e.name !== '.git-repo')
-							.map((e) => ({
-								name: e.name,
-								isDirectory: true,
-							}));
-					}
-
-					// Sort alphabetically and iterate sequentially — stop at first git repo found.
-					// This avoids flooding the SSH ControlMaster with parallel commands.
-					// One SSH command per subdir to check isRepo; caller handles the rest.
-					subdirs.sort((a, b) => a.name.localeCompare(b.name));
-
-					const gitSubdirs: Array<{
-						path: string;
-						name: string;
-						isWorktree: boolean;
-						branch: string | null;
-						repoRoot: string | null;
-						isBare: boolean;
-					}> = [];
-
-					for (const subdir of subdirs) {
-						// Use POSIX path joining for remote paths
-						const subdirPath = sshRemote
-							? parentPath.endsWith('/')
-								? `${parentPath}${subdir.name}`
-								: `${parentPath}/${subdir.name}`
-							: path.join(parentPath, subdir.name);
-
-						// Check if it's inside a git work tree (SSH-aware via execGit)
-						const isInsideWorkTree = await execGit(
-							['--no-pager', 'rev-parse', '--is-inside-work-tree'],
-							subdirPath,
-							sshRemote
-						);
-						if (isInsideWorkTree.exitCode !== 0) {
-							continue; // Not a git repo at all, try next
-						}
-
-						// Verify this directory IS a worktree/repo root, not just a subdirectory inside one.
-						// Without this check, subdirectories like "build/" or "src/" inside a worktree
-						// would pass --is-inside-work-tree and be incorrectly treated as separate worktrees.
-						const toplevelResult = await execGit(
-							['rev-parse', '--show-toplevel'],
-							subdirPath,
-							sshRemote
-						);
-						if (toplevelResult.exitCode !== 0) {
-							continue; // Git command failed — treat as invalid
-						}
-						const toplevel = toplevelResult.stdout.trim();
-						// For SSH, compare as-is; for local, resolve to handle symlinks
-						const normalizedSubdir = sshRemote ? subdirPath : path.resolve(subdirPath);
-						const normalizedToplevel = sshRemote ? toplevel : path.resolve(toplevel);
-						if (normalizedSubdir !== normalizedToplevel) {
-							continue; // Subdirectory inside a repo, not a repo/worktree root
-						}
-
-						// Check if this is a bare repo (exit code 0 but stdout "false")
-						// Bare repos are valid git resources (enable badges, worktree creation)
-						// but are NOT work trees themselves
-						const isBareRepo = isInsideWorkTree.stdout.trim() !== 'true';
-
-						// Found a git resource — return info and stop.
-						// Metadata (root, branches, tags) is fetched by detectGitRepo
-						// in the renderer, so gathering it here would be redundant SSH calls.
-						gitSubdirs.push({
-							path: subdirPath,
-							name: subdir.name,
-							isWorktree: false,
-							branch: null,
-							repoRoot: null,
-							isBare: isBareRepo,
-						});
-
-						// Stop after first hit — caller gets exactly 0 or 1 result
-						break;
-					}
-
+					const gitSubdirs = await scanLevel(parentPath, MAX_DEPTH);
 					return { gitSubdirs };
 				} catch (err) {
+					// ENOENT is expected when the configured parent path has been moved
+					// or deleted from disk — surface to logs but don't pollute Sentry.
+					const code = (err as NodeJS.ErrnoException | undefined)?.code;
+					if (code !== 'ENOENT') {
+						void captureException(err);
+					}
 					logger.error(`Failed to scan directory ${parentPath}: ${err}`, LOG_CONTEXT);
-					return { gitSubdirs: [] };
+					// Distinguish a failed scan from a successful "no subdirs" result so
+					// the renderer doesn't bulk-flag every existing child session as removed.
+					return { gitSubdirs: [], scanFailed: true };
 				}
 			}
 		)
@@ -1175,6 +1366,11 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 		createIpcHandler(
 			handlerOpts('watchWorktreeDirectory'),
 			async (sessionId: string, worktreePath: string, sshRemoteId?: string) => {
+				// TODO: Remove debug logging after worktree detection is confirmed working
+				logger.warn(
+					`[WT-DEBUG] watchWorktreeDirectory called: session=${sessionId} path=${worktreePath} ssh=${sshRemoteId}`
+				);
+
 				// SSH remote: file watching is not supported
 				// Return success with isRemote flag so UI knows to poll instead
 				if (sshRemoteId) {
@@ -1189,45 +1385,59 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 					};
 				}
 
-				// Stop existing watcher if any
+				// Stop existing watcher if any — delete from map BEFORE awaiting close
+				// to prevent race conditions with concurrent unwatch/watch IPC calls
 				const existingWatcher = worktreeWatchers.get(sessionId);
 				if (existingWatcher) {
-					await existingWatcher.close();
 					worktreeWatchers.delete(sessionId);
+					await existingWatcher.close();
 				}
 
-				// Clear any pending debounce timer
-				const existingTimer = worktreeWatchDebounceTimers.get(sessionId);
-				if (existingTimer) {
-					clearTimeout(existingTimer);
-					worktreeWatchDebounceTimers.delete(sessionId);
+				// Clear any pending debounce timers for this session
+				for (const [key, timer] of worktreeWatchDebounceTimers) {
+					if (key.startsWith(`${sessionId}:`)) {
+						clearTimeout(timer);
+						worktreeWatchDebounceTimers.delete(key);
+					}
 				}
 
 				try {
 					// Verify directory exists
 					await fs.access(worktreePath);
 
-					// Start watching the directory (only top level, not recursive)
+					// Watch one level deep so worktrees from slash-named branches
+					// (e.g. "fix/worktree-removal" → <basePath>/fix/worktree-removal)
+					// also fire addDir/unlinkDir events. The addDir handler validates
+					// every candidate via `is-inside-work-tree` + `show-toplevel`, so
+					// the intermediate group directory (e.g. "fix") is rejected and
+					// only the actual worktree is reported as discovered.
 					const watcher = chokidar.watch(worktreePath, {
-						ignored: /(^|[/\\])\../, // Ignore dotfiles
+						ignored: [
+							/(^|[/\\])\../, // Ignore dotfiles
+							WINDOWS_LOCKED_SYSTEM_FILES,
+						],
 						persistent: true,
 						ignoreInitial: true,
-						depth: 0, // Only watch top-level directory changes
+						depth: 1,
 					});
 
 					// Handler for directory additions
 					watcher.on('addDir', async (dirPath: string) => {
+						// TODO: Remove debug logging after worktree detection is confirmed working
+						logger.warn(`[WT-DEBUG] addDir event: ${dirPath}`);
 						// Skip the root directory itself
 						if (dirPath === worktreePath) return;
 
-						// Debounce to avoid flooding with events
-						const existingTimer = worktreeWatchDebounceTimers.get(sessionId);
+						// Per-directory debounce so multiple near-simultaneous worktree
+						// additions each get their own validation pipeline
+						const debounceKey = `${sessionId}:${dirPath}`;
+						const existingTimer = worktreeWatchDebounceTimers.get(debounceKey);
 						if (existingTimer) {
 							clearTimeout(existingTimer);
 						}
 
 						const timer = setTimeout(async () => {
-							worktreeWatchDebounceTimers.delete(sessionId);
+							worktreeWatchDebounceTimers.delete(debounceKey);
 
 							// Check if this new directory is a git worktree
 							const isInsideWorkTree = await execFileNoThrow(
@@ -1236,7 +1446,10 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 								dirPath
 							);
 							if (isInsideWorkTree.exitCode !== 0) {
-								return; // Not a git repo
+								logger.warn(
+									`[WT-DEBUG] REJECTED ${dirPath}: not inside work tree (exit=${isInsideWorkTree.exitCode} stderr=${isInsideWorkTree.stderr})`
+								);
+								return;
 							}
 
 							// Verify this IS a worktree/repo root, not a subdirectory inside one
@@ -1246,10 +1459,23 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 								dirPath
 							);
 							if (toplevelResult.exitCode !== 0) {
-								return; // Git command failed — skip
+								logger.warn(
+									`[WT-DEBUG] REJECTED ${dirPath}: show-toplevel failed (exit=${toplevelResult.exitCode})`
+								);
+								return;
 							}
-							if (path.resolve(dirPath) !== path.resolve(toplevelResult.stdout.trim())) {
-								return; // Subdirectory inside a repo, not a worktree root
+							// Use realpath so symlinked base paths (e.g. /home/user/work →
+							// /data/work on Linux, NTFS junctions on Windows) match git's
+							// canonical toplevel output.
+							const resolvedDir = await fs.realpath(dirPath).catch(() => path.resolve(dirPath));
+							const resolvedToplevel = await fs
+								.realpath(toplevelResult.stdout.trim())
+								.catch(() => path.resolve(toplevelResult.stdout.trim()));
+							if (resolvedDir !== resolvedToplevel) {
+								logger.warn(
+									`[WT-DEBUG] REJECTED ${dirPath}: not repo root (resolved=${resolvedDir} toplevel=${resolvedToplevel})`
+								);
+								return;
 							}
 
 							// Get branch name
@@ -1262,8 +1488,13 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 
 							// Skip main/master/HEAD branches
 							if (branch === 'main' || branch === 'master' || branch === 'HEAD') {
+								logger.warn(`[WT-DEBUG] REJECTED ${dirPath}: skippable branch ${branch}`);
 								return;
 							}
+
+							logger.warn(
+								`[WT-DEBUG] ACCEPTED ${dirPath}: branch=${branch}, emitting worktree:discovered`
+							);
 
 							// Emit event to renderer
 							const windows = BrowserWindow.getAllWindows();
@@ -1283,7 +1514,33 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 							logger.info(`${LOG_CONTEXT} New worktree discovered: ${dirPath} (branch: ${branch})`);
 						}, 500); // 500ms debounce
 
-						worktreeWatchDebounceTimers.set(sessionId, timer);
+						worktreeWatchDebounceTimers.set(debounceKey, timer);
+					});
+
+					// Handler for directory removals (e.g., `git worktree remove` from CLI).
+					//
+					// With depth: 1 this can fire spuriously for an intermediate group
+					// directory (e.g. <basePath>/fix) when its last nested worktree is
+					// removed and the empty parent is cleaned up. We forward the event
+					// regardless because (a) the dir is gone so we can't run git checks
+					// to validate, and (b) the renderer's onWorktreeRemoved handler
+					// already filters by registered child cwds — an unknown path is a
+					// no-op, not a session removal. See useWorktreeHandlers.ts.
+					watcher.on('unlinkDir', (dirPath: string) => {
+						if (dirPath === worktreePath) return;
+
+						logger.warn(`[WT-DEBUG] unlinkDir event: ${dirPath}`);
+						logger.info(`${LOG_CONTEXT} Worktree directory removed: ${dirPath}`);
+
+						const windows = BrowserWindow.getAllWindows();
+						for (const win of windows) {
+							if (isWebContentsAvailable(win)) {
+								win.webContents.send('worktree:removed', {
+									sessionId,
+									worktreePath: dirPath,
+								});
+							}
+						}
 					});
 
 					watcher.on('error', (error) => {
@@ -1299,6 +1556,13 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 
 					return { success: true };
 				} catch (err) {
+					// ENOENT is expected when the worktree parent path has been moved
+					// or deleted; the renderer surfaces this as "stale" — no need to
+					// page Sentry on user filesystem state.
+					const code = (err as NodeJS.ErrnoException | undefined)?.code;
+					if (code !== 'ENOENT') {
+						void captureException(err);
+					}
 					logger.error(`${LOG_CONTEXT} Failed to watch worktree directory ${worktreePath}: ${err}`);
 					return { success: false, error: String(err) };
 				}
@@ -1310,18 +1574,27 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 	ipcMain.handle(
 		'git:unwatchWorktreeDirectory',
 		createIpcHandler(handlerOpts('unwatchWorktreeDirectory'), async (sessionId: string) => {
+			// TODO: Remove debug logging after worktree detection is confirmed working
+			logger.warn(
+				`[WT-DEBUG] unwatchWorktreeDirectory called: session=${sessionId} hasWatcher=${worktreeWatchers.has(sessionId)}`
+			);
 			const watcher = worktreeWatchers.get(sessionId);
 			if (watcher) {
-				await watcher.close();
+				// Delete from map BEFORE awaiting close to prevent a race condition:
+				// React StrictMode double-fires effects, so unwatchWorktreeDirectory and
+				// watchWorktreeDirectory can interleave. If we delete after await, the
+				// unwatch can remove a NEW watcher that watchWorktreeDirectory just created.
 				worktreeWatchers.delete(sessionId);
+				await watcher.close();
 				logger.info(`${LOG_CONTEXT} Stopped watching worktree directory for session ${sessionId}`);
 			}
 
-			// Clear any pending debounce timer
-			const timer = worktreeWatchDebounceTimers.get(sessionId);
-			if (timer) {
-				clearTimeout(timer);
-				worktreeWatchDebounceTimers.delete(sessionId);
+			// Clear any pending debounce timers for this session
+			for (const [key, timer] of worktreeWatchDebounceTimers) {
+				if (key.startsWith(`${sessionId}:`)) {
+					clearTimeout(timer);
+					worktreeWatchDebounceTimers.delete(key);
+				}
 			}
 
 			return { success: true };

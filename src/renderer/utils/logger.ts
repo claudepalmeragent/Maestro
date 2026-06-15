@@ -6,6 +6,16 @@
 import { type BaseLogLevel } from '../../shared/logger-types';
 import { PerformanceMetrics, type PerformanceMetric } from '../../shared/performance-metrics';
 
+// `window.maestro` is the renderer's IPC bridge; declared inline so this
+// module compiles under the shared tsconfig which doesn't include the DOM lib.
+declare const window: {
+	maestro?: {
+		logger?: {
+			log(level: string, message: string, context?: string, data?: unknown): void;
+		};
+	};
+};
+
 // Re-export for backwards compatibility
 export type LogLevel = BaseLogLevel;
 

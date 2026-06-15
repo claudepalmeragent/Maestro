@@ -8,162 +8,31 @@
  */
 
 import { ipcRenderer } from 'electron';
+import type {
+	QueryEvent,
+	AutoRunSession,
+	AutoRunTask,
+	SessionLifecycleEvent,
+	ShortcutUsageDay,
+	StatsAggregation,
+	StatsTimeRange,
+} from '../../shared/stats-types';
+export type {
+	QueryEvent,
+	AutoRunSession,
+	AutoRunTask,
+	ShortcutUsageDay,
+	StatsAggregation,
+} from '../../shared/stats-types';
 
 /**
- * Query event for recording
+ * Session lifecycle event for recording session creation.
+ * Subset of SessionLifecycleEvent from shared/stats-types.
  */
-export interface QueryEvent {
-	sessionId: string;
-	agentId?: string; // Stable Maestro agent ID (no batch/ai/synopsis suffixes)
-	agentType: string;
-	source: 'user' | 'auto';
-	startTime: number;
-	duration: number;
-	projectPath?: string;
-	tabId?: string;
-	isRemote?: boolean;
-	/** Input tokens sent in this request */
-	inputTokens?: number;
-	/** Output tokens received in response */
-	outputTokens?: number;
-	/** Calculated throughput: outputTokens / (duration/1000) */
-	tokensPerSecond?: number;
-	// Cache and cost metrics (v5)
-	cacheReadInputTokens?: number;
-	cacheCreationInputTokens?: number;
-	totalCostUsd?: number;
-	// Model tracking fields (FIX-30)
-	/** Detected model ID from Claude response (e.g., 'claude-opus-4-5-20251101') */
-	detectedModel?: string;
-	/** Anthropic's message ID from the API response */
-	anthropicMessageId?: string;
-	// Billing mode fields (FIX-30 Hybrid Detection)
-	/** SSH Remote ID if this query was executed on a remote agent */
-	sshRemoteId?: string;
-}
-
-/**
- * Auto Run session for recording
- */
-export interface AutoRunSession {
-	sessionId: string;
-	agentType: string;
-	documentPath?: string;
-	startTime: number;
-	tasksTotal?: number;
-	projectPath?: string;
-}
-
-/**
- * Auto Run task for recording
- */
-export interface AutoRunTask {
-	autoRunSessionId: string;
-	sessionId: string;
-	agentType: string;
-	taskIndex: number;
-	taskContent?: string;
-	startTime: number;
-	duration: number;
-	success: boolean;
-	tasksCompletedCount?: number; // Number of checkbox tasks completed in this agent invocation
-}
-
-/**
- * Session lifecycle event
- */
-export interface SessionCreatedEvent {
-	sessionId: string;
-	agentType: string;
-	projectPath?: string;
-	createdAt: number;
-	isRemote?: boolean;
-}
-
-/**
- * Aggregation result
- */
-export interface StatsAggregation {
-	totalQueries: number;
-	totalDuration: number;
-	avgDuration: number;
-	byAgent: Record<
-		string,
-		{ count: number; duration: number; totalOutputTokens: number; avgTokensPerSecond: number }
-	>;
-	bySource: { user: number; auto: number };
-	byDay: Array<{
-		date: string;
-		count: number;
-		duration: number;
-		outputTokens?: number;
-		avgTokensPerSecond?: number;
-	}>;
-	/** Breakdown by session location (local vs SSH remote) */
-	byLocation: { local: number; remote: number };
-	/** Breakdown by hour of day (0-23) for peak hours chart */
-	byHour: Array<{ hour: number; count: number; duration: number }>;
-	/** Total unique sessions launched in the time period */
-	totalSessions: number;
-	/** Sessions by agent type */
-	sessionsByAgent: Record<string, number>;
-	/** Sessions launched per day */
-	sessionsByDay: Array<{ date: string; count: number }>;
-	/** Average session duration in ms (for closed sessions) */
-	avgSessionDuration: number;
-	/** Queries and duration by provider per day (for provider comparison and throughput trends) */
-	byAgentByDay: Record<
-		string,
-		Array<{
-			date: string;
-			count: number;
-			duration: number;
-			outputTokens: number;
-			avgTokensPerSecond: number;
-		}>
-	>;
-	/** Queries and duration by Maestro session per day (for agent usage chart and throughput trends) */
-	bySessionByDay: Record<
-		string,
-		Array<{
-			date: string;
-			count: number;
-			duration: number;
-			outputTokens: number;
-			avgTokensPerSecond: number;
-		}>
-	>;
-	/** Aggregation by Maestro agent ID (not fragmented session IDs) - for proper agent attribution in charts */
-	byAgentIdByDay: Record<
-		string,
-		Array<{
-			date: string;
-			count: number;
-			duration: number;
-			outputTokens: number;
-			avgTokensPerSecond: number;
-		}>
-	>;
-	/** Total output tokens generated across all queries */
-	totalOutputTokens: number;
-	/** Total input tokens sent across all queries */
-	totalInputTokens: number;
-	/** Average throughput in tokens per second (for queries with token data) */
-	avgTokensPerSecond: number;
-	/** Average output tokens per query (for queries with token data) */
-	avgOutputTokensPerQuery: number;
-	/** Number of queries that have token data */
-	queriesWithTokenData: number;
-	// Cache tokens and cost aggregates (added in v5)
-	totalCacheReadInputTokens: number;
-	totalCacheCreationInputTokens: number;
-	/** Primary cost: Maestro calculated (billing-mode aware) */
-	totalCostUsd: number;
-	/** Secondary cost: Anthropic reported (API pricing) - added in v7 */
-	anthropicCostUsd: number;
-	/** Savings calculation (API - Maestro) - added in v7 */
-	savingsUsd: number;
-}
+export type SessionCreatedEvent = Pick<
+	SessionLifecycleEvent,
+	'sessionId' | 'agentType' | 'projectPath' | 'createdAt' | 'isRemote' | 'isWorktree'
+>;
 
 /**
  * Creates the Stats API object for preload exposure
@@ -275,6 +144,25 @@ export function createStatsApi() {
 		// Get earliest stat timestamp (null if no entries)
 		getEarliestTimestamp: (): Promise<number | null> =>
 			ipcRenderer.invoke('stats:get-earliest-timestamp'),
+
+		// Record a keyboard shortcut firing. The main process buckets `firedAt`
+		// into a local-time day and increments that day's counter. Resolves to
+		// the YYYY-MM-DD bucket, or null when stats collection is disabled.
+		recordShortcutUsage: (firedAt: number): Promise<string | null> =>
+			ipcRenderer.invoke('stats:record-shortcut-usage', firedAt),
+
+		// Get per-day shortcut usage counts within a time range. Days with no
+		// activity are omitted; the renderer is responsible for zero-filling.
+		getShortcutUsageByDay: (range: StatsTimeRange): Promise<ShortcutUsageDay[]> =>
+			ipcRenderer.invoke('stats:get-shortcut-usage-by-day', range),
+
+		// Get the total number of shortcut firings in a time range
+		getShortcutUsageTotal: (range: StatsTimeRange): Promise<number> =>
+			ipcRenderer.invoke('stats:get-shortcut-usage-total', range),
+
+		// Record an image annotation save event
+		recordImageAnnotation: (createdAt: number): Promise<string | null> =>
+			ipcRenderer.invoke('stats:record-image-annotation', createdAt),
 
 		// Record session creation (for lifecycle tracking)
 		recordSessionCreated: (event: SessionCreatedEvent): Promise<string | null> =>

@@ -14,10 +14,15 @@ import type { QueuedItem } from '../../types';
 import { useGroupChatStore } from '../../stores/groupChatStore';
 import { useModalStore } from '../../stores/modalStore';
 import { useSessionStore } from '../../stores/sessionStore';
+import { useBatchStore } from '../../stores/batchStore';
 import { useUIStore } from '../../stores/uiStore';
 import { useAgentErrorRecovery } from '../agent/useAgentErrorRecovery';
+import type { ToolType } from '../../../shared/types';
 import { notifyToast } from '../../stores/notificationStore';
 import { generateId } from '../../utils/ids';
+import { aiTabFocusFields } from '../../utils/tabHelpers';
+import { getAutoRunSessionsForGroupChat } from '../../utils/groupChatAutoRunRegistry';
+import { logger } from '../../utils/logger';
 
 // ---------------------------------------------------------------------------
 // Return type
@@ -43,6 +48,9 @@ export interface GroupChatHandlersReturn {
 			customArgs?: string;
 			customEnvVars?: Record<string, string>;
 			customModel?: string;
+			enableMaestroP?: boolean;
+			maestroPMode?: 'interactive' | 'dynamic';
+			maestroPPath?: string;
 		}
 	) => Promise<void>;
 	handleDeleteGroupChat: (id: string) => Promise<void>;
@@ -56,9 +64,13 @@ export interface GroupChatHandlersReturn {
 			customPath?: string;
 			customArgs?: string;
 			customEnvVars?: Record<string, string>;
+			enableMaestroP?: boolean;
+			maestroPMode?: 'interactive' | 'dynamic';
+			maestroPPath?: string;
 		}
 	) => Promise<void>;
 	deleteGroupChatWithConfirmation: (id: string) => void;
+	handleDeleteAllArchivedGroupChats: () => void;
 
 	// Navigation
 	handleProcessMonitorNavigateToGroupChat: (groupChatId: string) => void;
@@ -67,6 +79,9 @@ export interface GroupChatHandlersReturn {
 
 	// Right panel
 	handleGroupChatRightTabChange: (tab: GroupChatRightTab) => void;
+
+	// Stop All
+	handleStopAll: () => Promise<void>;
 
 	// Messages & queue
 	handleSendGroupChatMessage: (
@@ -146,11 +161,13 @@ export function useGroupChatHandlers({
 		setTimeout(() => groupChatInputRef.current?.focus(), 0);
 	}, []);
 
+	const groupChats = useGroupChatStore((s) => s.groupChats);
+	const moderatorAgentId = (groupChats.find((c) => c.id === activeGroupChatId)?.moderatorAgentId ??
+		'claude-code') as ToolType;
+
 	const { recoveryActions: groupChatRecoveryActions } = useAgentErrorRecovery({
 		error: groupChatError?.error,
-		// TODO: Read actual moderator agent type from the active group chat config
-		// instead of hardcoding. Error recovery suggestions will be wrong for non-Claude moderators.
-		agentId: 'claude-code',
+		agentId: moderatorAgentId,
 		sessionId: groupChatError?.groupChatId || '',
 		onRetry: handleClearGroupChatError,
 		onClearError: handleClearGroupChatError,
@@ -167,6 +184,8 @@ export function useGroupChatHandlers({
 			setGroupChats,
 			setAllGroupChatParticipantStates,
 			setParticipantStates,
+			appendParticipantLiveOutput,
+			clearParticipantLiveOutput,
 		} = useGroupChatStore.getState();
 
 		const unsubState = window.maestro.groupChat.onStateChange((id, state) => {
@@ -207,6 +226,18 @@ export function useGroupChatHandlers({
 						return next;
 					});
 				}
+				// Clear live output when participant becomes idle
+				if (state === 'idle') {
+					clearParticipantLiveOutput(`${id}:${participantName}`);
+				}
+			}
+		);
+
+		const unsubLiveOutput = window.maestro.groupChat.onParticipantLiveOutput?.(
+			(id, participantName, chunk) => {
+				if (id === useGroupChatStore.getState().activeGroupChatId) {
+					appendParticipantLiveOutput(`${id}:${participantName}`, chunk);
+				}
 			}
 		);
 
@@ -220,11 +251,44 @@ export function useGroupChatHandlers({
 			}
 		);
 
+		// Force-complete the batch run for an autorun participant.
+		// Fired by the main process on both normal completion (reportAutoRunComplete) and
+		// on the participant timeout, so the AUTO badge and progress bar always clear.
+		const unsubBatchComplete = window.maestro.groupChat.onAutoRunBatchComplete?.(
+			(groupChatId, participantName) => {
+				// Prefer group-chat-scoped autorun registry to avoid name collisions across chats.
+				// Only complete the specific participant's session, not all sessions for the chat.
+				const autoRunSessionIds = getAutoRunSessionsForGroupChat(groupChatId);
+				if (autoRunSessionIds.length > 0) {
+					const sessions = useSessionStore.getState().sessions;
+					const matchingSessionId = autoRunSessionIds.find((sid) =>
+						sessions.some((s) => s.id === sid && s.name === participantName)
+					);
+					if (matchingSessionId) {
+						useBatchStore.getState().dispatchBatch({
+							type: 'COMPLETE_BATCH',
+							sessionId: matchingSessionId,
+						});
+						return;
+					}
+				}
+				// Fallback: resolve by participant name if registry entry was already consumed
+				const session = useSessionStore.getState().sessions.find((s) => s.name === participantName);
+				if (!session) return;
+				useBatchStore.getState().dispatchBatch({
+					type: 'COMPLETE_BATCH',
+					sessionId: session.id,
+				});
+			}
+		);
+
 		return () => {
 			unsubState();
 			unsubParticipants();
 			unsubParticipantState?.();
+			unsubLiveOutput?.();
 			unsubModeratorSessionId?.();
+			unsubBatchComplete?.();
 		};
 	}, []); // Mount once — global listeners read activeGroupChatId from store at call time
 
@@ -289,6 +353,7 @@ export function useGroupChatHandlers({
 				setGroupChatExecutionQueue,
 				setGroupChatState: setGCState,
 				setGroupChatStates: setGCStates,
+				setGroupChatMessages: setGCMessages,
 			} = useGroupChatStore.getState();
 
 			const [nextItem, ...remainingQueue] = groupChatExecutionQueue;
@@ -300,12 +365,31 @@ export function useGroupChatHandlers({
 				next.set(activeGroupChatId, 'moderator-thinking');
 				return next;
 			});
-			window.maestro.groupChat.sendToModerator(
-				activeGroupChatId,
-				nextItem.text || '',
-				nextItem.images,
-				nextItem.readOnlyMode
-			);
+			window.maestro.groupChat
+				.sendToModerator(
+					activeGroupChatId,
+					nextItem.text || '',
+					nextItem.images,
+					nextItem.readOnlyMode
+				)
+				.catch((err: unknown) => {
+					const msg = err instanceof Error ? err.message : String(err);
+					// Reset to idle so user can retry
+					setGCState('idle');
+					setGCStates((prev) => {
+						const next = new Map(prev);
+						next.set(activeGroupChatId, 'idle');
+						return next;
+					});
+					setGCMessages((prev) => [
+						...prev,
+						{
+							timestamp: new Date().toISOString(),
+							from: 'system',
+							content: `⚠️ Moderator is not available. Try sending your message again. (${msg})`,
+						},
+					]);
+				});
 		}
 	}, [groupChatState, groupChatExecutionQueue, activeGroupChatId]);
 
@@ -385,7 +469,7 @@ export function useGroupChatHandlers({
 					);
 				}
 			} catch (error) {
-				console.warn(`Failed to start moderator for group chat ${id}:`, error);
+				logger.warn(`Failed to start moderator for group chat ${id}:`, undefined, error);
 			}
 
 			// Focus the input after the component renders
@@ -429,7 +513,7 @@ export function useGroupChatHandlers({
 			const tab = session.aiTabs?.find((t) => t.agentSessionId === moderatorSessionId);
 			if (tab) {
 				setSessions((prev) =>
-					prev.map((s) => (s.id === session.id ? { ...s, activeTabId: tab.id } : s))
+					prev.map((s) => (s.id === session.id ? { ...s, ...aiTabFocusFields(tab.id) } : s))
 				);
 			}
 		}
@@ -444,6 +528,9 @@ export function useGroupChatHandlers({
 				customArgs?: string;
 				customEnvVars?: Record<string, string>;
 				customModel?: string;
+				enableMaestroP?: boolean;
+				maestroPMode?: 'interactive' | 'dynamic';
+				maestroPPath?: string;
 			}
 		) => {
 			const { setGroupChats } = useGroupChatStore.getState();
@@ -515,6 +602,9 @@ export function useGroupChatHandlers({
 				customPath?: string;
 				customArgs?: string;
 				customEnvVars?: Record<string, string>;
+				enableMaestroP?: boolean;
+				maestroPMode?: 'interactive' | 'dynamic';
+				maestroPPath?: string;
 			}
 		) => {
 			const { setGroupChats } = useGroupChatStore.getState();
@@ -529,6 +619,30 @@ export function useGroupChatHandlers({
 		},
 		[]
 	);
+
+	// =======================================================================
+	// Delete all archived group chats
+	// =======================================================================
+
+	const handleDeleteAllArchivedGroupChats = useCallback(() => {
+		const { groupChats } = useGroupChatStore.getState();
+		const archivedChats = groupChats.filter((c) => c.archived);
+		if (archivedChats.length === 0) return;
+
+		useModalStore.getState().openModal('confirm', {
+			message: `Are you sure you want to delete all ${archivedChats.length} archived group chat${archivedChats.length !== 1 ? 's' : ''}? This action cannot be undone.`,
+			onConfirm: async () => {
+				const { activeGroupChatId, setGroupChats } = useGroupChatStore.getState();
+				const archivedIds = new Set(archivedChats.map((c) => c.id));
+				// Delete all archived chats
+				await Promise.all(archivedChats.map((c) => window.maestro.groupChat.delete(c.id)));
+				setGroupChats((prev) => prev.filter((c) => !archivedIds.has(c.id)));
+				if (activeGroupChatId && archivedIds.has(activeGroupChatId)) {
+					handleCloseGroupChat();
+				}
+			},
+		});
+	}, [handleCloseGroupChat]);
 
 	// =======================================================================
 	// Delete with confirmation (keyboard shortcut / CMD+K)
@@ -593,10 +707,59 @@ export function useGroupChatHandlers({
 				next.set(activeGroupChatId, 'moderator-thinking');
 				return next;
 			});
-			await window.maestro.groupChat.sendToModerator(activeGroupChatId, content, images, readOnly);
+			try {
+				await window.maestro.groupChat.sendToModerator(
+					activeGroupChatId,
+					content,
+					images,
+					readOnly
+				);
+			} catch (err: unknown) {
+				const msg = err instanceof Error ? err.message : String(err);
+				// Reset to idle so user can retry
+				setGroupChatState('idle');
+				setGroupChatStates((prev) => {
+					const next = new Map(prev);
+					next.set(activeGroupChatId, 'idle');
+					return next;
+				});
+				useGroupChatStore.getState().setGroupChatMessages((prev) => [
+					...prev,
+					{
+						timestamp: new Date().toISOString(),
+						from: 'system',
+						content: `⚠️ Moderator is not available. Try sending your message again. (${msg})`,
+					},
+				]);
+			}
 		},
 		[]
 	);
+
+	const handleStopAll = useCallback(async () => {
+		const { activeGroupChatId } = useGroupChatStore.getState();
+		if (!activeGroupChatId) return;
+		try {
+			// Cancel any in-flight autorun batch runs for this group chat.
+			// These run in the agent's own Maestro session (not group-chat-prefixed),
+			// so the main process's clearAllParticipantSessions won't reach them.
+			const autoRunSessionIds = getAutoRunSessionsForGroupChat(activeGroupChatId);
+			for (const sessionId of autoRunSessionIds) {
+				useBatchStore.getState().dispatchBatch({
+					type: 'COMPLETE_BATCH',
+					sessionId,
+				});
+			}
+			await window.maestro.groupChat.stopAll(activeGroupChatId);
+		} catch (error) {
+			logger.error('[GroupChat] Failed to stop all:', undefined, error);
+			notifyToast({
+				type: 'error',
+				title: 'Stop Failed',
+				message: 'Failed to stop all group chat conversations. Please try again.',
+			});
+		}
+	}, []);
 
 	const handleGroupChatDraftChange = useCallback((draft: string) => {
 		const { activeGroupChatId, setGroupChats } = useGroupChatStore.getState();
@@ -706,6 +869,7 @@ export function useGroupChatHandlers({
 		handleRenameGroupChat,
 		handleUpdateGroupChat,
 		deleteGroupChatWithConfirmation,
+		handleDeleteAllArchivedGroupChats,
 
 		// Navigation
 		handleProcessMonitorNavigateToGroupChat,
@@ -714,6 +878,9 @@ export function useGroupChatHandlers({
 
 		// Right panel
 		handleGroupChatRightTabChange,
+
+		// Stop All
+		handleStopAll,
 
 		// Messages & queue
 		handleSendGroupChatMessage,

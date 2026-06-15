@@ -30,6 +30,7 @@ interface GroupChatPanelProps {
 	/** True if one or more participants don't have cost data (makes total incomplete) */
 	costIncomplete?: boolean;
 	onSendMessage: (content: string, images?: string[], readOnly?: boolean) => void;
+	onStopAll: () => void;
 	onRename: () => void;
 	onShowInfo: () => void;
 	rightPanelOpen: boolean;
@@ -82,6 +83,10 @@ interface GroupChatPanelProps {
 	thinkingCollapsed?: Map<string, boolean>;
 	/** Toggle collapse callback for thinking bubbles */
 	onToggleThinkingCollapsed?: (participantName: string) => void;
+	/** Whether gh CLI is available for gist publishing */
+	ghCliAvailable?: boolean;
+	/** Callback to publish a message as a GitHub Gist */
+	onPublishMessageGist?: (text: string, messageId?: string) => void;
 }
 
 export function GroupChatPanel({
@@ -92,6 +97,7 @@ export function GroupChatPanel({
 	totalCost,
 	costIncomplete,
 	onSendMessage,
+	onStopAll,
 	onRename,
 	onShowInfo,
 	rightPanelOpen,
@@ -126,6 +132,8 @@ export function GroupChatPanel({
 	thinkingContent,
 	thinkingCollapsed,
 	onToggleThinkingCollapsed,
+	ghCliAvailable,
+	onPublishMessageGist,
 }: GroupChatPanelProps): JSX.Element {
 	return (
 		<div className="flex flex-col h-full" style={{ backgroundColor: theme.colors.bgMain }}>
@@ -135,6 +143,8 @@ export function GroupChatPanel({
 				participantCount={groupChat.participants.length}
 				totalCost={totalCost}
 				costIncomplete={costIncomplete}
+				state={state}
+				onStopAll={onStopAll}
 				onRename={onRename}
 				onShowInfo={onShowInfo}
 				rightPanelOpen={rightPanelOpen}
@@ -157,6 +167,9 @@ export function GroupChatPanel({
 				thinkingContent={thinkingContent}
 				thinkingCollapsed={thinkingCollapsed}
 				onToggleThinkingCollapsed={onToggleThinkingCollapsed}
+				onOpenLightbox={onOpenLightbox}
+				ghCliAvailable={ghCliAvailable}
+				onPublishGist={onPublishMessageGist}
 			/>
 
 			<GroupChatInput

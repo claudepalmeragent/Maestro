@@ -16,12 +16,12 @@ const stmtCache = new StatementCache();
 const INSERT_SQL = `
   INSERT INTO query_events
   (id, session_id, agent_id, agent_type, source, start_time, duration, project_path, tab_id,
-   is_remote, input_tokens, output_tokens, tokens_per_second,
+   is_remote, is_worktree, input_tokens, output_tokens, tokens_per_second,
    cache_read_input_tokens, cache_creation_input_tokens, total_cost_usd,
    anthropic_cost_usd, anthropic_model,
    maestro_cost_usd, maestro_billing_mode, maestro_pricing_model, maestro_calculated_at,
    uuid, anthropic_message_id, is_reconstructed, reconstructed_at, claude_session_id)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `;
 
 /**
@@ -42,6 +42,7 @@ export function insertQueryEvent(db: Database.Database, event: Omit<QueryEvent, 
 		normalizePath(event.projectPath),
 		event.tabId ?? null,
 		event.isRemote !== undefined ? (event.isRemote ? 1 : 0) : null,
+		event.isWorktree !== undefined ? (event.isWorktree ? 1 : 0) : null,
 		event.inputTokens ?? null,
 		event.outputTokens ?? null,
 		event.tokensPerSecond ?? null,

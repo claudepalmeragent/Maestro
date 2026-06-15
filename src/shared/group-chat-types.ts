@@ -116,6 +116,12 @@ export interface ModeratorConfig {
 	customModel?: string;
 	/** SSH remote configuration for running moderator on remote host */
 	sshRemoteConfig?: AgentSshRemoteConfig;
+	/** Claude token-source opt-in (Claude Code moderator only). See getClaudeTokenMode. */
+	enableMaestroP?: boolean;
+	/** Refines enableMaestroP: 'interactive' (always TUI) vs 'dynamic' (auto-switch). */
+	maestroPMode?: 'interactive' | 'dynamic';
+	/** Optional maestro-p script override. */
+	maestroPPath?: string;
 }
 
 /**
@@ -155,6 +161,8 @@ export interface GroupChatMessage {
 	from: string;
 	content: string;
 	readOnly?: boolean;
+	/** Base64 data URLs of images attached to this message */
+	images?: string[];
 }
 
 /**

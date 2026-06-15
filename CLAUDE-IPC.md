@@ -54,6 +54,16 @@ Preload: `src/main/preload/git.ts` · Handler: `src/main/ipc/handlers/git.ts`
 | `show(cwd, hash, sshRemoteId?, remoteCwd?)`    | `git:show`        | Show a specific commit (stat + patch)                                            |
 | `showFile(cwd, ref, filePath)`                 | `git:showFile`    | Get file content at a specific ref; base64 for images, raw for text (local only) |
 
+**Other namespaces:**
+
+- `autorun` - Document and image management for Auto Run
+- `playbooks` - Batch run configuration management
+- `history` - Per-agent execution history (see History API below)
+- `cli` - CLI activity detection for playbook runs
+- `tempfile` - Temporary file management for batch processing
+- `cue` - Maestro Cue event-driven automation (see Cue API below)
+- `cueBackup` - Snapshot/restore of every workspace's `.maestro/cue.yaml` + `.maestro/prompts/` as a zip in `userData/cue-backups/` (Cue modal Backup tab)
+
 **Worktree Management** — Support SSH remote via optional `sshRemoteId`:
 
 | Method                                                                      | IPC Channel                    | Description                                                               |
@@ -955,10 +965,10 @@ There are two different SSH identifiers with different lifecycles:
 ### Correct Fallback Pattern
 
 ```typescript
-// WRONG — fails for terminal-only SSH sessions
+// WRONG, fails for terminal-only SSH sessions
 const sshId = session.sshRemoteId;
 
-// CORRECT — works for all SSH sessions
+// CORRECT, works for all SSH sessions
 const sshId = session.sshRemoteId || session.sessionSshRemoteConfig?.remoteId || undefined;
 ```
 
@@ -967,6 +977,64 @@ This fallback applies to any operation that needs to run on the remote host:
 - `window.maestro.fs.readDir(path, sshId)`
 - `window.maestro.git.isRepo(path, sshId)`
 - Directory existence checks for `cd` command tracking
+
+**Activity Graph (cached)**: `getGraphData` (history API) returns pre-aggregated buckets covering the full session history. Cached to `userData/history-cache/` keyed by source-file fingerprint, so the activity graph stays "all-encompassing" without recomputing across thousands of entries on every interaction. The unified-history equivalent is `window.maestro.directorNotes.getGraphData(bucketCount)`.
+
+## Cue API
+
+Maestro Cue event-driven automation engine. Gated behind the `maestroCue` Encore Feature flag.
+
+```typescript
+window.maestro.cue = {
+  // Query engine state
+  getStatus: () => Promise<CueSessionStatus[]>,
+  getActiveRuns: () => Promise<CueRunResult[]>,
+  getActivityLog: (limit?) => Promise<CueRunResult[]>,
+
+  // Engine controls
+  enable: () => Promise<void>,
+  disable: () => Promise<void>,
+
+  // Run management
+  stopRun: (runId) => Promise<boolean>,
+  stopAll: () => Promise<void>,
+
+  // Session config management
+  refreshSession: (sessionId, projectRoot) => Promise<void>,
+
+  // YAML config file operations
+  readYaml: (projectRoot) => Promise<string | null>,
+  writeYaml: (projectRoot, content) => Promise<void>,
+  validateYaml: (content) => Promise<{ valid: boolean; errors: string[] }>,
+
+  // Real-time updates
+  onActivityUpdate: (callback) => () => void,  // Returns unsubscribe function
+};
+```
+
+**Events:** `cue:activityUpdate` is pushed from main process on subscription triggers, run completions, config reloads, and config removals.
+
+## Cue Backup API
+
+Snapshot/restore of every workspace's `.maestro/cue.yaml` + `.maestro/prompts/` as a single zip in `userData/cue-backups/`. Used by the Cue modal's Backup tab. Restore is **additive only**: files in the live workspace that are not in the backup are left alone (deletion is too easy to regret).
+
+```typescript
+window.maestro.cueBackup = {
+	create: () => Promise<CueBackupSummary>,
+	list: () => Promise<CueBackupSummary[]>,
+	inspect: (filePath) => Promise<CueBackupManifest>,
+	readFile: (filePath, workspaceId, relativePath) => Promise<string | null>,
+	readLive: (cwd, relativePath) => Promise<string | null>,
+	restoreFile: (filePath, workspaceId, relativePath) => Promise<void>,
+	restoreAll: (filePath) => Promise<CueBackupRestoreResult>,
+	getDiffStatus: (filePath) => Promise<CueBackupDiffStatusMap>,
+	delete: (filePath) => Promise<void>,
+};
+```
+
+Every write path validates the backup zip lives inside `userData/cue-backups/` to prevent path traversal. See `src/main/cue/backup/cue-backup-manager.ts` for the implementation and `src/shared/cue-backup-types.ts` for the manifest/diff-status contracts.
+
+## Power Management
 
 Similarly, for checking if a session is remote:
 

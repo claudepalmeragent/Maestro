@@ -9,27 +9,21 @@ import React from 'react';
 import { PlaybookDeleteConfirmModal } from '../../../renderer/components/PlaybookDeleteConfirmModal';
 import { LayerStackProvider } from '../../../renderer/contexts/LayerStackContext';
 import type { Theme } from '../../../renderer/types';
-// Create a mock theme for testing
-const createMockTheme = (): Theme => ({
-	id: 'test-theme',
-	name: 'Test Theme',
-	mode: 'dark',
-	colors: {
-		bgMain: '#1a1a1a',
-		bgPanel: '#252525',
-		bgSidebar: '#202020',
-		bgActivity: '#2d2d2d',
-		textMain: '#ffffff',
-		textDim: '#888888',
-		accent: '#0066ff',
-		accentForeground: '#ffffff',
-		border: '#333333',
-		highlight: '#0066ff33',
-		success: '#00aa00',
-		warning: '#ffaa00',
-		error: '#ff0000',
-	},
-});
+
+import { createMockTheme } from '../../helpers/mockTheme';
+
+// Mock lucide-react
+vi.mock('lucide-react', () => ({
+	X: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="x-icon" className={className} style={style} />
+	),
+	AlertTriangle: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="alert-triangle-icon" className={className} style={style} />
+	),
+	Trash2: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="trash2-icon" className={className} style={style} />
+	),
+}));
 
 // Wrapper component to provide LayerStackContext
 const TestWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
@@ -256,7 +250,7 @@ describe('PlaybookDeleteConfirmModal', () => {
 			);
 
 			// Modal component uses inline width style instead of Tailwind class
-			const modalBox = container.querySelector('[style*="width: 400px"]');
+			const modalBox = container.querySelector('[style*="width: min(calc(400px"]');
 			expect(modalBox).toHaveStyle({
 				backgroundColor: mockTheme.colors.bgSidebar,
 				borderColor: mockTheme.colors.border,
@@ -391,7 +385,7 @@ describe('PlaybookDeleteConfirmModal', () => {
 			);
 
 			// Modal component uses inline width style instead of Tailwind class
-			const modalBox = container.querySelector('[style*="width: 400px"]');
+			const modalBox = container.querySelector('[style*="width: min(calc(400px"]');
 			expect(modalBox).toBeInTheDocument();
 		});
 	});

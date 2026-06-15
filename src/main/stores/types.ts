@@ -13,6 +13,7 @@ import type {
 	ClaudeBillingMode,
 } from '../../shared/types';
 import type { ThemeId } from '../../shared/theme-types';
+import type { AgentCapabilitiesSnapshotMap } from '../../shared/agentCapabilities';
 
 // ============================================================================
 // Stored Session Type (minimal interface for main process storage)
@@ -107,6 +108,8 @@ export interface MaestroSettings {
 	// Web interface authentication
 	webAuthEnabled: boolean;
 	webAuthToken: string | null;
+	// Persistent web link (reuse token across restarts)
+	persistentWebLink: boolean;
 	// Web interface custom port
 	webInterfaceUseCustomPort: boolean;
 	webInterfaceCustomPort: number;
@@ -164,6 +167,18 @@ export interface MaestroSettings {
 	wakatimeDetailedTracking: boolean;
 	// Standalone hands-on time tracker (migrated from globalStats.totalActiveTimeMs)
 	totalActiveTimeMs: number;
+	// Last prompt edited in Settings → Maestro Prompts (restored on reopen)
+	lastSelectedPromptId: string | null;
+	// Spell check in input areas
+	spellCheck: boolean;
+	// Usage Dashboard provider quota auto-refresh cadence, keyed by provider id
+	// ('claude-code' | 'codex'); value is the interval in ms (0 = off). Read by
+	// the main-process background scheduler (usage-refresh-scheduler.ts).
+	usageRefreshIntervals: Record<string, number>;
+	// System-wide hotkey to summon the Maestro window (key array, e.g. ['Meta','Shift','M']).
+	// Empty array disables it. Stored in the same format as `shortcuts` so the UI can reuse
+	// the existing capture helpers; converted to an Electron Accelerator at registration time.
+	globalShowHotkey: string[];
 	// Allow dynamic settings keys (electron-store is a key-value store
 	// with many settings not explicitly declared above)
 	[key: string]: any;
@@ -175,6 +190,7 @@ export interface MaestroSettings {
 
 export interface SessionsData {
 	sessions: StoredSession[];
+	activeSessionId?: string;
 }
 
 // ============================================================================
@@ -235,6 +251,15 @@ export interface AgentConfigsData {
 }
 
 // ============================================================================
+// Agent Capabilities Store (per-device snapshot of detected agent state)
+// ============================================================================
+
+export interface AgentCapabilitiesData {
+	/** Map of snapshot key -> snapshot. Key is `agentId` or `agentId:remoteUuid`. */
+	snapshots: AgentCapabilitiesSnapshotMap;
+}
+
+// ============================================================================
 // Window State Store (local-only, per-device)
 // ============================================================================
 
@@ -278,4 +303,18 @@ export interface AgentSessionOriginsData {
 			Record<string, { origin?: 'user' | 'auto'; sessionName?: string; starred?: boolean }>
 		>
 	>;
+}
+
+// ============================================================================
+// Shared Store Interfaces (used across main process modules)
+// ============================================================================
+
+/** Generic read/write store interface for settings */
+export interface SettingsStoreInterface {
+	get<T>(key: string, defaultValue?: T): T;
+	/** Type-safe set for known settings keys */
+	set<K extends keyof MaestroSettings>(key: K, value: MaestroSettings[K]): void;
+	/** Fallback for dynamic keys — used by the generic settings:set IPC handler
+	 *  in persistence.ts which accepts arbitrary key/value pairs from the renderer */
+	set(key: string, value: unknown): void;
 }

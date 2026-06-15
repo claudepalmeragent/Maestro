@@ -347,7 +347,7 @@ describe('Cross-platform database path resolution (macOS, Windows, Linux)', () =
 			const { StatsDB } = await import('../../../main/stats');
 			const db = new StatsDB();
 
-			expect(path.dirname(db.getDbPath())).toBe(testUserData);
+			expect(path.dirname(db.getDbPath())).toBe(path.normalize(testUserData));
 		});
 	});
 
@@ -362,7 +362,9 @@ describe('Cross-platform database path resolution (macOS, Windows, Linux)', () =
 			const db = new StatsDB();
 			db.initialize();
 
-			expect(mockFsMkdirSync).toHaveBeenCalledWith(macOsUserData, { recursive: true });
+			expect(mockFsMkdirSync).toHaveBeenCalledWith(path.normalize(macOsUserData), {
+				recursive: true,
+			});
 		});
 
 		it('should create directory on Windows if it does not exist', async () => {
@@ -388,7 +390,9 @@ describe('Cross-platform database path resolution (macOS, Windows, Linux)', () =
 			const db = new StatsDB();
 			db.initialize();
 
-			expect(mockFsMkdirSync).toHaveBeenCalledWith(linuxUserData, { recursive: true });
+			expect(mockFsMkdirSync).toHaveBeenCalledWith(path.normalize(linuxUserData), {
+				recursive: true,
+			});
 		});
 
 		it('should use recursive option for deeply nested paths', async () => {
@@ -401,7 +405,7 @@ describe('Cross-platform database path resolution (macOS, Windows, Linux)', () =
 			const db = new StatsDB();
 			db.initialize();
 
-			expect(mockFsMkdirSync).toHaveBeenCalledWith(deepPath, { recursive: true });
+			expect(mockFsMkdirSync).toHaveBeenCalledWith(path.normalize(deepPath), { recursive: true });
 		});
 	});
 
@@ -548,7 +552,9 @@ describe('Cross-platform database path resolution (macOS, Windows, Linux)', () =
 				const db = new StatsDB();
 				db.initialize();
 
-				expect(mockFsMkdirSync).toHaveBeenCalledWith(platformPath, { recursive: true });
+				expect(mockFsMkdirSync).toHaveBeenCalledWith(path.normalize(platformPath), {
+					recursive: true,
+				});
 			}
 		});
 	});
@@ -714,7 +720,7 @@ describe('File path normalization in database (forward slashes consistently)', (
 			});
 
 			// Verify that the statement was called with normalized path
-			// insertQueryEvent now has 27 parameters: id, sessionId, agentId, agentType, source, startTime, duration, projectPath, tabId, isRemote, inputTokens, outputTokens, tokensPerSecond, cacheReadInputTokens, cacheCreationInputTokens, totalCostUsd, plus v7 dual-source cost tracking fields, plus claude_session_id
+			// insertQueryEvent now has 28 parameters: id, sessionId, agentId, agentType, source, startTime, duration, projectPath, tabId, isRemote, inputTokens, outputTokens, tokensPerSecond, cacheReadInputTokens, cacheCreationInputTokens, totalCostUsd, plus v7 dual-source cost tracking fields, plus claude_session_id, plus isWorktree
 			expect(mockStatement.run).toHaveBeenCalledWith(
 				expect.any(String), // id
 				'session-1',
@@ -742,7 +748,8 @@ describe('File path normalization in database (forward slashes consistently)', (
 				null, // anthropicMessageId (undefined → null)
 				0, // isReconstructed (defaults to 0)
 				null, // reconstructedAt (undefined → null)
-				null // claudeSessionId (undefined → null)
+				null, // claudeSessionId (undefined → null)
+				null // isWorktree (undefined → null)
 			);
 		});
 
@@ -761,7 +768,7 @@ describe('File path normalization in database (forward slashes consistently)', (
 				tabId: 'tab-1',
 			});
 
-			// insertQueryEvent now has 27 parameters including token, cost, and claude_session_id fields
+			// insertQueryEvent now has 28 parameters including token, cost, claude_session_id, and isWorktree fields
 			expect(mockStatement.run).toHaveBeenCalledWith(
 				expect.any(String),
 				'session-1',
@@ -789,7 +796,8 @@ describe('File path normalization in database (forward slashes consistently)', (
 				null, // anthropicMessageId (undefined → null)
 				0, // isReconstructed (defaults to 0)
 				null, // reconstructedAt (undefined → null)
-				null // claudeSessionId (undefined → null)
+				null, // claudeSessionId (undefined → null)
+				null // isWorktree (undefined → null)
 			);
 		});
 
@@ -807,7 +815,7 @@ describe('File path normalization in database (forward slashes consistently)', (
 				// projectPath is undefined
 			});
 
-			// insertQueryEvent now has 27 parameters including token, cost, dual-source tracking, and claude_session_id fields
+			// insertQueryEvent now has 28 parameters including token, cost, dual-source tracking, claude_session_id, and isWorktree fields
 			expect(mockStatement.run).toHaveBeenCalledWith(
 				expect.any(String),
 				'session-1',
@@ -835,7 +843,8 @@ describe('File path normalization in database (forward slashes consistently)', (
 				null, // anthropicMessageId (undefined → null)
 				0, // isReconstructed (defaults to 0)
 				null, // reconstructedAt (undefined → null)
-				null // claudeSessionId (undefined → null)
+				null, // claudeSessionId (undefined → null)
+				null // isWorktree (undefined → null)
 			);
 		});
 	});

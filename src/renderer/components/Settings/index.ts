@@ -7,6 +7,10 @@
 // Main modal
 export { SettingsModal } from './SettingsModal';
 
+// Shared primitives
+export { SettingsSectionHeading } from './SettingsSectionHeading';
+export type { SettingsSectionHeadingProps } from './SettingsSectionHeading';
+
 // SSH Remote configuration
 export { SshRemoteModal } from './SshRemoteModal';
 export type { SshRemoteModalProps } from './SshRemoteModal';
@@ -20,3 +24,7 @@ export type { EnvVarsEditorProps, EnvVarEntry } from './EnvVarsEditor';
 
 // Audits
 export { AuditsSettingsTab } from './AuditsSettingsTab';
+
+// File Panel Settings (indexer depth + entry cap)
+export { FilePanelSettingsSection } from './FilePanelSettingsSection';
+export type { FilePanelSettingsSectionProps } from './FilePanelSettingsSection';

@@ -14,7 +14,7 @@ import {
 	forwardRef,
 	useImperativeHandle,
 } from 'react';
-import { Eye, FileText, Copy, ChevronDown, ChevronUp } from 'lucide-react';
+import { Eye, FileText, Copy, ChevronDown, ChevronUp, Share2 } from 'lucide-react';
 import { GroupChatThinkingBubble } from './GroupChatThinkingBubble';
 import type { GroupChatMessage, GroupChatParticipant, GroupChatState, Theme } from '../types';
 import { MarkdownRenderer } from './MarkdownRenderer';
@@ -23,6 +23,10 @@ import { generateParticipantColor, buildParticipantColorMap } from '../utils/par
 import { generateTerminalProseStyles } from '../utils/markdownConfig';
 import { formatShortcutKeys } from '../utils/shortcutFormatter';
 import { safeClipboardWrite } from '../utils/clipboard';
+import { formatTimestamp as formatTimestampShared } from '../../shared/formatters';
+import { useMessageGistStore } from '../stores/messageGistStore';
+import { jumpToMessageEdge, isTextInputTarget } from '../utils/messageScrollNavigation';
+import { JumpToMessageTopButton } from './JumpToMessageTopButton';
 
 interface GroupChatMessagesProps {
 	theme: Theme;
@@ -44,6 +48,12 @@ interface GroupChatMessagesProps {
 	thinkingCollapsed?: Map<string, boolean>;
 	/** Toggle collapse callback for thinking bubbles */
 	onToggleThinkingCollapsed?: (participantName: string) => void;
+	/** Lightbox handler for viewing images full-size */
+	onOpenLightbox?: (image: string, contextImages?: string[], source?: 'staged' | 'history') => void;
+	/** Whether gh CLI is available for gist publishing */
+	ghCliAvailable?: boolean;
+	/** Callback to publish a message as a GitHub Gist */
+	onPublishGist?: (text: string, messageId?: string) => void;
 }
 
 /** Handle exposed via ref for scrolling to messages */
@@ -67,6 +77,9 @@ export const GroupChatMessages = forwardRef<GroupChatMessagesHandle, GroupChatMe
 			thinkingContent,
 			thinkingCollapsed,
 			onToggleThinkingCollapsed,
+			onOpenLightbox,
+			ghCliAvailable,
+			onPublishGist,
 		},
 		ref
 	) {
@@ -134,6 +147,8 @@ export const GroupChatMessages = forwardRef<GroupChatMessagesHandle, GroupChatMe
 			await safeClipboardWrite(text);
 		}, []);
 
+		const publishedGists = useMessageGistStore((s) => s.published);
+
 		const toggleExpanded = useCallback((msgKey: string) => {
 			setExpandedMessages((prev) => {
 				const next = new Set(prev);
@@ -172,11 +187,12 @@ export const GroupChatMessages = forwardRef<GroupChatMessagesHandle, GroupChatMe
 
 		// Format timestamp like AI Terminal (outside bubble)
 		// Accepts both ISO string and Unix timestamp
+		// Returns JSX for non-today dates (date on one line, time on another)
 		const formatTimestamp = (timestamp: string | number) => {
 			const date = new Date(timestamp);
 			const today = new Date();
 			const isToday = date.toDateString() === today.toDateString();
-			const time = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+			const time = formatTimestampShared(timestamp, 'time');
 			if (isToday) {
 				return time;
 			}
@@ -196,7 +212,36 @@ export const GroupChatMessages = forwardRef<GroupChatMessagesHandle, GroupChatMe
 		return (
 			<div
 				ref={containerRef}
-				className="group-chat-messages flex-1 overflow-y-auto scrollbar-thin py-2"
+				tabIndex={0}
+				role="region"
+				aria-label="Group chat messages"
+				className="group-chat-messages flex-1 overflow-y-auto scrollbar-thin py-2 outline-none"
+				onKeyDown={(e) => {
+					if (
+						(e.key !== 'ArrowUp' && e.key !== 'ArrowDown') ||
+						e.metaKey ||
+						e.ctrlKey ||
+						e.altKey ||
+						isTextInputTarget(e.target)
+					) {
+						return;
+					}
+					const container = containerRef.current;
+					if (!container) return;
+					// Shift+Arrow: jump message-by-message.
+					if (e.shiftKey) {
+						e.preventDefault();
+						jumpToMessageEdge(
+							container,
+							'[data-message-timestamp]',
+							e.key === 'ArrowUp' ? 'up' : 'down'
+						);
+						return;
+					}
+					// Plain Arrow: nudge scroll by ~100px.
+					e.preventDefault();
+					container.scrollBy({ top: e.key === 'ArrowUp' ? -100 : 100 });
+				}}
 			>
 				{/* Prose styles for markdown rendering */}
 				<style>{proseStyles}</style>
@@ -289,6 +334,34 @@ export const GroupChatMessages = forwardRef<GroupChatMessagesHandle, GroupChatMe
 										</div>
 									)}
 
+									{/* Attached images */}
+									{msg.images && msg.images.length > 0 && (
+										<div
+											className="flex gap-2 mb-2 overflow-x-auto scrollbar-thin"
+											style={{ overscrollBehavior: 'contain' }}
+										>
+											{msg.images.map((img, imgIdx) => (
+												<button
+													key={`${msgKey}-img-${imgIdx}`}
+													type="button"
+													className="shrink-0 p-0 bg-transparent outline-none focus:ring-2 focus:ring-accent rounded"
+													onClick={() => onOpenLightbox?.(img, msg.images, 'history')}
+												>
+													<img
+														src={img}
+														alt={`Attached image ${imgIdx + 1}`}
+														className="h-20 rounded border cursor-zoom-in block"
+														style={{
+															objectFit: 'contain',
+															maxWidth: '200px',
+															borderColor: theme.colors.border,
+														}}
+													/>
+												</button>
+											))}
+										</div>
+									)}
+
 									{/* Message content */}
 									{shouldCollapse && !isExpanded ? (
 										// Collapsed view
@@ -297,11 +370,13 @@ export const GroupChatMessages = forwardRef<GroupChatMessagesHandle, GroupChatMe
 												className="text-sm overflow-hidden"
 												style={{ maxHeight: `${maxOutputLines * 1.5}em` }}
 											>
-												{!isUser && !markdownEditMode ? (
+												{!markdownEditMode ? (
 													<MarkdownRenderer
 														content={displayContent}
 														theme={theme}
 														onCopy={copyToClipboard}
+														chatLineBreaks
+														chatMath
 													/>
 												) : (
 													<div className="whitespace-pre-wrap">
@@ -338,11 +413,13 @@ export const GroupChatMessages = forwardRef<GroupChatMessagesHandle, GroupChatMe
 													}
 												}}
 											>
-												{!isUser && !markdownEditMode ? (
+												{!markdownEditMode ? (
 													<MarkdownRenderer
 														content={msg.content}
 														theme={theme}
 														onCopy={copyToClipboard}
+														chatLineBreaks
+														chatMath
 													/>
 												) : (
 													<div className="whitespace-pre-wrap">
@@ -363,60 +440,101 @@ export const GroupChatMessages = forwardRef<GroupChatMessagesHandle, GroupChatMe
 												Show less
 											</button>
 										</div>
-									) : !isUser && !markdownEditMode ? (
-										// Normal non-collapsed markdown view
+									) : !markdownEditMode ? (
+										// Normal non-collapsed markdown view (#622: user
+										// messages get the same markdown treatment as
+										// assistant messages by default — toggle exposes
+										// the raw view consistently for both)
 										<div className="text-sm">
 											<MarkdownRenderer
 												content={msg.content}
 												theme={theme}
 												onCopy={copyToClipboard}
+												chatLineBreaks
+												chatMath
 											/>
 										</div>
 									) : (
-										// User message or raw mode
+										// Raw mode — user sees their literal input; for
+										// assistant content we strip markdown so the raw
+										// view is readable as plain text.
 										<div className="text-sm whitespace-pre-wrap">
 											{isUser ? msg.content : stripMarkdown(msg.content)}
 										</div>
 									)}
 
-									{/* Action buttons - bottom right corner (non-user messages only) */}
-									{!isUser && (
-										<div
-											className="absolute bottom-2 right-2 flex items-center gap-1"
-											style={{ transition: 'opacity 0.15s ease-in-out' }}
-										>
-											{/* Markdown toggle button */}
-											{onToggleMarkdownEditMode && (
-												<button
-													onClick={onToggleMarkdownEditMode}
-													className="p-1.5 rounded opacity-0 group-hover:opacity-50 hover:!opacity-100"
-													style={{
-														color: markdownEditMode ? theme.colors.accent : theme.colors.textDim,
-													}}
-													title={
-														markdownEditMode
-															? `Show formatted (${formatShortcutKeys(['Meta', 'e'])})`
-															: `Show plain text (${formatShortcutKeys(['Meta', 'e'])})`
-													}
-												>
-													{markdownEditMode ? (
-														<Eye className="w-4 h-4" />
-													) : (
-														<FileText className="w-4 h-4" />
-													)}
-												</button>
-											)}
-											{/* Copy to Clipboard Button */}
+									{/* Jump to top of this message - bottom left corner */}
+									<JumpToMessageTopButton
+										scrollContainerRef={containerRef}
+										messageAncestorSelector="[data-message-timestamp]"
+										theme={theme}
+									/>
+									{/* Action buttons - bottom right corner. Available on
+									    user messages too so the markdown/raw toggle and
+									    copy behavior is consistent with assistant
+									    messages (#622). */}
+									<div
+										className="absolute bottom-2 right-2 flex items-center gap-1"
+										style={{ transition: 'opacity 0.15s ease-in-out' }}
+									>
+										{/* Markdown toggle button */}
+										{onToggleMarkdownEditMode && (
 											<button
-												onClick={() => copyToClipboard(msg.content)}
+												onClick={onToggleMarkdownEditMode}
 												className="p-1.5 rounded opacity-0 group-hover:opacity-50 hover:!opacity-100"
-												style={{ color: theme.colors.textDim }}
-												title="Copy to clipboard"
+												style={{
+													color: markdownEditMode ? theme.colors.accent : theme.colors.textDim,
+												}}
+												title={
+													markdownEditMode
+														? `Show formatted (${formatShortcutKeys(['Meta', 'e'])})`
+														: `Show plain text (${formatShortcutKeys(['Meta', 'e'])})`
+												}
 											>
-												<Copy className="w-3.5 h-3.5" />
+												{markdownEditMode ? (
+													<Eye className="w-4 h-4" />
+												) : (
+													<FileText className="w-4 h-4" />
+												)}
 											</button>
-										</div>
-									)}
+										)}
+										{/* Copy to Clipboard Button */}
+										<button
+											onClick={() => copyToClipboard(msg.content)}
+											className="p-1.5 rounded opacity-0 group-hover:opacity-50 hover:!opacity-100"
+											style={{ color: theme.colors.textDim }}
+											title="Copy to clipboard"
+										>
+											<Copy className="w-3.5 h-3.5" />
+										</button>
+										{/* Publish to GitHub Gist (non-user messages only;
+										    users would publish their own input via the
+										    feedback flow instead) */}
+										{!isUser &&
+											ghCliAvailable &&
+											onPublishGist &&
+											(() => {
+												const publishedUrl = publishedGists[msgKey]?.gistUrl;
+												return (
+													<button
+														onClick={() => onPublishGist(msg.content, msgKey)}
+														className={`p-1.5 rounded hover:!opacity-100 ${
+															publishedUrl ? 'opacity-100' : 'opacity-0 group-hover:opacity-50'
+														}`}
+														style={{
+															color: publishedUrl ? theme.colors.accent : theme.colors.textDim,
+														}}
+														title={
+															publishedUrl
+																? `Published as Gist: ${publishedUrl}`
+																: 'Publish as GitHub Gist'
+														}
+													>
+														<Share2 className="w-3.5 h-3.5" />
+													</button>
+												);
+											})()}
+									</div>
 								</div>
 							</div>
 						);

@@ -4,6 +4,8 @@
  * These types are shared between main process (stats/) and renderer (dashboard).
  */
 
+import type { DurationPercentiles } from './percentiles';
+
 /**
  * A single AI query event - represents one user/auto message -> AI response cycle
  */
@@ -19,6 +21,8 @@ export interface QueryEvent {
 	tabId?: string;
 	/** Whether this query was executed on a remote SSH session */
 	isRemote?: boolean;
+	/** Whether this query came from a worktree session (child of a parent agent) */
+	isWorktree?: boolean;
 	/** Input tokens sent in this request */
 	inputTokens?: number;
 	/** Output tokens received in response */
@@ -133,6 +137,8 @@ export interface SessionLifecycleEvent {
 	duration?: number;
 	/** Whether this was a remote SSH session */
 	isRemote?: boolean;
+	/** Whether this session is a worktree (child of a parent agent) */
+	isWorktree?: boolean;
 }
 
 /**
@@ -147,6 +153,12 @@ export interface StatsAggregation {
 	totalQueries: number;
 	totalDuration: number;
 	avgDuration: number;
+	/** Query duration distribution (p50/p75/p90/p95/p99/max) across all queries. */
+	queryDurationPercentiles: DurationPercentiles;
+	/** Per-agent query duration distribution, keyed by agent type. */
+	queryDurationPercentilesByAgent: Record<string, DurationPercentiles>;
+	/** Auto Run task duration distribution (per-task, not per-session). */
+	autoRunTaskDurationPercentiles: DurationPercentiles;
 	byAgent: Record<
 		string,
 		{ count: number; duration: number; totalOutputTokens: number; avgTokensPerSecond: number }
@@ -223,6 +235,19 @@ export interface StatsAggregation {
 	anthropicCostUsd: number;
 	/** Savings calculation (API - Maestro) - added in v7 */
 	savingsUsd: number;
+	/** User vs auto query counts per Maestro session (for per-card auto% on the dashboard) */
+	bySessionSource: Record<string, { user: number; auto: number }>;
+	/** Count of queries originating from worktree (child) agents */
+	worktreeQueries: number;
+	/** Count of queries originating from parent (non-worktree) agents */
+	parentQueries: number;
+	/** Detailed worktree breakdown including duration totals (for activity split bar) */
+	byWorktreeStatus: {
+		worktree: { count: number; duration: number };
+		parent: { count: number; duration: number };
+	};
+	/** Number of image annotations saved in the time range */
+	imageAnnotations: number;
 }
 
 /**
@@ -233,6 +258,15 @@ export interface StatsFilters {
 	source?: 'user' | 'auto';
 	projectPath?: string;
 	sessionId?: string;
+}
+
+/**
+ * One day of shortcut usage. `date` is the local-time YYYY-MM-DD bucket; `count`
+ * is the total number of shortcuts fired that day across the whole app.
+ */
+export interface ShortcutUsageDay {
+	date: string;
+	count: number;
 }
 
 /**

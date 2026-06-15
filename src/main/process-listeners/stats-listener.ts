@@ -15,6 +15,7 @@ import { resolveBillingModeAsync } from '../utils/pricing-resolver';
 import { calculateClaudeCostWithModel } from '../utils/pricing';
 import { isClaudeModelId, resolveModelAlias } from '../utils/claude-pricing';
 import { getSessionsStore } from '../stores';
+import { captureException } from '../utils/sentry';
 
 /**
  * Maximum number of retry attempts for transient database failures.
@@ -229,6 +230,7 @@ async function insertQueryEventWithRetry(
 			const id = db.insertQueryEvent(enrichedEvent);
 			return id;
 		} catch (error) {
+			void captureException(error);
 			const isLastAttempt = attempt === MAX_RETRY_ATTEMPTS;
 
 			if (isLastAttempt) {

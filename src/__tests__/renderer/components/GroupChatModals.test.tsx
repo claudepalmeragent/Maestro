@@ -9,7 +9,64 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { GroupChatModal } from '../../../renderer/components/GroupChatModal';
-import type { Theme, GroupChat, AgentConfig } from '../../../renderer/types';
+import type { GroupChat, AgentConfig } from '../../../renderer/types';
+
+import { createMockTheme } from '../../helpers/mockTheme';
+
+// Mock lucide-react icons
+vi.mock('lucide-react', () => ({
+	Folder: ({ className }: { className?: string }) => (
+		<span data-testid="folder-icon" className={className}>
+			📁
+		</span>
+	),
+	X: ({ className }: { className?: string }) => (
+		<span data-testid="x-icon" className={className}>
+			×
+		</span>
+	),
+	RefreshCw: ({ className }: { className?: string }) => (
+		<span data-testid="refresh-icon" className={className}>
+			🔄
+		</span>
+	),
+	Check: ({ className }: { className?: string }) => (
+		<span data-testid="check-icon" className={className}>
+			✓
+		</span>
+	),
+	Plus: ({ className }: { className?: string }) => (
+		<span data-testid="plus-icon" className={className}>
+			+
+		</span>
+	),
+	Trash2: ({ className }: { className?: string }) => (
+		<span data-testid="trash-icon" className={className}>
+			🗑
+		</span>
+	),
+	HelpCircle: ({ className }: { className?: string }) => (
+		<span data-testid="help-circle-icon" className={className}>
+			?
+		</span>
+	),
+	ChevronDown: ({ className }: { className?: string }) => (
+		<span data-testid="chevron-down-icon" className={className}>
+			▼
+		</span>
+	),
+	Settings: ({ className }: { className?: string }) => (
+		<span data-testid="settings-icon" className={className}>
+			⚙
+		</span>
+	),
+	ArrowLeft: ({ className }: { className?: string }) => (
+		<span data-testid="arrow-left-icon" className={className}>
+			←
+		</span>
+	),
+}));
+
 // Mock layer stack context
 const mockRegisterLayer = vi.fn(() => 'layer-group-chat-123');
 const mockUnregisterLayer = vi.fn();
@@ -26,28 +83,6 @@ vi.mock('../../../renderer/contexts/LayerStackContext', () => ({
 // =============================================================================
 // TEST HELPERS
 // =============================================================================
-
-function createMockTheme(): Theme {
-	return {
-		id: 'test-theme',
-		name: 'Test Theme',
-		colors: {
-			bgMain: '#1a1a1a',
-			bgSidebar: '#252525',
-			bgActivity: '#333333',
-			textMain: '#ffffff',
-			textDim: '#888888',
-			accent: '#6366f1',
-			border: '#333333',
-			success: '#22c55e',
-			error: '#ef4444',
-			warning: '#f59e0b',
-			contextFree: '#22c55e',
-			contextMedium: '#f59e0b',
-			contextHigh: '#ef4444',
-		},
-	};
-}
 
 function createMockAgent(overrides: Partial<AgentConfig> = {}): AgentConfig {
 	return {
@@ -173,9 +208,9 @@ describe('GroupChatModal', () => {
 
 			// Verify all agents appear as options
 			expect(screen.getByRole('option', { name: /Claude Code/i })).toBeInTheDocument();
-			expect(screen.getByRole('option', { name: /Codex.*Beta/i })).toBeInTheDocument();
 			expect(screen.getByRole('option', { name: /OpenCode.*Beta/i })).toBeInTheDocument();
 			expect(screen.getByRole('option', { name: /Factory Droid.*Beta/i })).toBeInTheDocument();
+			expect(screen.getByRole('option', { name: /^Codex$/i })).toBeInTheDocument();
 		});
 	});
 

@@ -14,6 +14,7 @@ import type {
 	GroupsData,
 	ProjectFoldersData,
 	AgentConfigsData,
+	AgentCapabilitiesData,
 	WindowState,
 	ClaudeSessionOriginsData,
 	AgentSessionOriginsData,
@@ -40,8 +41,8 @@ export function getDefaultShell(): string {
 			return shellName;
 		}
 	}
-	// Fallback to bash (more portable than zsh on older Unix systems)
-	return 'bash';
+	// Fallback to the platform's default shell
+	return process.platform === 'darwin' ? 'zsh' : 'bash';
 }
 
 // ============================================================================
@@ -61,6 +62,7 @@ export const SETTINGS_DEFAULTS: MaestroSettings = {
 	defaultShell: getDefaultShell(),
 	webAuthEnabled: false,
 	webAuthToken: null,
+	persistentWebLink: false,
 	webInterfaceUseCustomPort: false,
 	webInterfaceCustomPort: 8080,
 	sshRemotes: [],
@@ -105,6 +107,21 @@ export const SETTINGS_DEFAULTS: MaestroSettings = {
 	wakatimeApiKey: '',
 	wakatimeDetailedTracking: false,
 	totalActiveTimeMs: 0,
+	lastSelectedPromptId: null,
+	spellCheck: false,
+	usageRefreshIntervals: {},
+	annotatorPenColor: '#9146FF',
+	annotatorPenSize: 10,
+	annotatorThinning: 0.5,
+	annotatorSmoothing: 0.5,
+	annotatorStreamline: 0.5,
+	annotatorTaperStart: 0,
+	annotatorTaperEnd: 0,
+	annotatorTextColor: '#9146FF',
+	annotatorTextSize: 24,
+	annotatorTextFont: 'sans-serif',
+	annotatorTextBgColor: '',
+	globalShowHotkey: [],
 };
 
 export const SESSIONS_DEFAULTS: SessionsData = {
@@ -121,6 +138,10 @@ export const PROJECT_FOLDERS_DEFAULTS: ProjectFoldersData = {
 
 export const AGENT_CONFIGS_DEFAULTS: AgentConfigsData = {
 	configs: {},
+};
+
+export const AGENT_CAPABILITIES_DEFAULTS: AgentCapabilitiesData = {
+	snapshots: {},
 };
 
 export const WINDOW_STATE_DEFAULTS: WindowState = {

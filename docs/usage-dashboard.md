@@ -38,19 +38,19 @@ The Overview tab gives you a high-level summary of your AI usage:
 
 **Summary Cards:**
 
-- **Agents** — Total number of registered agent sessions (excludes terminal-only sessions)
-- **Open Tabs** — Count of all open tabs across sessions (AI + file preview)
-- **Total Queries** — Number of messages sent to AI agents
-- **Queries/Session** — Average queries per agent session
-- **Total Time** — Cumulative time spent waiting for AI responses
-- **Avg Duration** — Average response time per query
-- **Peak Hour** — Your most active hour of the day
-- **Top Agent** — Your most-used AI agent
-- **Interactive %** — Percentage of queries from interactive (non-Auto Run) sessions
-- **Local %** — Percentage of queries run locally vs. on SSH remotes
-- **Avg Throughput** — Average token throughput in tokens per second
-- **Total Tokens** — Combined input and output tokens, with cache token breakdown on hover
-- **Total Cost** — Aggregate API cost, with savings visibility when using Max billing
+- **Agents** - Total number of registered agent sessions (excludes terminal-only sessions)
+- **Open Tabs** - Count of all open tabs across sessions (AI + file preview)
+- **Total Queries** - Number of messages sent to AI agents
+- **Queries/Session** - Average queries per agent session
+- **Total Time** - Cumulative time spent waiting for AI responses
+- **Avg Duration** - Average response time per query
+- **Peak Hour** - Your most active hour of the day
+- **Top Agent** - Your most-used AI agent
+- **Interactive %** - Percentage of queries from interactive (non-Auto Run) sessions
+- **Local %** - Percentage of queries run locally vs. on SSH remotes
+- **Avg Throughput** - Average token throughput in tokens per second
+- **Total Tokens** - Combined input and output tokens, with cache token breakdown on hover
+- **Total Cost** - Aggregate API cost, with savings visibility when using Max billing
 
 **Agent Comparison:**
 A horizontal bar chart showing usage distribution across your AI agents. See at a glance which agents you use most, with query counts and time spent per agent.
@@ -58,8 +58,8 @@ A horizontal bar chart showing usage distribution across your AI agents. See at 
 **Source Distribution:**
 A donut chart breaking down your queries by source:
 
-- **Interactive** — Manual queries from AI Terminal conversations
-- **Auto Run** — Automated queries from playbook execution
+- **Interactive** - Manual queries from AI Terminal conversations
+- **Auto Run** - Automated queries from playbook execution
 
 Toggle between **Count** (number of queries) and **Duration** (time spent) views.
 
@@ -67,7 +67,7 @@ Toggle between **Count** (number of queries) and **Duration** (time spent) views
 A donut chart showing the breakdown between local and remote (SSH) queries. Useful for understanding how much work is done locally versus on remote machines.
 
 **Peak Hours:**
-A 24-hour bar chart showing when you're most active. Each bar represents an hour of the day (0–23), with height indicating query count or duration. The peak hour is highlighted. Toggle between Count and Duration views.
+A 24-hour bar chart showing when you're most active. Each bar represents an hour of the day (0-23), with height indicating query count or duration. The peak hour is highlighted. Toggle between Count and Duration views.
 
 **Activity Heatmap:**
 A GitHub-style heatmap showing your activity patterns throughout the week. Each cell represents an hour of the day, with color intensity indicating activity level. Toggle between Count and Duration views to see different perspectives.
@@ -90,10 +90,10 @@ The Agents tab provides detailed per-agent analytics:
 
 **Session Statistics:**
 
-- **Total Sessions** — Count of registered sessions
-- **By Agent** — Breakdown by agent type (Claude Code, Codex, etc.) with color-coded indicators
-- **Git Repos vs Folders** — How many sessions are Git repositories versus plain directories
-- **Remote vs Local** — Sessions running on remote SSH hosts versus local machine
+- **Total Sessions** - Count of registered sessions
+- **By Agent** - Breakdown by agent type (Claude Code, Codex, etc.) with color-coded indicators
+- **Git Repos vs Folders** - How many sessions are Git repositories versus plain directories
+- **Remote vs Local** - Sessions running on remote SSH hosts versus local machine
 
 **Agent Efficiency:**
 An efficiency comparison across agents, helping identify which agents deliver the best throughput-to-cost ratio.
@@ -130,12 +130,12 @@ The Auto Run tab focuses specifically on automated playbook execution:
 
 **Metric Cards:**
 
-- **Total Sessions** — Number of Auto Run sessions
-- **Tasks Done** — Total tasks completed (with attempted count)
-- **Avg Tasks/Session** — Average tasks completed per Auto Run session
-- **Success Rate** — Percentage of tasks that completed successfully
-- **Avg Session** — Average duration of an Auto Run session
-- **Avg Task** — Average duration per individual task
+- **Total Sessions** - Number of Auto Run sessions
+- **Tasks Done** - Total tasks completed (with attempted count)
+- **Avg Tasks/Session** - Average tasks completed per Auto Run session
+- **Success Rate** - Percentage of tasks that completed successfully
+- **Avg Session** - Average duration of an Auto Run session
+- **Avg Task** - Average duration per individual task
 
 **Tasks by Hour:**
 A chart showing task completions broken down by hour of day.
@@ -242,12 +242,12 @@ Use exported data for further analysis in spreadsheet applications or to share u
 
 The Usage Dashboard collects:
 
-- **Query events** — Each message sent to an AI agent, including duration, agent type, and agent instance ID
-- **Token usage** — Input, output, cache read, and cache creation tokens per query
-- **Cost data** — Both Maestro-calculated cost and Anthropic API pricing, with billing mode (API vs Max)
-- **Throughput** — Tokens per second for each query
-- **Auto Run sessions** — Start/end times of automated playbook runs
-- **Auto Run tasks** — Individual task completions within playbooks
+- **Query events** - Each message sent to an AI agent, including duration, agent type, and agent instance ID
+- **Token usage** - Input, output, cache read, and cache creation tokens per query
+- **Cost data** - Both Maestro-calculated cost and Anthropic API pricing, with billing mode (API vs Max)
+- **Throughput** - Tokens per second for each query
+- **Auto Run sessions** - Start/end times of automated playbook runs
+- **Auto Run tasks** - Individual task completions within playbooks
 
 ### What's NOT Tracked
 
@@ -270,11 +270,9 @@ Disabling collection stops new data from being recorded but preserves existing d
 
 ## Accessibility
 
-The Usage Dashboard supports colorblind-friendly chart palettes using high-contrast colors from the Wong palette. This mode is enabled programmatically via the `colorBlindMode` setting.
+The Usage Dashboard adopts Maestro's colorblind-friendly chart palette (Wong, _Nature Methods_ 2011) when **Color Blind Mode** is enabled in **Settings → Display → Accessibility**. Agent and source distinctions switch to a high-contrast set tested against protanopia, deuteranopia, and tritanopia.
 
-<Note>
-The colorblind mode setting is available in the application configuration but not yet exposed in the Settings UI. It will use accessible colors automatically when enabled.
-</Note>
+See [Configuration → Accessibility](./configuration#accessibility) for everything the toggle changes across the rest of the app.
 
 ## Additional Features
 

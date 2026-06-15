@@ -51,7 +51,6 @@ import {
 	removeParticipantFromChat,
 	getParticipant,
 	updateParticipant,
-	getGroupChatsDir,
 	addGroupChatHistoryEntry,
 	getGroupChatHistory,
 	deleteGroupChatHistoryEntry,
@@ -149,6 +148,29 @@ describe('group-chat-storage', () => {
 			const chat = await createGroupChat('Session Test', 'claude-code');
 
 			expect(chat.moderatorSessionId).toBe('');
+
+			// Clean up
+			await deleteGroupChat(chat.id);
+		});
+
+		it('round-trips Claude token-source fields in moderatorConfig', async () => {
+			const chat = await createGroupChat('Token Source Test', 'claude-code', {
+				enableMaestroP: true,
+				maestroPMode: 'interactive',
+				maestroPPath: '/x',
+			});
+
+			// Present on the returned object
+			expect(chat.moderatorConfig?.enableMaestroP).toBe(true);
+			expect(chat.moderatorConfig?.maestroPMode).toBe('interactive');
+			expect(chat.moderatorConfig?.maestroPPath).toBe('/x');
+
+			// Survives a reload from disk (no field stripping in the storage layer)
+			const loaded = await loadGroupChat(chat.id);
+			expect(loaded).not.toBeNull();
+			expect(loaded!.moderatorConfig?.enableMaestroP).toBe(true);
+			expect(loaded!.moderatorConfig?.maestroPMode).toBe('interactive');
+			expect(loaded!.moderatorConfig?.maestroPPath).toBe('/x');
 
 			// Clean up
 			await deleteGroupChat(chat.id);
@@ -582,7 +604,7 @@ describe('group-chat-storage', () => {
 			await deleteGroupChat(chat.id);
 		});
 
-		it('rejects duplicate participant names', async () => {
+		it('is idempotent for duplicate participant names', async () => {
 			const chat = await createGroupChat('Duplicate Name', 'claude-code');
 
 			await addParticipantToChat(chat.id, {
@@ -592,14 +614,17 @@ describe('group-chat-storage', () => {
 				addedAt: Date.now(),
 			});
 
-			await expect(
-				addParticipantToChat(chat.id, {
-					name: 'Agent1',
-					agentId: 'opencode',
-					sessionId: 'ses-2',
-					addedAt: Date.now(),
-				})
-			).rejects.toThrow(/already exists/i);
+			// Adding same name again should return current state, not throw
+			const result = await addParticipantToChat(chat.id, {
+				name: 'Agent1',
+				agentId: 'opencode',
+				sessionId: 'ses-2',
+				addedAt: Date.now(),
+			});
+
+			// Should still have only one participant (the original)
+			expect(result.participants).toHaveLength(1);
+			expect(result.participants[0].agentId).toBe('claude-code');
 
 			await deleteGroupChat(chat.id);
 		});

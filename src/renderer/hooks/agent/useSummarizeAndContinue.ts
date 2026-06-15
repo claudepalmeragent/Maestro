@@ -24,6 +24,7 @@ import { useOperationStore, selectIsAnySummarizing } from '../../stores/operatio
 import { useSessionStore } from '../../stores/sessionStore';
 import { notifyToast } from '../../stores/notificationStore';
 import type { SummarizeState, TabSummarizeState } from '../../stores/operationStore';
+import { logger } from '../../utils/logger';
 
 // Re-export types from the canonical store location
 export type { SummarizeState, TabSummarizeState } from '../../stores/operationStore';
@@ -347,6 +348,8 @@ export function useSummarizeAndContinue(session: Session | null): UseSummarizeAn
 					type: 'warning',
 					title: 'Cannot Compact',
 					message: `Context too small. Need at least ${contextSummarizationService.getMinContextUsagePercent()}% usage, ~2k tokens, or 8+ messages to compact.`,
+					sessionId: session.id,
+					tabId: targetTabId,
 				});
 				return;
 			}
@@ -403,22 +406,32 @@ export function useSummarizeAndContinue(session: Session | null): UseSummarizeAn
 						// Clear the summarization state for this tab
 						clearTabState(targetTabId);
 					} else {
-						// startSummarize returned null (error already set in operationStore)
+						// startSummarize returned null after setting an error state in
+						// operationStore. Pull the actual error so the toast can
+						// surface it directly instead of pointing users at a "tab"
+						// that never renders details.
+						const tabState = useOperationStore.getState().summarizeStates.get(targetTabId);
+						const detail = tabState?.error?.trim();
 						notifyToast({
 							type: 'error',
 							title: 'Compaction Failed',
-							message: 'Failed to compact context. Check the tab for details.',
+							message: detail
+								? `Failed to compact context: ${detail}`
+								: 'Failed to compact context.',
 							sessionId: sourceSessionId,
 							tabId: targetTabId,
 						});
 					}
 				})
 				.catch((err) => {
-					console.error('[handleSummarizeAndContinue] Unexpected error:', err);
+					logger.error('[handleSummarizeAndContinue] Unexpected error:', undefined, err);
+					const detail = err instanceof Error ? err.message : String(err);
 					notifyToast({
 						type: 'error',
 						title: 'Compaction Failed',
-						message: 'An unexpected error occurred during compaction.',
+						message: detail
+							? `An unexpected error occurred during compaction: ${detail}`
+							: 'An unexpected error occurred during compaction.',
 						sessionId: sourceSessionId,
 						tabId: targetTabId,
 					});

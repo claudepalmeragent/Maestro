@@ -16,6 +16,8 @@ interface StdoutHandlerDependencies {
 	bufferManager: DataBufferManager;
 }
 
+const MAX_COPILOT_JSON_BUFFER_LENGTH = 1024 * 1024;
+
 /**
  * Normalize usage stats to handle cumulative vs per-turn usage reporting.
  *
@@ -98,6 +100,142 @@ function normalizeUsageToDelta(
 	};
 }
 
+/** Split a buffer of concatenated JSON objects (no newline separators) into individual complete objects and a partial remainder. */
+function extractConcatenatedJsonObjects(buffer: string): { messages: string[]; remainder: string } {
+	const messages: string[] = [];
+	let start = -1;
+	let depth = 0;
+	let inString = false;
+	let isEscaped = false;
+
+	for (let i = 0; i < buffer.length; i++) {
+		const char = buffer[i];
+
+		if (start === -1) {
+			if (/\s/.test(char)) {
+				continue;
+			}
+
+			if (char !== '{') {
+				return {
+					messages,
+					remainder: buffer.slice(i),
+				};
+			}
+
+			start = i;
+			depth = 1;
+			inString = false;
+			isEscaped = false;
+			continue;
+		}
+
+		if (inString) {
+			if (isEscaped) {
+				isEscaped = false;
+				continue;
+			}
+
+			if (char === '\\') {
+				isEscaped = true;
+				continue;
+			}
+
+			if (char === '"') {
+				inString = false;
+			}
+			continue;
+		}
+
+		if (char === '"') {
+			inString = true;
+			continue;
+		}
+
+		if (char === '{') {
+			depth++;
+			continue;
+		}
+
+		if (char === '}') {
+			depth--;
+			if (depth === 0) {
+				messages.push(buffer.slice(start, i + 1));
+				start = -1;
+			}
+		}
+	}
+
+	return {
+		messages,
+		remainder: start === -1 ? '' : buffer.slice(start),
+	};
+}
+
+/** Extract the Copilot session ID from a parsed JSON event's top-level or nested data field. */
+function extractCopilotSessionId(parsed: unknown): string | null {
+	if (!parsed || typeof parsed !== 'object') {
+		return null;
+	}
+
+	const raw = parsed as {
+		sessionId?: unknown;
+		data?: {
+			sessionId?: unknown;
+		};
+	};
+
+	if (typeof raw.sessionId === 'string' && raw.sessionId.trim()) {
+		return raw.sessionId;
+	}
+
+	if (typeof raw.data?.sessionId === 'string' && raw.data.sessionId.trim()) {
+		return raw.data.sessionId;
+	}
+
+	return null;
+}
+
+/** Extract the status string from a tool execution state object. */
+function getToolStatus(toolState: unknown): string | null {
+	if (!toolState || typeof toolState !== 'object') {
+		return null;
+	}
+
+	const status = (toolState as { status?: unknown }).status;
+	return typeof status === 'string' ? status : null;
+}
+
+/** Get or lazily initialize the per-process set of emitted tool call IDs for deduplication. */
+function getEmittedToolCallIds(managedProcess: ManagedProcess): Set<string> {
+	if (!managedProcess.emittedToolCallIds) {
+		managedProcess.emittedToolCallIds = new Set<string>();
+	}
+	return managedProcess.emittedToolCallIds;
+}
+
+/** Drop the Copilot JSON remainder buffer if it exceeds the safety limit. Sets the corrupted flag and clears stale tool state. */
+function resetOversizedCopilotJsonBuffer(sessionId: string, managedProcess: ManagedProcess): void {
+	const bufferLength = managedProcess.jsonBuffer?.length || 0;
+	if (bufferLength <= MAX_COPILOT_JSON_BUFFER_LENGTH) {
+		return;
+	}
+
+	logger.warn(
+		'[ProcessManager] Dropping oversized Copilot JSON buffer remainder',
+		'ProcessManager',
+		{
+			sessionId,
+			bufferLength,
+			maxBufferLength: MAX_COPILOT_JSON_BUFFER_LENGTH,
+		}
+	);
+	managedProcess.jsonBuffer = '';
+	// Mark corrupted so subsequent chunks discard until a clean resync point
+	managedProcess.jsonBufferCorrupted = true;
+	managedProcess.emittedToolCallIds?.clear();
+}
+
 /**
  * Handles stdout data processing for child processes.
  * Extracts session IDs, usage stats, and result data from agent output.
@@ -131,21 +269,70 @@ export class StdoutHandler {
 			this.handleStreamJsonData(sessionId, managedProcess, cleanedOutput);
 		} else if (isBatchMode) {
 			managedProcess.jsonBuffer = (managedProcess.jsonBuffer || '') + cleanedOutput;
-			logger.debug('[ProcessManager] Accumulated JSON buffer', 'ProcessManager', {
-				sessionId,
-				bufferLength: managedProcess.jsonBuffer.length,
-			});
 		} else {
 			this.bufferManager.emitDataBuffered(sessionId, cleanedOutput);
 		}
 	}
 
+	/** Process stdout data in stream-JSON mode. Handles Copilot concatenated JSON and standard newline-delimited JSON. */
 	private handleStreamJsonData(
 		sessionId: string,
 		managedProcess: ManagedProcess,
 		output: string
 	): void {
 		managedProcess.jsonBuffer = (managedProcess.jsonBuffer || '') + output;
+
+		if (managedProcess.toolType === 'copilot-cli') {
+			// If a previous buffer overflow corrupted state, discard data until
+			// we find a top-level '{' that starts a fresh JSON object.
+			if (managedProcess.jsonBufferCorrupted) {
+				const resyncIndex = managedProcess.jsonBuffer.indexOf('{');
+				if (resyncIndex === -1) {
+					managedProcess.jsonBuffer = '';
+					return;
+				}
+				managedProcess.jsonBuffer = managedProcess.jsonBuffer.slice(resyncIndex);
+				managedProcess.jsonBufferCorrupted = false;
+				managedProcess.emittedToolCallIds?.clear();
+			}
+
+			const firstNonWhitespaceIndex = managedProcess.jsonBuffer.search(/\S/);
+			if (
+				firstNonWhitespaceIndex >= 0 &&
+				managedProcess.jsonBuffer[firstNonWhitespaceIndex] !== '{'
+			) {
+				const firstJsonStart = managedProcess.jsonBuffer.indexOf('{', firstNonWhitespaceIndex);
+				if (firstJsonStart === -1) {
+					const plainText = managedProcess.jsonBuffer.trim();
+					if (plainText) {
+						this.bufferManager.emitDataBuffered(sessionId, plainText);
+					}
+					managedProcess.jsonBuffer = '';
+					return;
+				}
+
+				if (firstJsonStart > firstNonWhitespaceIndex) {
+					const prefix = managedProcess.jsonBuffer.slice(0, firstJsonStart).trim();
+					if (prefix) {
+						this.bufferManager.emitDataBuffered(sessionId, prefix);
+					}
+					managedProcess.jsonBuffer = managedProcess.jsonBuffer.slice(firstJsonStart);
+				}
+			}
+
+			const { messages, remainder } = extractConcatenatedJsonObjects(managedProcess.jsonBuffer);
+			managedProcess.jsonBuffer = remainder;
+			resetOversizedCopilotJsonBuffer(sessionId, managedProcess);
+
+			for (const message of messages) {
+				managedProcess.stdoutBuffer = appendToBuffer(
+					managedProcess.stdoutBuffer || '',
+					message + '\n'
+				);
+				this.processLine(sessionId, managedProcess, message);
+			}
+			return;
+		}
 
 		const lines = managedProcess.jsonBuffer.split('\n');
 		managedProcess.jsonBuffer = lines.pop() || '';
@@ -159,6 +346,7 @@ export class StdoutHandler {
 		}
 	}
 
+	/** Parse a single JSON line: detect errors, extract session IDs, and dispatch to the event handler. */
 	private processLine(sessionId: string, managedProcess: ManagedProcess, line: string): void {
 		const { outputParser, toolType } = managedProcess;
 
@@ -172,6 +360,10 @@ export class StdoutHandler {
 			// Not valid JSON — handled in the else branch below
 		}
 
+		if (parsed !== null && toolType === 'copilot-cli') {
+			this.emitSessionIdIfNeeded(sessionId, managedProcess, extractCopilotSessionId(parsed));
+		}
+
 		// ── Error detection from parser ──
 		if (outputParser && !managedProcess.errorEmitted) {
 			// Use pre-parsed object when available; fall back to line-based detection
@@ -183,26 +375,27 @@ export class StdoutHandler {
 			if (agentError) {
 				managedProcess.errorEmitted = true;
 				agentError.sessionId = sessionId;
+				// Tag the error with the remote UUID so downstream listeners
+				// (capabilitySnapshots.markAuthRequired) can flip the
+				// per-remote pill rather than the local one. Undefined for
+				// local-spawn sessions, which keeps prior behavior.
+				if (managedProcess.sshRemoteId) {
+					agentError.sshRemoteId = managedProcess.sshRemoteId;
+				}
 
 				if (agentError.type === 'auth_expired' && managedProcess.sshRemoteHost) {
 					agentError.message = `Authentication failed on remote host "${managedProcess.sshRemoteHost}". SSH into the remote and run "claude login" to re-authenticate.`;
 				}
 
-				logger.debug('[ProcessManager] Error detected from output', 'ProcessManager', {
-					sessionId,
-					errorType: agentError.type,
-					errorMessage: agentError.message,
-					isRemote: !!managedProcess.sshRemoteId,
-				});
 				this.emitter.emit('agent-error', sessionId, agentError);
 				return;
 			}
 		}
 
-		// ── SSH error detection on stdout — GATED on process lifecycle ──
+		// SSH error detection on stdout - GATED on process lifecycle.
 		//
 		// With -tt (forced TTY), remote stderr is merged into SSH stdout. This means
-		// ALL output from the AI agent — including its response text — flows through here.
+		// ALL output from the AI agent - including its response text - flows through here.
 		// SSH error patterns like "ssh:.*connection refused" can match against the AI's
 		// own conversational text (e.g., discussing SSH errors), causing false-positive crashes.
 		//
@@ -249,6 +442,7 @@ export class StdoutHandler {
 						recoverable: sshError.recoverable,
 						agentId: toolType,
 						sessionId,
+						sshRemoteId: managedProcess.sshRemoteId,
 						timestamp: Date.now(),
 						raw: {
 							errorLine: line,
@@ -266,11 +460,11 @@ export class StdoutHandler {
 					return;
 				}
 			} else {
-				// Outside startup window — check but only log, don't crash
+				// Outside startup window - check but only log, don't crash
 				const sshError = matchSshErrorPattern(line);
 				if (sshError) {
 					logger.info(
-						'[ProcessManager] SSH pattern matched on STDOUT after startup window — SUPPRESSED (likely false positive)',
+						'[ProcessManager] SSH pattern matched on STDOUT after startup window - SUPPRESSED (likely false positive)',
 						'ProcessManager',
 						{
 							sessionId,
@@ -286,7 +480,7 @@ export class StdoutHandler {
 							pid: managedProcess.pid,
 						}
 					);
-					// DO NOT emit agent-error — this is almost certainly the AI's own output
+					// DO NOT emit agent-error - this is almost certainly the AI's own output
 				}
 			}
 		}
@@ -298,11 +492,17 @@ export class StdoutHandler {
 			} else {
 				this.handleLegacyMessage(sessionId, managedProcess, parsed);
 			}
-		} else {
+		} else if (!outputParser) {
+			// Only emit raw non-JSON lines when there's no output parser.
+			// JSONL agents (copilot-cli, codex, opencode, factory-droid) may output
+			// non-JSON noise from shell profiles or MCP server startup that should
+			// not be displayed to the user.
 			this.bufferManager.emitDataBuffered(sessionId, line);
 		}
+		// Non-JSON lines from JSONL agents are silently suppressed (shell profile noise, MCP startup, etc.)
 	}
 
+	/** Handle a parsed JSON event: extract usage, session IDs, tool executions, and result data. */
 	private handleParsedEvent(
 		sessionId: string,
 		managedProcess: ManagedProcess,
@@ -387,7 +587,6 @@ export class StdoutHandler {
 				detectedModel,
 				anthropicMessageId
 			);
-
 			// Claude Code's modelUsage reports the ACTUAL context used for each API call:
 			// - inputTokens: new input for this turn
 			// - cacheReadInputTokens: conversation history read from cache
@@ -416,26 +615,12 @@ export class StdoutHandler {
 			managedProcess.lastUsageTotals.detectedModel = detectedModel;
 			managedProcess.lastUsageTotals.anthropicMessageId = anthropicMessageId;
 
-			// DEBUG: Log normalized stats being emitted
-			console.log('[StdoutHandler] Emitting usage', {
-				sessionId,
-				normalizedUsageStats,
-			});
-
 			this.emitter.emit('usage', sessionId, normalizedUsageStats);
 		}
 
 		// Extract session ID
 		const eventSessionId = outputParser.extractSessionId(event);
-		if (eventSessionId && !managedProcess.sessionIdEmitted) {
-			managedProcess.sessionIdEmitted = true;
-			logger.debug('[ProcessManager] Emitting session-id event', 'ProcessManager', {
-				sessionId,
-				eventSessionId,
-				toolType: managedProcess.toolType,
-			});
-			this.emitter.emit('session-id', sessionId, eventSessionId);
-		}
+		this.emitSessionIdIfNeeded(sessionId, managedProcess, eventSessionId);
 
 		// Extract slash commands
 		const slashCommands = outputParser.extractSlashCommands(event);
@@ -443,44 +628,58 @@ export class StdoutHandler {
 			this.emitter.emit('slash-commands', sessionId, slashCommands);
 		}
 
-		// DEBUG: Log thinking-chunk emission conditions
-		if (event.type === 'text') {
-			logger.debug('[ProcessManager] Checking thinking-chunk conditions', 'ProcessManager', {
-				sessionId,
-				eventType: event.type,
-				isPartial: event.isPartial,
-				hasText: !!event.text,
-				textLength: event.text?.length,
-				textPreview: event.text?.substring(0, 100),
-			});
-		}
-
 		// Handle streaming text events (OpenCode, Codex reasoning)
 		if (event.type === 'text' && event.isPartial && event.text) {
-			logger.debug('[ProcessManager] Emitting thinking-chunk', 'ProcessManager', {
-				sessionId,
-				textLength: event.text.length,
-			});
-			this.emitter.emit('thinking-chunk', sessionId, event.text);
-			managedProcess.streamedText = (managedProcess.streamedText || '') + event.text;
+			// For Copilot, skip thinking-chunk emission — the parser's delta events
+			// accumulate in streamedText which is emitted once as the result at exit.
+			// Emitting thinking-chunks AND result would duplicate the content.
+			if (managedProcess.toolType !== 'copilot-cli') {
+				this.emitter.emit('thinking-chunk', sessionId, event.text);
+			}
+			// Reasoning content is internal thinking — don't include it in the
+			// final response text. Only message content should be in streamedText.
+			if (!event.isReasoning) {
+				managedProcess.streamedText = (managedProcess.streamedText || '') + event.text;
+			}
 		}
 
 		// Handle tool execution events (OpenCode, Codex)
 		if (event.type === 'tool_use' && event.toolName) {
+			const toolStatus = getToolStatus(event.toolState);
+			if (event.toolCallId && toolStatus === 'running') {
+				const emittedToolCallIds = getEmittedToolCallIds(managedProcess);
+				if (emittedToolCallIds.has(event.toolCallId)) {
+					return;
+				}
+				emittedToolCallIds.add(event.toolCallId);
+			} else if (event.toolCallId && (toolStatus === 'completed' || toolStatus === 'failed')) {
+				getEmittedToolCallIds(managedProcess).delete(event.toolCallId);
+			}
+
 			this.emitter.emit('tool-execution', sessionId, {
 				toolName: event.toolName,
 				state: event.toolState,
 				timestamp: Date.now(),
+				toolCallId: event.toolCallId,
 			});
 		}
 
 		// Handle tool_use blocks embedded in text events (Claude Code mixed content)
 		if (event.toolUseBlocks?.length) {
 			for (const tool of event.toolUseBlocks) {
+				if (tool.id) {
+					const emittedToolCallIds = getEmittedToolCallIds(managedProcess);
+					if (emittedToolCallIds.has(tool.id)) {
+						continue;
+					}
+					emittedToolCallIds.add(tool.id);
+				}
+
 				this.emitter.emit('tool-execution', sessionId, {
 					toolName: tool.name,
 					state: { status: 'running', input: tool.input },
 					timestamp: Date.now(),
+					toolCallId: tool.id,
 				});
 			}
 		}
@@ -512,15 +711,33 @@ export class StdoutHandler {
 			const resultText = managedProcess.streamedText || '';
 			if (resultText) {
 				managedProcess.resultEmitted = true;
-				logger.debug(
-					'[ProcessManager] Emitting final Codex result at turn completion',
-					'ProcessManager',
-					{
-						sessionId,
-						resultLength: resultText.length,
-					}
-				);
 				this.bufferManager.emitDataBuffered(sessionId, resultText);
+			}
+		}
+
+		// Copilot CLI: capture content-bearing no-phase `assistant.message`
+		// events as `streamedText` but never flush in-flight. Copilot's stdout
+		// signaling is unreliable for "session done":
+		//   - assistant.turn_end fires after every LLM turn, including
+		//     narration turns ("I'll delegate this to..."), so it can't
+		//     mark session end.
+		//   - session.shutdown is NOT written to stdout in batch mode —
+		//     it only goes to `~/.copilot/session-state/<id>/events.jsonl`,
+		//     and Copilot may keep writing to that file (via subagent
+		//     processes) AFTER our parent process exits.
+		// The authoritative completion signal lives on disk, so we defer
+		// the final flush to ExitHandler — which awaits the disk-side
+		// shutdown marker before emitting the `exit` event. Legacy
+		// `phase: 'final_answer'` messages still flush immediately via
+		// the path below.
+		if (
+			managedProcess.toolType === 'copilot-cli' &&
+			outputParser.isResultMessage(event) &&
+			event.text
+		) {
+			const raw = event.raw as { type?: string; data?: { phase?: string } } | undefined;
+			if (raw?.type === 'assistant.message' && raw.data?.phase === undefined) {
+				managedProcess.streamedText = event.text;
 			}
 		}
 
@@ -530,12 +747,23 @@ export class StdoutHandler {
 		}
 
 		// Handle result
+		const copilotIntermediate =
+			managedProcess.toolType === 'copilot-cli' &&
+			(() => {
+				const raw = event.raw as { type?: string; data?: { phase?: string } } | undefined;
+				return raw?.type === 'assistant.message' && raw.data?.phase === undefined;
+			})();
+
 		if (
 			managedProcess.toolType !== 'codex' &&
 			outputParser.isResultMessage(event) &&
-			!managedProcess.resultEmitted
+			!managedProcess.resultEmitted &&
+			!copilotIntermediate
 		) {
 			managedProcess.resultEmitted = true;
+			// For most agents, prefer the result event's text. Fall back to
+			// accumulated streamedText (covers Copilot where the result event
+			// is empty and Factory Droid which never sends an explicit result).
 			const resultText = event.text || managedProcess.streamedText || '';
 
 			// Clear subagent state on result (subagent task completed)
@@ -574,6 +802,7 @@ export class StdoutHandler {
 		}
 	}
 
+	/** Handle legacy (non-parser) JSON messages for Claude Code's native format. */
 	private handleLegacyMessage(
 		sessionId: string,
 		managedProcess: ManagedProcess,
@@ -605,30 +834,17 @@ export class StdoutHandler {
 		}
 
 		if (msgRecord.modelUsage || msgRecord.usage || msgRecord.total_cost_usd !== undefined) {
-			// DEBUG: Log raw usage data from Claude Code before aggregation
-			console.log('[StdoutHandler] Raw usage data from Claude Code', {
-				sessionId,
-				modelUsage: msgRecord.modelUsage,
-				usage: msgRecord.usage,
-				totalCostUsd: msgRecord.total_cost_usd,
-			});
-
 			const usageStats = aggregateModelUsage(
 				msgRecord.modelUsage as Record<string, ModelStats> | undefined,
 				(msgRecord.usage as Record<string, unknown>) || {},
 				(msgRecord.total_cost_usd as number) || 0
 			);
 
-			// DEBUG: Log aggregated result
-			console.log('[StdoutHandler] Aggregated usage stats', {
-				sessionId,
-				usageStats,
-			});
-
 			this.emitter.emit('usage', sessionId, usageStats);
 		}
 	}
 
+	/** Build a normalized UsageStats object from parser-extracted token counts. */
 	private buildUsageStats(
 		managedProcess: ManagedProcess,
 		usage: {
@@ -656,5 +872,34 @@ export class StdoutHandler {
 			detectedModel,
 			anthropicMessageId,
 		};
+	}
+
+	/** Emit session-id event at most once per managed process lifecycle. */
+	private emitSessionIdIfNeeded(
+		sessionId: string,
+		managedProcess: ManagedProcess,
+		eventSessionId: string | null | undefined
+	): void {
+		if (!eventSessionId) {
+			return;
+		}
+
+		// Always record the agent-reported session id on the managed process
+		// even after we've emitted the event once. ExitHandler reads this for
+		// Copilot's post-exit events.jsonl wait, and we want to be robust to
+		// the event arriving more than once across a session's lifetime.
+		managedProcess.agentSessionId = eventSessionId;
+
+		if (managedProcess.sessionIdEmitted) {
+			return;
+		}
+
+		managedProcess.sessionIdEmitted = true;
+		logger.debug('[ProcessManager] Emitting session-id event', 'ProcessManager', {
+			sessionId,
+			eventSessionId,
+			toolType: managedProcess.toolType,
+		});
+		this.emitter.emit('session-id', sessionId, eventSessionId);
 	}
 }

@@ -170,7 +170,7 @@ describe('CreateGroupModal', () => {
 			const { container } = renderModal();
 
 			// Modal uses inline width style instead of Tailwind class
-			const modalContent = container.querySelector('[style*="width: 400px"]');
+			const modalContent = container.querySelector('[style*="width: min(calc(400px"]');
 			expect(modalContent).toHaveStyle({ backgroundColor: theme.colors.bgSidebar });
 		});
 
@@ -178,7 +178,7 @@ describe('CreateGroupModal', () => {
 			const { container } = renderModal();
 
 			// Modal uses inline width style instead of Tailwind class
-			const modalContent = container.querySelector('[style*="width: 400px"]');
+			const modalContent = container.querySelector('[style*="width: min(calc(400px"]');
 			expect(modalContent).toHaveStyle({ borderColor: theme.colors.border });
 		});
 
@@ -772,7 +772,7 @@ describe('CreateGroupModal', () => {
 			const { container } = renderModal({ theme: lightTheme });
 
 			// Modal uses inline width style instead of Tailwind class
-			const modalContent = container.querySelector('[style*="width: 400px"]');
+			const modalContent = container.querySelector('[style*="width: min(calc(400px"]');
 			expect(modalContent).toHaveStyle({ backgroundColor: lightTheme.colors.bgSidebar });
 		});
 

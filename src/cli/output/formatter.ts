@@ -1,6 +1,8 @@
 // Human-readable output formatter for CLI
 // Provides beautiful, colored terminal output
 
+import { formatDurationDecimal } from '../../shared/formatters';
+
 // ANSI color codes
 const colors = {
 	reset: '\x1b[0m',
@@ -469,18 +471,7 @@ function formatTokens(count: number): string {
 	return count.toString();
 }
 
-/**
- * Format duration for CLI display (decimal format with ms/s/m/h suffixes).
- * Note: This differs from shared/formatters.ts formatElapsedTime which
- * shows combined units like "5m 12s". This version uses single decimals
- * like "5.2m" for compact CLI output.
- */
-function formatDuration(ms: number): string {
-	if (ms < 1000) return `${ms}ms`;
-	if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
-	if (ms < 3600_000) return `${(ms / 60_000).toFixed(1)}m`;
-	return `${(ms / 3600_000).toFixed(1)}h`;
-}
+const formatDuration = formatDurationDecimal;
 
 export function formatAgentDetail(agent: AgentDetailDisplay): string {
 	const lines: string[] = [];
@@ -619,6 +610,227 @@ function formatDurationSeconds(seconds: number): string {
 	if (seconds < 60) return `${seconds}s`;
 	if (seconds < 3600) return `${(seconds / 60).toFixed(1)}m`;
 	return `${(seconds / 3600).toFixed(1)}h`;
+}
+
+// Settings formatting
+export interface SettingDisplay {
+	key: string;
+	value: unknown;
+	type: string;
+	category: string;
+	description?: string;
+	defaultValue?: unknown;
+	isDefault?: boolean;
+	sensitive?: boolean;
+}
+
+function formatSettingValue(value: unknown, sensitive?: boolean): string {
+	if (sensitive) return c('red', '***');
+	if (value === null) return dim('null');
+	if (value === undefined) return dim('undefined');
+	if (typeof value === 'boolean') return c(value ? 'green' : 'red', String(value));
+	if (typeof value === 'number') return c('yellow', String(value));
+	if (typeof value === 'string') {
+		if (value === '') return dim('""');
+		return c('white', value.length > 60 ? truncate(value, 60) : value);
+	}
+	if (Array.isArray(value)) {
+		if (value.length === 0) return dim('[]');
+		const compact = JSON.stringify(value);
+		return dim(compact.length > 60 ? truncate(compact, 60) : compact);
+	}
+	if (typeof value === 'object') {
+		const compact = JSON.stringify(value);
+		return dim(compact.length > 60 ? truncate(compact, 60) : compact);
+	}
+	return String(value);
+}
+
+export function formatSettingsList(
+	settings: SettingDisplay[],
+	options?: { verbose?: boolean; keysOnly?: boolean; showDefaults?: boolean }
+): string {
+	if (settings.length === 0) {
+		return dim('No settings found.');
+	}
+
+	const verbose = options?.verbose ?? false;
+	const keysOnly = options?.keysOnly ?? false;
+	const showDefaults = options?.showDefaults ?? false;
+
+	const lines: string[] = [];
+	lines.push(bold(c('cyan', 'SETTINGS')) + dim(` (${settings.length})`));
+	lines.push('');
+
+	let currentCategory = '';
+	for (const setting of settings) {
+		// Category header
+		if (setting.category !== currentCategory) {
+			if (currentCategory !== '') lines.push('');
+			lines.push(`  ${bold(c('blue', setting.category))}`);
+			currentCategory = setting.category;
+		}
+
+		if (keysOnly) {
+			lines.push(`    ${c('white', setting.key)}`);
+			continue;
+		}
+
+		const valueStr = formatSettingValue(setting.value, setting.sensitive);
+		const defaultMarker = setting.isDefault ? dim(' (default)') : '';
+		lines.push(`    ${c('white', setting.key)} = ${valueStr}${defaultMarker}`);
+
+		if (showDefaults && !setting.isDefault) {
+			const defStr = formatSettingValue(setting.defaultValue);
+			lines.push(`      ${dim('default:')} ${defStr}`);
+		}
+
+		if (verbose && setting.description) {
+			lines.push(`      ${dim(setting.description)}`);
+		}
+	}
+
+	return lines.join('\n');
+}
+
+export function formatSettingDetail(setting: SettingDisplay): string {
+	const lines: string[] = [];
+	lines.push(bold(c('cyan', 'SETTING')));
+	lines.push('');
+	lines.push(`  ${c('white', 'Key:')}       ${setting.key}`);
+	lines.push(
+		`  ${c('white', 'Value:')}     ${formatSettingValue(setting.value, setting.sensitive)}`
+	);
+	lines.push(`  ${c('white', 'Type:')}      ${dim(setting.type)}`);
+	lines.push(`  ${c('white', 'Default:')}   ${formatSettingValue(setting.defaultValue)}`);
+	lines.push(`  ${c('white', 'Category:')}  ${setting.category}`);
+	if (setting.description) {
+		lines.push('');
+		lines.push(`  ${dim(setting.description)}`);
+	}
+	return lines.join('\n');
+}
+
+// SSH Remote formatting
+export interface SshRemoteDisplay {
+	id: string;
+	name: string;
+	host: string;
+	port: number;
+	username: string;
+	enabled: boolean;
+	useSshConfig?: boolean;
+	isDefault?: boolean;
+}
+
+export function formatSshRemotes(remotes: SshRemoteDisplay[]): string {
+	if (remotes.length === 0) {
+		return dim('No SSH remotes configured.');
+	}
+
+	const lines: string[] = [];
+	lines.push(bold(c('cyan', 'SSH REMOTES')) + dim(` (${remotes.length})`));
+	lines.push('');
+
+	for (const remote of remotes) {
+		const name = c('white', remote.name);
+		const status = remote.enabled ? c('green', 'enabled') : c('red', 'disabled');
+		const defaultTag = remote.isDefault ? c('yellow', ' [default]') : '';
+		const sshConfig = remote.useSshConfig ? c('blue', ' [ssh-config]') : '';
+		const hostInfo = remote.username ? `${remote.username}@${remote.host}` : remote.host;
+		const portInfo = remote.port !== 22 ? `:${remote.port}` : '';
+		const id = dim(remote.id);
+
+		lines.push(`  ${name} ${status}${defaultTag}${sshConfig}`);
+		lines.push(`      ${dim(hostInfo + portInfo)}`);
+		lines.push(`      ${id}`);
+	}
+
+	return lines.join('\n');
+}
+
+// Director's Notes History formatting
+export interface DirectorNotesHistoryDisplay {
+	stats: {
+		agentCount: number;
+		autoCount: number;
+		userCount: number;
+		cueCount: number;
+		totalCount: number;
+		lookbackDays: number;
+	};
+	total: number;
+	showing: number;
+	entries: Array<{
+		id: string;
+		type: string;
+		timestamp: number;
+		summary: string;
+		agentName?: string;
+		sourceSessionId: string;
+		success?: boolean;
+		elapsedTimeMs?: number;
+		usageStats?: { totalCostUsd?: number };
+	}>;
+}
+
+export function formatDirectorNotesHistory(
+	data: DirectorNotesHistoryDisplay,
+	lookbackDays: number
+): string {
+	const lines: string[] = [];
+
+	// Header
+	const period =
+		lookbackDays > 0 ? `last ${lookbackDays} day${lookbackDays !== 1 ? 's' : ''}` : 'all time';
+	lines.push(bold(c('cyan', "DIRECTOR'S NOTES — HISTORY")) + dim(` (${period})`));
+	lines.push('');
+
+	// Stats
+	const { stats } = data;
+	lines.push(
+		`  ${c('white', 'Agents:')}   ${stats.agentCount}    ${c('white', 'Entries:')} ${stats.totalCount} ${dim(`(${stats.autoCount} auto, ${stats.userCount} user, ${stats.cueCount} cue)`)}`
+	);
+	lines.push(`  ${c('white', 'Showing:')}  ${data.showing} of ${data.total}`);
+	lines.push('');
+
+	if (data.entries.length === 0) {
+		lines.push(dim('  No entries found for the specified period.'));
+		return lines.join('\n');
+	}
+
+	for (const entry of data.entries) {
+		const date = new Date(entry.timestamp);
+		const dateStr = date.toLocaleDateString();
+		const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+		const icon =
+			entry.success === true
+				? c('green', '✓')
+				: entry.success === false
+					? c('red', '✗')
+					: c('gray', '•');
+		const typeLabel =
+			entry.type === 'AUTO'
+				? c('blue', '[AUTO]')
+				: entry.type === 'CUE'
+					? c('magenta', '[CUE]')
+					: c('yellow', '[USER]');
+		const agent = entry.agentName
+			? c('white', truncate(entry.agentName, 20))
+			: dim(entry.sourceSessionId.slice(0, 8));
+		const summary = truncate(entry.summary || '', 50);
+		const costStr =
+			entry.usageStats?.totalCostUsd !== undefined
+				? dim(` $${entry.usageStats.totalCostUsd.toFixed(4)}`)
+				: '';
+		const timeElapsed = entry.elapsedTimeMs ? dim(` ${formatDuration(entry.elapsedTimeMs)}`) : '';
+
+		lines.push(
+			`  ${icon} ${dim(`${dateStr} ${timeStr}`)} ${typeLabel} ${agent}  ${summary}${costStr}${timeElapsed}`
+		);
+	}
+
+	return lines.join('\n');
 }
 
 // Error formatting

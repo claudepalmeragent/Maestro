@@ -33,6 +33,7 @@ See [Performance Guidelines](#performance-guidelines) for specific practices.
 - [Debugging Guide](#debugging-guide)
 - [Commit Messages](#commit-messages)
 - [Pull Request Process](#pull-request-process) (includes [automated code review](#automated-code-review))
+- [Branching & Release Strategy](#branching--release-strategy)
 - [Building for Release](#building-for-release)
 - [Documentation](#documentation)
 
@@ -160,14 +161,14 @@ MAESTRO_DEMO_DIR=~/Desktop/my-demo npm run dev
 When working with multiple git worktrees, you can run Maestro instances in parallel by specifying different ports using the `VITE_PORT` environment variable:
 
 ```bash
-# In the main worktree (uses default port 5173)
+# In the main worktree (uses default port 17173)
 npm run dev
 
 # In worktree 2 (in another directory and terminal)
-VITE_PORT=5174 npm run dev
+VITE_PORT=17174 npm run dev
 
 # In worktree 3
-VITE_PORT=5175 npm run dev
+VITE_PORT=17175 npm run dev
 ```
 
 This allows you to develop and test different branches simultaneously without port conflicts.
@@ -742,13 +743,14 @@ Based on capabilities, these UI features are automatically enabled/disabled:
 
 ### Supported Agents Reference
 
-| Agent         | Resume                | Read-Only                   | JSON | Images | Sessions                      | Cost             | Status      |
-| ------------- | --------------------- | --------------------------- | ---- | ------ | ----------------------------- | ---------------- | ----------- |
-| Claude Code   | ✅ `--resume`         | ✅ `--permission-mode plan` | ✅   | ✅     | ✅ `~/.claude/`               | ✅               | ✅ Complete |
-| Codex         | ✅ `exec resume`      | ✅ `--sandbox read-only`    | ✅   | ✅     | ✅ `~/.codex/`                | ❌ (tokens only) | ✅ Complete |
-| OpenCode      | ✅ `--session`        | ✅ `--agent plan`           | ✅   | ✅     | ✅ `~/.local/share/opencode/` | ✅               | ✅ Complete |
-| Factory Droid | ✅ `-s, --session-id` | ✅ (default mode)           | ✅   | ✅     | ✅ `~/.factory/`              | ❌ (tokens only) | ✅ Complete |
-| Gemini CLI    | TBD                   | TBD                         | TBD  | TBD    | TBD                           | ✅               | 📋 Planned  |
+| Agent         | Resume                       | Read-Only                   | JSON | Images | Sessions                       | Cost                    | Status      |
+| ------------- | ---------------------------- | --------------------------- | ---- | ------ | ------------------------------ | ----------------------- | ----------- |
+| Claude Code   | ✅ `--resume`                | ✅ `--permission-mode plan` | ✅   | ✅     | ✅ `~/.claude/`                | ✅                      | ✅ Complete |
+| Codex         | ✅ `exec resume`             | ✅ `--sandbox read-only`    | ✅   | ✅     | ✅ `~/.codex/`                 | ❌ (tokens only)        | ✅ Complete |
+| OpenCode      | ✅ `--session`               | ✅ `--agent plan`           | ✅   | ✅     | ✅ `~/.local/share/opencode/`  | ✅                      | ✅ Complete |
+| Factory Droid | ✅ `-s, --session-id`        | ✅ (default mode)           | ✅   | ✅     | ✅ `~/.factory/`               | ❌ (tokens only)        | ✅ Complete |
+| Copilot-CLI   | ✅ `--resume` / `--continue` | ✅ permission rules         | ✅   | ✅     | ✅ `~/.copilot/session-state/` | ❌ (not exposed by CLI) | 🧪 Beta     |
+| Gemini CLI    | TBD                          | TBD                         | TBD  | TBD    | TBD                            | ✅                      | 📋 Planned  |
 
 For detailed implementation guide, see [AGENT_SUPPORT.md](AGENT_SUPPORT.md).
 
@@ -999,6 +1001,46 @@ All PRs must pass these checks before review:
 5. CodeRabbit will automatically review your PR
 6. Address any CodeRabbit and maintainer feedback
 
+## Branching & Release Strategy
+
+Maestro uses a two-branch release model with **odd/even version numbering**:
+
+| Branch | Version Pattern | Audience                                                | Example |
+| ------ | --------------- | ------------------------------------------------------- | ------- |
+| `main` | `0.ODD.x`       | All users (stable)                                      | 0.15.x  |
+| `rc`   | `0.EVEN.x`      | Users who opt into "beta and release candidate updates" | 0.16.x  |
+
+### How It Works
+
+- **`main`** is the stable branch. Releases from `main` go to all users via the standard update channel.
+- **`rc`** (release candidate) is the pre-release branch. Releases from `rc` go only to users who have opted into beta/RC updates in their settings.
+- New features and larger changes land on `rc` first, where they get soak time with early adopters.
+- Targeted fixes and battle-tested features can be **cherry-picked** from `rc` to `main` as patch releases.
+
+### Version Lifecycle
+
+When `rc` is mature and ready to become the next stable release:
+
+1. `rc` merges into `main`.
+2. `main` bumps to the next **odd** minor version (e.g., 0.15.x → 0.17.x).
+3. `rc` bumps to the next **even** minor version (e.g., 0.16.x → 0.18.x).
+
+```
+Example timeline:
+  main: 0.15.0 → 0.15.1 → 0.15.2 ──────────────────→ 0.17.0 (rc merged in)
+  rc:   0.16.0 → 0.16.1 → 0.16.2 → 0.16.3 (merge) → 0.18.0 (new rc cycle)
+```
+
+### PR Target Branch
+
+- **Bug fixes and small improvements**: Target `main` (cherry-pick to `rc` if relevant).
+- **New features and larger changes**: Target `rc`.
+- If unsure, target `rc` — it's easier to cherry-pick a stable change to `main` than to untangle a premature merge.
+
+### Release Tags
+
+Tags follow the pattern `v0.MINOR.PATCH`. Tags with `-RC` suffix (e.g., `v0.16.0-RC`) are automatically marked as pre-releases on GitHub. The update checker in Maestro uses tag naming to route updates to the correct channel.
+
 ## Building for Release
 
 ### 0. Refresh AI Command Prompts (Optional)
@@ -1036,7 +1078,7 @@ Update in `package.json`:
 
 ```json
 {
-	"version": "0.1.0"
+	"version": "X.Y.Z"
 }
 ```
 
@@ -1056,8 +1098,8 @@ Output in `release/` directory.
 Create a release tag to trigger automated builds:
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag vX.Y.Z
+git push origin vX.Y.Z
 ```
 
 GitHub Actions will build for all platforms and create a release.

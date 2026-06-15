@@ -22,6 +22,12 @@ export interface AutoRunState {
 	currentDocumentIndex?: number;
 	totalTasksAcrossAllDocs?: number;
 	completedTasksAcrossAllDocs?: number;
+	errorPaused?: boolean;
+	errorMessage?: string;
+	errorType?: string;
+	errorRecoverable?: boolean;
+	errorDocumentIndex?: number;
+	errorTaskDescription?: string;
 }
 
 /**
@@ -95,6 +101,8 @@ export function createLiveApi() {
 		disableAll: () => ipcRenderer.invoke('live:disableAll'),
 		startServer: () => ipcRenderer.invoke('live:startServer'),
 		stopServer: () => ipcRenderer.invoke('live:stopServer'),
+		persistCurrentToken: () => ipcRenderer.invoke('live:persistCurrentToken'),
+		clearPersistentToken: () => ipcRenderer.invoke('live:clearPersistentToken'),
 	};
 }
 

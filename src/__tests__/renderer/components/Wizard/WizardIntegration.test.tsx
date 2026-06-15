@@ -24,7 +24,95 @@ import {
 import { MaestroWizard } from '../../../../renderer/components/Wizard/MaestroWizard';
 import { WizardResumeModal } from '../../../../renderer/components/Wizard/WizardResumeModal';
 import { LayerStackProvider, useLayerStack } from '../../../../renderer/contexts/LayerStackContext';
-import type { Theme, AgentConfig } from '../../../../renderer/types';
+import type { AgentConfig } from '../../../../renderer/types';
+import { mockTheme } from '../../../helpers/mockTheme';
+// Mock lucide-react icons
+vi.mock('lucide-react', () => ({
+	X: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="x-icon" className={className} style={style} />
+	),
+	Check: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="check-icon" className={className} style={style} />
+	),
+	AlertCircle: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="alert-icon" className={className} style={style} />
+	),
+	AlertTriangle: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="alert-triangle-icon" className={className} style={style} />
+	),
+	Eye: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="eye-icon" className={className} style={style} />
+	),
+	Edit: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="edit-icon" className={className} style={style} />
+	),
+	Image: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="image-icon" className={className} style={style} />
+	),
+	Loader2: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="loader-icon" className={className} style={style} />
+	),
+	Rocket: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="rocket-icon" className={className} style={style} />
+	),
+	Compass: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="compass-icon" className={className} style={style} />
+	),
+	ChevronDown: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="chevron-down-icon" className={className} style={style} />
+	),
+	ChevronRight: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="chevron-right-icon" className={className} style={style} />
+	),
+	FileText: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="file-text-icon" className={className} style={style} />
+	),
+	FolderOpen: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="folder-open-icon" className={className} style={style} />
+	),
+	GitBranch: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="git-branch-icon" className={className} style={style} />
+	),
+	Bot: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="bot-icon" className={className} style={style} />
+	),
+	RefreshCw: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="refresh-icon" className={className} style={style} />
+	),
+	RotateCcw: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="rotate-ccw-icon" className={className} style={style} />
+	),
+	CheckCircle: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="check-circle-icon" className={className} style={style} />
+	),
+	Send: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="send-icon" className={className} style={style} />
+	),
+	MessageCircle: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="message-circle-icon" className={className} style={style} />
+	),
+	Settings: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="settings-icon" className={className} style={style} />
+	),
+	ArrowLeft: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="arrow-left-icon" className={className} style={style} />
+	),
+	Plus: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="plus-icon" className={className} style={style} />
+	),
+	Trash2: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="trash-icon" className={className} style={style} />
+	),
+	Brain: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="brain-icon" className={className} style={style} />
+	),
+	Info: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="info-icon" className={className} style={style} />
+	),
+	Wand2: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="wand-icon" className={className} style={style} />
+	),
+}));
 
 // Mock react-markdown
 vi.mock('react-markdown', () => ({
@@ -104,41 +192,14 @@ vi.mock('../../../../renderer/components/Wizard/services/phaseGenerator', () => 
 		}),
 		saveDocuments: vi.fn().mockResolvedValue({
 			success: true,
-			paths: ['/test/path/Auto Run Docs/Phase-01-Initial-Setup.md'],
+			paths: ['/test/path/.maestro/playbooks/Phase-01-Initial-Setup.md'],
 		}),
 		isGenerationInProgress: vi.fn().mockReturnValue(false),
 		abort: vi.fn(),
 	},
-	AUTO_RUN_FOLDER_NAME: 'Auto Run Docs',
 }));
 
 // Mock theme
-const mockTheme: Theme = {
-	id: 'test-dark',
-	name: 'Test Dark',
-	mode: 'dark',
-	colors: {
-		bgMain: '#1a1a1a',
-		bgSidebar: '#252525',
-		bgActivity: '#2a2a2a',
-		border: '#333333',
-		textMain: '#ffffff',
-		textDim: '#888888',
-		textFaint: '#555555',
-		accent: '#4a9eff',
-		accentDim: '#3a8eef',
-		accentText: '#ffffff',
-		accentForeground: '#ffffff',
-		buttonBg: '#333333',
-		buttonHover: '#444444',
-		headerBg: '#202020',
-		scrollbarTrack: '#1a1a1a',
-		scrollbarThumb: '#444444',
-		success: '#22c55e',
-		warning: '#f59e0b',
-		error: '#ef4444',
-	},
-};
 
 // Mock available agents
 const mockAgents: AgentConfig[] = [
@@ -956,7 +1017,9 @@ describe('Wizard Integration Tests', () => {
 			fireEvent.click(screen.getByRole('button', { name: /exit.*save progress/i }));
 
 			// Analytics callback should be called
-			expect(onWizardAbandon).toHaveBeenCalled();
+			await waitFor(() => {
+				expect(onWizardAbandon).toHaveBeenCalled();
+			});
 		});
 	});
 
@@ -1561,7 +1624,7 @@ describe('Wizard Integration Tests', () => {
 			// Verify autorun.listDocs was called with sshRemoteId
 			await waitFor(() => {
 				expect(mockMaestro.autorun.listDocs).toHaveBeenCalledWith(
-					'/home/user/project/Auto Run Docs',
+					'/home/user/project/.maestro/playbooks',
 					'my-ssh-remote'
 				);
 			});

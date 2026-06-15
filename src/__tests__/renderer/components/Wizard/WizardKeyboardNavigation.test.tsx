@@ -19,6 +19,77 @@ import { LayerStackProvider } from '../../../../renderer/contexts/LayerStackCont
 import type { Theme, AgentConfig } from '../../../../renderer/types';
 import { formatShortcutKeys } from '../../../../renderer/utils/shortcutFormatter';
 
+import { mockTheme } from '../../../helpers/mockTheme';
+// Mock lucide-react icons
+vi.mock('lucide-react', () => ({
+	X: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="x-icon" className={className} style={style} />
+	),
+	Check: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="check-icon" className={className} style={style} />
+	),
+	AlertCircle: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="alert-icon" className={className} style={style} />
+	),
+	Eye: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="eye-icon" className={className} style={style} />
+	),
+	Edit: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="edit-icon" className={className} style={style} />
+	),
+	Image: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="image-icon" className={className} style={style} />
+	),
+	Loader2: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="loader-icon" className={className} style={style} />
+	),
+	Rocket: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="rocket-icon" className={className} style={style} />
+	),
+	Compass: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="compass-icon" className={className} style={style} />
+	),
+	ChevronDown: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="chevron-down-icon" className={className} style={style} />
+	),
+	ChevronRight: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="chevron-right-icon" className={className} style={style} />
+	),
+	FileText: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="file-text-icon" className={className} style={style} />
+	),
+	Bot: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="bot-icon" className={className} style={style} />
+	),
+	Settings: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="settings-icon" className={className} style={style} />
+	),
+	ArrowLeft: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="arrow-left-icon" className={className} style={style} />
+	),
+	Plus: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="plus-icon" className={className} style={style} />
+	),
+	Trash2: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="trash-icon" className={className} style={style} />
+	),
+	RefreshCw: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="refresh-icon" className={className} style={style} />
+	),
+	Brain: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="brain-icon" className={className} style={style} />
+	),
+	Info: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="info-icon" className={className} style={style} />
+	),
+	Wand2: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="wand-icon" className={className} style={style} />
+	),
+	AlertTriangle: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<svg data-testid="alert-triangle-icon" className={className} style={style} />
+	),
+}));
+
 // Mock react-markdown
 vi.mock('react-markdown', () => ({
 	default: ({ children }: { children: string }) => <div data-testid="markdown">{children}</div>,
@@ -48,8 +119,12 @@ vi.mock('rehype-slug', () => ({
 
 // Mock markdownConfig utilities
 vi.mock('../../../../renderer/utils/markdownConfig', () => ({
+	REMARK_GFM_PLUGINS: [],
 	generateProseStyles: () => '',
+	generateInlineWizardPreviewProseStyles: () => '',
 	createMarkdownComponents: () => ({}),
+	createWizardBubbleMarkdownComponents: () => ({}),
+	createReleaseNotesMarkdownComponents: () => ({}),
 }));
 
 // Mock MermaidRenderer
@@ -95,30 +170,6 @@ const mockMaestro = {
 };
 
 // Mock theme
-const mockTheme: Theme = {
-	id: 'test-dark',
-	name: 'Test Dark',
-	mode: 'dark',
-	colors: {
-		bgMain: '#1a1a1a',
-		bgSidebar: '#252525',
-		bgActivity: '#2a2a2a',
-		border: '#333333',
-		textMain: '#ffffff',
-		textDim: '#888888',
-		textFaint: '#555555',
-		accent: '#4a9eff',
-		accentForeground: '#ffffff',
-		buttonBg: '#333333',
-		buttonHover: '#444444',
-		headerBg: '#202020',
-		scrollbarTrack: '#1a1a1a',
-		scrollbarThumb: '#444444',
-		success: '#22c55e',
-		warning: '#f59e0b',
-		error: '#ef4444',
-	},
-};
 
 // Mock available agents
 const mockAgents: AgentConfig[] = [

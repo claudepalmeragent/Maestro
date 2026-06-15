@@ -310,8 +310,8 @@ describe('DurationTrendsChart', () => {
 			if (circles.length > 0) {
 				fireEvent.mouseEnter(circles[0]);
 
-				// Tooltip is rendered via createPortal to document.body with z-[10000]
-				const tooltip = document.querySelector('.fixed.z-\\[10000\\]');
+				// Tooltip portals to document.body and uses inline zIndex (no .z-50 class).
+				const tooltip = document.body.querySelector('div.fixed.shadow-lg');
 				expect(tooltip).toBeInTheDocument();
 			}
 		});
@@ -327,7 +327,8 @@ describe('DurationTrendsChart', () => {
 				fireEvent.mouseEnter(circles[0]);
 				fireEvent.mouseLeave(circles[0]);
 
-				const tooltip = document.querySelector('.fixed.z-\\[10000\\]');
+				// Tooltip portals to document.body and uses inline zIndex (no .z-50 class).
+				const tooltip = document.body.querySelector('div.fixed.shadow-lg');
 				expect(tooltip).not.toBeInTheDocument();
 			}
 		});

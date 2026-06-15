@@ -21,6 +21,11 @@ import { withIpcErrorLogging } from '../../utils/ipcHandler';
 import { isWebContentsAvailable } from '../../utils/safe-send';
 import { getSessionStorage, hasSessionStorage, getAllSessionStorages } from '../../agents';
 import { getStatsDB } from '../../stats';
+import { getSshRemoteById as getSshRemoteByIdFromStore } from '../../stores';
+// (vestigial pricing + statsCache imports removed; TS6192 confirmed both
+//  declarations were unused after the v0.17.0 merge resolution. The live
+//  calls in this file use `calculateClaudeCost` and `encodeClaudeProjectPath`
+//  which are imported separately further down.)
 import type {
 	AgentSessionInfo,
 	PaginatedSessionsResult,
@@ -31,7 +36,8 @@ import type {
 	SessionReadOptions,
 } from '../../agents';
 import type { GlobalAgentStats, ProviderStats, SshRemoteConfig } from '../../../shared/types';
-import type { MaestroSettings } from './persistence';
+import { captureException } from '../../utils/sentry';
+import { getHistoryManager } from '../../history-manager';
 
 // Imports for local message counting (Task 17.4)
 import path from 'path';
@@ -82,24 +88,25 @@ export interface AgentSessionOriginsData {
 export interface AgentSessionsHandlerDependencies {
 	getMainWindow: () => BrowserWindow | null;
 	agentSessionOriginsStore?: Store<AgentSessionOriginsData>;
-	/** Settings store for SSH remote configuration lookup */
-	settingsStore?: Store<MaestroSettings>;
+	/** Maestro settings store; used by the fork's SSH-aware remote message counting path. */
+	settingsStore?: { get: (key: string, defaultValue?: unknown) => unknown };
 }
 
-// Module-level reference to settings store (set during registration)
-let agentSessionsSettingsStore: Store<MaestroSettings> | undefined;
+// Module-level settings-store reference set by registerAgentSessionsHandlers;
+// used by the SSH remote message-counting path that runs inside the
+// globalStatsUpdate handler closure (see calls to agentSessionsSettingsStore below).
+let agentSessionsSettingsStore:
+	| { get: (key: string, defaultValue?: unknown) => unknown }
+	| undefined;
 
 /**
- * Get SSH remote configuration by ID from the settings store.
- * Returns undefined if not found or store not provided.
+ * Resolve an enabled SSH remote by ID via the shared settings store.
+ * Wrapper around the canonical getter; preserves the `enabled` filter that
+ * this handler used historically so disabled remotes never silently route SSH.
  */
 function getSshRemoteById(sshRemoteId: string): SshRemoteConfig | undefined {
-	if (!agentSessionsSettingsStore) {
-		logger.warn(`${LOG_CONTEXT} Settings store not available for SSH remote lookup`, LOG_CONTEXT);
-		return undefined;
-	}
-	const sshRemotes = agentSessionsSettingsStore.get('sshRemotes', []) as SshRemoteConfig[];
-	return sshRemotes.find((r) => r.id === sshRemoteId && r.enabled);
+	const remote = getSshRemoteByIdFromStore(sshRemoteId);
+	return remote?.enabled ? remote : undefined;
 }
 
 /**
@@ -271,24 +278,8 @@ function parseClaudeSessionContent(
 	const userMessageCount = (content.match(/"type"\s*:\s*"user"/g) || []).length;
 	const assistantMessageCount = (content.match(/"type"\s*:\s*"assistant"/g) || []).length;
 
-	let inputTokens = 0;
-	let outputTokens = 0;
-	let cacheReadTokens = 0;
-	let cacheCreationTokens = 0;
-
-	const inputMatches = content.matchAll(
-		/(?<!cache_read_|cache_creation_)"input_tokens"\s*:\s*(\d+)/g
-	);
-	for (const m of inputMatches) inputTokens += parseInt(m[1], 10);
-
-	const outputMatches = content.matchAll(/"output_tokens"\s*:\s*(\d+)/g);
-	for (const m of outputMatches) outputTokens += parseInt(m[1], 10);
-
-	const cacheReadMatches = content.matchAll(/"cache_read_input_tokens"\s*:\s*(\d+)/g);
-	for (const m of cacheReadMatches) cacheReadTokens += parseInt(m[1], 10);
-
-	const cacheCreationMatches = content.matchAll(/"cache_creation_input_tokens"\s*:\s*(\d+)/g);
-	for (const m of cacheCreationMatches) cacheCreationTokens += parseInt(m[1], 10);
+	const { inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, costUsd } =
+		computeClaudeUsageCost(content);
 
 	return {
 		messages: userMessageCount + assistantMessageCount,
@@ -298,6 +289,7 @@ function parseClaudeSessionContent(
 		cacheCreationTokens,
 		cachedInputTokens: 0,
 		sizeBytes,
+		costUsd,
 	};
 }
 
@@ -627,6 +619,7 @@ function aggregateProviderStats(
 	let totalCacheCreationTokens = 0;
 	let totalCachedInputTokens = 0;
 	let totalSizeBytes = 0;
+	let totalCostUsd = 0;
 
 	for (const stats of Object.values(sessions)) {
 		totalMessages += stats.messages;
@@ -636,16 +629,19 @@ function aggregateProviderStats(
 		totalCacheCreationTokens += stats.cacheCreationTokens;
 		totalCachedInputTokens += stats.cachedInputTokens;
 		totalSizeBytes += stats.sizeBytes;
+		// Prefer the per-model cost stored at parse time; fall back to flat-rate
+		// pricing for cache entries written before per-model cost was tracked.
+		totalCostUsd +=
+			stats.costUsd ??
+			calculateModelCost({
+				inputTokens: stats.inputTokens,
+				outputTokens: stats.outputTokens,
+				cacheReadTokens: stats.cacheReadTokens,
+				cacheCreationTokens: stats.cacheCreationTokens,
+			});
 	}
 
-	const costUsd = hasCostData
-		? calculateClaudeCost(
-				totalInputTokens,
-				totalOutputTokens,
-				totalCacheReadTokens,
-				totalCacheCreationTokens
-			)
-		: 0;
+	const costUsd = hasCostData ? totalCostUsd : 0;
 
 	return {
 		sessions: Object.keys(sessions).length,
@@ -710,8 +706,6 @@ function aggregateRemoteIntoResult(
  */
 export function registerAgentSessionsHandlers(deps?: AgentSessionsHandlerDependencies): void {
 	const getMainWindow = deps?.getMainWindow;
-
-	// Store settings reference for SSH remote lookups
 	agentSessionsSettingsStore = deps?.settingsStore;
 
 	// ============ List Sessions ============
@@ -1216,12 +1210,107 @@ export function registerAgentSessionsHandlers(deps?: AgentSessionsHandlerDepende
 								)
 							);
 						} catch (error) {
+							void captureException(error);
 							logger.warn(
 								`Failed to get named sessions from ${storage.agentId}: ${error}`,
 								LOG_CONTEXT
 							);
 						}
 					}
+				}
+
+				// Also check the generic origins store for named sessions not found
+				// in provider-specific stores (e.g., sessions named via the generic API)
+				if (originsStore) {
+					const seenIds = new Set(
+						allNamedSessions.map((s) => `${s.agentId}:${s.projectPath}:${s.agentSessionId}`)
+					);
+					const genericOrigins = originsStore.get('origins', {});
+					for (const [agentId, projectEntries] of Object.entries(genericOrigins)) {
+						if (!projectEntries || typeof projectEntries !== 'object') continue;
+						for (const [projectPath, sessions] of Object.entries(
+							projectEntries as Record<
+								string,
+								Record<
+									string,
+									{
+										origin?: string;
+										sessionName?: string;
+										starred?: boolean;
+									}
+								>
+							>
+						)) {
+							if (!sessions || typeof sessions !== 'object') continue;
+							for (const [sessionId, info] of Object.entries(sessions)) {
+								if (!info?.sessionName) continue;
+								const key = `${agentId}:${projectPath}:${sessionId}`;
+								if (seenIds.has(key)) continue;
+
+								// Validate file exists via the storage provider
+								const storage = getSessionStorage(agentId);
+								if (storage) {
+									try {
+										const sessionPath = storage.getSessionPath(projectPath, sessionId);
+										if (sessionPath) {
+											await fs.stat(sessionPath);
+											allNamedSessions.push({
+												agentId,
+												agentSessionId: sessionId,
+												projectPath,
+												sessionName: info.sessionName,
+												starred: info.starred,
+											});
+										}
+									} catch {
+										// File doesn't exist, skip stale entry
+									}
+								}
+							}
+						}
+					}
+				}
+
+				// Fallback: pull names from history entries for sessions whose names were
+				// auto-set at synopsis time but never persisted to an origins store. This
+				// covers historical entries written before the synopsis-time persist call
+				// landed. We attribute each entry to the storage that actually contains
+				// the underlying session file; if no storage owns it, the entry is stale
+				// and skipped.
+				try {
+					const historyManager = getHistoryManager();
+					const seenIdsAfterOrigins = new Set(
+						allNamedSessions.map((s) => `${s.projectPath}:${s.agentSessionId}`)
+					);
+					const seenAcrossAgents = new Set<string>();
+					const storages = getAllSessionStorages();
+					const historyEntries = (await historyManager.getAllEntriesPaginated()).entries;
+					for (const entry of historyEntries) {
+						if (!entry.sessionName || !entry.agentSessionId || !entry.projectPath) continue;
+						const projectKey = `${entry.projectPath}:${entry.agentSessionId}`;
+						if (seenIdsAfterOrigins.has(projectKey) || seenAcrossAgents.has(projectKey)) continue;
+						for (const storage of storages) {
+							const sessionPath = storage.getSessionPath(entry.projectPath, entry.agentSessionId);
+							if (!sessionPath) continue;
+							try {
+								const stats = await fs.stat(sessionPath);
+								allNamedSessions.push({
+									agentId: storage.agentId,
+									agentSessionId: entry.agentSessionId,
+									projectPath: entry.projectPath,
+									sessionName: entry.sessionName,
+									lastActivityAt: stats.mtime.getTime(),
+								});
+								seenAcrossAgents.add(projectKey);
+								break;
+							} catch {
+								// Not in this storage, try next
+							}
+						}
+					}
+				} catch (error) {
+					void captureException(error);
+					logger.warn(`Failed to merge history-derived named sessions: ${error}`, LOG_CONTEXT);
 				}
 
 				logger.info(
@@ -1407,7 +1496,8 @@ export function registerAgentSessionsHandlers(deps?: AgentSessionsHandlerDepende
 				const enabledRemotes = sshRemotes.filter((r) => r.enabled);
 
 				if (enabledRemotes.length > 0) {
-					const sshStatsTimeoutMs = settingsStore?.get('sshStatsTimeoutMs', 60000) ?? 60000;
+					const sshStatsTimeoutMs =
+						(settingsStore?.get('sshStatsTimeoutMs', 60000) as number) ?? 60000;
 
 					// Query all remotes in parallel for faster results
 					const remoteResults = await Promise.all(

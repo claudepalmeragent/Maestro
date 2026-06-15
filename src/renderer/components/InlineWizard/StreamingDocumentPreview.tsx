@@ -13,14 +13,12 @@
  */
 
 import { useState, useEffect, useRef, useMemo } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import { FileText, Code2, AlignLeft } from 'lucide-react';
 import type { Theme } from '../../types';
-import { generateProseStyles, createMarkdownComponents } from '../../utils/markdownConfig';
-
-// Memoize remarkPlugins array - it never changes
-const REMARK_PLUGINS = [remarkGfm];
+import { generateInlineWizardPreviewProseStyles } from '../../utils/markdownConfig';
+import { Markdown } from '../Markdown';
+import { openUrl } from '../../utils/openUrl';
+import { useSettingsStore } from '../../stores/settingsStore';
 
 /**
  * Props for StreamingDocumentPreview
@@ -93,6 +91,7 @@ export function StreamingDocumentPreview({
 	totalPhases,
 }: StreamingDocumentPreviewProps): JSX.Element {
 	const containerRef = useRef<HTMLDivElement>(null);
+	const bionifyReadingMode = useSettingsStore((s) => s.bionifyReadingMode);
 	const [viewMode, setViewMode] = useState<ViewMode>('raw');
 	const userScrolledRef = useRef(false);
 	const lastFilenameRef = useRef(filename ?? '');
@@ -138,23 +137,12 @@ export function StreamingDocumentPreview({
 
 	// Prose styles for markdown preview - scoped to .streaming-preview
 	const proseStyles = useMemo(
-		() =>
-			generateProseStyles({
-				theme,
-				scopeSelector: '.streaming-preview',
-			}),
+		() => generateInlineWizardPreviewProseStyles(theme, '.streaming-preview', 'streaming'),
 		[theme]
 	);
 
-	// Markdown components from shared factory (handles SyntaxHighlighter, links, etc.)
-	const markdownComponents = useMemo(
-		() =>
-			createMarkdownComponents({
-				theme,
-				onExternalLinkClick: (href) => window.maestro.shell.openExternal(href),
-			}),
-		[theme]
-	);
+	// Code-block style overrides for the compact streaming preview.
+	const codeBlockStyle = useMemo(() => ({ padding: '0.75em', fontSize: '0.85em' }), []);
 
 	return (
 		<div className="relative flex flex-col h-full streaming-preview">
@@ -252,9 +240,15 @@ export function StreamingDocumentPreview({
 					/* Markdown preview */
 					<div className="prose prose-sm max-w-none text-sm">
 						<style>{proseStyles}</style>
-						<ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={markdownComponents}>
-							{cleanedContent}
-						</ReactMarkdown>
+						<Markdown
+							preset="document"
+							frontmatter={false}
+							theme={theme}
+							content={cleanedContent}
+							enableBionifyReadingMode={bionifyReadingMode}
+							onExternalLinkClick={openUrl}
+							codeBlockStyle={codeBlockStyle}
+						/>
 						{/* Blinking cursor at end */}
 						<span
 							className="inline-block w-2 h-4 ml-0.5 align-text-bottom animate-pulse"
