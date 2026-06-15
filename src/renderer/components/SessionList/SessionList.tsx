@@ -16,7 +16,6 @@ import {
 	Radio,
 	Folder,
 	FolderPlus,
-	GitBranch,
 	Menu,
 	Bookmark,
 	Trophy,
@@ -2208,7 +2207,7 @@ function SessionListInner(props: SessionListProps) {
 									{!showUnreadAgentsOnly && (
 										<div className="mt-4 px-3">
 											<button
-												onClick={createNewGroup}
+												onClick={() => createNewGroup()}
 												className="w-full px-2 py-1.5 rounded-full text-[10px] font-medium hover:opacity-80 transition-opacity flex items-center justify-center gap-1"
 												style={{
 													backgroundColor: theme.colors.accent + '20',
@@ -2357,7 +2356,7 @@ function SessionListInner(props: SessionListProps) {
 										</div>
 									)}
 									<button
-										onClick={createNewGroup}
+										onClick={() => createNewGroup()}
 										className="w-full px-2 py-1.5 rounded-full text-[10px] font-medium hover:opacity-80 transition-opacity flex items-center justify-center gap-1"
 										style={{
 											backgroundColor: theme.colors.accent + '20',

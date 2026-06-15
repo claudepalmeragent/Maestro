@@ -58,7 +58,7 @@ export function calculateDisplayInputTokens(
 	agentId?: ToolType | string
 ): number {
 	// OpenAI/Codex: inputTokens already includes cached input, do not add cache fields.
-	if (agentId && COMBINED_CONTEXT_AGENTS.has(agentId as ToolType)) {
+	if (agentId && COMBINED_CONTEXT_AGENTS.has(agentId as AgentId)) {
 		return stats.inputTokens || 0;
 	}
 

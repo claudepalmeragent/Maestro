@@ -85,14 +85,14 @@ describe('WizardModePrompt', () => {
 			renderWithLayerStack(<WizardModePrompt {...defaultProps} />);
 
 			expect(screen.getByText('Create New Plan')).toBeInTheDocument();
-			expect(screen.getByTestId('file-text-icon')).toBeInTheDocument();
+			expect(screen.getByTestId('filetext-icon')).toBeInTheDocument();
 		});
 
 		it('renders "Iterate on Existing" option button', () => {
 			renderWithLayerStack(<WizardModePrompt {...defaultProps} />);
 
 			expect(screen.getByText('Iterate on Existing')).toBeInTheDocument();
-			expect(screen.getByTestId('refresh-cw-icon')).toBeInTheDocument();
+			expect(screen.getByTestId('refreshcw-icon')).toBeInTheDocument();
 		});
 
 		it('renders Cancel button', () => {
@@ -430,8 +430,8 @@ describe('WizardModePrompt', () => {
 		it('displays option buttons with correct icons', () => {
 			renderWithLayerStack(<WizardModePrompt {...defaultProps} />);
 
-			expect(screen.getByTestId('file-text-icon')).toBeInTheDocument();
-			expect(screen.getByTestId('refresh-cw-icon')).toBeInTheDocument();
+			expect(screen.getByTestId('filetext-icon')).toBeInTheDocument();
+			expect(screen.getByTestId('refreshcw-icon')).toBeInTheDocument();
 		});
 	});
 });

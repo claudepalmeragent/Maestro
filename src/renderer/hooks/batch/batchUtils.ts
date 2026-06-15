@@ -122,17 +122,6 @@ export function countMarkdownTasks(content: string): MarkdownTaskCounts {
 	};
 }
 
-// Regex to match fenced code blocks (``` or ~~~, with optional language identifier)
-const FENCED_CODE_BLOCK_REGEX = /^(```|~~~).*\n[\s\S]*?\n\1\s*$/gm;
-
-/**
- * Remove fenced code blocks from markdown content.
- * This prevents checkboxes inside code examples from being counted as tasks.
- */
-function stripFencedCodeBlocks(content: string): string {
-	return content.replace(FENCED_CODE_BLOCK_REGEX, '');
-}
-
 /**
  * Count unchecked tasks in markdown content
  * Matches lines like: - [ ] task description

@@ -112,7 +112,7 @@ describe('TransferProgressModal', () => {
 			expect(screen.getByText('Transferring Context...')).toBeInTheDocument();
 			expect(screen.getByText('Claude Code')).toBeInTheDocument();
 			expect(screen.getByText('OpenCode')).toBeInTheDocument();
-			expect(screen.getByTestId('arrow-right-icon')).toBeInTheDocument();
+			expect(screen.getByTestId('arrowright-icon')).toBeInTheDocument();
 		});
 
 		it('displays progress message', () => {
@@ -556,7 +556,7 @@ describe('TransferProgressModal', () => {
 				/>
 			);
 
-			expect(screen.getByTestId('arrow-right-icon')).toBeInTheDocument();
+			expect(screen.getByTestId('arrowright-icon')).toBeInTheDocument();
 		});
 	});
 });

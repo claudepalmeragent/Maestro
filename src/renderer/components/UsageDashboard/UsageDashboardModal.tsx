@@ -67,7 +67,6 @@ import {
 import { useModalLayer } from '../../hooks/ui/useModalLayer';
 import { useHoneycombUsage } from '../../hooks/useHoneycombUsage';
 import { useSettings } from '../../hooks/settings/useSettings';
-import { useLayerStack } from '../../contexts/LayerStackContext';
 import { MODAL_PRIORITIES } from '../../constants/modalPriorities';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useUIStore } from '../../stores/uiStore';
@@ -691,6 +690,7 @@ export function UsageDashboardModal({
 			'autorun-stats': 'Auto Run Statistics',
 			'tasks-by-hour': 'Tasks by Time of Day Chart',
 			'longest-autoruns': 'Top 25 Longest Auto Runs',
+			'peak-hours': 'Peak Hours Chart',
 		};
 		return labels[sectionId] || sectionId;
 	}, []);

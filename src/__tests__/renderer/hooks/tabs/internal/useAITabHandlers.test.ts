@@ -1,5 +1,7 @@
 import { renderHook, act, cleanup } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.unmock('../../../../../renderer/stores/modalStore');
 import { useAITabHandlers } from '../../../../../renderer/hooks/tabs/internal/useAITabHandlers';
 import { useModalStore } from '../../../../../renderer/stores/modalStore';
 import { useSettingsStore } from '../../../../../renderer/stores/settingsStore';

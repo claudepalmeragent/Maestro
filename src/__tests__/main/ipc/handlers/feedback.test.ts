@@ -66,14 +66,14 @@ import {
 	cleanupTempFiles,
 	saveImageToTempFile,
 } from '../../../../main/process-manager/utils/imageUtils';
-import { registerFeedbackHandlers } from '../../../../main/ipc/handlers/feedback';
+import { registerGhFeedbackHandlers } from '../../../../main/ipc/handlers/feedback';
 
 describe('feedback handlers', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		registeredHandlers.clear();
 		mockProcessManager.write.mockReset();
-		registerFeedbackHandlers({
+		registerGhFeedbackHandlers({
 			getProcessManager: () => mockProcessManager as any,
 		});
 	});

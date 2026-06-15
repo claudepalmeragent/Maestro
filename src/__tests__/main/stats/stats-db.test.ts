@@ -284,13 +284,13 @@ describe('StatsDB class (mocked)', () => {
 			const db = new StatsDB();
 			db.initialize();
 
-			// Currently we have 10 migrations (v1-v9 plus v10: compound indexes for dashboard)
-			expect(db.getTargetVersion()).toBe(10);
+			// Currently we have 13 migrations
+			expect(db.getTargetVersion()).toBe(13);
 		});
 
 		it('should return false from hasPendingMigrations() when up to date', async () => {
 			mockDb.pragma.mockImplementation((sql: string) => {
-				if (sql === 'user_version') return [{ user_version: 10 }];
+				if (sql === 'user_version') return [{ user_version: 13 }];
 				return undefined;
 			});
 
@@ -305,8 +305,8 @@ describe('StatsDB class (mocked)', () => {
 			// This test verifies the hasPendingMigrations() logic
 			// by checking current version < target version
 
-			// Simulate a database that's already at version 10 (target version)
-			let currentVersion = 10;
+			// Simulate a database that's already at version 13 (target version)
+			let currentVersion = 13;
 			mockDb.pragma.mockImplementation((sql: string) => {
 				if (sql === 'user_version') return [{ user_version: currentVersion }];
 				// Handle version updates from migration
@@ -320,9 +320,9 @@ describe('StatsDB class (mocked)', () => {
 			const db = new StatsDB();
 			db.initialize();
 
-			// At version 10, target is 10, so no pending migrations
-			expect(db.getCurrentVersion()).toBe(10);
-			expect(db.getTargetVersion()).toBe(10);
+			// At version 13, target is 13, so no pending migrations
+			expect(db.getCurrentVersion()).toBe(13);
+			expect(db.getTargetVersion()).toBe(13);
 			expect(db.hasPendingMigrations()).toBe(false);
 		});
 

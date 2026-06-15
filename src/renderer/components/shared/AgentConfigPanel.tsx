@@ -354,12 +354,6 @@ export interface AgentConfigPanelProps {
 	hostEffortLevel?: string;
 	// SSH remote execution enabled for this session
 	isSshEnabled?: boolean;
-	/**
-	 * SSH remote id for this session. When set (and SSH enabled), the panel
-	 * probes the remote for `maestro-p` and disables the TUI token-source option
-	 * when it's absent there. Omit for local agents.
-	 */
-	sshRemoteId?: string;
 	// === Claude Code Batch Mode (claude-code agent only) ===
 	// When true, the spawner auto-switches between maestro-p (Time Limits) and
 	// `claude --print` (API Limits) based on the latest usage snapshot. Off by default.

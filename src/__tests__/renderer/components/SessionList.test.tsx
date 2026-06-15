@@ -3457,10 +3457,10 @@ describe('SessionList', () => {
 
 			// Wait for async status fetch to complete
 			await waitFor(() => {
-				expect(screen.getByTestId('icon-zap')).toBeInTheDocument();
+				expect(screen.getByTestId('zap-icon')).toBeInTheDocument();
 			});
 
-			const zapIcon = screen.getByTestId('icon-zap');
+			const zapIcon = screen.getByTestId('zap-icon');
 			expect(zapIcon.closest('span[title]')).toHaveAttribute(
 				'title',
 				'Maestro Cue active (3 subscriptions)'
@@ -3505,7 +3505,7 @@ describe('SessionList', () => {
 				await new Promise((r) => setTimeout(r, 50));
 			});
 
-			expect(screen.queryByTestId('icon-zap')).not.toBeInTheDocument();
+			expect(screen.queryByTestId('zap-icon')).not.toBeInTheDocument();
 		});
 
 		it('hides Zap icon when the user disables the Cue indicator setting', async () => {
@@ -3545,7 +3545,7 @@ describe('SessionList', () => {
 				await new Promise((r) => setTimeout(r, 50));
 			});
 
-			expect(screen.queryByTestId('icon-zap')).not.toBeInTheDocument();
+			expect(screen.queryByTestId('zap-icon')).not.toBeInTheDocument();
 		});
 
 		it('does not show Zap icon for sessions without Cue subscriptions', async () => {
@@ -3571,7 +3571,7 @@ describe('SessionList', () => {
 				await new Promise((r) => setTimeout(r, 50));
 			});
 
-			expect(screen.queryByTestId('icon-zap')).not.toBeInTheDocument();
+			expect(screen.queryByTestId('zap-icon')).not.toBeInTheDocument();
 		});
 	});
 });

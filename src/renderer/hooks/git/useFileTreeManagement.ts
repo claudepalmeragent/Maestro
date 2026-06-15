@@ -188,7 +188,6 @@ export function useFileTreeManagement(
 	deps: UseFileTreeManagementDeps
 ): UseFileTreeManagementReturn {
 	const {
-		sessions,
 		sessionsRef,
 		setSessions,
 		activeSessionId,

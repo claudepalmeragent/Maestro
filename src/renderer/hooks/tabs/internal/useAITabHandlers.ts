@@ -271,6 +271,19 @@ export function useAITabHandlers(): AITabHandlersReturn {
 		);
 	}, []);
 
+	const handleTabLock = useCallback((tabId: string, locked: boolean) => {
+		const { setSessions, activeSessionId } = useSessionStore.getState();
+		setSessions((prev: Session[]) =>
+			prev.map((s) => {
+				if (s.id !== activeSessionId) return s;
+				return {
+					...s,
+					aiTabs: s.aiTabs.map((t) => (t.id === tabId ? { ...t, locked } : t)),
+				};
+			})
+		);
+	}, []);
+
 	const handleTabMarkUnread = useCallback((tabId: string) => {
 		const { setSessions, activeSessionId } = useSessionStore.getState();
 		setSessions((prev: Session[]) =>
@@ -354,6 +367,7 @@ export function useAITabHandlers(): AITabHandlersReturn {
 		handleRequestTabRename,
 		handleUpdateTabByClaudeSessionId,
 		handleTabStar,
+		handleTabLock,
 		handleTabMarkUnread,
 		handleToggleTabReadOnlyMode,
 		handleToggleTabSaveToHistory,

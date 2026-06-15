@@ -212,7 +212,6 @@ export const RightPanel = memo(
 			onOpenMarketplace,
 			onLaunchWizard,
 			onFocusFileInGraph,
-			onOpenLastDocumentGraph,
 			pinnedItems,
 			onUnpinMessage,
 			onReorderPins,

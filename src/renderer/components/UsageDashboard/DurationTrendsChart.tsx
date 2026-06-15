@@ -13,16 +13,12 @@
  */
 
 import React, { memo, useState, useMemo, useCallback, useId } from 'react';
-import { createPortal } from 'react-dom';
 import { format, parseISO } from 'date-fns';
 import type { Theme } from '../../types';
 import type { StatsTimeRange, StatsAggregation } from '../../hooks/stats/useStats';
 import { COLORBLIND_LINE_COLORS } from '../../constants/colorblindPalettes';
 import { formatDurationHuman as formatDuration } from '../../../shared/formatters';
 import { ChartTooltip } from './ChartTooltip';
-
-// Tooltip positioning constants
-const TOOLTIP_OFFSET = 12; // pixels gap between tooltip and cursor
 
 // Data point for the chart
 interface DataPoint {

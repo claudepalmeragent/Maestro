@@ -13,7 +13,6 @@
  */
 
 import React, { memo, useState, useEffect, useMemo, useCallback } from 'react';
-import { createPortal } from 'react-dom';
 import { Play, CheckSquare, ListChecks, Target, Clock, Timer } from 'lucide-react';
 import type { Theme } from '../../types';
 import type { StatsTimeRange, AutoRunSession } from '../../../shared/stats-types';
@@ -125,6 +124,7 @@ export const AutoRunStats = memo(function AutoRunStats({
 	const [hoveredBar, setHoveredBar] = useState<{
 		date: string;
 		count: number;
+		successCount: number;
 	} | null>(null);
 	const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(null);
 
@@ -225,7 +225,10 @@ export const AutoRunStats = memo(function AutoRunStats({
 	// bounding rect) so the tooltip stays close to the user's pointer - short
 	// bars used to leave the tooltip stranded near the chart's bottom edge.
 	const handleMouseEnter = useCallback(
-		(data: { date: string; count: number }, event: React.MouseEvent<HTMLDivElement>) => {
+		(
+			data: { date: string; count: number; successCount: number },
+			event: React.MouseEvent<HTMLDivElement>
+		) => {
 			setHoveredBar(data);
 			setTooltipPos({ x: event.clientX, y: event.clientY });
 		},
@@ -395,7 +398,6 @@ export const AutoRunStats = memo(function AutoRunStats({
 								// runs that errored out still surface a bar.
 								const barValue = day.successCount > 0 ? day.successCount : day.count;
 								const height = maxCount > 0 ? (barValue / maxCount) * 100 : 0;
-								const successRatio = day.count > 0 ? day.successCount / day.count : 0;
 								const isHovered = hoveredBar?.date === day.date;
 
 								return (

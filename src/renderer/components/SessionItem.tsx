@@ -19,7 +19,6 @@ import { COLORBLIND_STATUS_COLORS } from '../constants/colorblindPalettes';
 import { abbreviateGroupName } from '../../shared/formatters';
 import type { Session, Group, Theme } from '../types';
 import type { ProjectFolder } from '../../shared/types';
-import { getStatusColor } from '../utils/theme';
 import { ProjectColorBars } from './sidebar/ProjectColorBars';
 
 // ============================================================================

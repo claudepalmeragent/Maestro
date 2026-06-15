@@ -114,6 +114,10 @@ export interface UseSettingsReturn {
 	defaultShowThinking: ThinkingMode;
 	setDefaultShowThinking: (value: ThinkingMode) => void;
 
+	// Auto-scroll behavior in AI tabs
+	autoScrollAiMode: boolean;
+	setAutoScrollAiMode: (value: boolean) => void;
+
 	// Group Chat default thinking toggle (separate from AI tab thinking)
 	groupChatDefaultShowThinking: boolean;
 	setGroupChatDefaultShowThinking: (value: boolean) => void;

@@ -262,13 +262,14 @@ export async function loadFileTree(
 		logger.info('[DIAG] SSH file tree load', 'FileTree', { treeRoot: dirPath, ignorePatterns });
 
 		// Use find-based single-command approach for SSH remotes
-		return loadFileTreeViaFind(
+		const tree = await loadFileTreeViaFind(
 			dirPath,
 			maxDepth,
 			sshContext!.sshRemoteId!,
 			ignorePatterns,
 			onProgress
 		);
+		return { tree, truncated: false, filesFound: tree.length };
 	}
 
 	// Local path: use existing recursive approach

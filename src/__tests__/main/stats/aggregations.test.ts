@@ -1420,9 +1420,10 @@ describe('Aggregation queries return correct calculations', () => {
 	describe('byWorktreeStatus breakdown calculations', () => {
 		it('should return correct worktree vs parent counts and durations', async () => {
 			mockStatement.get.mockReturnValue({ count: 100, total_duration: 500000 });
-			// queryByWorktreeStatus is the 11th .all call in getAggregatedStats; populate
-			// the prior 10 with empty arrays so we can isolate the worktree assertion.
+			// queryByWorktreeStatus is the 13th .all call (1 from db.initialize() migration
+			// history + 12 aggregation queries).
 			mockStatement.all
+				.mockReturnValueOnce([]) // 0: db.initialize() migration history
 				.mockReturnValueOnce([]) // 1: byAgent
 				.mockReturnValueOnce([]) // 2: bySource
 				.mockReturnValueOnce([]) // 3: byLocation
@@ -1432,11 +1433,13 @@ describe('Aggregation queries return correct calculations', () => {
 				.mockReturnValueOnce([]) // 7: sessionsByAgent (from querySessionStats)
 				.mockReturnValueOnce([]) // 8: sessionsByDay (from querySessionStats)
 				.mockReturnValueOnce([]) // 9: bySessionByDay
-				.mockReturnValueOnce([]) // 10: bySessionSource
+				.mockReturnValueOnce([]) // 10: byAgentIdByDay
+				.mockReturnValueOnce([]) // 11: bySessionSource
 				.mockReturnValueOnce([
 					{ is_worktree: 0, count: 70, duration: 350000 },
 					{ is_worktree: 1, count: 30, duration: 150000 },
-				]); // 11: byWorktreeStatus
+				]) // 12: byWorktreeStatus
+				.mockReturnValue([]); // remaining (durationPercentiles, autoRunTaskPercentiles)
 
 			const { StatsDB } = await import('../../../main/stats');
 			const db = new StatsDB();
@@ -1475,6 +1478,7 @@ describe('Aggregation queries return correct calculations', () => {
 			// driver only sees a single 0-bucket row even when legacy NULL rows are present.
 			mockStatement.get.mockReturnValue({ count: 50, total_duration: 250000 });
 			mockStatement.all
+				.mockReturnValueOnce([]) // 0: db.initialize() migration history
 				.mockReturnValueOnce([]) // 1: byAgent
 				.mockReturnValueOnce([]) // 2: bySource
 				.mockReturnValueOnce([]) // 3: byLocation
@@ -1484,8 +1488,10 @@ describe('Aggregation queries return correct calculations', () => {
 				.mockReturnValueOnce([]) // 7: sessionsByAgent
 				.mockReturnValueOnce([]) // 8: sessionsByDay
 				.mockReturnValueOnce([]) // 9: bySessionByDay
-				.mockReturnValueOnce([]) // 10: bySessionSource
-				.mockReturnValueOnce([{ is_worktree: 0, count: 50, duration: 250000 }]); // 11
+				.mockReturnValueOnce([]) // 10: byAgentIdByDay
+				.mockReturnValueOnce([]) // 11: bySessionSource
+				.mockReturnValueOnce([{ is_worktree: 0, count: 50, duration: 250000 }]) // 12: byWorktreeStatus
+				.mockReturnValue([]);
 
 			const { StatsDB } = await import('../../../main/stats');
 			const db = new StatsDB();

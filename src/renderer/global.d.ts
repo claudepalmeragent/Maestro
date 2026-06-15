@@ -160,6 +160,7 @@ type GroupChatData = {
 import type { CueGraphSession, CueRunResult, CueSessionStatus, CueSettings } from '../shared/cue';
 import type { CueLogPayload } from '../shared/cue-log-types';
 import type { CueStatsAggregation, CueStatsTimeRange } from '../shared/cue-stats-types';
+import type { StatsAggregation } from '../shared/stats-types';
 import type { DurationPercentiles } from '../shared/percentiles';
 import type { MaestroCliStatus, MaestroCliInstallResult } from '../shared/maestro-cli';
 import type { GitWorktreeSetupResult, GitWorktreeCheckoutResult } from '../main/preload/git';
@@ -665,7 +666,7 @@ interface MaestroAPI {
 			) => void
 		) => () => void;
 	};
-	feedback: {
+	ghFeedback: {
 		checkGhAuth: () => Promise<{ authenticated: boolean; message?: string }>;
 		submit: (payload: {
 			sessionId: string;
@@ -3000,85 +3001,9 @@ interface MaestroAPI {
 			}>
 		>;
 		// Get aggregated stats for dashboard display
-		getAggregation: (range: 'day' | 'week' | 'month' | 'quarter' | 'year' | 'all') => Promise<{
-			totalQueries: number;
-			totalDuration: number;
-			avgDuration: number;
-			queryDurationPercentiles: DurationPercentiles;
-			queryDurationPercentilesByAgent: Record<string, DurationPercentiles>;
-			autoRunTaskDurationPercentiles: DurationPercentiles;
-			byAgent: Record<
-				string,
-				{ count: number; duration: number; totalOutputTokens: number; avgTokensPerSecond: number }
-			>;
-			bySource: { user: number; auto: number };
-			byLocation: { local: number; remote: number };
-			byDay: Array<{
-				date: string;
-				count: number;
-				duration: number;
-				outputTokens?: number;
-				avgTokensPerSecond?: number;
-			}>;
-			byHour: Array<{ hour: number; count: number; duration: number }>;
-			totalSessions: number;
-			sessionsByAgent: Record<string, number>;
-			sessionsByDay: Array<{ date: string; count: number }>;
-			avgSessionDuration: number;
-			byAgentByDay: Record<
-				string,
-				Array<{
-					date: string;
-					count: number;
-					duration: number;
-					outputTokens: number;
-					avgTokensPerSecond: number;
-				}>
-			>;
-			bySessionByDay: Record<
-				string,
-				Array<{
-					date: string;
-					count: number;
-					duration: number;
-					outputTokens: number;
-					avgTokensPerSecond: number;
-				}>
-			>;
-			/** Aggregation by Maestro agent ID (not fragmented session IDs) - for proper agent attribution in charts */
-			byAgentIdByDay: Record<
-				string,
-				Array<{
-					date: string;
-					count: number;
-					duration: number;
-					outputTokens: number;
-					avgTokensPerSecond: number;
-				}>
-			>;
-			/** Total output tokens generated across all queries */
-			totalOutputTokens: number;
-			/** Total input tokens sent across all queries */
-			totalInputTokens: number;
-			/** Average throughput in tokens per second (for queries with token data) */
-			avgTokensPerSecond: number;
-			/** Average output tokens per query (for queries with token data) */
-			avgOutputTokensPerQuery: number;
-			/** Number of queries that have token data */
-			queriesWithTokenData: number;
-			// Cache tokens and cost aggregates (added in v5)
-			totalCacheReadInputTokens?: number;
-			totalCacheCreationInputTokens?: number;
-			totalCostUsd?: number;
-			bySessionSource: Record<string, { user: number; auto: number }>;
-			worktreeQueries: number;
-			parentQueries: number;
-			byWorktreeStatus: {
-				worktree: { count: number; duration: number };
-				parent: { count: number; duration: number };
-			};
-			imageAnnotations: number;
-		}>;
+		getAggregation: (
+			range: 'day' | 'week' | 'month' | 'quarter' | 'year' | 'all'
+		) => Promise<StatsAggregation>;
 		// Export query events to CSV
 		exportCsv: (range: 'day' | 'week' | 'month' | 'quarter' | 'year' | 'all') => Promise<string>;
 		// Subscribe to stats updates (for real-time dashboard refresh)

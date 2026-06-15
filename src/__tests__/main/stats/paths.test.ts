@@ -732,6 +732,7 @@ describe('File path normalization in database (forward slashes consistently)', (
 				'C:/Users/TestUser/Projects/MyApp', // normalized path
 				'tab-1',
 				null, // isRemote (undefined → null)
+				null, // isWorktree (undefined → null)
 				null, // inputTokens (undefined → null)
 				null, // outputTokens (undefined → null)
 				null, // tokensPerSecond (undefined → null)
@@ -748,8 +749,7 @@ describe('File path normalization in database (forward slashes consistently)', (
 				null, // anthropicMessageId (undefined → null)
 				0, // isReconstructed (defaults to 0)
 				null, // reconstructedAt (undefined → null)
-				null, // claudeSessionId (undefined → null)
-				null // isWorktree (undefined → null)
+				null // claudeSessionId (undefined → null)
 			);
 		});
 
@@ -780,6 +780,7 @@ describe('File path normalization in database (forward slashes consistently)', (
 				'/Users/testuser/Projects/MyApp', // unchanged
 				'tab-1',
 				null, // isRemote (undefined → null)
+				null, // isWorktree (undefined → null)
 				null, // inputTokens (undefined → null)
 				null, // outputTokens (undefined → null)
 				null, // tokensPerSecond (undefined → null)
@@ -796,8 +797,7 @@ describe('File path normalization in database (forward slashes consistently)', (
 				null, // anthropicMessageId (undefined → null)
 				0, // isReconstructed (defaults to 0)
 				null, // reconstructedAt (undefined → null)
-				null, // claudeSessionId (undefined → null)
-				null // isWorktree (undefined → null)
+				null // claudeSessionId (undefined → null)
 			);
 		});
 
@@ -827,6 +827,7 @@ describe('File path normalization in database (forward slashes consistently)', (
 				null, // undefined becomes null
 				null, // tabId undefined → null
 				null, // isRemote undefined → null
+				null, // isWorktree (undefined → null)
 				null, // inputTokens (undefined → null)
 				null, // outputTokens (undefined → null)
 				null, // tokensPerSecond (undefined → null)
@@ -843,8 +844,7 @@ describe('File path normalization in database (forward slashes consistently)', (
 				null, // anthropicMessageId (undefined → null)
 				0, // isReconstructed (defaults to 0)
 				null, // reconstructedAt (undefined → null)
-				null, // claudeSessionId (undefined → null)
-				null // isWorktree (undefined → null)
+				null // claudeSessionId (undefined → null)
 			);
 		});
 	});

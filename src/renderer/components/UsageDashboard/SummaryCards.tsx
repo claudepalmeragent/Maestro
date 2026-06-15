@@ -850,9 +850,7 @@ export const SummaryCards = memo(function SummaryCards({
 	// Calculate derived metrics
 	const {
 		mostActiveAgent,
-		interactiveRatio,
 		peakHour,
-		localVsRemote,
 		queriesPerSession,
 		throughputDisplay,
 		totalTokensDisplay,

@@ -15,7 +15,6 @@
  */
 
 import React, { memo, useState, useMemo, useCallback } from 'react';
-import { createPortal } from 'react-dom';
 import { format, parseISO } from 'date-fns';
 import type { Theme, Session } from '../../types';
 import type { StatsTimeRange, StatsAggregation } from '../../hooks/stats/useStats';
@@ -23,9 +22,6 @@ import { COLORBLIND_AGENT_PALETTE } from '../../constants/colorblindPalettes';
 import { formatDurationHuman as formatDuration } from '../../../shared/formatters';
 import { buildNameMap } from './chartUtils';
 import { ChartTooltip } from './ChartTooltip';
-
-// Tooltip positioning constants
-const TOOLTIP_OFFSET = 12; // pixels gap between tooltip and cursor
 
 // 10 distinct colors for agents
 const AGENT_COLORS = [

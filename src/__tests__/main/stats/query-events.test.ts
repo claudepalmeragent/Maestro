@@ -747,10 +747,10 @@ describe('Query events recorded for interactive sessions', () => {
 			const runCalls = mockStatement.run.mock.calls;
 			const lastCall = runCalls[runCalls.length - 1];
 
-			// Parameters: id, session_id, agent_id, agent_type, source, start_time, duration, project_path, tab_id, is_remote, input_tokens, output_tokens, tokens_per_second
-			expect(lastCall[10]).toBe(150); // input_tokens
-			expect(lastCall[11]).toBe(500); // output_tokens
-			expect(lastCall[12]).toBe(100); // tokens_per_second
+			// Parameters: id, session_id, agent_id, agent_type, source, start_time, duration, project_path, tab_id, is_remote, is_worktree, input_tokens, output_tokens, tokens_per_second
+			expect(lastCall[11]).toBe(150); // input_tokens
+			expect(lastCall[12]).toBe(500); // output_tokens
+			expect(lastCall[13]).toBe(100); // tokens_per_second
 		});
 
 		it('should record null for optional token fields when not provided', async () => {

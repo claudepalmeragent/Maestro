@@ -102,7 +102,7 @@ describe('TransferErrorModal', () => {
 
 			expect(screen.getByText('Claude Code')).toBeInTheDocument();
 			expect(screen.getByText('OpenCode')).toBeInTheDocument();
-			expect(screen.getByTestId('arrow-right-icon')).toBeInTheDocument();
+			expect(screen.getByTestId('arrowright-icon')).toBeInTheDocument();
 		});
 
 		it('renders error timestamp', () => {
@@ -165,7 +165,7 @@ describe('TransferErrorModal', () => {
 			);
 
 			expect(screen.getByText('Context Too Large')).toBeInTheDocument();
-			expect(screen.getByTestId('hard-drive-icon')).toBeInTheDocument();
+			expect(screen.getByTestId('harddrive-icon')).toBeInTheDocument();
 		});
 
 		it('shows correct title for session_creation_failed', () => {

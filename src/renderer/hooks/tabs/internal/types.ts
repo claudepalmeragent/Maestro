@@ -52,6 +52,7 @@ export interface AITabHandlersReturn {
 		updates: { name?: string | null; starred?: boolean }
 	) => void;
 	handleTabStar: (tabId: string, starred: boolean) => void;
+	handleTabLock: (tabId: string, locked: boolean) => void;
 	handleTabMarkUnread: (tabId: string) => void;
 	handleToggleTabReadOnlyMode: () => void;
 	handleToggleTabSaveToHistory: () => void;

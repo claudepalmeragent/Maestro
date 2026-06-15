@@ -54,6 +54,11 @@ const mockSetDisableConfetti = vi.fn();
 const mockSetCheckForUpdatesOnStartup = vi.fn();
 const mockSetEnableBetaUpdates = vi.fn();
 const mockSetCrashReportingEnabled = vi.fn();
+const mockSetStatsCollectionEnabled = vi.fn();
+const mockSetDefaultStatsTimeRange = vi.fn();
+const mockSetWakatimeEnabled = vi.fn();
+const mockSetWakatimeApiKey = vi.fn();
+const mockSetWakatimeDetailedTracking = vi.fn();
 
 // Allow per-test overrides of settings
 let mockUseSettingsOverrides: Record<string, any> = {};

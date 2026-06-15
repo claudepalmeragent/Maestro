@@ -9,6 +9,7 @@
  */
 
 import type { ToolType } from '../types';
+import type { AgentId } from '../../shared/agentIds';
 import {
 	DEFAULT_CONTEXT_WINDOWS,
 	FALLBACK_CONTEXT_WINDOW,
@@ -71,5 +72,5 @@ export async function resolveEffectiveContextWindow(session: ContextWindowSource
 	const toolType = session.toolType;
 	if (toolType === 'terminal') return 0;
 	if (!toolType) return FALLBACK_CONTEXT_WINDOW;
-	return DEFAULT_CONTEXT_WINDOWS[toolType as ToolType] ?? FALLBACK_CONTEXT_WINDOW;
+	return DEFAULT_CONTEXT_WINDOWS[toolType as AgentId] ?? FALLBACK_CONTEXT_WINDOW;
 }

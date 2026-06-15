@@ -51,6 +51,14 @@ vi.mock('../../main/utils/statsCache', () => ({
 vi.mock('../../main/utils/remote-fs', () => ({
 	readFileRemote: vi.fn(),
 	listDirWithStatsRemote: vi.fn(),
+	batchDiscoverSessionFilesRemote: vi.fn(async () => ({
+		success: true,
+		data: [],
+	})),
+	batchExtractSessionPreviewsRemote: vi.fn(async () => ({
+		success: true,
+		data: new Map(),
+	})),
 }));
 
 // Mock electron-store: each instantiation gets its own isolated in-memory store
@@ -1257,10 +1265,21 @@ describe('ClaudeSessionStorage', () => {
 				size: 1024,
 				mtime: 1_776_000_000_000 + i * 1000,
 			}));
+			const batchEntries = entries.map((e) => ({
+				filename: e.name,
+				filePath: `/remote/project/${e.name}`,
+				projectDirName: 'project',
+				size: e.size,
+				mtime: e.mtime,
+			}));
 
 			vi.mocked(remoteFs.listDirWithStatsRemote).mockResolvedValue({
 				success: true,
 				data: entries,
+			});
+			vi.mocked(remoteFs.batchDiscoverSessionFilesRemote).mockResolvedValue({
+				success: true,
+				data: batchEntries,
 			});
 			vi.mocked(remoteFs.readFileRemote).mockResolvedValue({
 				success: true,

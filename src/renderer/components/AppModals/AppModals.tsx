@@ -138,6 +138,7 @@ export interface AppModalsProps {
 		maestroPMode?: 'interactive' | 'dynamic'
 	) => void;
 	editAgentSession: Session | null;
+	onRescanGit: (sessionId: string) => Promise<boolean>;
 	renameSessionValue: string;
 	setRenameSessionValue: (value: string) => void;
 	onCloseRenameSessionModal: () => void;
@@ -152,6 +153,7 @@ export interface AppModalsProps {
 	// --- AppGroupModals props ---
 	createGroupModalOpen: boolean;
 	onCloseCreateGroupModal: () => void;
+	createGroupForFolderId?: string | null;
 	onGroupCreated?: (groupId: string) => void;
 	renameGroupId: string | null;
 	renameGroupValue: string;
@@ -282,7 +284,20 @@ export interface AppModalsProps {
 	onUpdateLightboxImage?: (oldImg: string, newDataUrl: string) => void;
 	gitDiffPreview: string | null;
 	gitViewerCwd: string;
+	autoScrollAiMode?: boolean;
+	setAutoScrollAiMode?: (value: boolean) => void;
+	closedTabHistory?: unknown[];
+	onReopenClosedTab?: (index: number) => void;
+	createGroupChatForFolderId?: string | null;
+	promptLibraryAgentId?: string | null;
+	promptLibraryAgentName?: string | null;
+	promptLibraryAgentSessionId?: string | null;
+	promptLibraryProjectName?: string | null;
+	promptLibraryProjectPath?: string | null;
+	promptLibraryProjectFolderColor?: string | null;
+	onPromptLibraryDelete?: (deleted: any) => void | Promise<void>;
 	onCloseGitDiff: () => void;
+	gitLogSshRemoteId?: string | null;
 	onCloseGitLog: () => void;
 	onCloseAutoRunSetup: () => void;
 	onAutoRunFolderSelected: (folderPath: string) => void;

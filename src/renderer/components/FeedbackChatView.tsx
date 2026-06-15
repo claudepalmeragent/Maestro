@@ -166,7 +166,7 @@ export function FeedbackChatView({ theme, onCancel, onWidthChange }: FeedbackCha
 		let mounted = true;
 		(async () => {
 			try {
-				const result = await window.maestro.feedback.checkGhAuth();
+				const result = await window.maestro.ghFeedback.checkGhAuth();
 				if (mounted) {
 					setGhAuth({ checking: false, ok: result.authenticated, message: result.message });
 				}
@@ -253,7 +253,7 @@ export function FeedbackChatView({ theme, onCancel, onWidthChange }: FeedbackCha
 		setSearchingIssues(true);
 
 		try {
-			const result = await window.maestro.feedback.searchIssues(query);
+			const result = await window.maestro.ghFeedback.searchIssues(query);
 			// Only accept results from the latest search (discard stale)
 			if (searchId !== searchAbortRef.current) return;
 			setMatchingIssues(result.issues);
@@ -292,7 +292,7 @@ export function FeedbackChatView({ theme, onCancel, onWidthChange }: FeedbackCha
 	// --- Start conversation ---
 	const startConversation = useCallback(async () => {
 		try {
-			const { prompt } = await window.maestro.feedback.getConversationPrompt();
+			const { prompt } = await window.maestro.ghFeedback.getConversationPrompt();
 			managerRef.current.start({
 				agentType: selectedAgent,
 				systemPrompt: prompt,
@@ -377,7 +377,7 @@ export function FeedbackChatView({ theme, onCancel, onWidthChange }: FeedbackCha
 		setSubmitError('');
 
 		try {
-			const result = await window.maestro.feedback.submitConversation({
+			const result = await window.maestro.ghFeedback.submitConversation({
 				category: lastResponse.category,
 				summary: lastResponse.summary,
 				expectedBehavior: lastResponse.structured.expectedBehavior,
@@ -464,7 +464,7 @@ export function FeedbackChatView({ theme, onCancel, onWidthChange }: FeedbackCha
 					.filter(Boolean)
 					.join('\n');
 
-				const result = await window.maestro.feedback.subscribeIssue(issue.number, comment);
+				const result = await window.maestro.ghFeedback.subscribeIssue(issue.number, comment);
 				if (result.success) {
 					setStep('done');
 				} else {

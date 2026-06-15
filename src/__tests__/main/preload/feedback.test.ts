@@ -8,14 +8,14 @@ vi.mock('electron', () => ({
 	},
 }));
 
-import { createFeedbackApi } from '../../../main/preload/feedback';
+import { createGhFeedbackApi } from '../../../main/preload/feedback';
 
 describe('Feedback Preload API', () => {
-	let api: ReturnType<typeof createFeedbackApi>;
+	let api: ReturnType<typeof createGhFeedbackApi>;
 
 	beforeEach(() => {
 		vi.clearAllMocks();
-		api = createFeedbackApi();
+		api = createGhFeedbackApi();
 	});
 
 	it('invokes feedback:check-gh-auth', async () => {

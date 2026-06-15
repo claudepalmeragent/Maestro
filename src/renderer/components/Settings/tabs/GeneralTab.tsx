@@ -95,8 +95,6 @@ export function GeneralTab({ theme, isOpen }: GeneralTabProps) {
 		setGroupChatDefaultShowThinking,
 		synopsisEnabled,
 		setSynopsisEnabled,
-		autoScrollAiMode,
-		setAutoScrollAiMode,
 		// Spell check
 		spellCheck,
 		setSpellCheck,
@@ -143,21 +141,12 @@ export function GeneralTab({ theme, isOpen }: GeneralTabProps) {
 		contextManagementSettings,
 		updateContextManagementSettings,
 		// Stats
-		statsCollectionEnabled,
-		setStatsCollectionEnabled,
 		defaultStatsTimeRange,
 		setDefaultStatsTimeRange,
 		sshStatsTimeoutMs,
 		setSshStatsTimeoutMs,
 		globalStatsRefreshIntervalMs,
 		setGlobalStatsRefreshIntervalMs,
-		// WakaTime
-		wakatimeEnabled,
-		setWakatimeEnabled,
-		wakatimeApiKey,
-		setWakatimeApiKey,
-		wakatimeDetailedTracking,
-		setWakatimeDetailedTracking,
 		// Forced Parallel Execution
 		forcedParallelExecution,
 		setForcedParallelExecution,

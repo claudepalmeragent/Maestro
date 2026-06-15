@@ -227,6 +227,14 @@ beforeEach(() => {
 			getGlobalStats: vi.fn().mockResolvedValue(null),
 			onGlobalStatsUpdate: vi.fn().mockReturnValue(() => {}),
 		},
+		honeycomb: {
+			isConfigured: vi.fn().mockResolvedValue(false),
+			getUsage: vi.fn().mockResolvedValue(null),
+			refreshUsage: vi.fn().mockResolvedValue(null),
+			onUsageUpdate: vi.fn().mockReturnValue(() => {}),
+			isUsageServiceRunning: vi.fn().mockResolvedValue(false),
+			getFlushStatus: vi.fn().mockResolvedValue(null),
+		},
 	};
 	mockStats.getAggregation.mockResolvedValue(populatedAggregation);
 	mockStats.getDatabaseSize.mockResolvedValue(1024 * 1024);

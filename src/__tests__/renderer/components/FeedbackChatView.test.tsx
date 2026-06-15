@@ -38,7 +38,7 @@ describe('FeedbackChatView', () => {
 	});
 
 	it('shows GH CLI error when gh is not available', async () => {
-		window.maestro.feedback.checkGhAuth.mockResolvedValue({
+		window.maestro.ghFeedback.checkGhAuth.mockResolvedValue({
 			authenticated: false,
 			message: 'GitHub CLI (gh) is not installed.',
 		});
@@ -58,11 +58,11 @@ describe('FeedbackChatView', () => {
 	});
 
 	it('auto-starts chat when gh is authenticated and a supported agent is detected', async () => {
-		window.maestro.feedback.checkGhAuth.mockResolvedValue({ authenticated: true });
+		window.maestro.ghFeedback.checkGhAuth.mockResolvedValue({ authenticated: true });
 		window.maestro.agents.detect.mockResolvedValue([
 			{ id: 'claude-code', name: 'Claude Code', available: true },
 		]);
-		window.maestro.feedback.getConversationPrompt.mockResolvedValue({
+		window.maestro.ghFeedback.getConversationPrompt.mockResolvedValue({
 			prompt: 'system prompt',
 			environment: '- Maestro version: 1.0.0',
 		});
@@ -86,11 +86,11 @@ describe('FeedbackChatView', () => {
 		expect(screen.queryByText('AI Provider')).toBeNull();
 
 		// The conversation prompt was fetched (chat actually started).
-		expect(window.maestro.feedback.getConversationPrompt).toHaveBeenCalled();
+		expect(window.maestro.ghFeedback.getConversationPrompt).toHaveBeenCalled();
 	});
 
 	it('shows loading spinner during GH auth check', () => {
-		window.maestro.feedback.checkGhAuth.mockReturnValue(new Promise(() => {})); // Never resolves
+		window.maestro.ghFeedback.checkGhAuth.mockReturnValue(new Promise(() => {})); // Never resolves
 
 		render(
 			<FeedbackChatView
@@ -105,7 +105,7 @@ describe('FeedbackChatView', () => {
 	});
 
 	it('shows the no-providers screen when gh is authenticated but no supported agents are detected', async () => {
-		window.maestro.feedback.checkGhAuth.mockResolvedValue({ authenticated: true });
+		window.maestro.ghFeedback.checkGhAuth.mockResolvedValue({ authenticated: true });
 		window.maestro.agents.detect.mockResolvedValue([]);
 
 		render(
@@ -122,12 +122,12 @@ describe('FeedbackChatView', () => {
 		});
 
 		// The chat should not have been started.
-		expect(window.maestro.feedback.getConversationPrompt).not.toHaveBeenCalled();
+		expect(window.maestro.ghFeedback.getConversationPrompt).not.toHaveBeenCalled();
 	});
 
 	it('calls onCancel when Close button is clicked on GH error', async () => {
 		const onCancel = vi.fn();
-		window.maestro.feedback.checkGhAuth.mockResolvedValue({
+		window.maestro.ghFeedback.checkGhAuth.mockResolvedValue({
 			authenticated: false,
 			message: 'Not installed.',
 		});
@@ -149,7 +149,7 @@ describe('FeedbackChatView', () => {
 	});
 
 	it('shows a distinct error screen when agent detection itself throws', async () => {
-		window.maestro.feedback.checkGhAuth.mockResolvedValue({ authenticated: true });
+		window.maestro.ghFeedback.checkGhAuth.mockResolvedValue({ authenticated: true });
 		window.maestro.agents.detect.mockRejectedValue(new Error('IPC channel closed'));
 
 		render(
@@ -171,16 +171,16 @@ describe('FeedbackChatView', () => {
 		expect(screen.getByText('IPC channel closed')).toBeTruthy();
 
 		// Chat must not have been started.
-		expect(window.maestro.feedback.getConversationPrompt).not.toHaveBeenCalled();
+		expect(window.maestro.ghFeedback.getConversationPrompt).not.toHaveBeenCalled();
 	});
 
 	it('lets the user dismiss the boot screen if conversation start fails', async () => {
 		const onCancel = vi.fn();
-		window.maestro.feedback.checkGhAuth.mockResolvedValue({ authenticated: true });
+		window.maestro.ghFeedback.checkGhAuth.mockResolvedValue({ authenticated: true });
 		window.maestro.agents.detect.mockResolvedValue([
 			{ id: 'claude-code', name: 'Claude Code', available: true },
 		]);
-		window.maestro.feedback.getConversationPrompt.mockRejectedValue(
+		window.maestro.ghFeedback.getConversationPrompt.mockRejectedValue(
 			new Error('Prompt fetch failed')
 		);
 

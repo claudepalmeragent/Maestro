@@ -31,10 +31,27 @@ import { EmptyStateView } from './components/EmptyStateView';
 import { DeleteAgentConfirmModal } from './components/DeleteAgentConfirmModal';
 import { CapacityCheckModal } from './components/CapacityCheckModal';
 import type { CapacityCheckModalData } from './components/CapacityCheckModal';
+import { PlaygroundPanel } from './components/PlaygroundPanel';
+import { DebugWizardModal } from './components/DebugWizardModal';
+import { GistPublishModal } from './components/GistPublishModal';
 
 // Lazy-loaded components for performance (rarely-used heavy views)
 const LogViewer = lazy(() =>
 	import('./components/LogViewer').then((m) => ({ default: m.LogViewer }))
+);
+const MarketplaceModal = lazy(() =>
+	import('./components/MarketplaceModal').then((m) => ({ default: m.MarketplaceModal }))
+);
+const SymphonyModal = lazy(() =>
+	import('./components/SymphonyModal').then((m) => ({ default: m.SymphonyModal }))
+);
+const DocumentGraphView = lazy(() =>
+	import('./components/DocumentGraph/DocumentGraphView').then((m) => ({
+		default: m.DocumentGraphView,
+	}))
+);
+const DirectorNotesModal = lazy(() =>
+	import('./components/DirectorNotes').then((m) => ({ default: m.DirectorNotesModal }))
 );
 
 import { captureException } from './utils/sentry';
@@ -199,7 +216,7 @@ import { generateId } from './utils/ids';
 import { getActiveOutputSearchKey } from './utils/outputSearch';
 import { reorderQueueItem } from './utils/executionQueue';
 import { getContextColor } from './utils/theme';
-// safeClipboardWrite moved to AppStandaloneModals (GistPublishModal handler)
+import { safeClipboardWrite } from './utils/clipboard';
 import {
 	createTab,
 	closeTab,
@@ -248,7 +265,9 @@ function MaestroConsoleInner() {
 		setEditAgentModalOpen,
 		editAgentSession,
 		setEditAgentSession,
-		// Delete Agent Modal — open state and session now self-sourced in AppStandaloneModals
+		// Delete Agent Modal
+		deleteAgentModalOpen,
+		deleteAgentSession,
 		// Shortcuts Help Modal
 		shortcutsHelpOpen,
 		setShortcutsHelpOpen,
@@ -276,12 +295,13 @@ function MaestroConsoleInner() {
 		processMonitorOpen,
 		setProcessMonitorOpen,
 		// Usage Dashboard
-		usageDashboardOpen,
 		setUsageDashboardOpen,
 		// pendingKeyboardMasteryLevel — now self-sourced in AppOverlays (Tier 1A)
-		// Playground Panel — playgroundOpen now self-sourced in AppStandaloneModals
+		// Playground Panel
+		playgroundOpen,
 		setPlaygroundOpen,
-		// Debug Wizard Modal — debugWizardModalOpen now self-sourced in AppStandaloneModals
+		// Debug Wizard Modal
+		debugWizardModalOpen,
 		setDebugWizardModalOpen,
 		// Debug Package Modal — debugPackageModalOpen now self-sourced in AppStandaloneModals
 		setDebugPackageModalOpen,
@@ -330,7 +350,8 @@ function MaestroConsoleInner() {
 		setBatchRunnerModalOpen,
 		// Auto Run Setup Modal
 		setAutoRunSetupModalOpen,
-		// Marketplace Modal — marketplaceModalOpen now self-sourced in AppStandaloneModals
+		// Marketplace Modal
+		marketplaceModalOpen,
 		setMarketplaceModalOpen,
 		// Wizard Resume Modal — open state and resume state now self-sourced in AppStandaloneModals
 		// setWizardResumeModalOpen, setWizardResumeState — now used in useWizardHandlers (Tier 3D)
@@ -362,13 +383,14 @@ function MaestroConsoleInner() {
 		gitLogOpen,
 		setGitLogOpen,
 		// Tour Overlay (fork-only handlers still need direct access)
-		tourOpen,
-		setTourOpen,
-		tourFromWizard,
+		tourOpen: _tourOpen,
+		setTourOpen: _setTourOpen,
+		tourFromWizard: _tourFromWizard,
 		// Symphony Modal (fork-only handler still references symphonyModalOpen)
 		symphonyModalOpen,
 		setSymphonyModalOpen,
-		// Director's Notes Modal — directorNotesOpen now self-sourced in AppStandaloneModals
+		// Director's Notes Modal
+		directorNotesOpen,
 		setDirectorNotesOpen,
 		// Maestro Cue Modal — cueModalOpen now self-sourced in AppStandaloneModals
 		setCueModalOpen,
@@ -377,9 +399,9 @@ function MaestroConsoleInner() {
 	} = useModalActions();
 
 	// Local state - was in ModalContext, not migrated to store
-	const [usageDashboardInitialTab, setUsageDashboardInitialTab] = useState<string | undefined>(
-		undefined
-	);
+	// usageDashboardInitialTab is self-sourced inside AppModals; we only retain the setter
+	// to reset it after closing the dashboard.
+	const [, setUsageDashboardInitialTab] = useState<string | undefined>(undefined);
 	const [createGroupChatForFolderId, _setCreateGroupChatForFolderId] = useState<string | undefined>(
 		undefined
 	);
@@ -449,6 +471,8 @@ function MaestroConsoleInner() {
 		enterToSendAIExpanded,
 		defaultSaveToHistory,
 		defaultShowThinking,
+		autoScrollAiMode,
+		setAutoScrollAiMode,
 		rightPanelWidth,
 		setRightPanelWidth,
 		markdownEditMode,
@@ -743,11 +767,12 @@ function MaestroConsoleInner() {
 	} = useInputContext();
 
 	// File Explorer State (reads from fileExplorerStore)
-	// isGraphViewOpen, graphFocusFilePath — now self-sourced in AppStandaloneModals
+	const isGraphViewOpen = useFileExplorerStore((s) => s.isGraphViewOpen);
+	const graphFocusFilePath = useFileExplorerStore((s) => s.graphFocusFilePath);
 	const lastGraphFocusFilePath = useFileExplorerStore((s) => s.lastGraphFocusFilePath);
 
 	const [gistPublishModalOpen, setGistPublishModalOpen] = useState(false);
-	// tabGistContent — now self-sourced in AppStandaloneModals
+	const tabGistContent = useTabStore((s) => s.tabGistContent);
 	const fileGistUrls = useTabStore((s) => s.fileGistUrls);
 
 	// Note: Delete Agent Modal State is now self-sourced in AppStandaloneModals
@@ -779,7 +804,6 @@ function MaestroConsoleInner() {
 
 	// Auto Run document management state (from batchStore)
 	// Content is per-session in session.autoRunContent
-	const batchRunStates = useBatchStore((s) => s.batchRunStates);
 	const autoRunDocumentList = useBatchStore((s) => s.documentList);
 	const autoRunDocumentTree = useBatchStore((s) => s.documentTree);
 	const {
@@ -4236,9 +4260,6 @@ function MaestroConsoleInner() {
 					onCloseProcessMonitor={handleCloseProcessMonitor}
 					onNavigateToSession={handleProcessMonitorNavigateToSession}
 					onNavigateToGroupChat={handleProcessMonitorNavigateToGroupChat}
-					batchRunStates={batchRunStates}
-					usageDashboardOpen={usageDashboardOpen}
-					usageDashboardInitialTab={usageDashboardInitialTab}
 					onCloseUsageDashboard={() => {
 						setUsageDashboardOpen(false);
 						setUsageDashboardInitialTab(undefined);
@@ -4265,7 +4286,6 @@ function MaestroConsoleInner() {
 					onSaveEditAgent={handleSaveEditAgent}
 					onRescanGit={handleRescanGit}
 					editAgentSession={editAgentSession}
-					renameSessionModalOpen={renameInstanceModalOpen}
 					renameSessionValue={renameInstanceValue}
 					setRenameSessionValue={setRenameInstanceValue}
 					onCloseRenameSessionModal={handleCloseRenameSessionModal}

@@ -19,7 +19,6 @@ import {
 } from 'lucide-react';
 import { GhostIconButton } from './ui/GhostIconButton';
 import type { Theme, PromptLibraryEntry, ThinkingMode, Session, Group } from '../types';
-import { useLayerStack } from '../contexts/LayerStackContext';
 import { useModalLayer } from '../hooks/ui/useModalLayer';
 import { notifyToast } from '../stores/notificationStore';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
@@ -148,7 +147,6 @@ export function PromptComposerModal({
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const mentionListRef = useRef<HTMLDivElement>(null);
 	const selectedMentionRef = useRef<HTMLButtonElement>(null);
-	const { registerLayer, unregisterLayer } = useLayerStack();
 	const addToast = notifyToast;
 	const hasAgentMentions = sessions != null && sessions.length > 0;
 

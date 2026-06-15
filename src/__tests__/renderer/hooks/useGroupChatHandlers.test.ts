@@ -482,7 +482,7 @@ describe('useGroupChatHandlers', () => {
 				],
 			});
 
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			act(() => result.current.handleDeleteAllArchivedGroupChats());
 
 			const confirmModal = useModalStore.getState().modals.get('confirm');
@@ -495,7 +495,7 @@ describe('useGroupChatHandlers', () => {
 				groupChats: [{ id: 'gc-1', name: 'Active', archived: false } as any],
 			});
 
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			act(() => result.current.handleDeleteAllArchivedGroupChats());
 
 			const confirmModal = useModalStore.getState().modals.get('confirm');
@@ -511,7 +511,7 @@ describe('useGroupChatHandlers', () => {
 				],
 			});
 
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			act(() => result.current.handleDeleteAllArchivedGroupChats());
 
 			// Invoke the onConfirm callback
@@ -532,7 +532,7 @@ describe('useGroupChatHandlers', () => {
 				groupChats: [{ id: 'gc-1', name: 'Solo', archived: true } as any],
 			});
 
-			const { result } = renderHook(() => useGroupChatHandlers());
+			const { result } = renderHook(() => useGroupChatHandlers(defaultHandlerParams));
 			act(() => result.current.handleDeleteAllArchivedGroupChats());
 
 			const confirmData = useModalStore.getState().modals.get('confirm')?.data as any;

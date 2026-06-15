@@ -7,6 +7,8 @@ import { createMockSession as baseCreateMockSession } from '../../helpers/mockSe
 import { useSessionStore } from '../../../renderer/stores/sessionStore';
 import { useNotificationStore } from '../../../renderer/stores/notificationStore';
 
+vi.unmock('../../../renderer/stores/notificationStore');
+
 const createMockTab = (overrides: Partial<AITab> = {}): AITab =>
 	createMockAITab({
 		createdAt: 1700000000000,

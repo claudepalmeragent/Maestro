@@ -200,14 +200,14 @@ describe('RightPanel', () => {
 			useUIStore.setState({ rightPanelOpen: true });
 			const props = createDefaultProps();
 			render(<RightPanel {...props} />);
-			expect(screen.getByTestId('panel-right-close-icon')).toBeInTheDocument();
+			expect(screen.getByTestId('panelrightclose-icon')).toBeInTheDocument();
 		});
 
 		it('should show PanelRightOpen icon when closed', () => {
 			useUIStore.setState({ rightPanelOpen: false });
 			const props = createDefaultProps();
 			render(<RightPanel {...props} />);
-			expect(screen.getByTestId('panel-right-open-icon')).toBeInTheDocument();
+			expect(screen.getByTestId('panelrightopen-icon')).toBeInTheDocument();
 		});
 
 		it('should call setRightPanelOpen when toggle button clicked', () => {
@@ -946,7 +946,7 @@ describe('RightPanel', () => {
 
 			expect(screen.getByText('Auto Run Paused')).toBeInTheDocument();
 			expect(screen.queryByText('Auto Run Active')).not.toBeInTheDocument();
-			expect(screen.getByTestId('alert-triangle-icon')).toBeInTheDocument();
+			expect(screen.getByTestId('alerttriangle-icon')).toBeInTheDocument();
 			expect(screen.queryByTestId('loader')).not.toBeInTheDocument();
 		});
 

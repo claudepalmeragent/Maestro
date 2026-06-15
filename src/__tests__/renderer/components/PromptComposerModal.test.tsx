@@ -171,7 +171,7 @@ describe('PromptComposerModal', () => {
 				/>
 			);
 
-			expect(screen.getByTestId('pen-line-icon')).toBeInTheDocument();
+			expect(screen.getByTestId('penline-icon')).toBeInTheDocument();
 		});
 
 		it('should render with default session name "Claude"', () => {
@@ -252,7 +252,7 @@ describe('PromptComposerModal', () => {
 			);
 
 			expect(screen.getByTitle('Expand to full screen')).toBeInTheDocument();
-			expect(screen.getByTestId('maximize-icon')).toBeInTheDocument();
+			expect(screen.getByTestId('maximize2-icon')).toBeInTheDocument();
 		});
 
 		it('should toggle to full screen and persist the preference', () => {
@@ -389,7 +389,7 @@ describe('PromptComposerModal', () => {
 				/>
 			);
 
-			const icon = screen.getByTestId('pen-line-icon');
+			const icon = screen.getByTestId('penline-icon');
 			expect(icon).toHaveStyle({ color: mockTheme.colors.accent });
 		});
 

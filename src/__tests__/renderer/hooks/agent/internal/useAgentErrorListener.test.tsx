@@ -3,6 +3,8 @@ import { renderHook } from '@testing-library/react';
 import { useAgentErrorListener } from '../../../../../renderer/hooks/agent/internal/useAgentErrorListener';
 import { useSessionStore } from '../../../../../renderer/stores/sessionStore';
 import { useModalStore } from '../../../../../renderer/stores/modalStore';
+
+vi.unmock('../../../../../renderer/stores/modalStore');
 import { createMockSession } from '../../../../helpers/mockSession';
 import { createMockAITab } from '../../../../helpers/mockTab';
 

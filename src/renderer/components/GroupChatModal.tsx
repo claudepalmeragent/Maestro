@@ -20,6 +20,7 @@ import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 import { Modal, ModalFooter, FormInput } from './ui';
 import { AGENT_TILES } from './Wizard/screens/AgentSelectionScreen';
 import { AgentConfigPanel } from './shared/AgentConfigPanel';
+import { SshRemoteSelector } from './shared/SshRemoteSelector';
 import { useAgentConfiguration } from '../hooks/agent';
 
 interface GroupChatModalCreateProps {

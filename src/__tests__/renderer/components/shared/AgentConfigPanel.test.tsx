@@ -12,34 +12,8 @@ import type { AgentConfig, AgentCapabilities } from '../../../../renderer/types'
 
 import { createMockTheme } from '../../../helpers/mockTheme';
 
-// Mock lucide-react icons
-vi.mock('lucide-react', () => ({
-	RefreshCw: ({ className }: { className?: string }) => (
-		<span data-testid="refresh-icon" className={className}>
-			🔄
-		</span>
-	),
-	Plus: ({ className }: { className?: string }) => (
-		<span data-testid="plus-icon" className={className}>
-			+
-		</span>
-	),
-	Trash2: ({ className }: { className?: string }) => (
-		<span data-testid="trash-icon" className={className}>
-			🗑
-		</span>
-	),
-	HelpCircle: ({ className }: { className?: string }) => (
-		<span data-testid="help-circle-icon" className={className}>
-			?
-		</span>
-	),
-	ChevronDown: ({ className }: { className?: string }) => (
-		<span data-testid="chevron-down-icon" className={className}>
-			▼
-		</span>
-	),
-}));
+// Use the global Proxy-based lucide-react mock from setup.ts so newly imported
+// icons (e.g. AlertTriangle) don't trip the panel render.
 
 // =============================================================================
 // TEST HELPERS
@@ -126,8 +100,8 @@ describe('AgentConfigPanel', () => {
 		it('should display a help icon for MAESTRO_SESSION_RESUMED tooltip', () => {
 			render(<AgentConfigPanel {...createDefaultProps({ showBuiltInEnvVars: true })} />);
 
-			// Help icon should be present
-			expect(screen.getByTestId('help-circle-icon')).toBeInTheDocument();
+			// Help icon should be present (multiple help icons may render; just assert at least one).
+			expect(screen.getAllByTestId('helpcircle-icon').length).toBeGreaterThan(0);
 		});
 	});
 
@@ -575,7 +549,7 @@ describe('AgentConfigPanel', () => {
 			expect(
 				screen.getByText(/logged in with Claude Max but selected API pricing/)
 			).toBeInTheDocument();
-			expect(screen.getByTestId('alert-triangle-icon')).toBeInTheDocument();
+			expect(screen.getByTestId('alerttriangle-icon')).toBeInTheDocument();
 		});
 
 		it('should show correct warning when Max is selected but API key is used', () => {

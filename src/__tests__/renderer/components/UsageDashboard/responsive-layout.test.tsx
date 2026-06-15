@@ -20,54 +20,7 @@ import { useUIStore } from '../../../../renderer/stores/uiStore';
 import type { Theme } from '../../../../renderer/types';
 
 // Mock lucide-react icons
-vi.mock('lucide-react', () => {
-	const createIcon = (name: string, emoji: string) => {
-		return ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-			<span data-testid={`${name}-icon`} className={className} style={style}>
-				{emoji}
-			</span>
-		);
-	};
-
-	return {
-		X: createIcon('x', '×'),
-		BarChart3: createIcon('barchart', '📊'),
-		Calendar: createIcon('calendar', '📅'),
-		Download: createIcon('download', '⬇️'),
-		RefreshCw: createIcon('refresh', '🔄'),
-		Database: createIcon('database', '💾'),
-		MessageSquare: createIcon('message-square', '💬'),
-		Clock: createIcon('clock', '🕐'),
-		Timer: createIcon('timer', '⏱️'),
-		Bot: createIcon('bot', '🤖'),
-		Users: createIcon('users', '👥'),
-		Layers: createIcon('layers', '📚'),
-		Play: createIcon('play', '▶️'),
-		CheckSquare: createIcon('check-square', '✅'),
-		ListChecks: createIcon('list-checks', '📝'),
-		Target: createIcon('target', '🎯'),
-		AlertTriangle: createIcon('alert-triangle', '⚠️'),
-		ChevronDown: createIcon('chevron-down', '▼'),
-		ChevronUp: createIcon('chevron-up', '▲'),
-		Sunrise: createIcon('sunrise', '🌅'),
-		Globe: createIcon('globe', '🌐'),
-		Zap: createIcon('zap', '⚡'),
-		PanelTop: createIcon('panel-top', '🔲'),
-		Keyboard: createIcon('keyboard', '⌨️'),
-		Trophy: createIcon('trophy', '🏆'),
-		Sparkles: createIcon('sparkles', '✨'),
-		Briefcase: createIcon('briefcase', '💼'),
-		Coffee: createIcon('coffee', '☕'),
-		Filter: createIcon('filter', '🔍'),
-		Cpu: createIcon('cpu', '🖥️'),
-		DollarSign: createIcon('dollar', '💲'),
-		Activity: createIcon('activity', '📈'),
-		// New SummaryCards momentum-row icons
-		Flame: createIcon('flame', '🔥'),
-		CalendarCheck: createIcon('calendar-check', '📆'),
-		PenLine: createIcon('pen-line', '✏️'),
-	};
-});
+// lucide-react mocked globally via src/__tests__/setup.ts Proxy
 
 // Mock layer stack context
 vi.mock('../../../../renderer/contexts/LayerStackContext', () => ({

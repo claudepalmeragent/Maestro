@@ -271,15 +271,15 @@ describe('ChartErrorBoundary', () => {
 			);
 
 			// Initially shows down chevron
-			expect(screen.getByTestId('chevron-down-icon')).toBeInTheDocument();
-			expect(screen.queryByTestId('chevron-up-icon')).not.toBeInTheDocument();
+			expect(screen.getByTestId('chevrondown-icon')).toBeInTheDocument();
+			expect(screen.queryByTestId('chevronup-icon')).not.toBeInTheDocument();
 
 			// After clicking, shows up chevron
 			const toggleButton = screen.getByTestId('toggle-error-details');
 			fireEvent.click(toggleButton);
 
-			expect(screen.getByTestId('chevron-up-icon')).toBeInTheDocument();
-			expect(screen.queryByTestId('chevron-down-icon')).not.toBeInTheDocument();
+			expect(screen.getByTestId('chevronup-icon')).toBeInTheDocument();
+			expect(screen.queryByTestId('chevrondown-icon')).not.toBeInTheDocument();
 		});
 	});
 
@@ -375,8 +375,8 @@ describe('ChartErrorBoundary', () => {
 			);
 
 			// The icons should be present (mocked)
-			expect(screen.getByTestId('alert-triangle-icon')).toBeInTheDocument();
-			expect(screen.getByTestId('refresh-cw-icon')).toBeInTheDocument();
+			expect(screen.getByTestId('alerttriangle-icon')).toBeInTheDocument();
+			expect(screen.getByTestId('refreshcw-icon')).toBeInTheDocument();
 		});
 
 		it('retry button is keyboard focusable', () => {

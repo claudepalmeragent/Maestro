@@ -328,6 +328,7 @@ export interface SettingsStoreState {
 	defaultSaveToHistory: boolean;
 	synopsisDebounceSeconds: number;
 	defaultShowThinking: ThinkingMode;
+	autoScrollAiMode: boolean;
 	groupChatDefaultShowThinking: boolean;
 	leftSidebarWidth: number;
 	rightPanelWidth: number;
@@ -494,6 +495,7 @@ export interface SettingsStoreActions {
 	setDefaultSaveToHistory: (value: boolean) => void;
 	setSynopsisDebounceSeconds: (value: number) => void;
 	setDefaultShowThinking: (value: ThinkingMode) => void;
+	setAutoScrollAiMode: (value: boolean) => void;
 	setGroupChatDefaultShowThinking: (value: boolean) => void;
 	setLeftSidebarWidth: (value: number) => void;
 	setRightPanelWidth: (value: number) => void;
@@ -723,6 +725,11 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 		activeThemeId: 'dracula',
 		customThemeColors: DEFAULT_CUSTOM_THEME_COLORS,
 		customThemeBaseId: 'dracula',
+		themeMode: 'manual',
+		lightThemeId: 'dracula',
+		darkThemeId: 'dracula',
+		groupChatDefaultShowThinking: false,
+		checkForNewModelsOnStartup: true,
 		enterToSendAI: true,
 		enterToSendAIExpanded: false,
 		forcedParallelExecution: false,
@@ -730,6 +737,7 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 		defaultSaveToHistory: true,
 		synopsisDebounceSeconds: 0,
 		defaultShowThinking: 'off',
+		autoScrollAiMode: false,
 		leftSidebarWidth: 256,
 		rightPanelWidth: 384,
 		markdownEditMode: false,
@@ -771,6 +779,31 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 		persistentWebLink: false,
 		webInterfaceUseCustomPort: false,
 		webInterfaceCustomPort: 8080,
+		honeycombWarningSettings: {
+			honeycombWarningsEnabled: true,
+			fiveHourWarningYellowUsd: 40,
+			fiveHourWarningRedUsd: 60,
+			fiveHourWarningYellowPct: 60,
+			fiveHourWarningRedPct: 85,
+			weeklyWarningYellowUsd: 400,
+			weeklyWarningRedUsd: 500,
+			weeklyWarningYellowPct: 70,
+			weeklyWarningRedPct: 90,
+			monthlySessionsWarning: 40,
+			honeycombPollIntervalMs: 300000,
+			warningMode: 'both' as const,
+			safetyBufferPct: 20,
+			capacityCheckAutoRun: true,
+			capacityCheckInteractive: true,
+			archiveEnabled: true,
+		},
+		honeycombDataSource: 'mcp',
+		honeycombMcpApiKey: '',
+		honeycombEnvironmentSlug: '',
+		honeycombMcpRegion: 'us',
+		honeycombApiKey: '',
+		honeycombDatasetSlug: '',
+		planCalibration: {} as PlanCalibration,
 		contextManagementSettings: DEFAULT_CONTEXT_MANAGEMENT_SETTINGS,
 		keyboardMasteryStats: DEFAULT_KEYBOARD_MASTERY_STATS,
 		colorBlindMode: false,
@@ -938,6 +971,31 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 			window.maestro.settings.set('customThemeBaseId', value);
 		},
 
+		setThemeMode: (value) => {
+			set({ themeMode: value });
+			window.maestro.settings.set('themeMode', value);
+		},
+
+		setLightThemeId: (value) => {
+			set({ lightThemeId: value });
+			window.maestro.settings.set('lightThemeId', value);
+		},
+
+		setDarkThemeId: (value) => {
+			set({ darkThemeId: value });
+			window.maestro.settings.set('darkThemeId', value);
+		},
+
+		setGroupChatDefaultShowThinking: (value) => {
+			set({ groupChatDefaultShowThinking: value });
+			window.maestro.settings.set('groupChatDefaultShowThinking', value);
+		},
+
+		setCheckForNewModelsOnStartup: (value) => {
+			set({ checkForNewModelsOnStartup: value });
+			window.maestro.settings.set('checkForNewModelsOnStartup', value);
+		},
+
 		setEnterToSendAI: (value) => {
 			set({ enterToSendAI: value });
 			window.maestro.settings.set('enterToSendAI', value);
@@ -972,6 +1030,11 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 		setDefaultShowThinking: (value) => {
 			set({ defaultShowThinking: value });
 			window.maestro.settings.set('defaultShowThinking', value);
+		},
+
+		setAutoScrollAiMode: (value) => {
+			set({ autoScrollAiMode: value });
+			window.maestro.settings.set('autoScrollAiMode', value);
 		},
 
 		setLeftSidebarWidth: (value) => {
@@ -2362,6 +2425,9 @@ export async function loadAllSettings(): Promise<void> {
 				typeof raw === 'boolean' ? (raw ? 'on' : 'off') : (raw as ThinkingMode);
 		}
 
+		if (allSettings['autoScrollAiMode'] !== undefined)
+			patch.autoScrollAiMode = allSettings['autoScrollAiMode'] as boolean;
+
 		// leftSidebarWidth: clamp on load
 		if (allSettings['leftSidebarWidth'] !== undefined)
 			patch.leftSidebarWidth = Math.max(
@@ -3082,6 +3148,7 @@ export function getSettingsActions() {
 		setDefaultSaveToHistory: state.setDefaultSaveToHistory,
 		setSynopsisDebounceSeconds: state.setSynopsisDebounceSeconds,
 		setDefaultShowThinking: state.setDefaultShowThinking,
+		setAutoScrollAiMode: state.setAutoScrollAiMode,
 		setLeftSidebarWidth: state.setLeftSidebarWidth,
 		setRightPanelWidth: state.setRightPanelWidth,
 		setMarkdownEditMode: state.setMarkdownEditMode,

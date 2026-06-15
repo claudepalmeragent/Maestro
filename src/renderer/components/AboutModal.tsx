@@ -1,4 +1,4 @@
-import { useRef, useCallback } from 'react';
+import { useRef, useCallback, useState, useEffect } from 'react';
 import {
 	X,
 	Wand2,
@@ -12,10 +12,12 @@ import {
 	ChevronDown,
 	ChevronUp,
 	RefreshCw,
+	Loader2,
 } from 'lucide-react';
 import { Spinner } from './ui/Spinner';
 import { GhostIconButton } from './ui/GhostIconButton';
 import type { Theme, AutoRunStats, MaestroUsageStats, LeaderboardRegistration } from '../types';
+import type { GlobalAgentStats } from '../../shared/types';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 import { AchievementCard } from './AchievementCard';
 import { formatTokensCompact } from '../utils/formatters';
@@ -23,7 +25,6 @@ import { formatDurationHuman } from '../../shared/formatters';
 import { Modal } from './ui/Modal';
 import { buildMaestroUrl } from '../utils/buildMaestroUrl';
 import { openUrl } from '../utils/openUrl';
-import { useGlobalAgentStats } from '../hooks/stats/useGlobalAgentStats';
 import { MaestroFlags } from './ui/MaestroFlags';
 
 interface AboutModalProps {
